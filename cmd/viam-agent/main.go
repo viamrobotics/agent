@@ -13,7 +13,7 @@ import (
 	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
 	"github.com/viamrobotics/agent"
-	"go.viam.com/utils/pexec"
+	"github.com/viamrobotics/agent/viamserver"
 )
 
 var (
@@ -21,7 +21,7 @@ var (
 
 	// only changed/set at startup, so no mutex
 	globalLogger = golog.NewDevelopmentLogger("viam-agent")
-	viamDir      = "/opt/viam"
+	//viamDir      = "/opt/viam"
 	viamConf     = "/etc/viam.json"
 
 	// mutex protected
@@ -91,7 +91,6 @@ func main() {
 	}
 
 	activeBackgroundWorkers.Wait()
-	return
 }
 
 func loadConfig(ctx context.Context, cfgPath string) (agent.Config, error) {
@@ -180,7 +179,7 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 		if _, ok := subsystems[k]; !ok {
 			switch k {
 			case "viam-server":
-				subsystems[k] = newViamServerSubsystem(ctx, subCfg)
+				subsystems[k] = viamserver.NewSubsystem(ctx, subCfg, globalLogger)
 			default:
 				globalLogger.Warnw("unknown subsystem", "name", k)
 			}
@@ -197,10 +196,10 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 			continue
 		}
 		if restart {
-			// if err := sub.Stop(); err != nil {
-			// 	globalLogger.Error(err)
-			// 	continue
-			// }
+			if err := sub.Stop(); err != nil {
+				globalLogger.Error(err)
+				continue
+			}
 		}
 		if err := sub.Start(); err != nil {
 			globalLogger.Error(err)
@@ -220,26 +219,4 @@ func checkUpdates(ctx context.Context) time.Duration {
 
 	// TODO fuzz the checkInterval
 	return cfg.CheckInterval
-}
-
-type viamServerSubSystem struct {
-	agent.DefaultSubsystem
-}
-
-func newViamServerSubsystem(ctx context.Context, updateConf agent.SubsystemConfig) agent.Subsystem {
-	cfg := pexec.ProcessConfig{
-		ID:        "viam-server",
-		Name:      "bin/viam-server",
-		Args:      []string{"-config", viamConf},
-		CWD:       viamDir,
-		Log:       true,
-		LogWriter: nil,
-		OnUnexpectedExit: func(sig int) bool {
-			return true
-		},
-	}
-	subSys := &viamServerSubSystem{}
-	subSys.Logger = globalLogger.Named("viam-server")
-	subSys.Process = pexec.NewManagedProcess(cfg, subSys.Logger)
-	return subSys
 }
