@@ -29,20 +29,21 @@ type SubsystemConfig struct {
 type Format uint8
 
 const (
-	// unknown/unset (autodetection may be attempted)
-	FORMAT_UNSPECIFIED = Format(iota)
-	// do nothing
-	FORMAT_RAW
-	// decompress .xz file
-	FORMAT_XZ
-	// set executable permissions
-	FORMAT_EXECUTABLE
-	// decompress and set executable
-	FORMAT_XZ_EXECUTABLE
+	// unknown/unset (autodetection may be attempted).
+	FormatUnspecified = Format(iota)
+	// do nothing.
+	FormatRaw
+	// decompress .xz file.
+	FormatXZ
+	// set executable permissions.
+	FormatExecutable
+	// decompress and set executable.
+	FormatXZExecutable
 )
 
 func GetTestConfig() Config {
 	url := "https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-stable-x86_64"
+	//nolint:errcheck
 	sha, _ := hex.DecodeString("0f362a74cfcb5e18158af7342ac7a9fc053b75a19065550b111b1756f5631eed")
 	version := "0.3.0"
 
@@ -52,7 +53,7 @@ func GetTestConfig() Config {
 			URL:      "",
 			Version:  "0.0.1-rc0",
 			SHA256:   []byte{},
-			Format:   FORMAT_UNSPECIFIED,
+			Format:   FormatUnspecified,
 		},
 		SubsystemConfigs: map[string]SubsystemConfig{
 			"viam-server": {
@@ -62,7 +63,7 @@ func GetTestConfig() Config {
 					URL:      url,
 					Version:  version,
 					SHA256:   sha,
-					Format:   FORMAT_UNSPECIFIED,
+					Format:   FormatUnspecified,
 				},
 				Disable:      false,
 				ForceRestart: false,

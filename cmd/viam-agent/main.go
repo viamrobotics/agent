@@ -19,12 +19,12 @@ import (
 var (
 	activeBackgroundWorkers sync.WaitGroup
 
-	// only changed/set at startup, so no mutex
+	// only changed/set at startup, so no mutex.
 	globalLogger = golog.NewDevelopmentLogger("viam-agent")
-	//viamDir      = "/opt/viam"
-	viamConf     = "/etc/viam.json"
 
-	// mutex protected
+	viamConf = "/etc/viam.json"
+
+	// mutex protected.
 	subsystemsMu sync.Mutex
 	subsystems   map[string]agent.Subsystem
 )
@@ -34,21 +34,22 @@ func main() {
 	subsystems = make(map[string]agent.Subsystem)
 
 	var opts struct {
-		Config    string `long:"config" short:"c" description:"Path to config file" default:"/etc/viam.json"`
-		Debug     bool   `long:"debug" short:"d" description:"enable debug logging (for agent only)"`
-		UpdateURL string `long:"force-url" description:"Force URL for viam-server download" env:"FORCE_URL"`
-		Help      bool   `long:"help" short:"h" description:"Show this help message"`
+		Config    string `default:"/etc/viam.json"                            description:"Path to config file" long:"config"    short:"c"`
+		Debug     bool   `description:"enable debug logging (for agent only)" long:"debug"                      short:"d"`
+		Help      bool   `description:"Show this help message"                long:"help"                       short:"h"`
+		UpdateURL string `description:"Force URL for viam-server download"    env:"FORCE_URL"                   long:"force-url"`
 	}
 
-	p := flags.NewParser(&opts, flags.IgnoreUnknown)
-	p.Usage = "runs as a background service and manages updates and the process lifecycle for viam-server."
+	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
+	parser.Usage = "runs as a background service and manages updates and the process lifecycle for viam-server."
 
-	_, err := p.Parse()
+	_, err := parser.Parse()
 	exitIfError(err)
 
 	if opts.Help {
 		var b bytes.Buffer
-		p.WriteHelp(&b)
+		parser.WriteHelp(&b)
+		//nolint:forbidigo
 		fmt.Println(b.String())
 		return
 	}
@@ -58,28 +59,7 @@ func main() {
 	}
 	viamConf = opts.Config
 
-	// background process to check for updates
-	activeBackgroundWorkers.Add(1)
-	go func() {
-		checkInterval := checkUpdates(ctx)
-		timer := time.NewTimer(checkInterval)
-		defer timer.Stop()
-		defer activeBackgroundWorkers.Done()
-		for {
-			if ctx.Err() != nil {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				break
-			// case <-sigHUP:
-			// 	checkUpdates(ctx)
-			case <-timer.C:
-				checkInterval = checkUpdates(ctx)
-				timer.Reset(checkInterval)
-			}
-		}
-	}()
+	startBackgroundChecks(ctx)
 
 	<-ctx.Done()
 
@@ -93,14 +73,38 @@ func main() {
 	activeBackgroundWorkers.Wait()
 }
 
-func loadConfig(ctx context.Context, cfgPath string) (agent.Config, error) {
+func loadConfig(cfgPath string) agent.Config {
 	// load local config
-
+	globalLogger.Debugw("NOT loading", "config", cfgPath)
 	// connect client
 
 	// get agent config
 
-	return agent.GetTestConfig(), nil
+	return agent.GetTestConfig()
+}
+
+func startBackgroundChecks(ctx context.Context) {
+	activeBackgroundWorkers.Add(1)
+	go func() {
+		checkInterval := checkUpdates(ctx)
+		timer := time.NewTimer(checkInterval)
+		defer timer.Stop()
+		defer activeBackgroundWorkers.Done()
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			// case <-sigHUP:
+			// 	checkUpdates(ctx)
+			case <-timer.C:
+				checkInterval = checkUpdates(ctx)
+				timer.Reset(checkInterval)
+			}
+		}
+	}()
 }
 
 func setupExitSignalHandling(ctx context.Context) context.Context {
@@ -113,11 +117,11 @@ func setupExitSignalHandling(ctx context.Context) context.Context {
 		for {
 			var sig os.Signal
 			if ctx.Err() != nil {
-				break
+				return
 			}
 			select {
 			case <-ctx.Done():
-				break
+				return
 			case sig = <-sigChan:
 			}
 
@@ -142,7 +146,7 @@ func setupExitSignalHandling(ctx context.Context) context.Context {
 
 			// log everything else
 			default:
-				globalLogger.Debugw("recieved unknown signal", "signal", sig)
+				globalLogger.Debugw("received unknown signal", "signal", sig)
 			}
 		}
 	}()
@@ -164,33 +168,33 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 	subsystemsMu.Lock()
 	defer subsystemsMu.Unlock()
 	// stop/remove orphaned subsystems
-	for k, sub := range subsystems {
-		if _, ok := cfg.SubsystemConfigs[k]; !ok {
+	for key, sub := range subsystems {
+		if _, ok := cfg.SubsystemConfigs[key]; !ok {
 			if err := sub.Stop(); err != nil {
 				globalLogger.Error(err)
 				continue
 			}
-			delete(subsystems, k)
+			delete(subsystems, key)
 		}
 	}
 
 	// add new subsystems
-	for k, subCfg := range cfg.SubsystemConfigs {
-		if _, ok := subsystems[k]; !ok {
-			switch k {
+	for key, subCfg := range cfg.SubsystemConfigs {
+		if _, ok := subsystems[key]; !ok {
+			switch key {
 			case "viam-server":
-				subsystems[k] = viamserver.NewSubsystem(ctx, subCfg, globalLogger)
+				subsystems[key] = viamserver.NewSubsystem(ctx, subCfg, globalLogger)
 			default:
-				globalLogger.Warnw("unknown subsystem", "name", k)
+				globalLogger.Warnw("unknown subsystem", "name", key)
 			}
 		}
 	}
 
 	// check updates and (re)start
-	for k, sub := range subsystems {
+	for key, sub := range subsystems {
 		cancelCtx, cancel := context.WithTimeout(ctx, time.Minute*5)
 		defer cancel()
-		restart, err := sub.Update(cancelCtx, cfg.SubsystemConfigs[k])
+		restart, err := sub.Update(cancelCtx, cfg.SubsystemConfigs[key])
 		if err != nil {
 			globalLogger.Error(err)
 			continue
@@ -210,7 +214,7 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 
 func checkUpdates(ctx context.Context) time.Duration {
 	globalLogger.Info("SMURF check")
-	cfg, _ := loadConfig(ctx, viamConf)
+	cfg := loadConfig(viamConf)
 
 	// TODO check self-update
 

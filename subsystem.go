@@ -1,8 +1,10 @@
+// Package agent contains the public interfaces, functions, consts, and vars for the viam-server agent.
 package agent
 
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"go.viam.com/utils/pexec"
 )
@@ -30,12 +32,12 @@ type DefaultSubsystem struct {
 
 func (s DefaultSubsystem) Start() error {
 	s.Logger.Info("SMURF START")
-	return s.Process.Start(context.Background())
+	return errors.Wrap(s.Process.Start(context.Background()), "default start")
 }
 
 func (s DefaultSubsystem) Stop() error {
 	s.Logger.Info("SMURF STOP")
-	return s.Process.Stop()
+	return errors.Wrap(s.Process.Stop(), "default stop")
 }
 
 type AlwaysOKSubsystem struct{}

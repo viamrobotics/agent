@@ -1,3 +1,4 @@
+// Package viamserver contains the viam-server agent subsystem.
 package viamserver
 
 import (
@@ -5,6 +6,7 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"go.uber.org/zap"
 )
@@ -20,7 +22,7 @@ type viamServer struct {
 
 func (s viamServer) Start() error {
 	s.logger.Info("SMURF START")
-	return s.cmd.Start()
+	return errors.Wrap(s.cmd.Start(), "starting viam-server")
 }
 
 func (s viamServer) Stop() error {
@@ -33,7 +35,7 @@ func (s viamServer) Stop() error {
 		s.logger.Error(err)
 		// TODO nuke it
 	}
-	return s.cmd.Wait()
+	return errors.Wrap(s.cmd.Wait(), "stopping viam-server")
 }
 
 func (s viamServer) CheckOK(ctx context.Context) bool {
@@ -45,7 +47,7 @@ func (s viamServer) Update(ctx context.Context, cfg agent.SubsystemConfig) (bool
 	return true, nil
 }
 
-func NewSubsystem(ctx context.Context, updateConf agent.SubsystemConfig, logger *zap.SugaredLogger) agent.Subsystem {
+func NewSubsystem(ctx context.Context, updateConf agent.SubsystemConfig, logger *zap.SugaredLogger) *viamServer {
 	subSys := &viamServer{}
 	subSys.logger = logger.Named("viam-server")
 	subSys.cmd = exec.Command("bin/viam-server", "-config", "etc/viam.json")
@@ -61,7 +63,7 @@ type stdioLogger struct {
 	logger *zap.SugaredLogger
 }
 
-func (l stdioLogger) Write(p []byte) (n int, err error) {
+func (l stdioLogger) Write(p []byte) (int, error) {
 	l.logger.Info(p)
 	return len(p), nil
 }
@@ -70,7 +72,7 @@ type stderrLogger struct {
 	logger *zap.SugaredLogger
 }
 
-func (l stderrLogger) Write(p []byte) (n int, err error) {
+func (l stderrLogger) Write(p []byte) (int, error) {
 	l.logger.Error(p)
 	return len(p), nil
 }

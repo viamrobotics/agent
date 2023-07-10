@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0
 	github.com/jessevdk/go-flags v1.5.0
+	github.com/pkg/errors v0.9.1
 	go.uber.org/zap v1.24.0
 	go.viam.com/utils v0.1.37
 )
@@ -17,7 +18,6 @@ require (
 	github.com/googleapis/gax-go/v2 v2.8.0 // indirect
 	github.com/klauspost/compress v1.16.5 // indirect
 	github.com/montanaflynn/stats v0.7.0 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/smartystreets/assertions v1.13.0 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect

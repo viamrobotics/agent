@@ -1,0 +1,51 @@
+service:
+  golangci-lint-version: 1.53.x
+run:
+  deadline: 30s
+  modules-download-mode: readonly
+  skip-dirs-use-default: false
+  tests: true
+linters:
+  enable-all: true
+  disable:
+    - cyclop
+    - deadcode
+    - depguard
+    - exhaustivestruct
+    - exhaustruct
+    - godox
+    - gochecknoglobals
+    - golint
+    - gomnd
+    - ifshort
+    - interfacer
+    - maligned
+    - nlreturn
+    - nosnakecase
+    - scopelint
+    - structcheck
+    - varcheck
+    - wsl
+    # TODO remove temporary disables for dev
+    - revive
+    - gomoddirectives
+linters-settings:
+  errcheck:
+    check-blank: true
+  gofumpt:
+    lang-version: "1.20"
+    extra-rules: true
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+  lll:
+    line-length: 140
+issues:
+  exclude-rules:
+    - path: /doc.go$
+      linters:
+        - lll
+  exclude-use-default: false
+  max-per-linter: 0
+  max-same-issues: 0
