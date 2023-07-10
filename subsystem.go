@@ -1,4 +1,3 @@
-// Package agent contains the public interfaces, functions, consts, and vars for the viam-server agent.
 package agent
 
 import (
@@ -31,12 +30,10 @@ type DefaultSubsystem struct {
 }
 
 func (s DefaultSubsystem) Start() error {
-	s.Logger.Info("SMURF START")
 	return errors.Wrap(s.Process.Start(context.Background()), "default start")
 }
 
 func (s DefaultSubsystem) Stop() error {
-	s.Logger.Info("SMURF STOP")
 	return errors.Wrap(s.Process.Stop(), "default stop")
 }
 

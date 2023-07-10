@@ -63,7 +63,7 @@ func GetTestConfig() Config {
 					URL:      url,
 					Version:  version,
 					SHA256:   sha,
-					Format:   FormatUnspecified,
+					Format:   FormatExecutable,
 				},
 				Disable:      false,
 				ForceRestart: false,
