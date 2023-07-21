@@ -3,12 +3,14 @@ package agent
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"io"
 	"net/http"
 	"os"
 	"path"
 
+	"github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
 )
 
@@ -16,10 +18,15 @@ const (
 	ViamDir = "/opt/viam"
 )
 
-func DownloadFile(url string) (string, error) {
-	resp, err := http.Get(url)
+func DownloadFile(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "checking viam-server status")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", errors.Wrap(err, "checking viam-server status")
 	}
 	defer resp.Body.Close()
 

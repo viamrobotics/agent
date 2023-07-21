@@ -12,6 +12,7 @@ import (
 
 	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
+	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/viamserver"
 )
@@ -65,7 +66,7 @@ func main() {
 
 	// close all subsystems
 	for _, sub := range subsystems {
-		if err := sub.Stop(); err != nil {
+		if err := sub.Stop(context.Background()); err != nil {
 			globalLogger.Error(err)
 		}
 	}
@@ -102,6 +103,7 @@ func startBackgroundChecks(ctx context.Context) {
 			case <-timer.C:
 				checkInterval = checkUpdates(ctx)
 				timer.Reset(checkInterval)
+				subsystemHealthChecks(ctx)
 			}
 		}
 	}()
@@ -170,7 +172,7 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 	// stop/remove orphaned subsystems
 	for key, sub := range subsystems {
 		if _, ok := cfg.SubsystemConfigs[key]; !ok {
-			if err := sub.Stop(); err != nil {
+			if err := sub.Stop(ctx); err != nil {
 				globalLogger.Error(err)
 				continue
 			}
@@ -200,12 +202,12 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 			continue
 		}
 		if restart {
-			if err := sub.Stop(); err != nil {
+			if err := sub.Stop(ctx); err != nil {
 				globalLogger.Error(err)
 				continue
 			}
 		}
-		if err := sub.Start(); err != nil {
+		if err := sub.Start(ctx); err != nil {
 			globalLogger.Error(err)
 			continue
 		}
@@ -213,7 +215,7 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 }
 
 func checkUpdates(ctx context.Context) time.Duration {
-	globalLogger.Info("SMURF check")
+	globalLogger.Info("SMURF check for update")
 	cfg := loadConfig(viamConf)
 
 	// TODO check self-update
@@ -223,4 +225,23 @@ func checkUpdates(ctx context.Context) time.Duration {
 
 	// TODO fuzz the checkInterval
 	return cfg.CheckInterval
+}
+
+func subsystemHealthChecks(ctx context.Context) {
+	globalLogger.Info("SMURF check statuses")
+	subsystemsMu.Lock()
+	defer subsystemsMu.Unlock()
+	for _, sub := range subsystems {
+		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
+		if err := sub.HealthCheck(ctxTimeout); err != nil {
+			globalLogger.Error("subsystem healthcheck failed")
+			if err := sub.Stop(ctx); err != nil {
+				globalLogger.Error(errors.Wrap(err, "stopping subsystem"))
+			}
+			if err := sub.Start(ctx); err != nil {
+				globalLogger.Error(errors.Wrap(err, "restarting subsystem"))
+			}
+		}
+		cancelFunc()
+	}
 }

@@ -5,67 +5,169 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"go.uber.org/zap"
 )
 
-type viamServer struct {
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	running bool
+const startStopTimeout = time.Second * 30
 
-	logger *zap.SugaredLogger
+type viamServer struct {
+	mu       sync.Mutex
+	cmd      *exec.Cmd
+	running  bool
+	lastExit int
+	checkURL string
+
+	logger    *zap.SugaredLogger
+	bgWorkers sync.WaitGroup
 }
 
-func (s *viamServer) Start() error {
-	s.logger.Info("SMURF START")
+func (s *viamServer) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.running == true {
+	if s.running {
 		return nil
 	}
+	s.logger.Info("SMURF START")
 
-	err := s.cmd.Start()
+	stdio := &stdioLogger{logger: s.logger}
+	stderr := &stderrLogger{logger: s.logger}
+
+	s.cmd = exec.Command(path.Join("bin", "viam-server"), "-config", path.Join("etc", "viam.json"))
+	s.cmd.Dir = agent.ViamDir
+	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	s.cmd.Stdout = stdio
+	s.cmd.Stderr = stderr
+
+	c, err := stdio.AddMatcher("checkURL", regexp.MustCompile(`serving\W*{"url": "(https?://[\w\.:-]+)".*}`))
 	if err != nil {
-		return errors.Wrap(err, "starting viam-server")
+		return err
+	}
+	defer stdio.DeleteMatcher("checkURL")
+
+	err = s.cmd.Start()
+	if err != nil {
+		return errors.Wrap(err, "error starting viam-server")
+	}
+
+	s.bgWorkers.Add(1)
+	go func() {
+		defer s.bgWorkers.Done()
+		err := s.cmd.Wait()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.running = false
+		if err != nil {
+			s.logger.Errorw("error while getting process status", "error", err)
+		}
+		if s.cmd.ProcessState != nil {
+			s.lastExit = s.cmd.ProcessState.ExitCode()
+			if s.lastExit != 0 {
+				s.logger.Errorw("non-zero exit code", "exit code", s.lastExit)
+			}
+		}
+	}()
+
+	ctxTimeout, cancelFunc := context.WithTimeout(ctx, startStopTimeout)
+	defer cancelFunc()
+
+	select {
+	case matches := <-c:
+		s.checkURL = matches[1]
+		s.logger.Infof("healthcheck URL: %s", s.checkURL)
+	case <-ctxTimeout.Done():
+		s.logger.Error("startup timed out")
+		// we'll let the health check handle restarting if this is a failure
 	}
 	s.logger.Info("SMURF STARTED")
 	s.running = true
 	return nil
 }
 
-func (s *viamServer) Stop() error {
+func (s *viamServer) Stop(ctx context.Context) error {
 	s.logger.Info("SMURF STOP")
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.running || s.cmd.Process == nil {
+	running := s.running
+	s.mu.Unlock()
+
+	if !running {
 		return nil
 	}
+
 	err := s.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
 		s.logger.Error(err)
-		// TODO nuke it
 	}
 
-	err = s.cmd.Wait()
-	if err != nil {
-		errors.Wrap(err, "stopping viam-server")
+	ctxTimeout, cancelFunc1 := context.WithTimeout(ctx, startStopTimeout)
+	defer cancelFunc1()
+	if s.waitForExit(ctxTimeout) {
+		s.logger.Warn("SMURF Done 1")
+		return nil
 	}
-	s.running = false
-	return nil
+
+	err = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+	if err != nil {
+		s.logger.Error(err)
+	}
+
+	ctxTimeout, cancelFunc2 := context.WithTimeout(ctx, startStopTimeout)
+	defer cancelFunc2()
+	if s.waitForExit(ctxTimeout) {
+		s.logger.Warn("SMURF Done 2")
+		return nil
+	}
+
+	return errors.New("viam-server process couldn't be killed")
 }
 
-func (s *viamServer) CheckOK(ctx context.Context) bool {
+func (s *viamServer) waitForExit(ctx context.Context) bool {
+	for {
+		s.mu.Lock()
+		running := s.running
+		s.mu.Unlock()
+		if !running {
+			return true
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+	}
+}
+
+func (s *viamServer) HealthCheck(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return true
+	if !s.running {
+		return errors.New("viam-server not running")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.checkURL, nil)
+	if err != nil {
+		return errors.Wrap(err, "checking viam-server status")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "checking viam-server status")
+	}
+	s.logger.Infof("SMURF Status Check: %d", resp.StatusCode)
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return errors.Wrapf(err, "checking viam-server status, got code: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (s *viamServer) Update(ctx context.Context, cfg agent.SubsystemConfig) (bool, error) {
@@ -77,12 +179,13 @@ func (s *viamServer) Update(ctx context.Context, cfg agent.SubsystemConfig) (boo
 		return false, nil
 	}
 
-	tempfile, err := agent.DownloadFile(cfg.URL)
+	tempfile, err := agent.DownloadFile(ctx, cfg.URL)
 	if err != nil {
-		return false, errors.Wrap(err, "downloading in viam-server subsystem")
+		return false, errors.Wrap(err, "downloading viam-server subsystem")
 	}
 	defer func() {
-		if err := os.Remove(tempfile); err != nil && !os.IsNotExist(err) {
+		err := os.Remove(tempfile)
+		if err != nil && !os.IsNotExist(err) {
 			s.logger.Error(err)
 		}
 	}()
@@ -91,16 +194,20 @@ func (s *viamServer) Update(ctx context.Context, cfg agent.SubsystemConfig) (boo
 	if cfg.Format == agent.FormatXZ || cfg.Format == agent.FormatXZExecutable {
 		extractedfile, err = agent.DecompressFile(tempfile)
 		if err != nil {
-			return false, errors.Wrap(err, "decompressing in viam-server subsystem")
+			return false, errors.Wrap(err, "decompressing viam-server subsystem")
 		}
 		defer func() {
-			if err := os.Remove(extractedfile); err != nil && !os.IsNotExist(err) {
+			err := os.Remove(extractedfile)
+			if err != nil && !os.IsNotExist(err) {
 				s.logger.Error(err)
 			}
 		}()
 	}
 
 	shasum, err = agent.GetFileSum(path.Join(agent.ViamDir, "bin", cfg.Filename))
+	if err != nil {
+		return false, errors.Wrap(err, "getting file shasum")
+	}
 	if !bytes.Equal(shasum, cfg.SHA256) {
 		return false, fmt.Errorf("sha256 of downloaded file (%x) does not match config (%x)", shasum, cfg.SHA256)
 	}
@@ -122,23 +229,59 @@ func (s *viamServer) Update(ctx context.Context, cfg agent.SubsystemConfig) (boo
 }
 
 func NewSubsystem(ctx context.Context, updateConf agent.SubsystemConfig, logger *zap.SugaredLogger) *viamServer {
-	subSys := &viamServer{}
-	subSys.logger = logger.Named("viam-server")
-	subSys.cmd = exec.Command(path.Join("bin", "viam-server"), "-config", path.Join("etc", "viam.json"))
-	subSys.cmd.Dir = agent.ViamDir
-	subSys.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	subSys.cmd.Stdout = &stdioLogger{subSys.logger}
-	subSys.cmd.Stderr = &stderrLogger{subSys.logger}
+	return &viamServer{
+		checkURL: "http://127.0.0.1:8080",
+		logger:   logger.Named("viam-server"),
+	}
+}
 
-	return subSys
+type matcher struct {
+	regex   *regexp.Regexp
+	channel chan ([]string)
 }
 
 type stdioLogger struct {
-	logger *zap.SugaredLogger
+	mu       sync.RWMutex
+	logger   *zap.SugaredLogger
+	matchers map[string]matcher
 }
 
-func (l stdioLogger) Write(p []byte) (int, error) {
-	l.logger.Info(string(p))
+func (l *stdioLogger) AddMatcher(name string, regex *regexp.Regexp) (<-chan []string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.matchers == nil {
+		l.matchers = make(map[string]matcher)
+	}
+	_, ok := l.matchers[name]
+	if ok {
+		return nil, errors.Errorf("matcher already exists: %s", name)
+	}
+	c := make(chan []string, 32)
+	l.matchers[name] = matcher{regex: regex, channel: c}
+	return c, nil
+}
+
+func (l *stdioLogger) DeleteMatcher(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	m, ok := l.matchers[name]
+	if ok {
+		close(m.channel)
+		delete(l.matchers, name)
+	}
+}
+
+func (l *stdioLogger) Write(p []byte) (int, error) {
+	line := string(p)
+	l.logger.Info(line)
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	for _, m := range l.matchers {
+		matches := m.regex.FindStringSubmatch(line)
+		if matches != nil {
+			m.channel <- matches
+		}
+	}
 	return len(p), nil
 }
 
@@ -146,7 +289,7 @@ type stderrLogger struct {
 	logger *zap.SugaredLogger
 }
 
-func (l stderrLogger) Write(p []byte) (int, error) {
+func (l *stderrLogger) Write(p []byte) (int, error) {
 	l.logger.Error(string(p))
 	return len(p), nil
 }

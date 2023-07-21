@@ -20,3 +20,4 @@ bin/golangci-lint:
 .PHONY: lint
 lint: bin/golangci-lint
 	bin/golangci-lint run -v --fix
+	go mod tidy
