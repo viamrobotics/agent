@@ -111,7 +111,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	ctxTimeout, cancelFunc1 := context.WithTimeout(ctx, startStopTimeout)
 	defer cancelFunc1()
-	if s.waitForExit(ctxTimeout) {
+	if s.waitForExit(ctxTimeout, startStopTimeout) {
 		s.logger.Warn("SMURF Done 1")
 		return nil
 	}
@@ -121,9 +121,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
-	ctxTimeout, cancelFunc2 := context.WithTimeout(ctx, startStopTimeout)
-	defer cancelFunc2()
-	if s.waitForExit(ctxTimeout) {
+	if s.waitForExit(ctxTimeout, startStopTimeout) {
 		s.logger.Warn("SMURF Done 2")
 		return nil
 	}
@@ -131,7 +129,12 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	return errors.New("viam-server process couldn't be killed")
 }
 
-func (s *viamServer) waitForExit(ctx context.Context) bool {
+func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
+	ctxTimeout, cancelFunc := context.WithTimeout(ctx, startStopTimeout)
+	defer cancelFunc()
+	timer := time.NewTicker(time.Second)
+	defer timer.Stop()
+
 	for {
 		s.mu.Lock()
 		running := s.running
@@ -139,8 +142,13 @@ func (s *viamServer) waitForExit(ctx context.Context) bool {
 		if !running {
 			return true
 		}
-		if ctx.Err() != nil {
+		if ctxTimeout.Err() != nil {
 			return false
+		}
+		select {
+		case <-ctxTimeout.Done():
+			return false
+		case <-timer.C:
 		}
 	}
 }

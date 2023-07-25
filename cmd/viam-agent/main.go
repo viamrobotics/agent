@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -137,7 +138,7 @@ func setupExitSignalHandling(ctx context.Context) context.Context {
 				fallthrough
 			case syscall.SIGTERM:
 				globalLogger.Info("exiting")
-				signal.Ignore(os.Interrupt)
+				signal.Ignore(os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // SMURF keeping SIGQUIT for stack trace debugging
 				return
 
 			// this is handled elsewhere as a restart, not exit
@@ -154,7 +155,7 @@ func setupExitSignalHandling(ctx context.Context) context.Context {
 	}()
 
 	// TODO remove and handle ALL signals
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // SMURF SIGQUIT reserved for stack trace debugging
 	return ctx
 }
 
@@ -166,7 +167,6 @@ func exitIfError(err error) {
 }
 
 func subsystemUpdates(ctx context.Context, cfg agent.Config) {
-	// TODO check updates for subsystems
 	subsystemsMu.Lock()
 	defer subsystemsMu.Unlock()
 	// stop/remove orphaned subsystems
@@ -218,13 +218,14 @@ func checkUpdates(ctx context.Context) time.Duration {
 	globalLogger.Info("SMURF check for update")
 	cfg := loadConfig(viamConf)
 
-	// TODO check self-update
+	// check for agent updates
+	selfUpdate(ctx, cfg)
 
 	// update and (re)start subsystems
 	subsystemUpdates(ctx, cfg)
 
-	// TODO fuzz the checkInterval
-	return cfg.CheckInterval
+	// randomly fuzz the interval by +/- 5%
+	return fuzzTime(cfg.CheckInterval, 0.05)
 }
 
 func subsystemHealthChecks(ctx context.Context) {
@@ -244,4 +245,17 @@ func subsystemHealthChecks(ctx context.Context) {
 		}
 		cancelFunc()
 	}
+}
+
+func fuzzTime(duration time.Duration, pct float64) time.Duration {
+	// pct is fuzz factor percentage 0.0 - 1.0
+	// example +/- 5% is 0.05
+	random := rand.New(rand.NewSource(time.Now().UnixNano())).Float64()
+	slop := float64(duration) * pct * 2
+	return time.Duration(float64(duration) - slop + (random * slop))
+}
+
+func selfUpdate(ctx context.Context, cfg agent.Config) {
+	// SMURF TODO
+	return
 }
