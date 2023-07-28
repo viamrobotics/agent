@@ -3,6 +3,8 @@ package agent
 import (
 	"encoding/hex"
 	"time"
+
+	"github.com/Masterminds/semver"
 )
 
 type Config struct {
@@ -14,7 +16,7 @@ type Config struct {
 type UpdateInfo struct {
 	Filename string
 	URL      string
-	Version  string
+	Version  *semver.Version
 	SHA256   []byte
 	Format   Format
 }
@@ -42,16 +44,18 @@ const (
 )
 
 func GetTestConfig() Config {
-	url := "https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-stable-x86_64"
+	url := "https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.6.0-x86_64"
 	//nolint:errcheck
-	sha, _ := hex.DecodeString("0f362a74cfcb5e18158af7342ac7a9fc053b75a19065550b111b1756f5631eed")
-	version := "0.3.0"
+	// v0.3.0 sha, _ := hex.DecodeString("0f362a74cfcb5e18158af7342ac7a9fc053b75a19065550b111b1756f5631eed")
+	sha, _ := hex.DecodeString("12112b05cc50045add9fba432992e0bb283e48659e048dcea1a9ba3d55149195")
+	//nolint:errcheck
+	version, _ := semver.NewVersion("v0.6.0")
 
 	cfg := Config{
 		UpdateInfo: UpdateInfo{
 			Filename: "viam-agent",
 			URL:      "",
-			Version:  "0.0.1-rc0",
+			Version:  nil,
 			SHA256:   []byte{},
 			Format:   FormatUnspecified,
 		},

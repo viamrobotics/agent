@@ -2,11 +2,8 @@
 package viamserver
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -40,11 +37,11 @@ func (s *viamServer) Start(ctx context.Context) error {
 	}
 	s.logger.Info("SMURF START")
 
-	stdio := &stdioLogger{logger: s.logger}
-	stderr := &stderrLogger{logger: s.logger}
+	stdio := &MatchingLogger{logger: s.logger}
+	stderr := &MatchingLogger{logger: s.logger, defaultError: true}
 
-	s.cmd = exec.Command(path.Join("bin", "viam-server"), "-config", path.Join("etc", "viam.json"))
-	s.cmd.Dir = agent.ViamDir
+	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], "viam-server"), "-config", path.Join(agent.ViamDirs["etc"], "viam.json"))
+	s.cmd.Dir = agent.ViamDirs["viam"]
 	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
@@ -178,126 +175,9 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func (s *viamServer) Update(ctx context.Context, cfg agent.SubsystemConfig) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	shasum, err := agent.GetFileSum(path.Join(agent.ViamDir, "bin", cfg.Filename))
-	if err == nil && bytes.Equal(shasum, cfg.SHA256) {
-		return false, nil
-	}
-
-	tempfile, err := agent.DownloadFile(ctx, cfg.URL)
-	if err != nil {
-		return false, errors.Wrap(err, "downloading viam-server subsystem")
-	}
-	defer func() {
-		err := os.Remove(tempfile)
-		if err != nil && !os.IsNotExist(err) {
-			s.logger.Error(err)
-		}
-	}()
-
-	extractedfile := tempfile
-	if cfg.Format == agent.FormatXZ || cfg.Format == agent.FormatXZExecutable {
-		extractedfile, err = agent.DecompressFile(tempfile)
-		if err != nil {
-			return false, errors.Wrap(err, "decompressing viam-server subsystem")
-		}
-		defer func() {
-			err := os.Remove(extractedfile)
-			if err != nil && !os.IsNotExist(err) {
-				s.logger.Error(err)
-			}
-		}()
-	}
-
-	shasum, err = agent.GetFileSum(path.Join(agent.ViamDir, "bin", cfg.Filename))
-	if err != nil {
-		return false, errors.Wrap(err, "getting file shasum")
-	}
-	if !bytes.Equal(shasum, cfg.SHA256) {
-		return false, fmt.Errorf("sha256 of downloaded file (%x) does not match config (%x)", shasum, cfg.SHA256)
-	}
-
-	if cfg.Format == agent.FormatExecutable || cfg.Format == agent.FormatXZExecutable {
-		if err := os.Chmod(extractedfile, 0o755); err != nil {
-			return false, err
-		}
-	} else {
-		if err := os.Chmod(extractedfile, 0o644); err != nil {
-			return false, err
-		}
-	}
-
-	os.MkdirAll(path.Join(agent.ViamDir, "bin"), 0o755)
-	os.Rename(tempfile, path.Join(agent.ViamDir, "bin", cfg.Filename))
-
-	return true, nil
-}
-
 func NewSubsystem(ctx context.Context, updateConf agent.SubsystemConfig, logger *zap.SugaredLogger) *viamServer {
 	return &viamServer{
 		checkURL: "http://127.0.0.1:8080",
 		logger:   logger.Named("viam-server"),
 	}
-}
-
-type matcher struct {
-	regex   *regexp.Regexp
-	channel chan ([]string)
-}
-
-type stdioLogger struct {
-	mu       sync.RWMutex
-	logger   *zap.SugaredLogger
-	matchers map[string]matcher
-}
-
-func (l *stdioLogger) AddMatcher(name string, regex *regexp.Regexp) (<-chan []string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.matchers == nil {
-		l.matchers = make(map[string]matcher)
-	}
-	_, ok := l.matchers[name]
-	if ok {
-		return nil, errors.Errorf("matcher already exists: %s", name)
-	}
-	c := make(chan []string, 32)
-	l.matchers[name] = matcher{regex: regex, channel: c}
-	return c, nil
-}
-
-func (l *stdioLogger) DeleteMatcher(name string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	m, ok := l.matchers[name]
-	if ok {
-		close(m.channel)
-		delete(l.matchers, name)
-	}
-}
-
-func (l *stdioLogger) Write(p []byte) (int, error) {
-	line := string(p)
-	l.logger.Info(line)
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	for _, m := range l.matchers {
-		matches := m.regex.FindStringSubmatch(line)
-		if matches != nil {
-			m.channel <- matches
-		}
-	}
-	return len(p), nil
-}
-
-type stderrLogger struct {
-	logger *zap.SugaredLogger
-}
-
-func (l *stderrLogger) Write(p []byte) (int, error) {
-	l.logger.Error(string(p))
-	return len(p), nil
 }

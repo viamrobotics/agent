@@ -3,9 +3,11 @@ module github.com/viamrobotics/agent
 go 1.20
 
 require (
+	github.com/Masterminds/semver v1.5.0
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0
 	github.com/jessevdk/go-flags v1.5.0
 	go.uber.org/zap v1.24.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

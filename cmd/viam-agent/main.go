@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -61,6 +62,9 @@ func main() {
 	}
 	viamConf = opts.Config
 
+	// create all needed directories
+	exitIfError(initPaths())
+
 	startBackgroundChecks(ctx)
 
 	<-ctx.Done()
@@ -73,6 +77,39 @@ func main() {
 	}
 
 	activeBackgroundWorkers.Wait()
+}
+
+func initPaths() error {
+	// TODO Walk all files for ownership/permissions
+
+	uid := os.Getuid()
+	for _, p := range agent.ViamDirs {
+		info, err := os.Stat(p)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				if err := os.MkdirAll(p, 0o755); err != nil {
+					return err
+				}
+				continue
+			}
+			return err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			// should be impossible on Linux
+			return errors.New("cannot convert to syscall.Stat_t")
+		}
+		if uid != int(stat.Uid) {
+			return errors.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
+		}
+		if !info.IsDir() {
+			return errors.Errorf("%s should be a directory, but is not", p)
+		}
+		if info.Mode().Perm() != 0o755 {
+			return errors.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
+		}
+	}
+	return nil
 }
 
 func loadConfig(cfgPath string) agent.Config {
@@ -185,7 +222,12 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 		if _, ok := subsystems[key]; !ok {
 			switch key {
 			case "viam-server":
-				subsystems[key] = viamserver.NewSubsystem(ctx, subCfg, globalLogger)
+				sub, err := agent.NewAgentSubsystem(ctx, subCfg, globalLogger, viamserver.NewSubsystem(ctx, subCfg, globalLogger))
+				if err != nil {
+					globalLogger.Error(err)
+					continue
+				}
+				subsystems[key] = sub				
 			default:
 				globalLogger.Warnw("unknown subsystem", "name", key)
 			}

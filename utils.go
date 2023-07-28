@@ -9,16 +9,24 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
+	"go.uber.org/multierr"
 )
 
-const (
-	ViamDir = "/opt/viam"
-)
+var ViamDirs = map[string]string{"viam": "/opt/viam"}
 
-func DownloadFile(ctx context.Context, url string) (string, error) {
+func init() {
+	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
+	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
+	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
+	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
+}
+
+func DownloadFile(ctx context.Context, url string) (filename string, errRet error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", errors.Wrap(err, "checking viam-server status")
@@ -30,22 +38,36 @@ func DownloadFile(ctx context.Context, url string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	if err := os.MkdirAll(path.Join(ViamDir, "tmp"), 0o755); err != nil {
+	if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {
 		return "", err
 	}
 
-	out, err := os.CreateTemp(path.Join(ViamDir, "tmp"), "*")
+	out, err := os.CreateTemp(ViamDirs["tmp"], "*")
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
+	defer func() {
+		err := out.Close()
+		if err != nil {
+			errRet = multierr.Combine(errRet, err)		
+		}
+		err = os.Remove(out.Name())
+		if err != nil && !os.IsNotExist(err) {
+			errRet = multierr.Combine(errRet, err)		
+		}
+	}()
 
 	_, err = io.Copy(out, resp.Body)
-	return out.Name(), err
+	if err != nil && !os.IsNotExist(err) {
+		errRet = multierr.Combine(errRet, err)		
+	}
+
+	filename = filepath.Join(ViamDirs["cache"], path.Base(url))
+	return filename, os.Rename(out.Name(), filename)
 }
 
-func DecompressFile(filepath string) (string, error) {
-	in, err := os.Open(filepath)
+func DecompressFile(inPath string) (outPath string, errRet error) {
+	in, err := os.Open(inPath)
 	if err != nil {
 		return "", err
 	}
@@ -56,14 +78,29 @@ func DecompressFile(filepath string) (string, error) {
 		return "", err
 	}
 
-	out, err := os.CreateTemp(path.Join(ViamDir, "tmp"), "*")
+	out, err := os.CreateTemp(ViamDirs["tmp"], "*")
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
+
+	defer func() {
+		err := out.Close()
+		if err != nil {
+			errRet = multierr.Combine(errRet, err)		
+		}
+		err = os.Remove(out.Name())
+		if err != nil && !os.IsNotExist(err) {
+			errRet = multierr.Combine(errRet, err)		
+		}
+	}()
 
 	_, err = io.Copy(out, reader)
-	return out.Name(), err
+	if err != nil && !os.IsNotExist(err) {
+		errRet = multierr.Combine(errRet, err)		
+	}
+
+	outPath = filepath.Join(ViamDirs["cache"], strings.Replace(filepath.Base(inPath), ".xz", "", 1))
+	return outPath, os.Rename(out.Name(), outPath)
 }
 
 func GetFileSum(filepath string) ([]byte, error) {
