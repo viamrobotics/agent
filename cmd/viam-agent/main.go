@@ -113,11 +113,11 @@ func initPaths() error {
 }
 
 func loadConfig(cfgPath string) agent.Config {
-	// load local config
+	// TODO load local config
 	globalLogger.Debugw("NOT loading", "config", cfgPath)
-	// connect client
+	// TODO connect client
 
-	// get agent config
+	// TODO get agent config from App
 
 	return agent.GetTestConfig()
 }

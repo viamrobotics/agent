@@ -43,6 +43,7 @@ const (
 	FormatXZExecutable
 )
 
+// TODO fetch the actual config from the WIP endpoint on App
 func GetTestConfig() Config {
 	url := "https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.6.0-x86_64"
 	//nolint:errcheck

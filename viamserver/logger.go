@@ -16,6 +16,7 @@ type matcher struct {
 	channel chan ([]string)
 }
 
+// MatchingLogger provides a zap logger that also allows sending regex matched lines to a channel.
 type MatchingLogger struct {
 	mu       sync.RWMutex
 	logger   *zap.SugaredLogger
@@ -49,6 +50,7 @@ func (l *MatchingLogger) DeleteMatcher(name string) {
 }
 
 func (l *MatchingLogger) Write(p []byte) (int, error) {
+	// filter out already-timestamped logging from stdout
 	dateRegex := regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
 	if dateRegex.Match(p) {
 		os.Stdout.Write(p)
@@ -61,6 +63,7 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		}
 	}
 
+	// send matches to channel(s)
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	for _, m := range l.matchers {

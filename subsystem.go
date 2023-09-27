@@ -121,6 +121,9 @@ func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 			info.LongFailCount++
 		}
 		s.startTime = nil
+
+		// TODO if shortfails exceed a threshold, revert to previous version.
+
 		return s.saveCache(ctx)
 	}
 
