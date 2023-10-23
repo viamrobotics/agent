@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"math/rand"
@@ -24,8 +25,6 @@ var (
 
 	// only changed/set at startup, so no mutex.
 	globalLogger = golog.NewDevelopmentLogger("viam-agent")
-
-	viamConf = "/etc/viam.json"
 
 	// mutex protected.
 	subsystemsMu sync.Mutex
@@ -60,10 +59,10 @@ func main() {
 	if opts.Debug {
 		globalLogger = golog.NewDebugLogger("viam-agent")
 	}
-	viamConf = opts.Config
 
 	// create all needed directories
 	exitIfError(initPaths())
+	exitIfError(loadConfig(opts.Config))
 
 	startBackgroundChecks(ctx)
 
@@ -112,14 +111,19 @@ func initPaths() error {
 	return nil
 }
 
-func loadConfig(cfgPath string) agent.Config {
-	// TODO load local config
-	globalLogger.Debugw("NOT loading", "config", cfgPath)
-	// TODO connect client
+func loadConfig(cfgPath string) error {
+	globalLogger.Debugw("loading", "config", cfgPath)
+	b, err := os.ReadFile(cfgPath)
+	exitIfError(err)
 
-	// TODO get agent config from App
+	cfg := make(map[string]map[string]string)
+	exitIfError(json.Unmarshal(b, &cfg))
 
-	return agent.GetTestConfig()
+	cloud, ok := cfg["cloud"]
+	if !ok {
+		exitIfError(errors.New("no cloud section in local config file"))
+	}
+	return agent.Dial(context.TODO(), globalLogger, cloud["app_address"], cloud["id"], cloud["secret"])
 }
 
 func startBackgroundChecks(ctx context.Context) {
@@ -227,7 +231,7 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 					globalLogger.Error(err)
 					continue
 				}
-				subsystems[key] = sub				
+				subsystems[key] = sub
 			default:
 				globalLogger.Warnw("unknown subsystem", "name", key)
 			}
@@ -258,13 +262,18 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 
 func checkUpdates(ctx context.Context) time.Duration {
 	globalLogger.Info("SMURF check for update")
-	cfg := loadConfig(viamConf)
+	cfg, err := agent.GetConfig(ctx)
+	if err != nil {
+		globalLogger.Error(err)
+	}
+
+	fmt.Println("SMURF CONFIG", cfg)
 
 	// check for agent updates
-	selfUpdate(ctx, cfg)
+	selfUpdate(ctx, *cfg)
 
 	// update and (re)start subsystems
-	subsystemUpdates(ctx, cfg)
+	subsystemUpdates(ctx, *cfg)
 
 	// randomly fuzz the interval by +/- 5%
 	return fuzzTime(cfg.CheckInterval, 0.05)

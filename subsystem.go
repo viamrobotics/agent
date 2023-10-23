@@ -51,9 +51,9 @@ type AgentSubsystem struct {
 	CacheData *CacheData
 	startTime *time.Time
 
-	name  string
+	name   string
 	logger *zap.SugaredLogger
-	inner BasicSubsystem
+	inner  BasicSubsystem
 }
 
 type CacheData struct {
@@ -193,13 +193,13 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg SubsystemConfig) (bool,
 		shasum, err := GetFileSum(path.Join(ViamDirs["bin"], cfg.Filename))
 		if err == nil && bytes.Equal(shasum, cfg.SHA256) {
 			return false, nil
-		}		
+		}
 	}
 
 	verData, ok := s.CacheData.Versions[*cfg.Version]
 	if !ok {
 		verData = &VersionInfo{Version: cfg.Version}
-		s.CacheData.Versions[*cfg.Version] = verData 
+		s.CacheData.Versions[*cfg.Version] = verData
 	}
 
 	dlpath, err := DownloadFile(ctx, cfg.URL)
@@ -259,7 +259,6 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg SubsystemConfig) (bool,
 	}
 	s.CacheData.CurVersion = *cfg.Version
 	verData.Installed = time.Now()
-
 
 	return true, s.saveCache(ctx)
 }

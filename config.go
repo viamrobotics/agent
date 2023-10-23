@@ -1,10 +1,20 @@
 package agent
 
 import (
+	"context"
 	"encoding/hex"
+	"net/url"
 	"time"
 
 	"github.com/Masterminds/semver"
+	"github.com/edaniels/golog"
+	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/utils/rpc"
+)
+
+var (
+	client pb.AgentDeviceServiceClient
+	partID string
 )
 
 type Config struct {
@@ -43,7 +53,7 @@ const (
 	FormatXZExecutable
 )
 
-// TODO fetch the actual config from the WIP endpoint on App
+// TODO fetch the actual config from the WIP endpoint on App.
 func GetTestConfig() Config {
 	url := "https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.6.0-x86_64"
 	//nolint:errcheck
@@ -78,4 +88,96 @@ func GetTestConfig() Config {
 	}
 
 	return cfg
+}
+
+func Dial(ctx context.Context, logger golog.Logger, addr, id, secret string) error {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return err
+	}
+
+	dialOpts := make([]rpc.DialOption, 0, 2)
+	// Only add credentials when secret is set.
+	if secret != "" {
+		dialOpts = append(dialOpts, rpc.WithEntityCredentials(id,
+			rpc.Credentials{
+				Type:    "robot-secret",
+				Payload: secret,
+			},
+		))
+	}
+
+	if u.Scheme == "http" {
+		dialOpts = append(dialOpts, rpc.WithInsecure())
+	}
+
+	conn, err := rpc.DialDirectGRPC(ctx, u.Host, logger, dialOpts...)
+	if err != nil {
+		return err
+	}
+
+	client = pb.NewAgentDeviceServiceClient(conn)
+	partID = id
+	return nil
+}
+
+func GetConfig(ctx context.Context) (*Config, error) {
+	distro := "arch:unknown"
+
+	resp, err := client.DeviceAgentConfig(ctx, &pb.DeviceAgentConfigRequest{
+		Id:           partID,
+		AgentVersion: "0.1",
+		HostInfo: &pb.HostInfo{
+			Platform: "linux/amd64",
+			Distro:   &distro,
+			Tags:     []string{},
+		},
+		SubsystemVersions: []*pb.SubsystemVersion{{
+			SubsystemName:    "viam-server",
+			SubsystemVersion: "0.1.111111",
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return protoToConfig(resp)
+}
+
+func protoToConfig(in *pb.DeviceAgentConfigResponse) (*Config, error) {
+	agentVer, err := semver.NewVersion(in.GetUpdateInfo().GetVersion())
+	if err != nil {
+		return nil, err
+	}
+
+	out := &Config{
+		UpdateInfo: UpdateInfo{
+			Filename: in.GetUpdateInfo().GetFilename(),
+			URL:      in.GetUpdateInfo().GetUrl(),
+			Version:  agentVer,
+			SHA256:   in.GetUpdateInfo().GetSha256(),
+			Format:   FormatExecutable,
+		},
+		SubsystemConfigs: map[string]SubsystemConfig{},
+		CheckInterval:    in.GetCheckInterval().AsDuration(),
+	}
+
+	for _, subsys := range in.GetSubsystemConfig() {
+		ver, err := semver.NewVersion(subsys.GetUpdateInfo().GetVersion())
+		if err != nil {
+			return nil, err
+		}
+		out.SubsystemConfigs[subsys.GetSubsystemName()] = SubsystemConfig{
+			Disable:      subsys.Disable,
+			ForceRestart: subsys.GetForceRestart(),
+			UpdateInfo: UpdateInfo{
+				Filename: subsys.GetUpdateInfo().GetFilename(),
+				URL:      subsys.GetUpdateInfo().GetUrl(),
+				Version:  ver,
+				SHA256:   subsys.GetUpdateInfo().GetSha256(),
+				Format:   FormatExecutable,
+			},
+		}
+	}
+	return out, nil
 }

@@ -18,9 +18,9 @@ type matcher struct {
 
 // MatchingLogger provides a zap logger that also allows sending regex matched lines to a channel.
 type MatchingLogger struct {
-	mu       sync.RWMutex
-	logger   *zap.SugaredLogger
-	matchers map[string]matcher
+	mu           sync.RWMutex
+	logger       *zap.SugaredLogger
+	matchers     map[string]matcher
 	defaultError bool
 }
 
@@ -58,7 +58,7 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		lines := strings.Replace(strings.TrimSpace(string(p)), "\n", "\n\t", -1)
 		if l.defaultError {
 			l.logger.Error(fmt.Sprintf("unstructured error output:\n\t%s", lines))
-		}else{
+		} else {
 			l.logger.Warn(fmt.Sprintf("unstructured output:\n\t%s", lines))
 		}
 	}

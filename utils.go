@@ -49,17 +49,17 @@ func DownloadFile(ctx context.Context, url string) (filename string, errRet erro
 	defer func() {
 		err := out.Close()
 		if err != nil {
-			errRet = multierr.Combine(errRet, err)		
+			errRet = multierr.Combine(errRet, err)
 		}
 		err = os.Remove(out.Name())
 		if err != nil && !os.IsNotExist(err) {
-			errRet = multierr.Combine(errRet, err)		
+			errRet = multierr.Combine(errRet, err)
 		}
 	}()
 
 	_, err = io.Copy(out, resp.Body)
 	if err != nil && !os.IsNotExist(err) {
-		errRet = multierr.Combine(errRet, err)		
+		errRet = multierr.Combine(errRet, err)
 	}
 
 	filename = filepath.Join(ViamDirs["cache"], path.Base(url))
@@ -86,17 +86,17 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 	defer func() {
 		err := out.Close()
 		if err != nil {
-			errRet = multierr.Combine(errRet, err)		
+			errRet = multierr.Combine(errRet, err)
 		}
 		err = os.Remove(out.Name())
 		if err != nil && !os.IsNotExist(err) {
-			errRet = multierr.Combine(errRet, err)		
+			errRet = multierr.Combine(errRet, err)
 		}
 	}()
 
 	_, err = io.Copy(out, reader)
 	if err != nil && !os.IsNotExist(err) {
-		errRet = multierr.Combine(errRet, err)		
+		errRet = multierr.Combine(errRet, err)
 	}
 
 	outPath = filepath.Join(ViamDirs["cache"], strings.Replace(filepath.Base(inPath), ".xz", "", 1))
