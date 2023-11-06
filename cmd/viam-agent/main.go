@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	pb "go.viam.com/api/app/agent/v1"
+
 	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
 	"github.com/pkg/errors"
@@ -207,12 +209,12 @@ func exitIfError(err error) {
 	}
 }
 
-func subsystemUpdates(ctx context.Context, cfg agent.Config) {
+func subsystemUpdates(ctx context.Context, cfg map[string]*pb.DeviceSubsystemConfig) {
 	subsystemsMu.Lock()
 	defer subsystemsMu.Unlock()
 	// stop/remove orphaned subsystems
 	for key, sub := range subsystems {
-		if _, ok := cfg.SubsystemConfigs[key]; !ok {
+		if _, ok := cfg[key]; !ok {
 			if err := sub.Stop(ctx); err != nil {
 				globalLogger.Error(err)
 				continue
@@ -222,27 +224,27 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 	}
 
 	// add new subsystems
-	for key, subCfg := range cfg.SubsystemConfigs {
-		if _, ok := subsystems[key]; !ok {
-			switch key {
+	for name, subCfg := range cfg {
+		if _, ok := subsystems[name]; !ok {
+			switch name {
 			case "viam-server":
-				sub, err := agent.NewAgentSubsystem(ctx, subCfg, globalLogger, viamserver.NewSubsystem(ctx, subCfg, globalLogger))
+				sub, err := agent.NewAgentSubsystem(ctx, name, globalLogger, viamserver.NewSubsystem(ctx, subCfg, globalLogger))
 				if err != nil {
 					globalLogger.Error(err)
 					continue
 				}
-				subsystems[key] = sub
+				subsystems[name] = sub
 			default:
-				globalLogger.Warnw("unknown subsystem", "name", key)
+				globalLogger.Warnw("unknown subsystem", "name", name)
 			}
 		}
 	}
 
 	// check updates and (re)start
-	for key, sub := range subsystems {
+	for name, sub := range subsystems {
 		cancelCtx, cancel := context.WithTimeout(ctx, time.Minute*5)
 		defer cancel()
-		restart, err := sub.Update(cancelCtx, cfg.SubsystemConfigs[key])
+		restart, err := sub.Update(cancelCtx, cfg[name])
 		if err != nil {
 			globalLogger.Error(err)
 			continue
@@ -262,7 +264,7 @@ func subsystemUpdates(ctx context.Context, cfg agent.Config) {
 
 func checkUpdates(ctx context.Context) time.Duration {
 	globalLogger.Info("SMURF check for update")
-	cfg, err := agent.GetConfig(ctx)
+	cfg, interval, err := agent.GetConfig(ctx)
 	if err != nil {
 		globalLogger.Error(err)
 	}
@@ -270,13 +272,13 @@ func checkUpdates(ctx context.Context) time.Duration {
 	fmt.Println("SMURF CONFIG", cfg)
 
 	// check for agent updates
-	selfUpdate(ctx, *cfg)
+	selfUpdate(ctx, cfg)
 
 	// update and (re)start subsystems
-	subsystemUpdates(ctx, *cfg)
+	subsystemUpdates(ctx, cfg)
 
 	// randomly fuzz the interval by +/- 5%
-	return fuzzTime(cfg.CheckInterval, 0.05)
+	return fuzzTime(interval, 0.05)
 }
 
 func subsystemHealthChecks(ctx context.Context) {
@@ -306,7 +308,7 @@ func fuzzTime(duration time.Duration, pct float64) time.Duration {
 	return time.Duration(float64(duration) - slop + (random * slop))
 }
 
-func selfUpdate(ctx context.Context, cfg agent.Config) {
+func selfUpdate(ctx context.Context, cfg map[string]*pb.DeviceSubsystemConfig) {
 	// SMURF TODO
 	return
 }

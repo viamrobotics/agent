@@ -11,8 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	pb "go.viam.com/api/app/agent/v1"
+
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
+
 	"go.uber.org/zap"
 )
 
@@ -176,7 +179,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func NewSubsystem(ctx context.Context, updateConf agent.SubsystemConfig, logger *zap.SugaredLogger) *viamServer {
+func NewSubsystem(ctx context.Context, updateConf *pb.DeviceSubsystemConfig, logger *zap.SugaredLogger) *viamServer {
 	return &viamServer{
 		checkURL: "http://127.0.0.1:8080",
 		logger:   logger.Named("viam-server"),
