@@ -6,20 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
 
-	pb "go.viam.com/api/app/agent/v1"
-
 	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-	"github.com/viamrobotics/agent/viamserver"
+	_ "github.com/viamrobotics/agent/subsystems/viamserver"
 )
 
 var (
@@ -27,18 +24,13 @@ var (
 
 	// only changed/set at startup, so no mutex.
 	globalLogger = golog.NewDevelopmentLogger("viam-agent")
-
-	// mutex protected.
-	subsystemsMu sync.Mutex
-	subsystems   map[string]agent.Subsystem
 )
 
 func main() {
 	ctx := setupExitSignalHandling(context.TODO())
-	subsystems = make(map[string]agent.Subsystem)
 
 	var opts struct {
-		Config    string `default:"/etc/viam.json"                            description:"Path to config file" long:"config"    short:"c"`
+		Config    string `default:"/opt/viam/etc/viam.json"                   description:"Path to config file" long:"config"    short:"c"`
 		Debug     bool   `description:"enable debug logging (for agent only)" long:"debug"                      short:"d"`
 		Help      bool   `description:"Show this help message"                long:"help"                       short:"h"`
 		UpdateURL string `description:"Force URL for viam-server download"    env:"FORCE_URL"                   long:"force-url"`
@@ -64,18 +56,16 @@ func main() {
 
 	// create all needed directories
 	exitIfError(initPaths())
-	exitIfError(loadConfig(opts.Config))
+	exitIfError(loadLocalConfig(opts.Config))
 
-	startBackgroundChecks(ctx)
+	agent.StartBackgroundChecks(ctx, globalLogger)
 
 	<-ctx.Done()
 
-	// close all subsystems
-	for _, sub := range subsystems {
-		if err := sub.Stop(context.Background()); err != nil {
-			globalLogger.Error(err)
-		}
-	}
+	closeContext, cancelFunc := context.WithTimeout(context.Background(), time.Minute)
+	defer cancelFunc()
+
+	agent.CloseAll(closeContext, globalLogger)
 
 	activeBackgroundWorkers.Wait()
 }
@@ -113,7 +103,7 @@ func initPaths() error {
 	return nil
 }
 
-func loadConfig(cfgPath string) error {
+func loadLocalConfig(cfgPath string) error {
 	globalLogger.Debugw("loading", "config", cfgPath)
 	b, err := os.ReadFile(cfgPath)
 	exitIfError(err)
@@ -125,32 +115,15 @@ func loadConfig(cfgPath string) error {
 	if !ok {
 		exitIfError(errors.New("no cloud section in local config file"))
 	}
-	return agent.Dial(context.TODO(), globalLogger, cloud["app_address"], cloud["id"], cloud["secret"])
-}
 
-func startBackgroundChecks(ctx context.Context) {
-	activeBackgroundWorkers.Add(1)
-	go func() {
-		checkInterval := checkUpdates(ctx)
-		timer := time.NewTimer(checkInterval)
-		defer timer.Stop()
-		defer activeBackgroundWorkers.Done()
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			// case <-sigHUP:
-			// 	checkUpdates(ctx)
-			case <-timer.C:
-				checkInterval = checkUpdates(ctx)
-				timer.Reset(checkInterval)
-				subsystemHealthChecks(ctx)
-			}
+	for _, req := range []string{"app_address", "id", "secret"} {
+		field, ok := cloud[req]
+		if !ok {
+			exitIfError(errors.Errorf("no cloud config field for %s", field))
 		}
-	}()
+	}
+
+	return agent.Dial(context.TODO(), globalLogger, cloud["app_address"], cloud["id"], cloud["secret"])
 }
 
 func setupExitSignalHandling(ctx context.Context) context.Context {
@@ -204,111 +177,6 @@ func setupExitSignalHandling(ctx context.Context) context.Context {
 
 func exitIfError(err error) {
 	if err != nil {
-		globalLogger.Error(err)
-		os.Exit(1)
+		globalLogger.Fatal(err)
 	}
-}
-
-func subsystemUpdates(ctx context.Context, cfg map[string]*pb.DeviceSubsystemConfig) {
-	subsystemsMu.Lock()
-	defer subsystemsMu.Unlock()
-	// stop/remove orphaned subsystems
-	for key, sub := range subsystems {
-		if _, ok := cfg[key]; !ok {
-			if err := sub.Stop(ctx); err != nil {
-				globalLogger.Error(err)
-				continue
-			}
-			delete(subsystems, key)
-		}
-	}
-
-	// add new subsystems
-	for name, subCfg := range cfg {
-		if _, ok := subsystems[name]; !ok {
-			switch name {
-			case "viam-server":
-				sub, err := agent.NewAgentSubsystem(ctx, name, globalLogger, viamserver.NewSubsystem(ctx, subCfg, globalLogger))
-				if err != nil {
-					globalLogger.Error(err)
-					continue
-				}
-				subsystems[name] = sub
-			default:
-				globalLogger.Warnw("unknown subsystem", "name", name)
-			}
-		}
-	}
-
-	// check updates and (re)start
-	for name, sub := range subsystems {
-		cancelCtx, cancel := context.WithTimeout(ctx, time.Minute*5)
-		defer cancel()
-		restart, err := sub.Update(cancelCtx, cfg[name])
-		if err != nil {
-			globalLogger.Error(err)
-			continue
-		}
-		if restart {
-			if err := sub.Stop(ctx); err != nil {
-				globalLogger.Error(err)
-				continue
-			}
-		}
-		if err := sub.Start(ctx); err != nil {
-			globalLogger.Error(err)
-			continue
-		}
-	}
-}
-
-func checkUpdates(ctx context.Context) time.Duration {
-	globalLogger.Info("SMURF check for update")
-	cfg, interval, err := agent.GetConfig(ctx)
-	if err != nil {
-		globalLogger.Error(err)
-	}
-
-	fmt.Println("SMURF CONFIG", cfg)
-
-	// check for agent updates
-	selfUpdate(ctx, cfg)
-
-	// update and (re)start subsystems
-	subsystemUpdates(ctx, cfg)
-
-	// randomly fuzz the interval by +/- 5%
-	return fuzzTime(interval, 0.05)
-}
-
-func subsystemHealthChecks(ctx context.Context) {
-	globalLogger.Info("SMURF check statuses")
-	subsystemsMu.Lock()
-	defer subsystemsMu.Unlock()
-	for _, sub := range subsystems {
-		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
-		if err := sub.HealthCheck(ctxTimeout); err != nil {
-			globalLogger.Error("subsystem healthcheck failed")
-			if err := sub.Stop(ctx); err != nil {
-				globalLogger.Error(errors.Wrap(err, "stopping subsystem"))
-			}
-			if err := sub.Start(ctx); err != nil {
-				globalLogger.Error(errors.Wrap(err, "restarting subsystem"))
-			}
-		}
-		cancelFunc()
-	}
-}
-
-func fuzzTime(duration time.Duration, pct float64) time.Duration {
-	// pct is fuzz factor percentage 0.0 - 1.0
-	// example +/- 5% is 0.05
-	random := rand.New(rand.NewSource(time.Now().UnixNano())).Float64()
-	slop := float64(duration) * pct * 2
-	return time.Duration(float64(duration) - slop + (random * slop))
-}
-
-func selfUpdate(ctx context.Context, cfg map[string]*pb.DeviceSubsystemConfig) {
-	// SMURF TODO
-	return
 }

@@ -11,30 +11,15 @@ import (
 	"sync"
 	"time"
 
-	pb "go.viam.com/api/app/agent/v1"
-
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	pb "go.viam.com/api/app/agent/v1"
 	"gopkg.in/yaml.v3"
 )
 
 const (
 	ShortFailTime = time.Second * 30
 )
-
-type Subsystem interface {
-	// Start runs the subsystem
-	Start(ctx context.Context) error
-
-	// Stop signals the subsystem to shutdown
-	Stop(ctx context.Context) error
-
-	// Update validates and/or updates a subsystem, returns true if subsystem should be restarted
-	Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error)
-
-	// HealthCheck reports if a subsystem is running correctly (it is restarted if not)
-	HealthCheck(ctx context.Context) error
-}
 
 type BasicSubsystem interface {
 	// Start runs the subsystem
@@ -75,6 +60,15 @@ type VersionInfo struct {
 	StartCount     uint
 	LongFailCount  uint
 	ShortFailCount uint
+}
+
+func (s *AgentSubsystem) Version() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.CacheData != nil {
+		return s.CacheData.CurVersion
+	}
+	return ""
 }
 
 func (s *AgentSubsystem) Start(ctx context.Context) error {
@@ -155,19 +149,19 @@ func (s *AgentSubsystem) LoadCache(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	cacheFilePath := filepath.Join(ViamDirs["cache"], fmt.Sprintf("%s.yaml", s.name))
-	cacheData, err := os.ReadFile(cacheFilePath)
+	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}
 
-	if err == nil {
-		return yaml.Unmarshal(cacheData, s.CacheData)
-	}
-
 	s.CacheData = &CacheData{
 		Versions: make(map[string]*VersionInfo),
+	}
+
+	if err == nil {
+		return yaml.Unmarshal(cacheBytes, s.CacheData)
 	}
 
 	return nil
@@ -195,27 +189,27 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.disable = cfg.Disable
+	s.disable = cfg.GetDisable()
 
 	if s.disable {
 		return true, nil
 	}
 
-	updateInfo := cfg.UpdateInfo
-	if s.CacheData.CurVersion == updateInfo.Version {
-		shasum, err := GetFileSum(path.Join(ViamDirs["bin"], updateInfo.Filename))
-		if err == nil && bytes.Equal(shasum, updateInfo.Sha256) {
+	updateInfo := cfg.GetUpdateInfo()
+	if s.CacheData.CurVersion == updateInfo.GetVersion() {
+		shasum, err := GetFileSum(path.Join(ViamDirs["bin"], updateInfo.GetFilename()))
+		if err == nil && bytes.Equal(shasum, updateInfo.GetSha256()) {
 			return false, nil
 		}
 	}
 
-	verData, ok := s.CacheData.Versions[updateInfo.Version]
+	verData, ok := s.CacheData.Versions[updateInfo.GetVersion()]
 	if !ok {
-		verData = &VersionInfo{Version: updateInfo.Version}
-		s.CacheData.Versions[updateInfo.Version] = verData
+		verData = &VersionInfo{Version: updateInfo.GetVersion()}
+		s.CacheData.Versions[updateInfo.GetVersion()] = verData
 	}
 
-	dlpath, err := DownloadFile(ctx, updateInfo.Url)
+	dlpath, err := DownloadFile(ctx, updateInfo.GetUrl())
 	if err != nil {
 		return false, errors.Wrapf(err, "downloading %s subsystem", s.name)
 	}
@@ -227,7 +221,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	verData.DlSHA = dlsha
 
 	extractedfile := dlpath
-	if updateInfo.Format == pb.PackageFormat_PACKAGE_FORMAT_XZ || updateInfo.Format == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
+	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ || updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
 		extractedfile, err = DecompressFile(dlpath)
 		if err != nil {
 			return false, errors.Wrapf(err, "decompressing %s subsystem", s.name)
@@ -240,11 +234,11 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		return false, errors.Wrap(err, "getting file shasum")
 	}
 	verData.UnpackedSHA = shasum
-	if !bytes.Equal(shasum, updateInfo.Sha256) {
-		return false, fmt.Errorf("sha256 of downloaded file (%x) does not match config (%x)", shasum, updateInfo.Sha256)
+	if !bytes.Equal(shasum, updateInfo.GetSha256()) {
+		return false, fmt.Errorf("sha256 of downloaded file (%x) does not match config (%x)", shasum, updateInfo.GetSha256())
 	}
 
-	if updateInfo.Format == pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE || updateInfo.Format == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
+	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE || updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
 		if err := os.Chmod(extractedfile, 0o755); err != nil {
 			return false, err
 		}
@@ -254,10 +248,10 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		}
 	}
 
-	symlinkPath := path.Join(ViamDirs["bin"], updateInfo.Filename)
+	symlinkPath := path.Join(ViamDirs["bin"], updateInfo.GetFilename())
 
 	err = os.Remove(symlinkPath)
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, errors.Wrap(err, "removing old symlink")
 	}
 
@@ -270,7 +264,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	if s.CacheData.CurVersion != s.CacheData.PrevVersion {
 		s.CacheData.PrevVersion = s.CacheData.CurVersion
 	}
-	s.CacheData.CurVersion = updateInfo.Version
+	s.CacheData.CurVersion = updateInfo.GetVersion()
 	verData.Installed = time.Now()
 
 	return true, s.saveCache(ctx)

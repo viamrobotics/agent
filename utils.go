@@ -6,11 +6,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
@@ -112,4 +114,12 @@ func GetFileSum(filepath string) ([]byte, error) {
 	h := sha256.New()
 	_, err = io.Copy(h, in)
 	return h.Sum(nil), err
+}
+
+func fuzzTime(duration time.Duration, pct float64) time.Duration {
+	// pct is fuzz factor percentage 0.0 - 1.0
+	// example +/- 5% is 0.05
+	random := rand.New(rand.NewSource(time.Now().UnixNano())).Float64()
+	slop := float64(duration) * pct * 2
+	return time.Duration(float64(duration) - slop + (random * slop))
 }

@@ -11,15 +11,22 @@ import (
 	"syscall"
 	"time"
 
-	pb "go.viam.com/api/app/agent/v1"
-
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-
+	"github.com/viamrobotics/agent/subsystems"
+	"github.com/viamrobotics/agent/subsystems/registry"
 	"go.uber.org/zap"
+	pb "go.viam.com/api/app/agent/v1"
 )
 
-const startStopTimeout = time.Second * 30
+func init() {
+	registry.Register(subsysName, NewSubsystem)
+}
+
+const (
+	startStopTimeout = time.Second * 30
+	subsysName       = "viam-server"
+)
 
 type viamServer struct {
 	mu       sync.Mutex
@@ -43,7 +50,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stdio := &MatchingLogger{logger: s.logger}
 	stderr := &MatchingLogger{logger: s.logger, defaultError: true}
 
-	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], "viam-server"), "-config", path.Join(agent.ViamDirs["etc"], "viam.json"))
+	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], subsysName), "-config", path.Join(agent.ViamDirs["etc"], "viam.json"))
 	s.cmd.Dir = agent.ViamDirs["viam"]
 	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	s.cmd.Stdout = stdio
@@ -58,7 +65,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 
 	err = s.cmd.Start()
 	if err != nil {
-		return errors.Wrap(err, "error starting viam-server")
+		return errors.Wrapf(err, "error starting %s", subsysName)
 	}
 
 	s.bgWorkers.Add(1)
@@ -127,7 +134,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	return errors.New("viam-server process couldn't be killed")
+	return errors.Errorf("%s process couldn't be killed", subsysName)
 }
 
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
@@ -158,30 +165,32 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.running {
-		return errors.New("viam-server not running")
+		return errors.Errorf("%s not running", subsysName)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.checkURL, nil)
 	if err != nil {
-		return errors.Wrap(err, "checking viam-server status")
+		return errors.Wrapf(err, "checking %s status", subsysName)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return errors.Wrap(err, "checking viam-server status")
+		return errors.Wrapf(err, "checking %s status", subsysName)
 	}
 	s.logger.Infof("SMURF Status Check: %d", resp.StatusCode)
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return errors.Wrapf(err, "checking viam-server status, got code: %d", resp.StatusCode)
+		return errors.Wrapf(err, "checking %s status, got code: %d", subsysName, resp.StatusCode)
 	}
 
 	return nil
 }
 
-func NewSubsystem(ctx context.Context, updateConf *pb.DeviceSubsystemConfig, logger *zap.SugaredLogger) *viamServer {
-	return &viamServer{
-		checkURL: "http://127.0.0.1:8080",
-		logger:   logger.Named("viam-server"),
-	}
+func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
+	return agent.NewAgentSubsystem(ctx, subsysName, logger,
+		&viamServer{
+			checkURL: "http://127.0.0.1:8080",
+			logger:   logger.Named(subsysName),
+		},
+	)
 }

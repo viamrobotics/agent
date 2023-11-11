@@ -4,20 +4,28 @@ import (
 	"context"
 	"encoding/hex"
 	"net/url"
+	"os"
+	"regexp"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/edaniels/golog"
+	"github.com/viamrobotics/agent/subsystems"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/utils/rpc"
 )
 
 var (
-	client pb.AgentDeviceServiceClient
-	partID string
+	client               pb.AgentDeviceServiceClient
+	partID               string
 	defaultCheckInterval = time.Second * 60
+
+	// mutex protected.
+	subsystemsMu     sync.Mutex
+	loadedSubsystems = map[string]subsystems.Subsystem{}
 )
-
-
 
 func Dial(ctx context.Context, logger golog.Logger, addr, id, secret string) error {
 	u, err := url.Parse(addr)
@@ -51,28 +59,17 @@ func Dial(ctx context.Context, logger golog.Logger, addr, id, secret string) err
 }
 
 func GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
-	// SMURF TODO get actual platform and versions
-
 	req := &pb.DeviceAgentConfigRequest{
-		Id:           partID,
-		HostInfo: &pb.HostInfo{
-			Platform: "linux/amd64",
-			Distro:   "arch:unknown",
-			Tags:     []string{},
-		},
-		SubsystemVersions: map[string]string{
-			"agent": "0.1.2222",
-			"viam-server": "0.1.1111",
-		},
+		Id:                partID,
+		HostInfo:          getHostInfo(),
+		SubsystemVersions: getSubsystemVersions(),
 	}
-
-
 	resp, err := client.DeviceAgentConfig(ctx, req)
 	if err != nil {
 		return nil, defaultCheckInterval, err
 	}
 
-	return resp.SubsystemConfigs, resp.CheckInterval.AsDuration(), nil
+	return resp.GetSubsystemConfigs(), resp.GetCheckInterval().AsDuration(), nil
 }
 
 func GetTestConfig() (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
@@ -80,12 +77,12 @@ func GetTestConfig() (map[string]*pb.DeviceSubsystemConfig, time.Duration, error
 	//nolint:errcheck
 	// v0.3.0 sha, _ := hex.DecodeString("0f362a74cfcb5e18158af7342ac7a9fc053b75a19065550b111b1756f5631eed")
 	sha, _ := hex.DecodeString("12112b05cc50045add9fba432992e0bb283e48659e048dcea1a9ba3d55149195")
-	//nolint:errcheck
+	
 
 	cfgs := map[string]*pb.DeviceSubsystemConfig{
-		"agent": &pb.DeviceSubsystemConfig{},
-		"viam-server": &pb.DeviceSubsystemConfig{
-			UpdateInfo:   &pb.SubsystemUpdateInfo{
+		"viam-agent": {},
+		"viam-server": {
+			UpdateInfo: &pb.SubsystemUpdateInfo{
 				Filename: "viam-server",
 				Url:      url,
 				Version:  "0.6.0",
@@ -98,4 +95,51 @@ func GetTestConfig() (map[string]*pb.DeviceSubsystemConfig, time.Duration, error
 	}
 
 	return cfgs, defaultCheckInterval, nil
+}
+
+func getHostInfo() *pb.HostInfo {
+	pbInfo := &pb.HostInfo{Platform: runtime.GOOS + "/" + runtime.GOARCH}
+	info, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return pbInfo
+	}
+
+	distroRegex := regexp.MustCompile(`^ID="?(.+)"?`)
+	versionRegex := regexp.MustCompile(`^VERSION_ID="?(.+)"?`)
+
+	matches := distroRegex.FindStringSubmatch(string(info))
+	if len(matches) > 1 {
+		pbInfo.Distro = matches[1]
+	} else {
+		return pbInfo
+	}
+
+	matches = versionRegex.FindStringSubmatch(string(info))
+	if len(matches) > 1 {
+		pbInfo.Distro = pbInfo.GetDistro() + ":" + matches[1]
+	} else {
+		pbInfo.Distro = pbInfo.GetDistro() + ":" + "unknown"
+	}
+	// Check for specific SBCs
+	// Only Raspberry Pi for now
+	if pbInfo.GetPlatform() == "linux/arm64" || pbInfo.GetPlatform() == "linux/arm" {
+		info, err = os.ReadFile("/sys/firmware/devicetree/base/compatible")
+		if err != nil {
+			return pbInfo
+		}
+
+		if strings.Contains(string(info), "raspberrypi") {
+			pbInfo.Tags = append(pbInfo.GetTags(), "rpi")
+			if strings.Contains(string(info), "4-model-bbrcm") {
+				pbInfo.Tags = append(pbInfo.GetTags(), "rpi4")
+			}
+		}
+	}
+
+	return pbInfo
+}
+
+func getSubsystemVersions() map[string]string {
+	vers := map[string]string{}
+	return vers
 }
