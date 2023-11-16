@@ -22,10 +22,12 @@ import (
 var ViamDirs = map[string]string{"viam": "/opt/viam"}
 
 func init() {
-	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
 	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
+
+	// use the system directory for this
+	ViamDirs["etc"] = "/etc/"
 }
 
 func DownloadFile(ctx context.Context, url string) (filename string, errRet error) {

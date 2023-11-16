@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -16,7 +15,8 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-	_ "github.com/viamrobotics/agent/subsystems/viamserver"
+	"github.com/viamrobotics/agent/subsystems/viamagent"
+	"github.com/viamrobotics/agent/subsystems/viamserver"
 )
 
 var (
@@ -27,13 +27,14 @@ var (
 )
 
 func main() {
-	ctx := setupExitSignalHandling(context.TODO())
+	ctx := setupExitSignalHandling(context.Background())
 
 	var opts struct {
-		Config    string `default:"/opt/viam/etc/viam.json"                   description:"Path to config file" long:"config"    short:"c"`
-		Debug     bool   `description:"enable debug logging (for agent only)" long:"debug"                      short:"d"`
-		Help      bool   `description:"Show this help message"                long:"help"                       short:"h"`
-		UpdateURL string `description:"Force URL for viam-server download"    env:"FORCE_URL"                   long:"force-url"`
+		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
+		Debug   bool   `description:"enable debug logging (for agent only)" long:"debug"                      short:"d"`
+		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
+		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
+		Install bool   `description:"Install systemd service"               long:"install"`
 	}
 
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
@@ -50,29 +51,55 @@ func main() {
 		return
 	}
 
+	if opts.Version {
+		fmt.Printf("Version: %s\nGit Revision: %s\n", viamagent.GetVersion(), viamagent.GetRevision())
+		return
+	}
+
+	if opts.Install {
+		err := viamagent.Install()
+		if err != nil {
+			globalLogger.Error(err)
+		}
+		return
+	}
+
 	if opts.Debug {
 		globalLogger = golog.NewDebugLogger("viam-agent")
 	}
 
+	// tie the manager config to the viam-server config
+	viamserver.ConfigFilePath = opts.Config
+
 	// create all needed directories
 	exitIfError(initPaths())
-	exitIfError(loadLocalConfig(opts.Config))
 
-	agent.StartBackgroundChecks(ctx, globalLogger)
+	// main manager structure
+	manager, err := agent.NewManager(ctx, globalLogger, opts.Config)
+	exitIfError(err)
+
+	// Check for self-update and restart if needed.
+	needRestart, err := manager.SelfUpdate(ctx, globalLogger)
+	if err != nil {
+		globalLogger.Error(err)
+	}
+	if needRestart {
+		return
+	}
+
+	manager.StartBackgroundChecks(ctx, globalLogger)
 
 	<-ctx.Done()
 
 	closeContext, cancelFunc := context.WithTimeout(context.Background(), time.Minute)
 	defer cancelFunc()
 
-	agent.CloseAll(closeContext, globalLogger)
+	manager.CloseAll(closeContext, globalLogger)
 
 	activeBackgroundWorkers.Wait()
 }
 
 func initPaths() error {
-	// TODO Walk all files for ownership/permissions
-
 	uid := os.Getuid()
 	for _, p := range agent.ViamDirs {
 		info, err := os.Stat(p)
@@ -103,29 +130,6 @@ func initPaths() error {
 	return nil
 }
 
-func loadLocalConfig(cfgPath string) error {
-	globalLogger.Debugw("loading", "config", cfgPath)
-	b, err := os.ReadFile(cfgPath)
-	exitIfError(err)
-
-	cfg := make(map[string]map[string]string)
-	exitIfError(json.Unmarshal(b, &cfg))
-
-	cloud, ok := cfg["cloud"]
-	if !ok {
-		exitIfError(errors.New("no cloud section in local config file"))
-	}
-
-	for _, req := range []string{"app_address", "id", "secret"} {
-		field, ok := cloud[req]
-		if !ok {
-			exitIfError(errors.Errorf("no cloud config field for %s", field))
-		}
-	}
-
-	return agent.Dial(context.TODO(), globalLogger, cloud["app_address"], cloud["id"], cloud["secret"])
-}
-
 func setupExitSignalHandling(ctx context.Context) context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 16)
@@ -154,10 +158,10 @@ func setupExitSignalHandling(ctx context.Context) context.Context {
 				fallthrough
 			case syscall.SIGTERM:
 				globalLogger.Info("exiting")
-				signal.Ignore(os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // SMURF keeping SIGQUIT for stack trace debugging
+				signal.Ignore(os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // keeping SIGQUIT for stack trace debugging
 				return
 
-			// this is handled elsewhere as a restart, not exit
+			// this will eventually be handled elsewhere as a restart, not exit
 			case syscall.SIGHUP:
 
 			// ignore SIGURG entirely, it's used for real-time scheduling notifications
@@ -170,8 +174,7 @@ func setupExitSignalHandling(ctx context.Context) context.Context {
 		}
 	}()
 
-	// TODO remove and handle ALL signals
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // SMURF SIGQUIT reserved for stack trace debugging
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT)
 	return ctx
 }
 

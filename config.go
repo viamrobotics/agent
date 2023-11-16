@@ -2,44 +2,44 @@ package agent
 
 import (
 	"context"
-	"encoding/hex"
 	"net/url"
 	"os"
 	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edaniels/golog"
-	"github.com/viamrobotics/agent/subsystems"
+	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/utils/rpc"
 )
 
-var (
-	client               pb.AgentDeviceServiceClient
-	partID               string
+const (
 	defaultCheckInterval = time.Second * 60
-
-	// mutex protected.
-	subsystemsMu     sync.Mutex
-	loadedSubsystems = map[string]subsystems.Subsystem{}
+	agentCachePath       = "agent_config.json"
 )
 
-func Dial(ctx context.Context, logger golog.Logger, addr, id, secret string) error {
-	u, err := url.Parse(addr)
+func (m *Manager) dial(ctx context.Context, logger golog.Logger) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.client != nil {
+		return nil
+	}
+
+	u, err := url.Parse(m.cloudAddr)
 	if err != nil {
 		return err
 	}
 
 	dialOpts := make([]rpc.DialOption, 0, 2)
 	// Only add credentials when secret is set.
-	if secret != "" {
-		dialOpts = append(dialOpts, rpc.WithEntityCredentials(id,
+	if m.cloudSecret != "" {
+		dialOpts = append(dialOpts, rpc.WithEntityCredentials(m.partID,
 			rpc.Credentials{
 				Type:    "robot-secret",
-				Payload: secret,
+				Payload: m.cloudSecret,
 			},
 		))
 	}
@@ -52,52 +52,40 @@ func Dial(ctx context.Context, logger golog.Logger, addr, id, secret string) err
 	if err != nil {
 		return err
 	}
-
-	client = pb.NewAgentDeviceServiceClient(conn)
-	partID = id
+	m.conn = conn
+	m.client = pb.NewAgentDeviceServiceClient(m.conn)
 	return nil
 }
 
-func GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
-	req := &pb.DeviceAgentConfigRequest{
-		Id:                partID,
-		HostInfo:          getHostInfo(),
-		SubsystemVersions: getSubsystemVersions(),
-	}
-	resp, err := client.DeviceAgentConfig(ctx, req)
+func (m *Manager) GetConfig(ctx context.Context, logger *zap.SugaredLogger) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
+	err := m.dial(ctx, logger)
 	if err != nil {
-		return nil, defaultCheckInterval, err
+		logger.Error(errors.Wrap(err, "error fetching viam-agent config"))
+		conf, err := m.getCachedConfig()
+		return conf, defaultCheckInterval, err
+	}
+
+	req := &pb.DeviceAgentConfigRequest{
+		Id:                m.partID,
+		HostInfo:          m.getHostInfo(),
+		SubsystemVersions: m.getSubsystemVersions(),
+	}
+	resp, err := m.client.DeviceAgentConfig(ctx, req)
+	if err != nil {
+		logger.Error(errors.Wrap(err, "error fetching viam-agent config"))
+		conf, err := m.getCachedConfig()
+		return conf, defaultCheckInterval, err
+	}
+
+	err = m.saveCachedConfig(resp.GetSubsystemConfigs())
+	if err != nil {
+		logger.Error(errors.Wrap(err, "error saving agent config to cache"))
 	}
 
 	return resp.GetSubsystemConfigs(), resp.GetCheckInterval().AsDuration(), nil
 }
 
-func GetTestConfig() (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
-	url := "https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.6.0-x86_64"
-	//nolint:errcheck
-	// v0.3.0 sha, _ := hex.DecodeString("0f362a74cfcb5e18158af7342ac7a9fc053b75a19065550b111b1756f5631eed")
-	sha, _ := hex.DecodeString("12112b05cc50045add9fba432992e0bb283e48659e048dcea1a9ba3d55149195")
-	
-
-	cfgs := map[string]*pb.DeviceSubsystemConfig{
-		"viam-agent": {},
-		"viam-server": {
-			UpdateInfo: &pb.SubsystemUpdateInfo{
-				Filename: "viam-server",
-				Url:      url,
-				Version:  "0.6.0",
-				Sha256:   sha,
-				Format:   pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE,
-			},
-			Disable:      false,
-			ForceRestart: false,
-		},
-	}
-
-	return cfgs, defaultCheckInterval, nil
-}
-
-func getHostInfo() *pb.HostInfo {
+func (m *Manager) getHostInfo() *pb.HostInfo {
 	pbInfo := &pb.HostInfo{Platform: runtime.GOOS + "/" + runtime.GOARCH}
 	info, err := os.ReadFile("/etc/os-release")
 	if err != nil {
@@ -139,7 +127,12 @@ func getHostInfo() *pb.HostInfo {
 	return pbInfo
 }
 
-func getSubsystemVersions() map[string]string {
-	vers := map[string]string{}
+func (m *Manager) getSubsystemVersions() map[string]string {
+	m.subsystemsMu.Lock()
+	defer m.subsystemsMu.Unlock()
+	vers := make(map[string]string)
+	for name, sys := range m.loadedSubsystems {
+		vers[name] = sys.Version()
+	}
 	return vers
 }

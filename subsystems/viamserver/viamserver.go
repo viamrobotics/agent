@@ -24,9 +24,11 @@ func init() {
 }
 
 const (
-	startStopTimeout = time.Second * 30
+	startStopTimeout = time.Second * 120
 	subsysName       = "viam-server"
 )
+
+var ConfigFilePath = "/etc/viam.json"
 
 type viamServer struct {
 	mu       sync.Mutex
@@ -50,7 +52,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stdio := &MatchingLogger{logger: s.logger}
 	stderr := &MatchingLogger{logger: s.logger, defaultError: true}
 
-	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], subsysName), "-config", path.Join(agent.ViamDirs["etc"], "viam.json"))
+	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], subsysName), "-config", ConfigFilePath)
 	s.cmd.Dir = agent.ViamDirs["viam"]
 	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	s.cmd.Stdout = stdio

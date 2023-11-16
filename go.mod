@@ -3,13 +3,11 @@ module github.com/viamrobotics/agent
 go 1.20
 
 require (
-	github.com/Masterminds/semver v1.5.0
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0
 	github.com/jessevdk/go-flags v1.5.0
 	go.uber.org/zap v1.26.0
 	go.viam.com/api v0.1.217
 	go.viam.com/utils v0.1.52
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -78,6 +76,7 @@ require (
 	google.golang.org/grpc v1.59.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	nhooyr.io/websocket v1.8.9 // indirect
 )
 
