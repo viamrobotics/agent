@@ -59,7 +59,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.cmd.Stderr = stderr
 
 	// watch for this line in the logs to indicate successful startup
-	c, err := stdio.AddMatcher("checkURL", regexp.MustCompile(`serving\W*{"url": "(https?://[\w\.:-]+)".*}`))
+	c, err := stdio.AddMatcher("checkURL", regexp.MustCompile(`serving\W*{"url":\W*"(https?://[\w\.:-]+)".*}`))
 	if err != nil {
 		return err
 	}

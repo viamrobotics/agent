@@ -25,9 +25,7 @@ func init() {
 	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
-
-	// use the system directory for this
-	ViamDirs["etc"] = "/etc/"
+	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
 }
 
 func DownloadFile(ctx context.Context, url string) (filename string, errRet error) {

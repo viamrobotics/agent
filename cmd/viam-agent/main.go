@@ -4,16 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
-	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
@@ -56,6 +55,12 @@ func main() {
 		return
 	}
 
+	// tie the manager config to the viam-server config
+	absPath, err := filepath.Abs(opts.Config)
+	exitIfError(err)
+	viamserver.ConfigFilePath = absPath
+	globalLogger.Infof("config file path: %s", absPath)
+
 	if opts.Install {
 		err := viamagent.Install()
 		if err != nil {
@@ -67,12 +72,6 @@ func main() {
 	if opts.Debug {
 		globalLogger = golog.NewDebugLogger("viam-agent")
 	}
-
-	// tie the manager config to the viam-server config
-	viamserver.ConfigFilePath = opts.Config
-
-	// create all needed directories
-	exitIfError(initPaths())
 
 	// main manager structure
 	manager, err := agent.NewManager(ctx, globalLogger, opts.Config)
@@ -97,37 +96,6 @@ func main() {
 	manager.CloseAll(closeContext, globalLogger)
 
 	activeBackgroundWorkers.Wait()
-}
-
-func initPaths() error {
-	uid := os.Getuid()
-	for _, p := range agent.ViamDirs {
-		info, err := os.Stat(p)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				if err := os.MkdirAll(p, 0o755); err != nil {
-					return err
-				}
-				continue
-			}
-			return err
-		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			// should be impossible on Linux
-			return errors.New("cannot convert to syscall.Stat_t")
-		}
-		if uid != int(stat.Uid) {
-			return errors.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
-		}
-		if !info.IsDir() {
-			return errors.Errorf("%s should be a directory, but is not", p)
-		}
-		if info.Mode().Perm() != 0o755 {
-			return errors.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
-		}
-	}
-	return nil
 }
 
 func setupExitSignalHandling(ctx context.Context) context.Context {

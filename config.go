@@ -77,12 +77,21 @@ func (m *Manager) GetConfig(ctx context.Context, logger *zap.SugaredLogger) (map
 		return conf, defaultCheckInterval, err
 	}
 
+	logger.Debugf("SMURF cloud response %+v", resp)
+
 	err = m.saveCachedConfig(resp.GetSubsystemConfigs())
 	if err != nil {
 		logger.Error(errors.Wrap(err, "error saving agent config to cache"))
 	}
 
-	return resp.GetSubsystemConfigs(), resp.GetCheckInterval().AsDuration(), nil
+	interval := resp.GetCheckInterval().AsDuration()
+
+	// SMURF TODO this needs to be fixed on the App side
+	if interval < defaultCheckInterval {
+		interval = defaultCheckInterval
+	}
+
+	return resp.GetSubsystemConfigs(), interval, nil
 }
 
 func (m *Manager) getHostInfo() *pb.HostInfo {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
@@ -87,9 +88,21 @@ func GetRevision() string {
 }
 
 func Install() error {
+	// Create/check required folder structure exists.
+	if err := initPaths(); err != nil {
+		return err
+	}
+
+	// Check for systemd
+	cmd := exec.Command("systemctl", "whoami")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errors.Wrapf(err, "problem running 'systemctl whoami' Is systemd installed? Output: %s", output)
+	}
+
 	// If this is a brand new install, we want to copy ourselves into place temporarily.
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
-	_, err := os.Stat(expectedPath)
+	_, err = os.Stat(expectedPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		curPath, err := os.Executable()
 		if err != nil {
@@ -102,17 +115,48 @@ func Install() error {
 		return errors.Wrapf(err, "unable to write systemd service file %s", serviceFilePath)
 	}
 
-	cmd := exec.Command("systemctl", "daemon-reload")
-	output, err := cmd.CombinedOutput()
+	cmd = exec.Command("systemctl", "daemon-reload")
+	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return errors.Wrapf(err, "problem running 'systemctl daemon-reload' output: %s", output)
 	}
 
-	cmd = exec.Command("systemctl", "enable --now viam-server")
+	cmd = exec.Command("systemctl", "enable", "viam-agent")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		return errors.Wrapf(err, "problem running 'systemctl enable --now viam-agent' output: %s", output)
+		return errors.Wrapf(err, "problem running 'systemctl enable viam-agent' output: %s", output)
 	}
 
+	return nil
+}
+
+func initPaths() error {
+	uid := os.Getuid()
+	for _, p := range agent.ViamDirs {
+		info, err := os.Stat(p)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				if err := os.MkdirAll(p, 0o755); err != nil {
+					return err
+				}
+				continue
+			}
+			return err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			// should be impossible on Linux
+			return errors.New("cannot convert to syscall.Stat_t")
+		}
+		if uid != int(stat.Uid) {
+			return errors.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
+		}
+		if !info.IsDir() {
+			return errors.Errorf("%s should be a directory, but is not", p)
+		}
+		if info.Mode().Perm() != 0o755 {
+			return errors.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
+		}
+	}
 	return nil
 }

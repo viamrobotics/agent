@@ -36,13 +36,13 @@ func NewManager(ctx context.Context, logger *zap.SugaredLogger, cfgPath string) 
 	logger.Debugw("loading", "config", cfgPath)
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "error reading config file")
 	}
 
 	cfg := make(map[string]map[string]string)
 	err = json.Unmarshal(b, &cfg)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "error parsing config file")
 	}
 
 	cloud, ok := cfg["cloud"]
@@ -57,7 +57,12 @@ func NewManager(ctx context.Context, logger *zap.SugaredLogger, cfgPath string) 
 		}
 	}
 
-	manager := &Manager{cloudAddr: cloud["app_address"], partID: cloud["id"], cloudSecret: cloud["secret"]}
+	manager := &Manager{
+		cloudAddr: cloud["app_address"],
+		partID: cloud["id"],
+		cloudSecret: cloud["secret"],
+		loadedSubsystems: make(map[string]subsystems.Subsystem),
+	}
 
 	return manager, manager.LoadSubsystems(ctx, logger)
 }
@@ -214,7 +219,9 @@ func (m *Manager) LoadSubsystems(ctx context.Context, logger *zap.SugaredLogger)
 
 	cachedConfig, err := m.getCachedConfig()
 	if err != nil {
-		return err
+		// there may be no previous config that WAS cached, so continue despite this
+		logger.Error(errors.Wrap(err, "error getting cached config"))
+		return nil
 	}
 
 	for name, subsys := range cachedConfig {
@@ -242,18 +249,19 @@ func (m *Manager) loadSubsystem(ctx context.Context, logger *zap.SugaredLogger, 
 }
 
 func (m *Manager) getCachedConfig() (map[string]*pb.DeviceSubsystemConfig, error) {
+	cachedConfig := make(map[string]*pb.DeviceSubsystemConfig)
 	cacheFilePath := filepath.Join(ViamDirs["cache"], agentCachePath)
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+		if errors.Is(err, fs.ErrNotExist) {
+			return cachedConfig, nil
 		}
+		return nil, errors.Wrap(err, "error reading cached config")
 	}
 
-	cachedConfig := make(map[string]*pb.DeviceSubsystemConfig)
 	err = json.Unmarshal(cacheBytes, &cachedConfig)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "error parsing cached config")
 	}
 	return cachedConfig, nil
 }
