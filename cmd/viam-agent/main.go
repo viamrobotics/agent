@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
+	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
@@ -55,11 +58,17 @@ func main() {
 		return
 	}
 
-	// tie the manager config to the viam-server config
-	absPath, err := filepath.Abs(opts.Config)
+	if opts.Debug {
+		globalLogger = golog.NewDebugLogger("viam-agent")
+	}
+
+	// need to be root to go any further than this
+	curUser, err := user.Current()
 	exitIfError(err)
-	viamserver.ConfigFilePath = absPath
-	globalLogger.Infof("config file path: %s", absPath)
+	if curUser.Uid != "0" {
+		fmt.Printf("viam-agent must be run as root (uid 0), but current user is %s (uid %s)\n", curUser.Username, curUser.Uid)
+		return
+	}
 
 	if opts.Install {
 		err := viamagent.Install()
@@ -69,12 +78,28 @@ func main() {
 		return
 	}
 
-	if opts.Debug {
-		globalLogger = golog.NewDebugLogger("viam-agent")
+	// confirm that we're running from a proper install
+	curPath, err := os.Executable()
+	exitIfError(err)
+	if !strings.HasPrefix(curPath, agent.ViamDirs["viam"]) {
+		fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n" +
+			"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n" +
+			"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
+			agent.ViamDirs["viam"], curPath)
+		return
 	}
 
+	// tie the manager config to the viam-server config
+	absConfigPath, err := filepath.Abs(opts.Config)
+	exitIfError(err)
+	_, err = os.Stat(absConfigPath)
+	exitIfError(errors.Wrap(err, "checking for config file"))
+
+	viamserver.ConfigFilePath = absConfigPath
+	globalLogger.Infof("config file path: %s", absConfigPath)
+
 	// main manager structure
-	manager, err := agent.NewManager(ctx, globalLogger, opts.Config)
+	manager, err := agent.NewManager(ctx, globalLogger, absConfigPath)
 	exitIfError(err)
 
 	// Check for self-update and restart if needed.

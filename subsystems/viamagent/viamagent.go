@@ -3,6 +3,7 @@ package viamagent
 import (
 	"context"
 	_ "embed"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ func init() {
 
 const (
 	subsysName      = "viam-agent"
+	serviceFileDir  = "/etc/systemd/system"
 	serviceFilePath = "/etc/systemd/system/viam-agent.service"
 )
 
@@ -94,10 +96,12 @@ func Install() error {
 	}
 
 	// Check for systemd
-	cmd := exec.Command("systemctl", "whoami")
-	output, err := cmd.CombinedOutput()
+	_, err := os.Stat(serviceFileDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return errors.Wrapf(err, "can only install on systems using systemd, but %s is missing", serviceFileDir)
+	}
 	if err != nil {
-		return errors.Wrapf(err, "problem running 'systemctl whoami' Is systemd installed? Output: %s", output)
+		return errors.Wrapf(err, "error getting info for %s", serviceFileDir)
 	}
 
 	// If this is a brand new install, we want to copy ourselves into place temporarily.
@@ -108,15 +112,21 @@ func Install() error {
 		if err != nil {
 			return errors.Wrap(err, "cannot get path to self")
 		}
-		os.Rename(curPath, expectedPath)
+		if err := os.Rename(curPath, expectedPath); err != nil {
+			return errors.Wrapf(err, "cannot install binary to %s", expectedPath)
+		}
+
+		if err := os.Chmod(expectedPath, 0o755); err != nil {
+			return errors.Wrapf(err, "cannot set permissiosn on %s", expectedPath)
+		}
 	}
 
 	if err := os.WriteFile(serviceFilePath, serviceFileContents, 0o644); err != nil {
 		return errors.Wrapf(err, "unable to write systemd service file %s", serviceFilePath)
 	}
 
-	cmd = exec.Command("systemctl", "daemon-reload")
-	output, err = cmd.CombinedOutput()
+	cmd := exec.Command("systemctl", "daemon-reload")
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errors.Wrapf(err, "problem running 'systemctl daemon-reload' output: %s", output)
 	}
@@ -126,6 +136,17 @@ func Install() error {
 	if err != nil {
 		return errors.Wrapf(err, "problem running 'systemctl enable viam-agent' output: %s", output)
 	}
+
+	_, err = os.Stat("/etc/viam.json")
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			fmt.Println("No config file found at /etc/viam.json, please install one before running viam-agent service.")
+		}else{
+			return errors.Wrap(err, "error reading /etc/viam.json")
+		}
+	}
+
+	fmt.Println("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
 
 	return nil
 }

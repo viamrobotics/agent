@@ -68,7 +68,12 @@ func NewManager(ctx context.Context, logger *zap.SugaredLogger, cfgPath string) 
 }
 
 func (m *Manager) SelfUpdate(ctx context.Context, logger *zap.SugaredLogger) (bool, error) {
-	subsys := m.loadedSubsystems["viam-agent"]
+	m.subsystemsMu.Lock()
+	subsys, ok := m.loadedSubsystems["viam-agent"]
+	if !ok {
+		logger.Warn("cannot load viam-agent subsystem")
+	}
+	m.subsystemsMu.Unlock()
 	cfgMap, _, err := m.GetConfig(ctx, logger)
 	if err != nil {
 		return false, err
@@ -219,9 +224,7 @@ func (m *Manager) LoadSubsystems(ctx context.Context, logger *zap.SugaredLogger)
 
 	cachedConfig, err := m.getCachedConfig()
 	if err != nil {
-		// there may be no previous config that WAS cached, so continue despite this
 		logger.Error(errors.Wrap(err, "error getting cached config"))
-		return nil
 	}
 
 	for name, subsys := range cachedConfig {
@@ -249,7 +252,9 @@ func (m *Manager) loadSubsystem(ctx context.Context, logger *zap.SugaredLogger, 
 }
 
 func (m *Manager) getCachedConfig() (map[string]*pb.DeviceSubsystemConfig, error) {
-	cachedConfig := make(map[string]*pb.DeviceSubsystemConfig)
+	// return a bare-minimum for self-update on new installs or for fallback	
+	cachedConfig := map[string]*pb.DeviceSubsystemConfig{"viam-agent": {}}
+
 	cacheFilePath := filepath.Join(ViamDirs["cache"], agentCachePath)
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
