@@ -89,7 +89,7 @@ func GetRevision() string {
 	return GitRevision
 }
 
-func Install() error {
+func Install(logger *zap.SugaredLogger) error {
 	// Create/check required folder structure exists.
 	if err := initPaths(); err != nil {
 		return err
@@ -106,25 +106,32 @@ func Install() error {
 
 	// If this is a brand new install, we want to copy ourselves into place temporarily.
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
-	_, err = os.Stat(expectedPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		curPath, err := os.Executable()
-		if err != nil {
-			return errors.Wrap(err, "cannot get path to self")
-		}
-		if err := os.Rename(curPath, expectedPath); err != nil {
-			return errors.Wrapf(err, "cannot install binary to %s", expectedPath)
-		}
+	curPath, err := os.Executable()
+	if err != nil {
+		return errors.Wrap(err, "cannot get path to self")
+	}
 
-		if err := os.Chmod(expectedPath, 0o755); err != nil {
-			return errors.Wrapf(err, "cannot set permissiosn on %s", expectedPath)
+	isSelf, err := checkIfSame(curPath, expectedPath)
+	if err != nil {
+		return errors.Wrap(err, "error checking if installed viam-agent is myself")
+	}
+
+	if !isSelf {
+		logger.Infof("adding a symlink to %s at %s", curPath, expectedPath)
+		if err := os.Remove(expectedPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return errors.Wrapf(err, "cannot remove symlink/file at %s", expectedPath)
+		}
+		if err := os.Symlink(curPath, expectedPath); err != nil {
+			return errors.Wrapf(err, "cannot install symlink at %s", expectedPath)
 		}
 	}
 
+	logger.Infof("writing systemd service file to %s", serviceFilePath)
 	if err := os.WriteFile(serviceFilePath, serviceFileContents, 0o644); err != nil {
 		return errors.Wrapf(err, "unable to write systemd service file %s", serviceFilePath)
 	}
 
+	logger.Infof("enabling systemd viam-agent service")
 	cmd := exec.Command("systemctl", "daemon-reload")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -180,4 +187,37 @@ func initPaths() error {
 		}
 	}
 	return nil
+}
+
+func checkIfSame(path1, path2 string) (bool, error) {
+	curPath, err := filepath.EvalSymlinks(path1)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrapf(err, "cannot evaluate symlinks pointing to %s", path1)
+	}
+
+	stat1, err := os.Stat(curPath)
+	if err != nil {
+		return false, errors.Wrapf(err, "cannot stat %s", curPath)
+	}
+
+	realPath, err := filepath.EvalSymlinks(path2)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrapf(err, "cannot evaluate symlinks pointing to %s", path2)
+	}
+
+	stat2, err := os.Stat(realPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrapf(err, "cannot stat %s", realPath)
+	}
+
+	return os.SameFile(stat1, stat2), nil
 }

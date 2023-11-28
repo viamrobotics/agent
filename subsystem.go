@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+    "encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -240,7 +241,11 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	}
 	verData.UnpackedSHA = shasum
 	if !bytes.Equal(shasum, updateInfo.GetSha256()) {
-		return needRestart, fmt.Errorf("sha256 of downloaded file (%x) does not match config (%x)", shasum, updateInfo.GetSha256())
+		return needRestart, fmt.Errorf(
+			"sha256 of downloaded file (%s) does not match config (%s)",
+			base64.StdEncoding.EncodeToString(shasum),
+			base64.StdEncoding.EncodeToString(updateInfo.GetSha256()),
+		)
 	}
 
 	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE || updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {

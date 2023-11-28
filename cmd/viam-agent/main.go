@@ -33,7 +33,7 @@ func main() {
 
 	var opts struct {
 		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
-		Debug   bool   `description:"enable debug logging (for agent only)" long:"debug"                      short:"d"`
+		Debug   bool   `description:"Enable debug logging (for agent only)" long:"debug"                      short:"d"`
 		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
 		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
 		Install bool   `description:"Install systemd service"               long:"install"`
@@ -71,22 +71,22 @@ func main() {
 	}
 
 	if opts.Install {
-		err := viamagent.Install()
+		err := viamagent.Install(globalLogger)
 		if err != nil {
 			globalLogger.Error(err)
 		}
 		return
 	}
 
-	// confirm that we're running from a proper install
-	curPath, err := os.Executable()
-	exitIfError(err)
-	if !strings.HasPrefix(curPath, agent.ViamDirs["viam"]) {
-		fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n" +
-			"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n" +
-			"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
-			agent.ViamDirs["viam"], curPath)
-		return
+	if os.Getenv("VIAM_AGENT_DEVMODE") == "" {
+		// confirm that we're running from a proper install
+		if !strings.HasPrefix(os.Args[0], agent.ViamDirs["viam"]) {
+			fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n" +
+				"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n" +
+				"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
+				agent.ViamDirs["viam"], os.Args[0])
+			return
+		}
 	}
 
 	// tie the manager config to the viam-server config
@@ -108,6 +108,7 @@ func main() {
 		globalLogger.Error(err)
 	}
 	if needRestart {
+		globalLogger.Info("updated self, exiting to await restart with new version")
 		return
 	}
 

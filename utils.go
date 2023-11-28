@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -28,8 +29,13 @@ func init() {
 	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
 }
 
-func DownloadFile(ctx context.Context, url string) (filename string, errRet error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func DownloadFile(ctx context.Context, rawURL string) (filename string, errRet error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		return "", errors.Wrap(err, "checking viam-server status")
 	}
@@ -64,7 +70,7 @@ func DownloadFile(ctx context.Context, url string) (filename string, errRet erro
 		errRet = multierr.Combine(errRet, err)
 	}
 
-	filename = filepath.Join(ViamDirs["cache"], path.Base(url))
+	filename = filepath.Join(ViamDirs["cache"], path.Base(parsedURL.Path))
 	return filename, os.Rename(out.Name(), filename)
 }
 
