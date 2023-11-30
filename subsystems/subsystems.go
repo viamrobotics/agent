@@ -1,3 +1,4 @@
+// Package subsystems defines the subsystem interface.
 package subsystems
 
 import (

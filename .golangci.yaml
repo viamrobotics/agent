@@ -1,5 +1,5 @@
 service:
-  golangci-lint-version: 1.53.x
+  golangci-lint-version: 1.55.x
 run:
   deadline: 30s
   modules-download-mode: readonly
@@ -15,37 +15,59 @@ linters:
     - exhaustruct
     - godox
     - gochecknoglobals
+    - gochecknoinits
     - golint
     - gomnd
+    - forbidigo
+    - funlen
     - ifshort
     - interfacer
+    - ireturn
     - maligned
     - nlreturn
+    - nonamedreturns
     - nosnakecase
     - scopelint
     - structcheck
     - varcheck
+    - varnamelen
     - wsl
     # TODO remove temporary disables for dev
     - revive
     - gomoddirectives
+    - wrapcheck
 linters-settings:
   errcheck:
     check-blank: true
   gofumpt:
     lang-version: "1.20"
     extra-rules: true
+  gosec:
+    excludes:
+      - G204
+      - G301
+      - G302
+      - G304
+      - G306
   govet:
     enable-all: true
     disable:
       - fieldalignment
+      - shadow
   lll:
     line-length: 140
+  tagliatelle:
+    case:
+      rules:
+        json: snake
+        bson: snake
 issues:
   exclude-rules:
     - path: /doc.go$
       linters:
         - lll
+  exclude:
+    - 'declaration of "(err|ctx)" shadows declaration at'
   exclude-use-default: false
   max-per-linter: 0
   max-same-issues: 0

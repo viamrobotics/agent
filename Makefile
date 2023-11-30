@@ -1,3 +1,4 @@
+GOOS ?= "linux"
 GOARCH ?= $(shell go env GOARCH)
 ifeq ($(GOARCH),amd64)
 LINUX_ARCH = x86_64
@@ -19,22 +20,26 @@ TAGS = osusergo,netgo
 
 .DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH)
 
+.PHONY: all
+all: amd64 arm64
+
+.PHONY: arm64
+arm64:
+	make GOARCH=arm64
+
+.PHONY: amd64
+amd64:
+	make GOARCH=amd64
+
 bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go subsystems/viamagent/*.service
 	go build -o $@ -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
-
-bin/viam-agent.xz: bin/viam-agent
-	xz -vkf bin/viam-agent
-
-.PHONY: upx
-upx: bin/viam-agent
-	upx --best --lzma bin/viam-agent
 
 .PHONY: clean
 clean:
 	rm -rf bin/
 
 bin/golangci-lint:
-	GOBIN=`pwd`/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	GOBIN=`pwd`/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
 
 .PHONY: lint
 lint: bin/golangci-lint

@@ -53,9 +53,12 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 	// filter out already-timestamped logging from stdout
 	dateRegex := regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
 	if dateRegex.Match(p) {
-		os.Stdout.Write(p)
+		n, err := os.Stdout.Write(p)
+		if err != nil {
+			return n, err
+		}
 	} else {
-		lines := strings.Replace(strings.TrimSpace(string(p)), "\n", "\n\t", -1)
+		lines := strings.ReplaceAll(strings.TrimSpace(string(p)), "\n", "\n\t")
 		if l.defaultError {
 			l.logger.Error(fmt.Sprintf("unstructured error output:\n\t%s", lines))
 		} else {

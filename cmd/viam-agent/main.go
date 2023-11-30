@@ -29,7 +29,7 @@ var (
 )
 
 func main() {
-	ctx := setupExitSignalHandling(context.Background())
+	ctx := setupExitSignalHandling()
 
 	var opts struct {
 		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
@@ -81,8 +81,8 @@ func main() {
 	if os.Getenv("VIAM_AGENT_DEVMODE") == "" {
 		// confirm that we're running from a proper install
 		if !strings.HasPrefix(os.Args[0], agent.ViamDirs["viam"]) {
-			fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n" +
-				"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n" +
+			fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n"+
+				"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n"+
 				"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
 				agent.ViamDirs["viam"], os.Args[0])
 			return
@@ -124,7 +124,7 @@ func main() {
 	activeBackgroundWorkers.Wait()
 }
 
-func setupExitSignalHandling(ctx context.Context) context.Context {
+func setupExitSignalHandling() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 16)
 	activeBackgroundWorkers.Add(1)

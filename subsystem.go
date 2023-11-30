@@ -3,7 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
-    "encoding/base64"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -22,6 +22,7 @@ const (
 	ShortFailTime = time.Second * 30
 )
 
+// BasicSubsystem is the minimal interface.
 type BasicSubsystem interface {
 	// Start runs the subsystem
 	Start(ctx context.Context) error
@@ -33,10 +34,12 @@ type BasicSubsystem interface {
 	HealthCheck(ctx context.Context) error
 }
 
+// updatable is if a wrapped subsystem has it's own (additional) update code to run.
 type updatable interface {
 	Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error)
 }
 
+// AgentSubsystem is a wrapper for the real subsystems, mostly allowing sharing of download/update code.
 type AgentSubsystem struct {
 	mu        sync.Mutex
 	CacheData *CacheData
@@ -48,12 +51,14 @@ type AgentSubsystem struct {
 	inner  BasicSubsystem
 }
 
+// CacheData stores VersionInfo and the current/previous versions for (TODO) rollback.
 type CacheData struct {
-	CurVersion  string
-	PrevVersion string
-	Versions    map[string]*VersionInfo
+	CurrentVersion  string                  `json:"current_version"`
+	PreviousVersion string                  `json:"previous_version"`
+	Versions        map[string]*VersionInfo `json:"versions"`
 }
 
+// VersionInfo records details about each version of a subsystem.
 type VersionInfo struct {
 	Version        string
 	DlPath         string
@@ -67,15 +72,17 @@ type VersionInfo struct {
 	ShortFailCount uint
 }
 
+// Version returns the running version.
 func (s *AgentSubsystem) Version() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.CacheData != nil {
-		return s.CacheData.CurVersion
+		return s.CacheData.CurrentVersion
 	}
 	return ""
 }
 
+// Start starts the subsystem.
 func (s *AgentSubsystem) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,20 +91,21 @@ func (s *AgentSubsystem) Start(ctx context.Context) error {
 		return nil
 	}
 
-	info, ok := s.CacheData.Versions[s.CacheData.CurVersion]
+	info, ok := s.CacheData.Versions[s.CacheData.CurrentVersion]
 	if !ok {
-		return errors.Errorf("cache info not found for %s, version: %s", s.name, s.CacheData.CurVersion)
+		return errors.Errorf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
 	}
 	info.StartCount++
 	start := time.Now()
 	s.startTime = &start
-	err := s.saveCache(ctx)
+	err := s.saveCache()
 	if err != nil {
 		return err
 	}
 	return s.inner.Start(ctx)
 }
 
+// Stop stops the subsystem.
 func (s *AgentSubsystem) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,6 +113,7 @@ func (s *AgentSubsystem) Stop(ctx context.Context) error {
 	return s.inner.Stop(ctx)
 }
 
+// HealthCheck calls the inner subsystem's HealthCheck() to verify, and logs failures/successes.
 func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,11 +122,11 @@ func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 		if s.startTime == nil {
 			return err
 		}
-		failTime := time.Now().Sub(*s.startTime)
+		failTime := time.Since(*s.startTime)
 
-		info, ok := s.CacheData.Versions[s.CacheData.CurVersion]
+		info, ok := s.CacheData.Versions[s.CacheData.CurrentVersion]
 		if !ok {
-			return errors.Wrapf(err, "cache info not found for %s, version: %s", s.name, s.CacheData.CurVersion)
+			return errors.Wrapf(err, "cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
 		}
 
 		if failTime <= ShortFailTime {
@@ -129,12 +138,13 @@ func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 
 		// TODO if shortfails exceed a threshold, revert to previous version.
 
-		return s.saveCache(ctx)
+		return s.saveCache()
 	}
 
 	return nil
 }
 
+// NewAgentSubsystem returns a new wrapped subsystem.
 func NewAgentSubsystem(
 	ctx context.Context,
 	name string,
@@ -142,14 +152,15 @@ func NewAgentSubsystem(
 	subsys BasicSubsystem,
 ) (*AgentSubsystem, error) {
 	sub := &AgentSubsystem{name: name, logger: logger, inner: subsys}
-	err := sub.LoadCache(ctx)
+	err := sub.LoadCache()
 	if err != nil {
 		return nil, err
 	}
 	return sub, nil
 }
 
-func (s *AgentSubsystem) LoadCache(ctx context.Context) error {
+// LoadCache loads the cached data for the subsystem from disk.
+func (s *AgentSubsystem) LoadCache() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -172,7 +183,8 @@ func (s *AgentSubsystem) LoadCache(ctx context.Context) error {
 	return nil
 }
 
-func (s *AgentSubsystem) saveCache(ctx context.Context) error {
+// saveCache should only be run when protected by mutex locks. Use SaveCache() for normal use.
+func (s *AgentSubsystem) saveCache() error {
 	cacheFilePath := filepath.Join(ViamDirs["cache"], fmt.Sprintf("%s.json", s.name))
 
 	cacheData, err := json.Marshal(s.CacheData)
@@ -183,107 +195,130 @@ func (s *AgentSubsystem) saveCache(ctx context.Context) error {
 	return os.WriteFile(cacheFilePath, cacheData, 0o644)
 }
 
-func (s *AgentSubsystem) SaveCache(ctx context.Context) error {
+// SaveCache saves the cached data to disk.
+func (s *AgentSubsystem) SaveCache() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.saveCache(ctx)
+	return s.saveCache()
 }
 
+// Update is the main function of the AgentSubsystem wrapper, as it's shared between subsystems. Returns true if a restart is needed.
+//
+//nolint:gocognit
 func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var needRestart bool
 
-	s.disable = cfg.GetDisable()
-	if s.disable {
+	if s.disable != cfg.GetDisable() {
+		s.disable = cfg.GetDisable()
 		needRestart = true
 	}
 
 	updateInfo := cfg.GetUpdateInfo()
-	if s.CacheData.CurVersion == updateInfo.GetVersion() {
-		shasum, err := GetFileSum(path.Join(ViamDirs["bin"], updateInfo.GetFilename()))
+
+	// check if we already have the version given by the cloud
+	verData, ok := s.CacheData.Versions[updateInfo.GetVersion()]
+	//nolint:nestif
+	if ok && s.CacheData.CurrentVersion == updateInfo.GetVersion() {
+		// if a known version, make sure the symlink is correct
+		same, err := CheckIfSame(verData.DlPath, verData.SymlinkPath)
+		if err != nil {
+			return needRestart, err
+		}
+		if !same {
+			if err := ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
+				return needRestart, err
+			}
+		}
+
+		// check for matching shasum
+		shasum, err := GetFileSum(verData.UnpackedPath)
 		if err == nil && bytes.Equal(shasum, updateInfo.GetSha256()) {
 			return needRestart, nil
 		}
 	}
 
-	verData, ok := s.CacheData.Versions[updateInfo.GetVersion()]
+	// this is a new version, so instantiate the basics
 	if !ok {
 		verData = &VersionInfo{Version: updateInfo.GetVersion()}
 		s.CacheData.Versions[updateInfo.GetVersion()] = verData
 	}
 
-	dlpath, err := DownloadFile(ctx, updateInfo.GetUrl())
+	// download and record the sha of the download itself
+	var err error
+	verData.DlPath, err = DownloadFile(ctx, updateInfo.GetUrl())
 	if err != nil {
 		return needRestart, errors.Wrapf(err, "downloading %s subsystem", s.name)
 	}
-	verData.DlPath = dlpath
-	dlsha, err := GetFileSum(dlpath)
+	verData.DlSHA, err = GetFileSum(verData.DlPath)
 	if err != nil {
 		return needRestart, errors.Wrap(err, "getting file shasum")
 	}
-	verData.DlSHA = dlsha
 
-	extractedfile := dlpath
-	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ || updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
-		extractedfile, err = DecompressFile(dlpath)
+	// extract and verify sha of contents if it's a compressed file
+	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ ||
+		updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
+		verData.UnpackedPath, err = DecompressFile(verData.DlPath)
 		if err != nil {
 			return needRestart, errors.Wrapf(err, "decompressing %s subsystem", s.name)
 		}
-		verData.UnpackedPath = extractedfile
+	} else {
+		verData.UnpackedPath = verData.DlPath
 	}
 
-	shasum, err := GetFileSum(extractedfile)
+	shasum, err := GetFileSum(verData.UnpackedPath)
 	if err != nil {
 		return needRestart, errors.Wrap(err, "getting file shasum")
 	}
 	verData.UnpackedSHA = shasum
 	if !bytes.Equal(shasum, updateInfo.GetSha256()) {
+		//nolint:goerr113
 		return needRestart, fmt.Errorf(
-			"sha256 of downloaded file (%s) does not match config (%s)",
+			"sha256 (%s) of downloaded file (%s) does not match config (%s)",
 			base64.StdEncoding.EncodeToString(shasum),
+			verData.UnpackedPath,
 			base64.StdEncoding.EncodeToString(updateInfo.GetSha256()),
 		)
 	}
 
-	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE || updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
-		if err := os.Chmod(extractedfile, 0o755); err != nil {
+	// chmod with execute permissions if the file is executable
+	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE ||
+		updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
+		if err := os.Chmod(verData.UnpackedPath, 0o755); err != nil {
 			return needRestart, err
 		}
 	} else {
-		if err := os.Chmod(extractedfile, 0o644); err != nil {
+		if err := os.Chmod(verData.UnpackedPath, 0o644); err != nil {
 			return needRestart, err
 		}
 	}
 
-	symlinkPath := path.Join(ViamDirs["bin"], updateInfo.GetFilename())
-
-	err = os.Remove(symlinkPath)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return needRestart, errors.Wrap(err, "removing old symlink")
+	// symlink the extracted file to bin
+	verData.SymlinkPath = path.Join(ViamDirs["bin"], updateInfo.GetFilename())
+	if err = ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
+		return needRestart, errors.Wrap(err, "creating symlink")
 	}
 
-	err = os.Symlink(extractedfile, symlinkPath)
-	if err != nil {
-		return needRestart, errors.Wrap(err, "symlinking extracted file")
+	// update current and previous versions
+	if s.CacheData.CurrentVersion != s.CacheData.PreviousVersion {
+		s.CacheData.PreviousVersion = s.CacheData.CurrentVersion
 	}
-	verData.SymlinkPath = symlinkPath
-
-	if s.CacheData.CurVersion != s.CacheData.PrevVersion {
-		s.CacheData.PrevVersion = s.CacheData.CurVersion
-	}
-	s.CacheData.CurVersion = updateInfo.GetVersion()
+	s.CacheData.CurrentVersion = updateInfo.GetVersion()
 	verData.Installed = time.Now()
 
+	// if we made it here we performed an update and need to restart
 	needRestart = true
 
-	err = s.saveCache(ctx)
+	// record the cache
+	err = s.saveCache()
 	if err != nil {
 		return needRestart, err
 	}
 
+	// if the subsystem has it's own additional update code, run it
 	inner, ok := s.inner.(updatable)
 	if ok {
 		return inner.Update(ctx, cfg)

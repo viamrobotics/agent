@@ -3,6 +3,7 @@ package viamserver
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os/exec"
 	"path"
@@ -11,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pkg/errors"
+	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
@@ -47,7 +48,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	if s.running {
 		return nil
 	}
-	s.logger.Info("SMURF START")
+	s.logger.Info("Starting viam-server")
 
 	stdio := &MatchingLogger{logger: s.logger}
 	stderr := &MatchingLogger{logger: s.logger, defaultError: true}
@@ -67,7 +68,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 
 	err = s.cmd.Start()
 	if err != nil {
-		return errors.Wrapf(err, "error starting %s", subsysName)
+		return errw.Wrapf(err, "error starting %s", subsysName)
 	}
 
 	s.bgWorkers.Add(1)
@@ -99,13 +100,13 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.logger.Error("startup timed out")
 		// we'll let the health check handle restarting if this is a failure
 	}
-	s.logger.Info("SMURF STARTED")
+	s.logger.Infof("%s successfully started", subsysName)
 	s.running = true
 	return nil
 }
 
 func (s *viamServer) Stop(ctx context.Context) error {
-	s.logger.Info("SMURF STOP")
+	s.logger.Info("Stopping viam-agent")
 	s.mu.Lock()
 	running := s.running
 	s.mu.Unlock()
@@ -119,10 +120,9 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
-	ctxTimeout, cancelFunc1 := context.WithTimeout(ctx, startStopTimeout)
-	defer cancelFunc1()
+	ctxTimeout, cancelFunc := context.WithTimeout(ctx, startStopTimeout)
+	defer cancelFunc()
 	if s.waitForExit(ctxTimeout, startStopTimeout) {
-		s.logger.Warn("SMURF Done 1")
 		return nil
 	}
 
@@ -132,15 +132,15 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	if s.waitForExit(ctxTimeout, startStopTimeout) {
-		s.logger.Warn("SMURF Done 2")
+		s.logger.Info("viam-agent successfully stopped")
 		return nil
 	}
 
-	return errors.Errorf("%s process couldn't be killed", subsysName)
+	return errw.Errorf("%s process couldn't be killed", subsysName)
 }
 
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
-	ctxTimeout, cancelFunc := context.WithTimeout(ctx, startStopTimeout)
+	ctxTimeout, cancelFunc := context.WithTimeout(ctx, timeout)
 	defer cancelFunc()
 	timer := time.NewTicker(time.Second)
 	defer timer.Stop()
@@ -163,36 +163,36 @@ func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) boo
 	}
 }
 
-func (s *viamServer) HealthCheck(ctx context.Context) error {
+func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.running {
-		return errors.Errorf("%s not running", subsysName)
+		return errw.Errorf("%s not running", subsysName)
+	}
+	if s.checkURL == "" {
+		return errw.Errorf("can't find listening URL for %s", subsysName)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.checkURL, nil)
 	if err != nil {
-		return errors.Wrapf(err, "checking %s status", subsysName)
+		return errw.Wrapf(err, "checking %s status", subsysName)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return errors.Wrapf(err, "checking %s status", subsysName)
+		return errw.Wrapf(err, "checking %s status", subsysName)
 	}
-	s.logger.Infof("SMURF Status Check: %d", resp.StatusCode)
-	defer resp.Body.Close()
+	defer func() {
+		errRet = errors.Join(errRet, resp.Body.Close())
+	}()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return errors.Wrapf(err, "checking %s status, got code: %d", subsysName, resp.StatusCode)
+		return errw.Wrapf(err, "checking %s status, got code: %d", subsysName, resp.StatusCode)
 	}
 
-	return nil
+	return errRet
 }
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	return agent.NewAgentSubsystem(ctx, subsysName, logger,
-		&viamServer{
-			checkURL: "http://127.0.0.1:8080",
-			logger:   logger.Named(subsysName),
-		},
-	)
+	return agent.NewAgentSubsystem(ctx, subsysName, logger, &viamServer{logger: logger.Named(subsysName)})
 }

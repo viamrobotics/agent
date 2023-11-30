@@ -1,3 +1,4 @@
+// Package viamagent is the subsystem for the viam-agent itself. It contains code to install/update the systemd service as well.
 package viamagent
 
 import (
@@ -81,7 +82,7 @@ func GetVersion() string {
 	return Version
 }
 
-// GetVersion returns the version embedded at build time.
+// GetRevision returns the git revision embedded at build time.
 func GetRevision() string {
 	if GitRevision == "" {
 		return "unknown"
@@ -104,14 +105,14 @@ func Install(logger *zap.SugaredLogger) error {
 		return errors.Wrapf(err, "error getting info for %s", serviceFileDir)
 	}
 
-	// If this is a brand new install, we want to copy ourselves into place temporarily.
+	// If this is a brand new install, we want to symlink ourselves into place temporarily.
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 	curPath, err := os.Executable()
 	if err != nil {
 		return errors.Wrap(err, "cannot get path to self")
 	}
 
-	isSelf, err := checkIfSame(curPath, expectedPath)
+	isSelf, err := agent.CheckIfSame(curPath, expectedPath)
 	if err != nil {
 		return errors.Wrap(err, "error checking if installed viam-agent is myself")
 	}
@@ -148,7 +149,7 @@ func Install(logger *zap.SugaredLogger) error {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			fmt.Println("No config file found at /etc/viam.json, please install one before running viam-agent service.")
-		}else{
+		} else {
 			return errors.Wrap(err, "error reading /etc/viam.json")
 		}
 	}
@@ -187,37 +188,4 @@ func initPaths() error {
 		}
 	}
 	return nil
-}
-
-func checkIfSame(path1, path2 string) (bool, error) {
-	curPath, err := filepath.EvalSymlinks(path1)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, errors.Wrapf(err, "cannot evaluate symlinks pointing to %s", path1)
-	}
-
-	stat1, err := os.Stat(curPath)
-	if err != nil {
-		return false, errors.Wrapf(err, "cannot stat %s", curPath)
-	}
-
-	realPath, err := filepath.EvalSymlinks(path2)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, errors.Wrapf(err, "cannot evaluate symlinks pointing to %s", path2)
-	}
-
-	stat2, err := os.Stat(realPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, errors.Wrapf(err, "cannot stat %s", realPath)
-	}
-
-	return os.SameFile(stat1, stat2), nil
 }

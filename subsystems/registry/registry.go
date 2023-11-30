@@ -1,3 +1,4 @@
+// Package registry is used to register subsystems from other packages.
 package registry
 
 import (
