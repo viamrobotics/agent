@@ -7,7 +7,7 @@ Currently, viam-agent is only supported on Linux, for amd64 (x86_64) and arm64 (
 ## Installation
 Make sure you've already installed your robot's configuration file to `/etc/viam.json` and have `curl` availible, then simply run the following:
 ```
-sudo /bin/sh -c "$(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"`
+sudo /bin/sh -c "$(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
 ```
 Files will be placed in `/opt/viam` and a service file at `/etc/systemd/system/viam-agent.service`
 
