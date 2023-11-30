@@ -8,7 +8,7 @@ URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent
 
 # Force will bypass all prompts by treating them as yes. May also be set as an environment variable when running as download.
 # sudo /bin/sh -c "FORCE=1; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
-if [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
+if [ "$1" = "--force" ] || [ "$1" = "-f" ]; then
 	FORCE=1
 fi
 
@@ -28,14 +28,14 @@ uninstall_old_service() {
 		fi
 	fi
 
-	systemctl disable --now viam-server || echo "Error disabling previous service" && exit 2
+	systemctl disable --now viam-server || (echo "Error disabling previous service" && exit 2)
 	rm -f /etc/systemd/system/viam-server.service /usr/local/bin/viam-server
 	systemctl daemon-reload
 	return
 }
 
 # Main
-if [ "$(uname -s)" != "Linux" ] || ! [ "$ARCH" == "x86_64" -o "$ARCH" == "aarch64" ]; then
+if [ "$(uname -s)" != "Linux" ] || ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ]; then
 	echo "Viam Agent is currently only available for Linux on x86_64 (amd64) and aarch64 (arm64)."
 	echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
 	exit 1

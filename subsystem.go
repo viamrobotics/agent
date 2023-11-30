@@ -61,6 +61,7 @@ type CacheData struct {
 // VersionInfo records details about each version of a subsystem.
 type VersionInfo struct {
 	Version        string
+	URL            string
 	DlPath         string
 	DlSHA          []byte
 	UnpackedPath   string
@@ -215,6 +216,11 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	if s.disable != cfg.GetDisable() {
 		s.disable = cfg.GetDisable()
 		needRestart = true
+		action := "enabled"
+		if s.disable {
+			action = "disabled"
+		}
+		s.logger.Infof("%s %s", s.name, action)
 	}
 
 	updateInfo := cfg.GetUpdateInfo()
@@ -234,9 +240,16 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 			}
 		}
 
-		// check for matching shasum
+		// check for matching shasum, which won't be available for pin_url
+		checkSum := updateInfo.GetSha256()
+
+		// with pin_url, no SHA is available from the cloud, so we check the local copy for corruption and matching url.
+		if len(updateInfo.GetSha256()) <= 1 && verData.URL == updateInfo.GetUrl() {
+			checkSum = verData.UnpackedSHA
+		}
+
 		shasum, err := GetFileSum(verData.UnpackedPath)
-		if err == nil && bytes.Equal(shasum, updateInfo.GetSha256()) {
+		if err == nil && bytes.Equal(shasum, checkSum) {
 			return needRestart, nil
 		}
 	}
@@ -245,7 +258,10 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	if !ok {
 		verData = &VersionInfo{Version: updateInfo.GetVersion()}
 		s.CacheData.Versions[updateInfo.GetVersion()] = verData
+		s.logger.Infof("new version (%s) found for %s", verData.Version, s.name)
 	}
+	// always record the URL, it may be updated for "customURL" versions
+	verData.URL = updateInfo.GetUrl()
 
 	// download and record the sha of the download itself
 	var err error
@@ -274,7 +290,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		return needRestart, errors.Wrap(err, "getting file shasum")
 	}
 	verData.UnpackedSHA = shasum
-	if !bytes.Equal(shasum, updateInfo.GetSha256()) {
+	if len(updateInfo.GetSha256()) > 1 && !bytes.Equal(shasum, updateInfo.GetSha256()) {
 		//nolint:goerr113
 		return needRestart, fmt.Errorf(
 			"sha256 (%s) of downloaded file (%s) does not match config (%s)",
@@ -310,7 +326,14 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	verData.Installed = time.Now()
 
 	// if we made it here we performed an update and need to restart
-	needRestart = true
+	s.logger.Infof("%s updated to %s", s.name, verData.Version)
+
+	// TODO remove this special case after handling restarts directly via force_restart
+	if s.name == "viam-server" {
+		s.logger.Info("awaiting user restart to run new viam-server version")
+	} else {
+		needRestart = true
+	}
 
 	// record the cache
 	err = s.saveCache()

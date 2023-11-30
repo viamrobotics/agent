@@ -25,18 +25,20 @@ func init() {
 }
 
 const (
-	startStopTimeout = time.Second * 120
-	subsysName       = "viam-server"
+	startTimeout = time.Minute * 5
+	stopTimeout  = time.Minute * 2
+	subsysName   = "viam-server"
 )
 
 var ConfigFilePath = "/etc/viam.json"
 
 type viamServer struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	running  bool
-	lastExit int
-	checkURL string
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	running   bool
+	shouldRun bool
+	lastExit  int
+	checkURL  string
 
 	logger    *zap.SugaredLogger
 	bgWorkers sync.WaitGroup
@@ -48,7 +50,12 @@ func (s *viamServer) Start(ctx context.Context) error {
 	if s.running {
 		return nil
 	}
-	s.logger.Info("Starting viam-server")
+	if s.shouldRun {
+		s.logger.Warn("Restarting viam-server after unexpected exit")
+	} else {
+		s.logger.Info("Starting viam-server")
+		s.shouldRun = true
+	}
 
 	stdio := &MatchingLogger{logger: s.logger}
 	stderr := &MatchingLogger{logger: s.logger, defaultError: true}
@@ -78,6 +85,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.running = false
+		s.logger.Info("viam-server exited")
 		if err != nil {
 			s.logger.Errorw("error while getting process status", "error", err)
 		}
@@ -89,7 +97,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		}
 	}()
 
-	ctxTimeout, cancelFunc := context.WithTimeout(ctx, startStopTimeout)
+	ctxTimeout, cancelFunc := context.WithTimeout(ctx, startTimeout)
 	defer cancelFunc()
 
 	select {
@@ -106,9 +114,10 @@ func (s *viamServer) Start(ctx context.Context) error {
 }
 
 func (s *viamServer) Stop(ctx context.Context) error {
-	s.logger.Info("Stopping viam-agent")
+	s.logger.Info("Stopping viam-server")
 	s.mu.Lock()
 	running := s.running
+	s.shouldRun = false
 	s.mu.Unlock()
 
 	if !running {
@@ -120,9 +129,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
-	ctxTimeout, cancelFunc := context.WithTimeout(ctx, startStopTimeout)
-	defer cancelFunc()
-	if s.waitForExit(ctxTimeout, startStopTimeout) {
+	if s.waitForExit(ctx, stopTimeout/2) {
 		return nil
 	}
 
@@ -131,7 +138,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
-	if s.waitForExit(ctxTimeout, startStopTimeout) {
+	if s.waitForExit(ctx, stopTimeout/2) {
 		s.logger.Info("viam-agent successfully stopped")
 		return nil
 	}
@@ -173,7 +180,10 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("can't find listening URL for %s", subsysName)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.checkURL, nil)
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*30)
+	defer cancelFunc()
+
+	req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, s.checkURL, nil)
 	if err != nil {
 		return errw.Wrapf(err, "checking %s status", subsysName)
 	}

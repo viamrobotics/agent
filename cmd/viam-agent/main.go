@@ -19,6 +19,7 @@ import (
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
+	"go.viam.com/utils"
 )
 
 var (
@@ -100,7 +101,20 @@ func main() {
 
 	// main manager structure
 	manager, err := agent.NewManager(ctx, globalLogger, absConfigPath)
-	exitIfError(err)
+	if err != nil {
+		// If the local /etc/viam.json config is corrupted or invalid, we can get stuck here.
+		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
+		for {
+			globalLogger.Error(errors.Wrapf(err, "cannot load local config file, please check and correct %s", absConfigPath))
+			if !utils.SelectContextOrWait(ctx, time.Second*10) {
+				return
+			}
+			manager, err = agent.NewManager(ctx, globalLogger, absConfigPath)
+			if err == nil {
+				break
+			}
+		}
+	}
 
 	// Check for self-update and restart if needed.
 	needRestart, err := manager.SelfUpdate(ctx, globalLogger)

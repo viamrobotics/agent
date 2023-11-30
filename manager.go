@@ -137,6 +137,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, logger *zap.SugaredLogge
 			continue
 		}
 		if restart {
+			logger.Info()
 			if err := sub.Stop(ctx); err != nil {
 				logger.Error(err)
 				continue
@@ -179,7 +180,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context, logger *zap.Sugared
 	for subsystemName, sub := range m.loadedSubsystems {
 		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
 		if err := sub.HealthCheck(ctxTimeout); err != nil {
-			logger.Error("subsystem healthcheck failed for %s", subsystemName)
+			logger.Errorf("subsystem healthcheck failed for %s", subsystemName)
 			if err := sub.Stop(ctx); err != nil {
 				logger.Error(errors.Wrapf(err, "stopping subsystem %s", subsystemName))
 			}

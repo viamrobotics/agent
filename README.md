@@ -5,7 +5,7 @@ A self-updating service manager that maintains the lifecycle for viam-server (as
 Currently, viam-agent is only supported on Linux, for amd64 (x86_64) and arm64 (aarch64) CPUs.
 
 ## Installation
-Make sure you've already installed your robot's configuration file to `/etc/viam.json` and have `curl` availible, then simply run the following:
+Make sure you've already installed your robot's configuration file to `/etc/viam.json` and have `curl` available, then simply run the following:
 ```
 sudo /bin/sh -c "$(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
 ```
