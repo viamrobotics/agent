@@ -7,7 +7,7 @@ LINUX_ARCH = aarch64
 endif
 
 GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
-TAG_VERSION ?= $(shell tag=`git tag --points-at | sort -Vr | head -n1`; echo ${tag:1})
+TAG_VERSION ?= $(shell git tag --points-at | sort -Vr | head -n1 | cut -c2-)
 ifeq ($(TAG_VERSION),)
 PATH_VERSION = custom
 else
@@ -33,6 +33,7 @@ amd64:
 
 bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go subsystems/viamagent/*.service
 	go build -o $@ -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
+	test "$(PATH_VERSION)" != "custom" && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
 
 .PHONY: clean
 clean:
@@ -43,5 +44,5 @@ bin/golangci-lint:
 
 .PHONY: lint
 lint: bin/golangci-lint
-	bin/golangci-lint run -v --fix
 	go mod tidy
+	bin/golangci-lint run -v --fix

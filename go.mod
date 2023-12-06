@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0
 	github.com/jessevdk/go-flags v1.5.0
+	github.com/nightlyone/lockfile v1.0.0
 	go.uber.org/zap v1.26.0
 	go.viam.com/api v0.1.217
 	go.viam.com/utils v0.1.52

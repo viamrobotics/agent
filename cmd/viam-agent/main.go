@@ -15,6 +15,7 @@ import (
 
 	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
+	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
@@ -89,6 +90,21 @@ func main() {
 			return
 		}
 	}
+
+	// use a lockfile to prevent running two agents on the same machine
+	pidFile, err := lockfile.New(filepath.Join(agent.ViamDirs["tmp"], "viam-agent.pid"))
+	exitIfError(errors.Wrap(err, "cannot init lock file"))
+	if err = pidFile.TryLock(); err != nil {
+		globalLogger.Error(errors.Wrapf(err, "cannot lock %s", pidFile))
+		if errors.Is(err, lockfile.ErrBusy) {
+			globalLogger.Fatal("Please terminate any other copies of viam-agent and try again.")
+		}
+	}
+	defer func() {
+		if err := pidFile.Unlock(); err != nil {
+			exitIfError(errors.Wrapf(err, "cannot unlock %s", pidFile))
+		}
+	}()
 
 	// tie the manager config to the viam-server config
 	absConfigPath, err := filepath.Abs(opts.Config)

@@ -40,20 +40,26 @@ type viamServer struct {
 	lastExit  int
 	checkURL  string
 
-	logger    *zap.SugaredLogger
-	bgWorkers sync.WaitGroup
+	// for blocking start/stop/check ops while another is in progress
+	startStopMu sync.Mutex
+
+	logger *zap.SugaredLogger
 }
 
 func (s *viamServer) Start(ctx context.Context) error {
+	s.startStopMu.Lock()
+	defer s.startStopMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if s.running {
 		return nil
 	}
 	if s.shouldRun {
-		s.logger.Warn("Restarting viam-server after unexpected exit")
+		s.logger.Warnf("Restarting %s after unexpected exit", subsysName)
 	} else {
-		s.logger.Info("Starting viam-server")
+		s.logger.Infof("Starting %s", subsysName)
 		s.shouldRun = true
 	}
 
@@ -77,15 +83,14 @@ func (s *viamServer) Start(ctx context.Context) error {
 	if err != nil {
 		return errw.Wrapf(err, "error starting %s", subsysName)
 	}
+	s.running = true
 
-	s.bgWorkers.Add(1)
 	go func() {
-		defer s.bgWorkers.Done()
 		err := s.cmd.Wait()
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.running = false
-		s.logger.Info("viam-server exited")
+		s.logger.Infof("%s exited", subsysName)
 		if err != nil {
 			s.logger.Errorw("error while getting process status", "error", err)
 		}
@@ -104,17 +109,19 @@ func (s *viamServer) Start(ctx context.Context) error {
 	case matches := <-c:
 		s.checkURL = matches[1]
 		s.logger.Infof("healthcheck URL: %s", s.checkURL)
+		s.logger.Infof("%s started", subsysName)
 	case <-ctxTimeout.Done():
 		s.logger.Error("startup timed out")
 		// we'll let the health check handle restarting if this is a failure
 	}
-	s.logger.Infof("%s successfully started", subsysName)
-	s.running = true
 	return nil
 }
 
 func (s *viamServer) Stop(ctx context.Context) error {
-	s.logger.Info("Stopping viam-server")
+	s.logger.Infof("Stopping %s", subsysName)
+	s.startStopMu.Lock()
+	defer s.startStopMu.Unlock()
+
 	s.mu.Lock()
 	running := s.running
 	s.shouldRun = false
@@ -124,22 +131,29 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	// interrupt early in startup
+	if s.cmd == nil {
+		return nil
+	}
+
 	err := s.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
 		s.logger.Error(err)
 	}
 
 	if s.waitForExit(ctx, stopTimeout/2) {
+		s.logger.Infof("%s successfully stopped", subsysName)
 		return nil
 	}
 
+	s.logger.Warnf("%s refused to exit, killing", subsysName)
 	err = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 	if err != nil {
 		s.logger.Error(err)
 	}
 
 	if s.waitForExit(ctx, stopTimeout/2) {
-		s.logger.Info("viam-agent successfully stopped")
+		s.logger.Infof("%s successfully killed", subsysName)
 		return nil
 	}
 
@@ -149,28 +163,26 @@ func (s *viamServer) Stop(ctx context.Context) error {
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
 	ctxTimeout, cancelFunc := context.WithTimeout(ctx, timeout)
 	defer cancelFunc()
-	timer := time.NewTicker(time.Second)
-	defer timer.Stop()
 
+	// loop so that even after the context expires, we still have one more second before a final check.
+	var lastTry bool
 	for {
 		s.mu.Lock()
 		running := s.running
 		s.mu.Unlock()
-		if !running {
-			return true
+		if !running || lastTry {
+			return !running
 		}
 		if ctxTimeout.Err() != nil {
-			return false
+			lastTry = true
 		}
-		select {
-		case <-ctxTimeout.Done():
-			return false
-		case <-timer.C:
-		}
+		time.Sleep(time.Second)
 	}
 }
 
 func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
+	s.startStopMu.Lock()
+	defer s.startStopMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.running {
@@ -179,6 +191,8 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 	if s.checkURL == "" {
 		return errw.Errorf("can't find listening URL for %s", subsysName)
 	}
+
+	s.logger.Debugf("starting healthcheck for %s using %s", subsysName, s.checkURL)
 
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*30)
 	defer cancelFunc()
@@ -192,6 +206,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 	if err != nil {
 		return errw.Wrapf(err, "checking %s status", subsysName)
 	}
+
 	defer func() {
 		errRet = errors.Join(errRet, resp.Body.Close())
 	}()
@@ -199,8 +214,8 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return errw.Wrapf(err, "checking %s status, got code: %d", subsysName, resp.StatusCode)
 	}
-
-	return errRet
+	s.logger.Debugf("healthcheck for %s is good", subsysName)
+	return nil
 }
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {

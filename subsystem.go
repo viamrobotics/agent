@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
+	errw "github.com/pkg/errors"
 	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
 )
@@ -94,7 +95,7 @@ func (s *AgentSubsystem) Start(ctx context.Context) error {
 
 	info, ok := s.CacheData.Versions[s.CacheData.CurrentVersion]
 	if !ok {
-		return errors.Errorf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
+		return errw.Errorf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
 	}
 	info.StartCount++
 	start := time.Now()
@@ -127,7 +128,7 @@ func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 
 		info, ok := s.CacheData.Versions[s.CacheData.CurrentVersion]
 		if !ok {
-			return errors.Wrapf(err, "cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
+			return errors.Join(err, errw.Errorf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion))
 		}
 
 		if failTime <= ShortFailTime {
@@ -139,7 +140,7 @@ func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 
 		// TODO if shortfails exceed a threshold, revert to previous version.
 
-		return s.saveCache()
+		return errors.Join(err, s.saveCache())
 	}
 
 	return nil
@@ -267,11 +268,11 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	var err error
 	verData.DlPath, err = DownloadFile(ctx, updateInfo.GetUrl())
 	if err != nil {
-		return needRestart, errors.Wrapf(err, "downloading %s subsystem", s.name)
+		return needRestart, errw.Wrapf(err, "downloading %s subsystem", s.name)
 	}
 	verData.DlSHA, err = GetFileSum(verData.DlPath)
 	if err != nil {
-		return needRestart, errors.Wrap(err, "getting file shasum")
+		return needRestart, errw.Wrap(err, "getting file shasum")
 	}
 
 	// extract and verify sha of contents if it's a compressed file
@@ -279,7 +280,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
 		verData.UnpackedPath, err = DecompressFile(verData.DlPath)
 		if err != nil {
-			return needRestart, errors.Wrapf(err, "decompressing %s subsystem", s.name)
+			return needRestart, errw.Wrapf(err, "decompressing %s subsystem", s.name)
 		}
 	} else {
 		verData.UnpackedPath = verData.DlPath
@@ -287,7 +288,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	shasum, err := GetFileSum(verData.UnpackedPath)
 	if err != nil {
-		return needRestart, errors.Wrap(err, "getting file shasum")
+		return needRestart, errw.Wrap(err, "getting file shasum")
 	}
 	verData.UnpackedSHA = shasum
 	if len(updateInfo.GetSha256()) > 1 && !bytes.Equal(shasum, updateInfo.GetSha256()) {
@@ -315,7 +316,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	// symlink the extracted file to bin
 	verData.SymlinkPath = path.Join(ViamDirs["bin"], updateInfo.GetFilename())
 	if err = ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
-		return needRestart, errors.Wrap(err, "creating symlink")
+		return needRestart, errw.Wrap(err, "creating symlink")
 	}
 
 	// update current and previous versions

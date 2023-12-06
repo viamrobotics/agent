@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/url"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
+	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
 	"go.uber.org/zap"
@@ -22,8 +23,9 @@ import (
 )
 
 const (
-	minimalCheckInterval = time.Second * 60
-	agentCachePath       = "agent-config.json"
+	minimalCheckInterval  = time.Second * 60
+	defaultNetworkTimeout = time.Second * 15
+	agentCachePath        = "agent-config.json"
 )
 
 // Manager is the core of the agent process, and maintains the list of subsystems, as well as cloud connection.
@@ -46,24 +48,24 @@ func NewManager(ctx context.Context, logger *zap.SugaredLogger, cfgPath string) 
 	logger.Debugw("loading", "config", cfgPath)
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
-		return nil, errors.Wrap(err, "error reading config file")
+		return nil, errw.Wrap(err, "error reading config file")
 	}
 
 	cfg := make(map[string]map[string]string)
 	err = json.Unmarshal(b, &cfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "error parsing config file")
+		return nil, errw.Wrap(err, "error parsing config file")
 	}
 
 	cloud, ok := cfg["cloud"]
 	if !ok {
-		return nil, errors.New("no cloud section in local config file")
+		return nil, errw.New("no cloud section in local config file")
 	}
 
 	for _, req := range []string{"app_address", "id", "secret"} {
 		field, ok := cloud[req]
 		if !ok {
-			return nil, errors.Errorf("no cloud config field for %s", field)
+			return nil, errw.Errorf("no cloud config field for %s", field)
 		}
 	}
 
@@ -94,7 +96,7 @@ func (m *Manager) SelfUpdate(ctx context.Context, logger *zap.SugaredLogger) (bo
 	}
 	cfg, ok := cfgMap["viam-agent"]
 	if !ok {
-		return false, errors.New("no viam-agent section found in config")
+		return false, errw.New("no viam-agent section found in config")
 	}
 	return subsys.Update(ctx, cfg)
 }
@@ -178,17 +180,26 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context, logger *zap.Sugared
 	m.subsystemsMu.Lock()
 	defer m.subsystemsMu.Unlock()
 	for subsystemName, sub := range m.loadedSubsystems {
+		if ctx.Err() != nil {
+			return
+		}
 		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
+		defer cancelFunc()
 		if err := sub.HealthCheck(ctxTimeout); err != nil {
-			logger.Errorf("subsystem healthcheck failed for %s", subsystemName)
+			if ctx.Err() != nil {
+				return
+			}
+			logger.Error(errw.Wrapf(err, "subsystem healthcheck failed for %s", subsystemName))
 			if err := sub.Stop(ctx); err != nil {
-				logger.Error(errors.Wrapf(err, "stopping subsystem %s", subsystemName))
+				logger.Error(errw.Wrapf(err, "stopping subsystem %s", subsystemName))
+			}
+			if ctx.Err() != nil {
+				return
 			}
 			if err := sub.Start(ctx); err != nil {
-				logger.Error(errors.Wrapf(err, "restarting subsystem %s", subsystemName))
+				logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
 			}
 		}
-		cancelFunc()
 	}
 }
 
@@ -210,10 +221,14 @@ func (m *Manager) CloseAll(ctx context.Context, logger *zap.SugaredLogger) {
 
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
-	err := m.conn.Close()
-	if err != nil {
-		logger.Error(err)
+
+	if m.conn != nil {
+		err := m.conn.Close()
+		if err != nil {
+			logger.Error(err)
+		}
 	}
+
 	m.client = nil
 	m.conn = nil
 }
@@ -255,7 +270,7 @@ func (m *Manager) LoadSubsystems(ctx context.Context, logger *zap.SugaredLogger)
 
 	cachedConfig, err := m.getCachedConfig()
 	if err != nil {
-		logger.Error(errors.Wrap(err, "error getting cached config"))
+		logger.Error(errw.Wrap(err, "error getting cached config"))
 	}
 
 	for name, subsys := range cachedConfig {
@@ -279,7 +294,7 @@ func (m *Manager) loadSubsystem(ctx context.Context, logger *zap.SugaredLogger, 
 		m.loadedSubsystems[name] = sub
 		return nil
 	}
-	return errors.Errorf("unknown subsystem name %s", name)
+	return errw.Errorf("unknown subsystem name %s", name)
 }
 
 // getCachedConfig returns a cached config, for when the cloud is not reachable.
@@ -293,12 +308,12 @@ func (m *Manager) getCachedConfig() (map[string]*pb.DeviceSubsystemConfig, error
 		if errors.Is(err, fs.ErrNotExist) {
 			return cachedConfig, nil
 		}
-		return nil, errors.Wrap(err, "error reading cached config")
+		return nil, errw.Wrap(err, "error reading cached config")
 	}
 
 	err = json.Unmarshal(cacheBytes, &cachedConfig)
 	if err != nil {
-		return nil, errors.Wrapf(err, "error parsing cached config")
+		return nil, errw.Wrapf(err, "error parsing cached config")
 	}
 	return cachedConfig, nil
 }
@@ -357,8 +372,11 @@ func (m *Manager) dial(ctx context.Context, logger *zap.SugaredLogger) error {
 
 // GetConfig retrieves the configuration from the cloud, or returns a cached version if unable to communicate.
 func (m *Manager) GetConfig(ctx context.Context, logger *zap.SugaredLogger) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
-	if err := m.dial(ctx, logger); err != nil {
-		logger.Error(errors.Wrap(err, "error fetching viam-agent config"))
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, defaultNetworkTimeout)
+	defer cancelFunc()
+
+	if err := m.dial(timeoutCtx, logger); err != nil {
+		logger.Error(errw.Wrap(err, "error fetching viam-agent config"))
 		conf, err := m.getCachedConfig()
 		return conf, minimalCheckInterval, err
 	}
@@ -368,9 +386,9 @@ func (m *Manager) GetConfig(ctx context.Context, logger *zap.SugaredLogger) (map
 		HostInfo:          m.getHostInfo(),
 		SubsystemVersions: m.getSubsystemVersions(),
 	}
-	resp, err := m.client.DeviceAgentConfig(ctx, req)
+	resp, err := m.client.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
-		logger.Error(errors.Wrap(err, "error fetching viam-agent config"))
+		logger.Error(errw.Wrap(err, "error fetching viam-agent config"))
 		conf, err := m.getCachedConfig()
 		return conf, minimalCheckInterval, err
 	}
@@ -379,7 +397,7 @@ func (m *Manager) GetConfig(ctx context.Context, logger *zap.SugaredLogger) (map
 
 	err = m.saveCachedConfig(resp.GetSubsystemConfigs())
 	if err != nil {
-		logger.Error(errors.Wrap(err, "error saving agent config to cache"))
+		logger.Error(errw.Wrap(err, "error saving agent config to cache"))
 	}
 
 	interval := resp.GetCheckInterval().AsDuration()
