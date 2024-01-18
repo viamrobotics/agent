@@ -63,8 +63,8 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.shouldRun = true
 	}
 
-	stdio := &MatchingLogger{logger: s.logger}
-	stderr := &MatchingLogger{logger: s.logger, defaultError: true}
+	stdio := agent.NewMatchingLogger(s.logger, false)
+	stderr := agent.NewMatchingLogger(s.logger, true)
 
 	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], subsysName), "-config", ConfigFilePath)
 	s.cmd.Dir = agent.ViamDirs["viam"]
@@ -73,7 +73,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.cmd.Stderr = stderr
 
 	// watch for this line in the logs to indicate successful startup
-	c, err := stdio.AddMatcher("checkURL", regexp.MustCompile(`serving\W*{"url":\W*"(https?://[\w\.:-]+)".*}`))
+	c, err := stdio.AddMatcher("checkURL", regexp.MustCompile(`serving\W*{"url":\W*"(https?://[\w\.:-]+)".*}`), false)
 	if err != nil {
 		return err
 	}

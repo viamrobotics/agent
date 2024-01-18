@@ -37,7 +37,7 @@ type BasicSubsystem interface {
 
 // updatable is if a wrapped subsystem has it's own (additional) update code to run.
 type updatable interface {
-	Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error)
+	Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error)
 }
 
 // AgentSubsystem is a wrapper for the real subsystems, mostly allowing sharing of download/update code.
@@ -217,11 +217,11 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	if s.disable != cfg.GetDisable() {
 		s.disable = cfg.GetDisable()
 		needRestart = true
-		action := "enabled"
+		s.logger.Infof("%s %s", s.name, "enabled")
 		if s.disable {
-			action = "disabled"
+			s.logger.Infof("%s %s", s.name, "disabled")
+			return true, nil
 		}
-		s.logger.Infof("%s %s", s.name, action)
 	}
 
 	updateInfo := cfg.GetUpdateInfo()
@@ -251,7 +251,8 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 		shasum, err := GetFileSum(verData.UnpackedPath)
 		if err == nil && bytes.Equal(shasum, checkSum) {
-			return needRestart, nil
+			// No update, but let the inner logic run if needed.
+			return s.tryInner(ctx, cfg, needRestart)
 		}
 	}
 
@@ -343,10 +344,14 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	}
 
 	// if the subsystem has it's own additional update code, run it
+	return s.tryInner(ctx, cfg, needRestart)
+}
+
+func (s *AgentSubsystem) tryInner(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
 	inner, ok := s.inner.(updatable)
 	if ok {
-		return inner.Update(ctx, cfg)
+		return inner.Update(ctx, cfg, newVersion)
 	}
 
-	return needRestart, nil
+	return newVersion, nil
 }
