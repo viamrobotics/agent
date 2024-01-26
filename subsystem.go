@@ -95,7 +95,10 @@ func (s *AgentSubsystem) Start(ctx context.Context) error {
 
 	info, ok := s.CacheData.Versions[s.CacheData.CurrentVersion]
 	if !ok {
-		return errw.Errorf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
+		s.CacheData.CurrentVersion = "unknown"
+		info = &VersionInfo{Version: s.CacheData.CurrentVersion}
+		s.CacheData.Versions[s.CacheData.CurrentVersion] = info
+		s.logger.Warnf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
 	}
 	info.StartCount++
 	start := time.Now()
@@ -166,22 +169,28 @@ func (s *AgentSubsystem) LoadCache() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	cache := &CacheData{
+		Versions: make(map[string]*VersionInfo),
+	}
+
 	cacheFilePath := filepath.Join(ViamDirs["cache"], fmt.Sprintf("%s.json", s.name))
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			s.logger.Error(err)
+		}
+	} else {
+		err = json.Unmarshal(cacheBytes, cache)
+		if err != nil {
+			s.logger.Error(errw.Wrap(err, "cannot parse subsystem cache, using new defaults"))
+			s.CacheData = &CacheData{
+				Versions: make(map[string]*VersionInfo),
+			}
+			return nil
 		}
 	}
 
-	s.CacheData = &CacheData{
-		Versions: make(map[string]*VersionInfo),
-	}
-
-	if err == nil {
-		return json.Unmarshal(cacheBytes, s.CacheData)
-	}
-
+	s.CacheData = cache
 	return nil
 }
 

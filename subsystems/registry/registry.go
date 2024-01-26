@@ -13,14 +13,16 @@ import (
 var (
 	mu       sync.Mutex
 	creators = map[string]CreatorFunc{}
+	configs  = map[string]*pb.DeviceSubsystemConfig{}
 )
 
 type CreatorFunc func(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error)
 
-func Register(name string, creator CreatorFunc) {
+func Register(name string, creator CreatorFunc, cfg *pb.DeviceSubsystemConfig) {
 	mu.Lock()
 	defer mu.Unlock()
 	creators[name] = creator
+	configs[name] = cfg
 }
 
 func Deregister(name string) {
@@ -37,4 +39,24 @@ func GetCreator(name string) CreatorFunc {
 		return creator
 	}
 	return nil
+}
+
+func GetDefaultConfig(name string) *pb.DeviceSubsystemConfig {
+	mu.Lock()
+	defer mu.Unlock()
+	cfg, ok := configs[name]
+	if ok {
+		return cfg
+	}
+	return nil
+}
+
+func List() []string {
+	mu.Lock()
+	defer mu.Unlock()
+	var names []string
+	for k := range creators {
+		names = append(names, k)
+	}
+	return names
 }

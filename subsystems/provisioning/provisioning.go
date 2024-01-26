@@ -1,9 +1,11 @@
-// Package networking contains the networking agent subsystem.
-package networking
+// Package provisioning contains the provisioning agent subsystem.
+package provisioning
 
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -21,21 +23,26 @@ import (
 )
 
 func init() {
-	registry.Register(subsysName, NewSubsystem)
+	registry.Register(SubsysName, NewSubsystem, DefaultConfig)
 }
+
+var (
+	Debug = false
+	DefaultConfig = &pb.DeviceSubsystemConfig{}
+)
 
 const (
 	startTimeout = time.Minute
 	stopTimeout  = time.Minute
-	subsysName   = "agent-networking"
+	SubsysName   = "agent-provisioning"
 
 	provisioningConfigPath = "/etc/viam-provisioning.json"
 )
 
-var ConfigFilePath = path.Join(agent.ViamDirs["etc"], subsysName + ".json")
+var ConfigFilePath = path.Join(agent.ViamDirs["etc"], SubsysName + ".json")
 
 
-type networking struct {
+type provisioning struct {
 	mu        sync.Mutex
 	cmd       *exec.Cmd
 	running   bool
@@ -49,7 +56,7 @@ type networking struct {
 	logger *zap.SugaredLogger
 }
 
-func (n *networking) Start(ctx context.Context) error {
+func (n *provisioning) Start(ctx context.Context) error {
 	n.startStopMu.Lock()
 	defer n.startStopMu.Unlock()
 
@@ -60,16 +67,21 @@ func (n *networking) Start(ctx context.Context) error {
 		return nil
 	}
 	if n.shouldRun {
-		n.logger.Warnf("Restarting %s after unexpected exit", subsysName)
+		n.logger.Warnf("Restarting %s after unexpected exit", SubsysName)
 	} else {
-		n.logger.Infof("Starting %s", subsysName)
+		n.logger.Infof("Starting %s", SubsysName)
 		n.shouldRun = true
 	}
 
 	stdio := agent.NewMatchingLogger(n.logger, false)
 	stderr := agent.NewMatchingLogger(n.logger, true)
 
-	n.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], subsysName), "-config", ConfigFilePath)
+	cmdArgs := []string{"--config", ConfigFilePath}
+	if Debug {
+		cmdArgs = append(cmdArgs, "--debug")
+	}
+
+	n.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], SubsysName), cmdArgs...)
 	n.cmd.Dir = agent.ViamDirs["viam"]
 	n.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	n.cmd.Stdout = stdio
@@ -77,7 +89,7 @@ func (n *networking) Start(ctx context.Context) error {
 
 	// watch for this line in the logs to indicate successful startup
 	// SMURF TODO fix this to corrrect output
-	c, err := stdio.AddMatcher("checkStartup", regexp.MustCompile(`networking subsystem started`), false)
+	c, err := stdio.AddMatcher("checkStartup", regexp.MustCompile(`sleeping`), false)
 	if err != nil {
 		return err
 	}
@@ -85,7 +97,7 @@ func (n *networking) Start(ctx context.Context) error {
 
 	err = n.cmd.Start()
 	if err != nil {
-		return errw.Wrapf(err, "error starting %s", subsysName)
+		return errw.Wrapf(err, "error starting %s", SubsysName)
 	}
 	n.running = true
 
@@ -94,7 +106,7 @@ func (n *networking) Start(ctx context.Context) error {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		n.running = false
-		n.logger.Infof("%s exited", subsysName)
+		n.logger.Infof("%s exited", SubsysName)
 		if err != nil {
 			n.logger.Errorw("error while getting process status", "error", err)
 		}
@@ -108,18 +120,16 @@ func (n *networking) Start(ctx context.Context) error {
 
 	select {
 	case <-c:
-		n.logger.Infof("%s started", subsysName)
+		n.logger.Infof("%s started", SubsysName)
 		return nil
 	case <-ctx.Done():
-	case <-time.After(time.Second * 30):
+		return ctx.Err()
+	case <-time.After(startTimeout):
+		return errw.New("startup timed out")
 	}
-	// we'll let the health check handle restarting if this is a failure
-	n.logger.Error("startup timed out")
-	return nil
 }
 
-func (n *networking) Stop(ctx context.Context) error {
-	n.logger.Infof("Stopping %s", subsysName)
+func (n *provisioning) Stop(ctx context.Context) error {
 	n.startStopMu.Lock()
 	defer n.startStopMu.Unlock()
 
@@ -137,31 +147,33 @@ func (n *networking) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	n.logger.Infof("Stopping %s", SubsysName)
+
 	err := n.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
 		n.logger.Error(err)
 	}
 
 	if n.waitForExit(ctx, stopTimeout/2) {
-		n.logger.Infof("%s successfully stopped", subsysName)
+		n.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
 	}
 
-	n.logger.Warnf("%s refused to exit, killing", subsysName)
+	n.logger.Warnf("%s refused to exit, killing", SubsysName)
 	err = syscall.Kill(-n.cmd.Process.Pid, syscall.SIGKILL)
 	if err != nil {
 		n.logger.Error(err)
 	}
 
 	if n.waitForExit(ctx, stopTimeout/2) {
-		n.logger.Infof("%s successfully killed", subsysName)
+		n.logger.Infof("%s successfully killed", SubsysName)
 		return nil
 	}
 
-	return errw.Errorf("%s process couldn't be killed", subsysName)
+	return errw.Errorf("%s process couldn't be killed", SubsysName)
 }
 
-func (n *networking) waitForExit(ctx context.Context, timeout time.Duration) bool {
+func (n *provisioning) waitForExit(ctx context.Context, timeout time.Duration) bool {
 	ctxTimeout, cancelFunc := context.WithTimeout(ctx, timeout)
 	defer cancelFunc()
 
@@ -181,17 +193,17 @@ func (n *networking) waitForExit(ctx context.Context, timeout time.Duration) boo
 	}
 }
 
-// Healthcheck sends a USR1 signal to the networking process, which should cause it to log "HEALTHY" to stdout.
-func (n *networking) HealthCheck(ctx context.Context) (errRet error) {
+// Healthcheck sends a USR1 signal to the provisioning process, which should cause it to log "HEALTHY" to stdout.
+func (n *provisioning) HealthCheck(ctx context.Context) (errRet error) {
 	n.startStopMu.Lock()
 	defer n.startStopMu.Unlock()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if !n.running {
-		return errw.Errorf("%s not running", subsysName)
+		return errw.Errorf("%s not running", SubsysName)
 	}
 
-	n.logger.Debugf("starting healthcheck for %s", subsysName)
+	n.logger.Debugf("starting healthcheck for %s", SubsysName)
 
 	checkChan, err := n.cmd.Stdout.(*agent.MatchingLogger).AddMatcher("healthcheck",  regexp.MustCompile(`HEALTHY`), true)
 	if err != nil {
@@ -208,27 +220,28 @@ func (n *networking) HealthCheck(ctx context.Context) (errRet error) {
 	case <-time.After(time.Second * 30):
 	case <-ctx.Done():
 	case <-checkChan:
-		n.logger.Debugf("healthcheck for %s is good", subsysName)
+		n.logger.Debugf("healthcheck for %s is good", SubsysName)
 		return nil
 	}
-	return errw.Errorf("timeout waiting for healthcheck on %s", subsysName)
+	return errw.Errorf("timeout waiting for healthcheck on %s", SubsysName)
 
 }
 
-func (n *networking) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
-	fileBytes, err := os.ReadFile(ConfigFilePath)
-	if err != nil {
-		return true, err
-	}
-
+func (n *provisioning) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
 	jsonBytes, err := cfg.Attributes.MarshalJSON()
 	if err != nil {
 		return true, err
 	}
 
+	fileBytes, err := os.ReadFile(ConfigFilePath)
 	// If no changes, only restart if there was a new version.
-	if bytes.Equal(fileBytes, jsonBytes){
+	if err == nil && bytes.Equal(fileBytes, jsonBytes){
 		return newVersion, nil 
+	}
+
+	// If an error reading the config file, restart and return the error
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return true, err
 	}
 
 	// If attribute changes, restart after writing the new config file.
@@ -236,5 +249,5 @@ func (n *networking) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 }
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	return agent.NewAgentSubsystem(ctx, subsysName, logger, &networking{logger: logger.Named(subsysName)})
+	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &provisioning{logger: logger.Named(SubsysName)})
 }

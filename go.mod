@@ -1,6 +1,6 @@
 module github.com/viamrobotics/agent
 
-go 1.20
+go 1.21
 
 require (
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0
@@ -90,7 +90,5 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
-
-//replace go.viam.com/rdk => ../rdk
 
 replace go.viam.com/api => ../api

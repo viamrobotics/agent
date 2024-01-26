@@ -37,6 +37,44 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		return "", err
 	}
 
+	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedURL.Path))
+
+	if parsedURL.Scheme == "file" {
+		infd, err := os.Open(parsedURL.Path)
+		if err != nil {
+			return "", err
+		}
+		defer func() {
+			errRet = errors.Join(errRet, infd.Close())
+		}()
+
+		if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {
+			return "", err
+		}
+
+		outfd, err := os.CreateTemp(ViamDirs["tmp"], "*")
+		if err != nil {
+			return "", err
+		}
+		defer func() {
+			errRet = errors.Join(errRet, outfd.Close())
+			if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
+				errRet = errors.Join(errRet, err)
+			}
+		}()
+
+		_, err = io.Copy(outfd, infd)
+		if err != nil {
+			return "", err
+		}
+		errRet = errors.Join(errRet, os.Rename(outfd.Name(), outPath))
+		return outPath, errRet
+	}
+
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return "", errw.Errorf("unsupported url scheme %s", parsedURL.Scheme)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		return "", errw.Wrap(err, "checking viam-server status")
@@ -70,7 +108,6 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		errRet = errors.Join(errRet, err)
 	}
 
-	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedURL.Path))
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath))
 	return outPath, errRet
 }
