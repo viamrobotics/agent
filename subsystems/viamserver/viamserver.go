@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -32,16 +33,17 @@ const (
 
 var (
 	ConfigFilePath = "/etc/viam.json"
-	DefaultConfig = &pb.DeviceSubsystemConfig{}
+	DefaultConfig  = &pb.DeviceSubsystemConfig{}
 )
 
 type viamServer struct {
-	mu        sync.Mutex
-	cmd       *exec.Cmd
-	running   bool
-	shouldRun bool
-	lastExit  int
-	checkURL  string
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	running     bool
+	shouldRun   bool
+	lastExit    int
+	checkURL    string
+	checkURLAlt string
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -76,7 +78,11 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.cmd.Stderr = stderr
 
 	// watch for this line in the logs to indicate successful startup
-	c, err := stdio.AddMatcher("checkURL", regexp.MustCompile(`serving\W*{"url":\W*"(https?://[\w\.:-]+)".*}`), false)
+	c, err := stdio.AddMatcher(
+		"checkURL",
+		regexp.MustCompile(`serving\W*{"url":\W*"(https?://[\w\.:-]+)".*"alt_url":\W*"(https?://[\w\.:-]+)"}`),
+		false,
+	)
 	if err != nil {
 		return err
 	}
@@ -108,7 +114,8 @@ func (s *viamServer) Start(ctx context.Context) error {
 	select {
 	case matches := <-c:
 		s.checkURL = matches[1]
-		s.logger.Infof("healthcheck URL: %s", s.checkURL)
+		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "localhost", 1)
+		s.logger.Infof("healthcheck URLs: %s %s", s.checkURL, s.checkURLAlt)
 		s.logger.Infof("%s started", SubsysName)
 		return nil
 	case <-ctx.Done():
@@ -194,30 +201,37 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
-	s.logger.Debugf("starting healthcheck for %s using %s", SubsysName, s.checkURL)
+	for _, url := range []string{s.checkURL, s.checkURLAlt} {
+		s.logger.Debugf("starting healthcheck for %s using %s", SubsysName, url)
 
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*30)
-	defer cancelFunc()
+		timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
+		defer cancelFunc()
 
-	req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, s.checkURL, nil)
-	if err != nil {
-		return errw.Wrapf(err, "checking %s status", SubsysName)
+		req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, url, nil)
+		if err != nil {
+			errRet = errors.Join(errRet, errw.Wrapf(err, "checking %s status", SubsysName))
+			continue
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			errRet = errors.Join(errRet, errw.Wrapf(err, "checking %s status", SubsysName))
+			continue
+		}
+
+		defer func() {
+			errRet = errors.Join(errRet, resp.Body.Close())
+		}()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			errRet = errors.Join(errRet, errw.Wrapf(err, "checking %s status, got code: %d", SubsysName, resp.StatusCode))
+			continue
+		}
+		s.logger.Debugf("healthcheck for %s is good", SubsysName)
+		return nil
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return errw.Wrapf(err, "checking %s status", SubsysName)
-	}
-
-	defer func() {
-		errRet = errors.Join(errRet, resp.Body.Close())
-	}()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return errw.Wrapf(err, "checking %s status, got code: %d", SubsysName, resp.StatusCode)
-	}
-	s.logger.Debugf("healthcheck for %s is good", SubsysName)
-	return nil
+	return errRet
 }
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {

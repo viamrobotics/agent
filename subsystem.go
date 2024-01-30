@@ -23,6 +23,8 @@ const (
 	ShortFailTime = time.Second * 30
 )
 
+var ErrSubsystemDisabled = errors.New("subsystem disabled")
+
 // BasicSubsystem is the minimal interface.
 type BasicSubsystem interface {
 	// Start runs the subsystem
@@ -90,7 +92,7 @@ func (s *AgentSubsystem) Start(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	if s.disable {
-		return nil
+		return ErrSubsystemDisabled
 	}
 
 	info, ok := s.CacheData.Versions[s.CacheData.CurrentVersion]
@@ -122,6 +124,9 @@ func (s *AgentSubsystem) Stop(ctx context.Context) error {
 func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.disable {
+		return nil
+	}
 	err := s.inner.HealthCheck(ctx)
 	if err != nil {
 		if s.startTime == nil {
@@ -226,10 +231,11 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	if s.disable != cfg.GetDisable() {
 		s.disable = cfg.GetDisable()
 		needRestart = true
-		s.logger.Infof("%s %s", s.name, "enabled")
 		if s.disable {
 			s.logger.Infof("%s %s", s.name, "disabled")
 			return true, nil
+		} else {
+			s.logger.Infof("%s %s", s.name, "enabled")
 		}
 	}
 

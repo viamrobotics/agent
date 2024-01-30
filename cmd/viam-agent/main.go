@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"os/user"
@@ -18,9 +19,9 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
+	"github.com/viamrobotics/agent/subsystems/provisioning"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
-	"github.com/viamrobotics/agent/subsystems/provisioning"
 	"go.viam.com/utils"
 )
 
@@ -31,6 +32,7 @@ var (
 	globalLogger = golog.NewDevelopmentLogger("viam-agent")
 )
 
+//nolint:gocognit
 func main() {
 	ctx := setupExitSignalHandling()
 
@@ -113,24 +115,42 @@ func main() {
 	exitIfError(err)
 
 	viamserver.ConfigFilePath = absConfigPath
+	provisioning.AppConfigFilePath = absConfigPath
 	globalLogger.Infof("config file path: %s", absConfigPath)
 
 	// main manager structure
 	manager, err := agent.NewManager(ctx, globalLogger)
+	exitIfError(err)
 
 	err = manager.LoadConfig(absConfigPath)
+	//nolint:nestif
 	if err != nil {
 		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
+		// Remove the file (if it exists) and wait to provision a new one.
+		if !errors.Is(err, fs.ErrNotExist) {
+			if err := os.Remove(absConfigPath); err != nil {
+				// if we can't remove the file, we're up a creek, and it's fatal
+				globalLogger.Error(errors.Wrapf(err, "cannot remove invalid config file %s", absConfigPath))
+				globalLogger.Error("unable to continue with provisioning, exiting")
+				manager.CloseAll()
+				return
+			}
+		}
+
 		// We manually start the provisioning service to allow the user to update it and wait.
 		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
 		globalLogger.Infof("main config file %s missing or corrupt, entering provisioning mode", absConfigPath)
 
 		if err := manager.StartSubsystem(ctx, provisioning.SubsysName); err != nil {
-			globalLogger.Error("could not load/start the provisioning subsystem, please manually update /etc/viam.json")
+			if errors.Is(err, agent.ErrSubsystemDisabled) {
+				globalLogger.Warn("provisioning subsystem disabled, please manually update /etc/viam.json and connect to internet")
+			} else {
+				globalLogger.Error("could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet")
+			}
 		}
 
 		for {
-			globalLogger.Warn("waiting for provisioning")
+			globalLogger.Warn("waiting for user provisioning")
 			if !utils.SelectContextOrWait(ctx, time.Second*10) {
 				manager.CloseAll()
 				activeBackgroundWorkers.Wait()

@@ -39,6 +39,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 
 	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedURL.Path))
 
+	//nolint:nestif
 	if parsedURL.Scheme == "file" {
 		infd, err := os.Open(parsedURL.Path)
 		if err != nil {

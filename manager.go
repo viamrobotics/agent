@@ -56,7 +56,7 @@ func NewManager(ctx context.Context, logger *zap.SugaredLogger) (*Manager, error
 	return manager, manager.LoadSubsystems(ctx)
 }
 
-func (m * Manager) LoadConfig(cfgPath string) error {
+func (m *Manager) LoadConfig(cfgPath string) error {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
@@ -150,9 +150,8 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 				continue
 			}
 		}
-		if err := sub.Start(ctx); err != nil {
+		if err := sub.Start(ctx); err != nil && !errors.Is(err, ErrSubsystemDisabled) {
 			m.logger.Error(err)
-			continue
 		}
 	}
 }
@@ -201,7 +200,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if err := sub.Start(ctx); err != nil {
+			if err := sub.Start(ctx); err != nil && !errors.Is(err, ErrSubsystemDisabled) {
 				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
 			}
 		}

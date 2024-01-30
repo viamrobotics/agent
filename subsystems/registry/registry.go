@@ -54,6 +54,7 @@ func GetDefaultConfig(name string) *pb.DeviceSubsystemConfig {
 func List() []string {
 	mu.Lock()
 	defer mu.Unlock()
+	//nolint:prealloc
 	var names []string
 	for k := range creators {
 		names = append(names, k)

@@ -36,7 +36,7 @@ var (
 
 	//go:embed viam-agent.service
 	serviceFileContents []byte
-	DefaultConfig = &pb.DeviceSubsystemConfig{}
+	DefaultConfig       = &pb.DeviceSubsystemConfig{}
 )
 
 type agentSubsystem struct{}

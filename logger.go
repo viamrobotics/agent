@@ -17,7 +17,7 @@ type matcher struct {
 	mask    bool
 }
 
-// NewMatchingLogger returns a MatchingLogger
+// NewMatchingLogger returns a MatchingLogger.
 func NewMatchingLogger(logger *zap.SugaredLogger, isError bool) *MatchingLogger {
 	return &MatchingLogger{logger: logger, defaultError: isError}
 }

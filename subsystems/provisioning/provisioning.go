@@ -27,7 +27,7 @@ func init() {
 }
 
 var (
-	Debug = false
+	Debug         = false
 	DefaultConfig = &pb.DeviceSubsystemConfig{}
 )
 
@@ -35,12 +35,13 @@ const (
 	startTimeout = time.Minute
 	stopTimeout  = time.Minute
 	SubsysName   = "agent-provisioning"
-
-	provisioningConfigPath = "/etc/viam-provisioning.json"
 )
 
-var ConfigFilePath = path.Join(agent.ViamDirs["etc"], SubsysName + ".json")
-
+var (
+	ConfigFilePath             = path.Join(agent.ViamDirs["etc"], SubsysName+".json")
+	AppConfigFilePath          = "/etc/viam.json"
+	ProvisioningConfigFilePath = "/etc/viam-provisioning.json"
+)
 
 type provisioning struct {
 	mu        sync.Mutex
@@ -48,7 +49,6 @@ type provisioning struct {
 	running   bool
 	shouldRun bool
 	lastExit  int
-	healthy   bool
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -76,7 +76,7 @@ func (n *provisioning) Start(ctx context.Context) error {
 	stdio := agent.NewMatchingLogger(n.logger, false)
 	stderr := agent.NewMatchingLogger(n.logger, true)
 
-	cmdArgs := []string{"--config", ConfigFilePath}
+	cmdArgs := []string{"--config", ConfigFilePath, "--app-config", AppConfigFilePath, "--provisioning-config", ProvisioningConfigFilePath}
 	if Debug {
 		cmdArgs = append(cmdArgs, "--debug")
 	}
@@ -88,8 +88,7 @@ func (n *provisioning) Start(ctx context.Context) error {
 	n.cmd.Stderr = stderr
 
 	// watch for this line in the logs to indicate successful startup
-	// SMURF TODO fix this to corrrect output
-	c, err := stdio.AddMatcher("checkStartup", regexp.MustCompile(`sleeping`), false)
+	c, err := stdio.AddMatcher("checkStartup", regexp.MustCompile(`agent-provisioning startup complete`), false)
 	if err != nil {
 		return err
 	}
@@ -205,11 +204,16 @@ func (n *provisioning) HealthCheck(ctx context.Context) (errRet error) {
 
 	n.logger.Debugf("starting healthcheck for %s", SubsysName)
 
-	checkChan, err := n.cmd.Stdout.(*agent.MatchingLogger).AddMatcher("healthcheck",  regexp.MustCompile(`HEALTHY`), true)
+	checkChan, err := n.cmd.Stdout.(*agent.MatchingLogger).AddMatcher("healthcheck", regexp.MustCompile(`HEALTHY`), true)
 	if err != nil {
 		return err
 	}
-	defer n.cmd.Stdout.(*agent.MatchingLogger).DeleteMatcher("healthcheck")
+	defer func() {
+		matcher, ok := n.cmd.Stdout.(*agent.MatchingLogger)
+		if ok {
+			matcher.DeleteMatcher("healthcheck")
+		}
+	}()
 
 	err = n.cmd.Process.Signal(syscall.SIGUSR1)
 	if err != nil {
@@ -224,19 +228,18 @@ func (n *provisioning) HealthCheck(ctx context.Context) (errRet error) {
 		return nil
 	}
 	return errw.Errorf("timeout waiting for healthcheck on %s", SubsysName)
-
 }
 
 func (n *provisioning) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
-	jsonBytes, err := cfg.Attributes.MarshalJSON()
+	jsonBytes, err := cfg.GetAttributes().MarshalJSON()
 	if err != nil {
 		return true, err
 	}
 
 	fileBytes, err := os.ReadFile(ConfigFilePath)
 	// If no changes, only restart if there was a new version.
-	if err == nil && bytes.Equal(fileBytes, jsonBytes){
-		return newVersion, nil 
+	if err == nil && bytes.Equal(fileBytes, jsonBytes) {
+		return newVersion, nil
 	}
 
 	// If an error reading the config file, restart and return the error
@@ -245,7 +248,7 @@ func (n *provisioning) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig
 	}
 
 	// If attribute changes, restart after writing the new config file.
-	return true, os.WriteFile(ConfigFilePath, jsonBytes, 0644)
+	return true, os.WriteFile(ConfigFilePath, jsonBytes, 0o644)
 }
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
