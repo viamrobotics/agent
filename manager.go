@@ -144,7 +144,6 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 			continue
 		}
 		if restart {
-			m.logger.Info()
 			if err := sub.Stop(ctx); err != nil {
 				m.logger.Error(err)
 				continue

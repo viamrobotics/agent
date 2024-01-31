@@ -344,13 +344,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	// if we made it here we performed an update and need to restart
 	s.logger.Infof("%s updated to %s", s.name, verData.Version)
-
-	// TODO remove this special case after handling restarts directly via force_restart
-	if s.name == "viam-server" {
-		s.logger.Info("awaiting user restart to run new viam-server version")
-	} else {
-		needRestart = true
-	}
+	needRestart = true
 
 	// record the cache
 	err = s.saveCache()
@@ -358,7 +352,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		return needRestart, err
 	}
 
-	// if the subsystem has it's own additional update code, run it
+	// if the subsystem has its own additional update code, run it
 	return s.tryInner(ctx, cfg, needRestart)
 }
 

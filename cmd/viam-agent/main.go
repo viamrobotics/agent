@@ -126,10 +126,10 @@ func main() {
 	//nolint:nestif
 	if err != nil {
 		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
-		// Remove the file (if it exists) and wait to provision a new one.
+		// Rename the file (if it exists) and wait to provision a new one.
 		if !errors.Is(err, fs.ErrNotExist) {
-			if err := os.Remove(absConfigPath); err != nil {
-				// if we can't remove the file, we're up a creek, and it's fatal
+			if err := os.Rename(absConfigPath, absConfigPath+".old"); err != nil {
+				// if we can't rename the file, we're up a creek, and it's fatal
 				globalLogger.Error(errors.Wrapf(err, "cannot remove invalid config file %s", absConfigPath))
 				globalLogger.Error("unable to continue with provisioning, exiting")
 				manager.CloseAll()

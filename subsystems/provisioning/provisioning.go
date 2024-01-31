@@ -49,6 +49,7 @@ type provisioning struct {
 	running   bool
 	shouldRun bool
 	lastExit  int
+	exitChan  chan struct{}
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -61,9 +62,9 @@ func (n *provisioning) Start(ctx context.Context) error {
 	defer n.startStopMu.Unlock()
 
 	n.mu.Lock()
-	defer n.mu.Unlock()
 
 	if n.running {
+		n.mu.Unlock()
 		return nil
 	}
 	if n.shouldRun {
@@ -90,16 +91,21 @@ func (n *provisioning) Start(ctx context.Context) error {
 	// watch for this line in the logs to indicate successful startup
 	c, err := stdio.AddMatcher("checkStartup", regexp.MustCompile(`agent-provisioning startup complete`), false)
 	if err != nil {
+		n.mu.Unlock()
 		return err
 	}
 	defer stdio.DeleteMatcher("checkStartup")
 
 	err = n.cmd.Start()
 	if err != nil {
+		n.mu.Unlock()
 		return errw.Wrapf(err, "error starting %s", SubsysName)
 	}
 	n.running = true
+	n.exitChan = make(chan struct{})
 
+	// must be unlocked before spawning goroutine
+	n.mu.Unlock()
 	go func() {
 		err := n.cmd.Wait()
 		n.mu.Lock()
@@ -115,6 +121,7 @@ func (n *provisioning) Start(ctx context.Context) error {
 				n.logger.Errorw("non-zero exit code", "exit code", n.lastExit)
 			}
 		}
+		close(n.exitChan)
 	}()
 
 	select {
@@ -125,6 +132,8 @@ func (n *provisioning) Start(ctx context.Context) error {
 		return ctx.Err()
 	case <-time.After(startTimeout):
 		return errw.New("startup timed out")
+	case <-n.exitChan:
+		return errw.New("startup failed")
 	}
 }
 
@@ -173,22 +182,22 @@ func (n *provisioning) Stop(ctx context.Context) error {
 }
 
 func (n *provisioning) waitForExit(ctx context.Context, timeout time.Duration) bool {
-	ctxTimeout, cancelFunc := context.WithTimeout(ctx, timeout)
-	defer cancelFunc()
+	n.mu.Lock()
+	exitChan := n.exitChan
+	running := n.running
+	n.mu.Unlock()
 
-	// loop so that even after the context expires, we still have one more second before a final check.
-	var lastTry bool
-	for {
-		n.mu.Lock()
-		running := n.running
-		n.mu.Unlock()
-		if !running || lastTry {
-			return !running
-		}
-		if ctxTimeout.Err() != nil {
-			lastTry = true
-		}
-		time.Sleep(time.Second)
+	if !running {
+		return true
+	}
+
+	select {
+	case <-exitChan:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		return false
 	}
 }
 

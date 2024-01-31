@@ -42,6 +42,7 @@ type viamServer struct {
 	running     bool
 	shouldRun   bool
 	lastExit    int
+	exitChan    chan struct{}
 	checkURL    string
 	checkURLAlt string
 
@@ -56,9 +57,9 @@ func (s *viamServer) Start(ctx context.Context) error {
 	defer s.startStopMu.Unlock()
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.running {
+		s.mu.Unlock()
 		return nil
 	}
 	if s.shouldRun {
@@ -84,16 +85,21 @@ func (s *viamServer) Start(ctx context.Context) error {
 		false,
 	)
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	defer stdio.DeleteMatcher("checkURL")
 
 	err = s.cmd.Start()
 	if err != nil {
+		s.mu.Unlock()
 		return errw.Wrapf(err, "error starting %s", SubsysName)
 	}
 	s.running = true
+	s.exitChan = make(chan struct{})
 
+	// must be unlocked before spawning goroutine
+	s.mu.Unlock()
 	go func() {
 		err := s.cmd.Wait()
 		s.mu.Lock()
@@ -109,6 +115,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 				s.logger.Errorw("non-zero exit code", "exit code", s.lastExit)
 			}
 		}
+		close(s.exitChan)
 	}()
 
 	select {
@@ -122,6 +129,8 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return ctx.Err()
 	case <-time.After(startTimeout):
 		return errw.New("startup timed out")
+	case <-s.exitChan:
+		return errw.New("startup failed")
 	}
 }
 
@@ -170,22 +179,22 @@ func (s *viamServer) Stop(ctx context.Context) error {
 }
 
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
-	ctxTimeout, cancelFunc := context.WithTimeout(ctx, timeout)
-	defer cancelFunc()
+	s.mu.Lock()
+	exitChan := s.exitChan
+	running := s.running
+	s.mu.Unlock()
 
-	// loop so that even after the context expires, we still have one more second before a final check.
-	var lastTry bool
-	for {
-		s.mu.Lock()
-		running := s.running
-		s.mu.Unlock()
-		if !running || lastTry {
-			return !running
-		}
-		if ctxTimeout.Err() != nil {
-			lastTry = true
-		}
-		time.Sleep(time.Second)
+	if !running {
+		return true
+	}
+
+	select {
+	case <-exitChan:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		return false
 	}
 }
 
@@ -232,6 +241,17 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 	}
 
 	return errRet
+}
+
+func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if newVersion {
+		s.logger.Info("awaiting user restart to run new viam-server version")
+		s.shouldRun = false
+	}
+	// always return false on the needRestart flag, as we await the user to kill/restart viam-server directly
+	return false, nil
 }
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
