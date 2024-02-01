@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	registry.Register(subsysName, NewSubsystem)
+	registry.Register(subsysName, NewSubsystem, DefaultConfig)
 }
 
 const (
@@ -36,6 +36,7 @@ var (
 
 	//go:embed viam-agent.service
 	serviceFileContents []byte
+	DefaultConfig       = &pb.DeviceSubsystemConfig{}
 )
 
 type agentSubsystem struct{}
@@ -61,7 +62,11 @@ func (a *agentSubsystem) HealthCheck(ctx context.Context) error {
 
 // Update here handles the post-update installation of systemd files and the like.
 // The actual update check and download is done in the wrapper (agent.AgentSubsystem).
-func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error) {
+func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
+	if !newVersion {
+		return false, nil
+	}
+
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 
 	// Run the newly updated version to install systemd and other service files.

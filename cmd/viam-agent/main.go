@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"os/user"
@@ -18,6 +19,7 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
+	"github.com/viamrobotics/agent/subsystems/provisioning"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"go.viam.com/utils"
@@ -30,6 +32,7 @@ var (
 	globalLogger = golog.NewDevelopmentLogger("viam-agent")
 )
 
+//nolint:gocognit
 func main() {
 	ctx := setupExitSignalHandling()
 
@@ -62,6 +65,7 @@ func main() {
 
 	if opts.Debug {
 		globalLogger = golog.NewDebugLogger("viam-agent")
+		provisioning.Debug = true
 	}
 
 	// need to be root to go any further than this
@@ -109,31 +113,57 @@ func main() {
 	// tie the manager config to the viam-server config
 	absConfigPath, err := filepath.Abs(opts.Config)
 	exitIfError(err)
-	_, err = os.Stat(absConfigPath)
-	exitIfError(errors.Wrap(err, "checking for config file"))
 
 	viamserver.ConfigFilePath = absConfigPath
+	provisioning.AppConfigFilePath = absConfigPath
 	globalLogger.Infof("config file path: %s", absConfigPath)
 
 	// main manager structure
-	manager, err := agent.NewManager(ctx, globalLogger, absConfigPath)
+	manager, err := agent.NewManager(ctx, globalLogger)
+	exitIfError(err)
+
+	err = manager.LoadConfig(absConfigPath)
+	//nolint:nestif
 	if err != nil {
-		// If the local /etc/viam.json config is corrupted or invalid, we can get stuck here.
-		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
-		for {
-			globalLogger.Error(errors.Wrapf(err, "cannot load local config file, please check and correct %s", absConfigPath))
-			if !utils.SelectContextOrWait(ctx, time.Second*10) {
+		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
+		// Rename the file (if it exists) and wait to provision a new one.
+		if !errors.Is(err, fs.ErrNotExist) {
+			if err := os.Rename(absConfigPath, absConfigPath+".old"); err != nil {
+				// if we can't rename the file, we're up a creek, and it's fatal
+				globalLogger.Error(errors.Wrapf(err, "cannot remove invalid config file %s", absConfigPath))
+				globalLogger.Error("unable to continue with provisioning, exiting")
+				manager.CloseAll()
 				return
 			}
-			manager, err = agent.NewManager(ctx, globalLogger, absConfigPath)
-			if err == nil {
+		}
+
+		// We manually start the provisioning service to allow the user to update it and wait.
+		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
+		globalLogger.Infof("main config file %s missing or corrupt, entering provisioning mode", absConfigPath)
+
+		if err := manager.StartSubsystem(ctx, provisioning.SubsysName); err != nil {
+			if errors.Is(err, agent.ErrSubsystemDisabled) {
+				globalLogger.Warn("provisioning subsystem disabled, please manually update /etc/viam.json and connect to internet")
+			} else {
+				globalLogger.Error("could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet")
+			}
+		}
+
+		for {
+			globalLogger.Warn("waiting for user provisioning")
+			if !utils.SelectContextOrWait(ctx, time.Second*10) {
+				manager.CloseAll()
+				activeBackgroundWorkers.Wait()
+				return
+			}
+			if err := manager.LoadConfig(absConfigPath); err == nil {
 				break
 			}
 		}
 	}
 
 	// Check for self-update and restart if needed.
-	needRestart, err := manager.SelfUpdate(ctx, globalLogger)
+	needRestart, err := manager.SelfUpdate(ctx)
 	if err != nil {
 		globalLogger.Error(err)
 	}
@@ -142,14 +172,11 @@ func main() {
 		return
 	}
 
-	manager.StartBackgroundChecks(ctx, globalLogger)
+	manager.StartBackgroundChecks(ctx)
 
 	<-ctx.Done()
 
-	closeContext, cancelFunc := context.WithTimeout(context.Background(), time.Minute)
-	defer cancelFunc()
-
-	manager.CloseAll(closeContext, globalLogger)
+	manager.CloseAll()
 
 	activeBackgroundWorkers.Wait()
 }

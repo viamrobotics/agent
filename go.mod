@@ -1,14 +1,14 @@
 module github.com/viamrobotics/agent
 
-go 1.20
+go 1.21
 
 require (
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/nightlyone/lockfile v1.0.0
 	go.uber.org/zap v1.26.0
-	go.viam.com/api v0.1.217
-	go.viam.com/utils v0.1.52
+	go.viam.com/api v0.1.254
+	go.viam.com/utils v0.1.59
 )
 
 require (
@@ -90,7 +90,3 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
-
-replace go.viam.com/rdk => ../rdk
-
-replace go.viam.com/api => ../api

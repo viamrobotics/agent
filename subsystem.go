@@ -23,6 +23,8 @@ const (
 	ShortFailTime = time.Second * 30
 )
 
+var ErrSubsystemDisabled = errors.New("subsystem disabled")
+
 // BasicSubsystem is the minimal interface.
 type BasicSubsystem interface {
 	// Start runs the subsystem
@@ -37,7 +39,7 @@ type BasicSubsystem interface {
 
 // updatable is if a wrapped subsystem has it's own (additional) update code to run.
 type updatable interface {
-	Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error)
+	Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error)
 }
 
 // AgentSubsystem is a wrapper for the real subsystems, mostly allowing sharing of download/update code.
@@ -90,12 +92,15 @@ func (s *AgentSubsystem) Start(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	if s.disable {
-		return nil
+		return ErrSubsystemDisabled
 	}
 
 	info, ok := s.CacheData.Versions[s.CacheData.CurrentVersion]
 	if !ok {
-		return errw.Errorf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
+		s.CacheData.CurrentVersion = "unknown"
+		info = &VersionInfo{Version: s.CacheData.CurrentVersion}
+		s.CacheData.Versions[s.CacheData.CurrentVersion] = info
+		s.logger.Warnf("cache info not found for %s, version: %s", s.name, s.CacheData.CurrentVersion)
 	}
 	info.StartCount++
 	start := time.Now()
@@ -119,6 +124,9 @@ func (s *AgentSubsystem) Stop(ctx context.Context) error {
 func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.disable {
+		return nil
+	}
 	err := s.inner.HealthCheck(ctx)
 	if err != nil {
 		if s.startTime == nil {
@@ -166,22 +174,28 @@ func (s *AgentSubsystem) LoadCache() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	cache := &CacheData{
+		Versions: make(map[string]*VersionInfo),
+	}
+
 	cacheFilePath := filepath.Join(ViamDirs["cache"], fmt.Sprintf("%s.json", s.name))
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			s.logger.Error(err)
+		}
+	} else {
+		err = json.Unmarshal(cacheBytes, cache)
+		if err != nil {
+			s.logger.Error(errw.Wrap(err, "cannot parse subsystem cache, using new defaults"))
+			s.CacheData = &CacheData{
+				Versions: make(map[string]*VersionInfo),
+			}
+			return nil
 		}
 	}
 
-	s.CacheData = &CacheData{
-		Versions: make(map[string]*VersionInfo),
-	}
-
-	if err == nil {
-		return json.Unmarshal(cacheBytes, s.CacheData)
-	}
-
+	s.CacheData = cache
 	return nil
 }
 
@@ -217,11 +231,12 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	if s.disable != cfg.GetDisable() {
 		s.disable = cfg.GetDisable()
 		needRestart = true
-		action := "enabled"
 		if s.disable {
-			action = "disabled"
+			s.logger.Infof("%s %s", s.name, "disabled")
+			return true, nil
+		} else {
+			s.logger.Infof("%s %s", s.name, "enabled")
 		}
-		s.logger.Infof("%s %s", s.name, action)
 	}
 
 	updateInfo := cfg.GetUpdateInfo()
@@ -251,7 +266,8 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 		shasum, err := GetFileSum(verData.UnpackedPath)
 		if err == nil && bytes.Equal(shasum, checkSum) {
-			return needRestart, nil
+			// No update, but let the inner logic run if needed.
+			return s.tryInner(ctx, cfg, needRestart)
 		}
 	}
 
@@ -328,13 +344,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	// if we made it here we performed an update and need to restart
 	s.logger.Infof("%s updated to %s", s.name, verData.Version)
-
-	// TODO remove this special case after handling restarts directly via force_restart
-	if s.name == "viam-server" {
-		s.logger.Info("awaiting user restart to run new viam-server version")
-	} else {
-		needRestart = true
-	}
+	needRestart = true
 
 	// record the cache
 	err = s.saveCache()
@@ -342,11 +352,15 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		return needRestart, err
 	}
 
-	// if the subsystem has it's own additional update code, run it
+	// if the subsystem has its own additional update code, run it
+	return s.tryInner(ctx, cfg, needRestart)
+}
+
+func (s *AgentSubsystem) tryInner(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
 	inner, ok := s.inner.(updatable)
 	if ok {
-		return inner.Update(ctx, cfg)
+		return inner.Update(ctx, cfg, newVersion)
 	}
 
-	return needRestart, nil
+	return newVersion, nil
 }
