@@ -61,6 +61,7 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	defer m.connMu.Unlock()
 
 	m.logger.Debugw("loading", "config", cfgPath)
+	//nolint:gosec
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return errw.Wrap(err, "error reading config file")
@@ -309,6 +310,7 @@ func (m *Manager) getCachedConfig() (map[string]*pb.DeviceSubsystemConfig, error
 	cachedConfig := map[string]*pb.DeviceSubsystemConfig{SubsystemName: {}}
 
 	cacheFilePath := filepath.Join(ViamDirs["cache"], agentCachePath)
+	//nolint:gosec
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -332,7 +334,7 @@ func (m *Manager) saveCachedConfig(cfg map[string]*pb.DeviceSubsystemConfig) err
 	if err != nil {
 		return err
 	}
-
+	//nolint:gosec
 	return os.WriteFile(cacheFilePath, cacheData, 0o644)
 }
 

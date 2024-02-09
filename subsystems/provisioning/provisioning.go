@@ -81,7 +81,7 @@ func (n *provisioning) Start(ctx context.Context) error {
 	if Debug {
 		cmdArgs = append(cmdArgs, "--debug")
 	}
-
+	//nolint:gosec
 	n.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], SubsysName), cmdArgs...)
 	n.cmd.Dir = agent.ViamDirs["viam"]
 	n.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -244,7 +244,7 @@ func (n *provisioning) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig
 	if err != nil {
 		return true, err
 	}
-
+	//nolint:gosec
 	fileBytes, err := os.ReadFile(ConfigFilePath)
 	// If no changes, only restart if there was a new version.
 	if err == nil && bytes.Equal(fileBytes, jsonBytes) {
@@ -257,6 +257,7 @@ func (n *provisioning) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig
 	}
 
 	// If attribute changes, restart after writing the new config file.
+	//nolint:gosec
 	return true, os.WriteFile(ConfigFilePath, jsonBytes, 0o644)
 }
 

@@ -49,6 +49,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 			errRet = errors.Join(errRet, infd.Close())
 		}()
 
+		//nolint:gosec
 		if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {
 			return "", err
 		}
@@ -89,6 +90,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		errRet = errors.Join(errRet, resp.Body.Close())
 	}()
 
+	//nolint:gosec
 	if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {
 		return "", err
 	}
@@ -115,6 +117,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 
 // DecompressFile extracts a compressed file and returns the path to the extracted file.
 func DecompressFile(inPath string) (outPath string, errRet error) {
+	//nolint:gosec
 	in, err := os.Open(inPath)
 	if err != nil {
 		return "", err
@@ -151,6 +154,7 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 }
 
 func GetFileSum(filepath string) (outSum []byte, errRet error) {
+	//nolint:gosec
 	in, err := os.Open(filepath)
 	if err != nil {
 		return nil, err

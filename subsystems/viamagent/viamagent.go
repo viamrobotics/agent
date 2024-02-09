@@ -70,6 +70,7 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 
 	// Run the newly updated version to install systemd and other service files.
+	//nolint:gosec
 	cmd := exec.Command(expectedPath, "--install")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -133,6 +134,7 @@ func Install(logger *zap.SugaredLogger) error {
 	}
 
 	logger.Infof("writing systemd service file to %s", serviceFilePath)
+	//nolint:gosec
 	if err := os.WriteFile(serviceFilePath, serviceFileContents, 0o644); err != nil {
 		return errors.Wrapf(err, "unable to write systemd service file %s", serviceFilePath)
 	}
@@ -153,12 +155,13 @@ func Install(logger *zap.SugaredLogger) error {
 	_, err = os.Stat("/etc/viam.json")
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
+			//nolint:forbidigo
 			fmt.Println("No config file found at /etc/viam.json, please install one before running viam-agent service.")
 		} else {
 			return errors.Wrap(err, "error reading /etc/viam.json")
 		}
 	}
-
+	//nolint:forbidigo
 	fmt.Println("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
 
 	return nil
@@ -170,6 +173,7 @@ func initPaths() error {
 		info, err := os.Stat(p)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
+				//nolint:gosec
 				if err := os.MkdirAll(p, 0o755); err != nil {
 					return err
 				}
