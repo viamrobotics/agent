@@ -10,6 +10,7 @@
 
 ARCH=$(uname -m)
 URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$ARCH"
+PROVISIONING_URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent-provisioning/viam-agent-provisioning-stable-$ARCH"
 
 # Force will bypass all prompts by treating them as yes. May also be set as an environment variable when running as download.
 # sudo /bin/sh -c "FORCE=1; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
@@ -80,17 +81,11 @@ enable_networkmanager() {
 		fi
 
 		echo
-		echo "Waiting for viam-agent to fully start."
-		n=1
-		while [ "$n" -le 5 ]; do
-			# if we mess up the networking, we want provisioning to be installed as a backup
-			if [ -e "/opt/viam/bin/agent-provisioning" ]; then
-				sleep 5
-				break
-			fi
-			n=$(( n + 1 ))
-			sleep 5
-		done
+		echo "Pre-installing provisioning subsystem as a backup."
+
+		mkdir -p /opt/viam/bin /opt/viam/tmp
+		cd /opt/viam/tmp && curl -fL -o viam-agent-provisioning-temp-$ARCH "$PROVISIONING_URL" && \
+		chmod 755 viam-agent-provisioning-temp-$ARCH && ln -s /opt/viam/tmp/viam-agent-provisioning-temp-$ARCH ../bin/agent-provisioning
 
 		systemctl enable --now NetworkManager && systemctl disable dhcpcd
 
@@ -104,7 +99,7 @@ enable_networkmanager() {
 		if ! systemctl is-enabled NetworkManager; then
 			echo
 			echo "Error: Was unable to activate NetworkManager."
-			exit 1
+			return 1
 		fi
 
 		if which perl >/dev/null; then
@@ -216,7 +211,7 @@ if [ $? -ne 0 ]; then
 	exit 2
 fi
 
-./viam-agent-temp-$ARCH --install && systemctl restart viam-agent
+./viam-agent-temp-$ARCH --install
 if [ $? -ne 0 ]; then
 	echo
 	echo "Error installing viam-agent. Please correct any errors mentioned above and try again."
@@ -224,6 +219,8 @@ if [ $? -ne 0 ]; then
 fi
 
 enable_networkmanager
+
+systemctl restart viam-agent
 
 echo && echo && echo
 echo "Viam Agent installed successfully. You may start/stop/restart it via systemd's 'systemctl' command."
