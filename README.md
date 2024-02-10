@@ -5,11 +5,21 @@ A self-updating service manager that maintains the lifecycle for viam-server (as
 Currently, viam-agent is only supported on Linux, for amd64 (x86_64) and arm64 (aarch64) CPUs.
 
 ## Installation
-Make sure you've already installed your robot's configuration file to `/etc/viam.json` and have `curl` available, then simply run the following:
+Your system will need to have `curl` available.
+
+### Automatic
+The smart machine config `/etc/viam.json` can be installed automatically if you have an API key and part ID available. Modify the following command by inserting your actual details. (Be sure to remove the surrounding < > characters of the placeholders.)
+```
+sudo /bin/sh -c "VIAM_API_KEY_ID=<KEYID> VIAM_API_KEY=<KEY> VIAM_PART_ID=<PARTID>; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
+```
+### Manual configuration
+Make sure you've already installed your robot's configuration file to `/etc/viam.json` then run the following:
 ```
 sudo /bin/sh -c "$(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
 ```
-Files will be placed in `/opt/viam` and a service file at `/etc/systemd/system/viam-agent.service`
+
+## Provisioning and Networking
+The current version of viam-agent includes a device provisioning subsystem that can help set up wifi and smart machine configs. For more info, see the [Provisioning Subsystem](https://github.com/viamrobotics/agent-provisioning)
 
 ## Management
 Viam Agent will install itself as a systemd service named `viam-agent`. Start/stop/restart it with `systemctl`  
@@ -21,13 +31,10 @@ For the agent itself restart the service (per the management command above) or r
 viam-server may be restarted via the normal "restart" button in the cloud App, or as part of the full agent restart per above.  
 
 ### Uninstall
-To remove the agent completely, simply stop the service and remove the files mentioned above.  
+To remove the agent and all viam configuration completely, run the following script.
 ```
-sudo systemctl disable --now viam-agent
-sudo rm -rf /opt/viam /etc/systemd/system/viam-agent.service
-sudo systemctl daemon-reload
+sudo /bin/sh -c "$(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/uninstall.sh)"
 ```
-
 
 ## Development
 
