@@ -46,3 +46,13 @@ bin/golangci-lint:
 lint: bin/golangci-lint
 	go mod tidy
 	bin/golangci-lint run -v --fix
+
+.PHONY: upload-stable
+upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64
+	test "$(PATH_VERSION)" != "custom"
+	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 gs://packages.viam.com/apps/viam-agent/
+
+
+.PHONY: upload-installer
+upload-installer:
+	gsutil -h "Cache-Control:no-cache" cp install.sh uninstall.sh gs://packages.viam.com/apps/viam-agent/

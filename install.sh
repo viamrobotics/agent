@@ -54,176 +54,233 @@ fetch_config() {
 	fi
 }
 
+# Verifies that NetworkManager is 1.42 or newer.
+check_nm_version() {
+	which nmcli >/dev/null 2>&1 || return 1
+
+	NM_VERSION=$(nmcli --version | grep -Eo '[0-9]+.[0-9]+.[0-9]+')
+
+	NM_VERSION_MAJOR=$(echo $NM_VERSION | cut -d. -f1)
+	NM_VERSION_MINOR=$(echo $NM_VERSION | cut -d. -f2)
+
+	if [ $NM_VERSION_MAJOR -ge 1 ] && [ $NM_VERSION_MINOR -ge 42 ]; then
+		return 0
+	fi
+
+	return 1
+}
+
+is_bullseye() {
+	grep -q VERSION_CODENAME=bullseye /etc/os-release
+}
+
+add_network() {
+	if [ "$SSID" != "" ]; then
+		echo "Migrating $SSID connection settings"
+
+		FILENAME=
+
+		if [ "$PSK" != "" ]; then
+			nmcli --offline con add connection.id "$SSID" connection.type 802-11-wireless 802-11-wireless.ssid "$SSID" 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "$PSK" > /etc/NetworkManager/system-connections/"$SSID.nmconnection"
+		else
+			nmcli --offline con add connection.id "$SSID" connection.type 802-11-wireless 802-11-wireless.ssid "$SSID" > /etc/NetworkManager/system-connections/"$SSID.nmconnection"
+		fi
+	fi
+}
+
+migrate_wpa_conf() {
+	NETWORK=0
+	SSID=""
+	PSK=""
+
+	while read -r line; do
+		if echo $line | grep -qE 'network[[:space:]]?='; then
+			NETWORK=$(( NETWORK + 1 ))
+			add_network
+			SSID=""
+			PSK=""
+		elif echo $line | grep -qE 'ssid[[:space:]]?='; then
+			SSID=$(echo $line | cut -d= -f2 | tr -d \")
+		elif echo $line | grep -qE 'psk[[:space:]]?='; then
+			PSK=$(echo $line | cut -d= -f2 | tr -d \")
+		fi
+	done < /etc/wpa_supplicant/wpa_supplicant.conf
+	add_network
+	chmod 600 /etc/NetworkManager/system-connections/*.nmconnection
+}
+
+
 # Attempts to enable NetworkManager (only tested on Raspberry PiOS/Bullseye)
 enable_networkmanager() {
-	systemctl is-enabled NetworkManager && return
+	systemctl is-enabled NetworkManager && check_nm_version && return
 
 	echo
-	echo "Viam provides a wifi management and device provisioning service. To use it, NetworkManager must be installed and active."
+	echo "Viam provides a wifi management and device provisioning service. To use it, NetworkManager 1.42 (or newer) must be installed and active."
 
-	if systemctl cat NetworkManager >/dev/null; then
+	if check_nm_version || is_bullseye; then
+		# We can automate this.
+
 		echo
-		echo "It appears NetworkManager is installed but not enabled."
-		echo "This script can activate it for you, but may potentially break your existing network configuration."
+		echo "This script can attempt to upgrade/activate NetworkManager for you, but may potentially break your existing network configuration."
 		echo
-		echo "It may also TEMPORARILY disconnect you from your device if you are connected remotely (ssh or similar.)"
-		echo "If that happens, please WAIT 5 minutes for connectivity to resume."
+		echo "It will attempt to migrate any existing wifi connections from wpa_supplicant, but may not always work."
 		echo
-		echo "If connections are not restored after 5 minutes, please see if a provisioning hotspot has beens started by the device."
-		echo "As a last resort, you should reboot your device and see if connectivity (or a hotspot) is restored."
+		echo "If you are connected through SSH via WiFi, you may be disconnected. If this happens, please wait several minutes to see if the connection resumes."
+		echo
+		echo "If after 5 minutes, you remain disconnected, please look for a provisioning hotspot to join. You may need to reboot for this to appear."
 
 		if [ -z "$FORCE" ]; then
 			echo && echo
-			read -p "Proceed with NetworkManager installation? (y/n): " DO_NM_INSTALL
+			read -p "Proceed with NetworkManager upgrade/activation? (y/n): " DO_NM_INSTALL
 			if [ "$DO_NM_INSTALL" != "y" ]; then
 				return 1
 			fi
 		fi
-
+	else
+		# We can't automate this.
 		echo
-		echo "Pre-installing provisioning subsystem as a backup."
-
-		mkdir -p /opt/viam/bin /opt/viam/tmp
-		cd /opt/viam/tmp && curl -fL -o viam-agent-provisioning-temp-$ARCH "$PROVISIONING_URL" && \
-		chmod 755 viam-agent-provisioning-temp-$ARCH && ln -s /opt/viam/tmp/viam-agent-provisioning-temp-$ARCH ../bin/agent-provisioning
-
-		systemctl enable --now NetworkManager && systemctl disable dhcpcd
-
-		n=1
-		while [ "$n" -le 30 ]; do
-			systemctl is-enabled NetworkManager && break
-			n=$(( n + 1 ))
-			sleep 1
-		done
-
-		if ! systemctl is-enabled NetworkManager; then
-			echo
-			echo "Error: Was unable to activate NetworkManager."
-			return 1
-		fi
-
-		if which perl >/dev/null; then
-			ssid=$(perl -lne 'print $1 if /ssid="?([^"]+)"?/' < /etc/wpa_supplicant/wpa_supplicant.conf | head -n1)
-			psk=$(perl -lne 'print $1 if /psk="?([^"]+)"?/' < /etc/wpa_supplicant/wpa_supplicant.conf | head -n1)
-		fi
-		if [ "$ssid" != "" ]; then
-			if [ "$psk" != "" ]; then
-				pass_string="password "
-			fi
-
-			n=1
-			while [ "$n" -le 5 ]; do
-				echo
-				echo "Attempting to migrate wifi settings for SSID $ssid"
-				echo "Attempt $n of 5"
-
-				nmcli dev wifi list --rescan yes > /dev/null
-				nmcli device wifi connect "$ssid" $pass_string "$psk" && break
-				n=$(( n + 1 ))
-				sleep 5
-			done
-		fi
-
+		echo "Please manually install/activate NetworkManager to use network/provisioning services. Until then, you may notice errors in your logs regarding this."
 		echo
-		echo "If your wifi network was not shown as migrated above, you should add it manually before rebooting."
-		echo
-		echo "Ex: 'nmcli device wifi connect <SSID> password <PASSWORD>'"
+		echo "You may disable the \"agent-provisioning\" subsystem in your device's config to avoid these."
+		echo 
+		echo "To do so, click the \"Raw Json\" on the \"Config\" tab for your device at https://app.viam.com/ and set \"disable_subsystem\" to \"true\" and save"
+		echo 
+		echo "This should not affect other Viam services, nor viam-server itself."
+
+		return 1
 	fi
 
 	echo
-	echo "Please manually install/activate NetworkManager to use network/provisioning services. Until then, you may notice errors in your logs regarding this."
-	echo
-	echo "You may disable the \"agent-provisioning\" subsystem in your device's config to avoid these."
-	echo 
-	echo "To do so, click the \"Raw Json\" on the \"Config\" tab for your device at https://app.viam.com/ and set \"disable_subsystem\" to \"true\" and save"
+	echo "Pre-installing provisioning subsystem as a backup."
+
+	mkdir -p /opt/viam/bin /opt/viam/tmp
+	cd /opt/viam/tmp && curl -fL -o viam-agent-provisioning-temp-$ARCH "$PROVISIONING_URL" && \
+	chmod 755 viam-agent-provisioning-temp-$ARCH && ln -s /opt/viam/tmp/viam-agent-provisioning-temp-$ARCH ../bin/agent-provisioning
+
+
+	if is_bullseye; then
+		echo 'deb http://deb.debian.org/debian/ bullseye-backports main' > /etc/apt/sources.list.d/backports.list && \
+		apt update && apt install -y network-manager/bullseye-backports || (echo "Failed to upgrade NetworkManager" && return 1)
+	fi
+
+	if [ -f "/etc/wpa_supplicant/wpa_supplicant.conf" ]; then
+		migrate_wpa_conf
+	fi
+
+	if systemctl cat NetworkManager >/dev/null; then
+		systemctl enable --now NetworkManager || (echo "Failed to active NetworkManager" && return 1)
+		systemctl disable dhcpcd
+	else
+		return 1
+	fi
+
+	n=1
+	while [ "$n" -le 30 ]; do
+		systemctl is-enabled NetworkManager && break
+		n=$(( n + 1 ))
+		sleep 1
+	done
+
+	if ! systemctl is-enabled NetworkManager; then
+		echo
+		echo "Error: Was unable to activate NetworkManager."
+		return 1
+	fi
+
+	nmcli g reload
+
 	return 1
 }
 
 # Main
-if [ "$(uname -s)" != "Linux" ] || ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ]; then
-	echo
-	echo "Viam Agent is currently only available for Linux on x86_64 (amd64) and aarch64 (arm64)."
-	echo
-	echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
-	exit 1
-fi
-
-if ! [ -d /etc/systemd/system ]; then
-	echo
-	echo "Viam Agent is only supported on systems using systemd."
-	exit 1
-fi
-
-if [ "$(id -u)" -ne 0 ]; then
-	echo
-	echo "This install script must be run as root. Try running via sudo."
-	exit 1
-fi
-
-# Attempt to fetch the config using API keys (if set)
-fetch_config
-
-if ! [ -f /etc/viam.json ]; then
-	echo
-	echo "WARNING: No configuration file found at /etc/viam.json and no (valid) API keys were provided to automatically download one."
-	echo
-	echo "No Viam services will be available until a valid config file is in place."
-	echo
-	echo "It is recommended that you re-run this installer with the exact command (including API keys) provided on the \"Setup\" tab for your robot at https://app.viam.com/"
-	echo
-	echo "Alternately, manually install /etc/viam.json, then re-run this installation."
-
-	if [ -z "$FORCE" ]; then
-		echo && echo
-		read -p "Continue anyway (not recommended)? (y/n): " CONTINUE
-		if [ "$CONTINUE" != "y" ]; then
-			exit 1
-		fi
+main() {
+	if [ "$(uname -s)" != "Linux" ] || ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ]; then
+		echo
+		echo "Viam Agent is currently only available for Linux on x86_64 (amd64) and aarch64 (arm64)."
+		echo
+		echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
+		exit 1
 	fi
-fi
 
-uninstall_old_service
+	if ! [ -d /etc/systemd/system ]; then
+		echo
+		echo "Viam Agent is only supported on systems using systemd."
+		exit 1
+	fi
 
-if [ -f /etc/systemd/system/viam-agent.service ]; then
-	echo
-	echo "It appears viam-agent is already installed. You can restart it with 'systemctl restart viam-agent' if it's not running."
+	if [ "$(id -u)" -ne 0 ]; then
+		echo
+		echo "This install script must be run as root. Try running via sudo."
+		exit 1
+	fi
 
-	if [ -z "$FORCE" ]; then
-		echo && echo
-		read -p "Force reinstall anyway? (y/n): " DO_REINSTALL
-		if [ "$DO_REINSTALL" != "y" ]; then
-			exit 1
+	# Attempt to fetch the config using API keys (if set)
+	fetch_config
+
+	if ! [ -f /etc/viam.json ]; then
+		echo
+		echo "WARNING: No configuration file found at /etc/viam.json and no (valid) API keys were provided to automatically download one."
+		echo
+		echo "No Viam services will be available until a valid config file is in place."
+		echo
+		echo "It is recommended that you re-run this installer with the exact command (including API keys) provided on the \"Setup\" tab for your robot at https://app.viam.com/"
+		echo
+		echo "Alternately, manually install /etc/viam.json, then re-run this installation."
+
+		if [ -z "$FORCE" ]; then
+			echo && echo
+			read -p "Continue anyway (not recommended)? (y/n): " CONTINUE
+			if [ "$CONTINUE" != "y" ]; then
+				exit 1
+			fi
 		fi
 	fi
 
-	systemctl stop viam-agent
+	uninstall_old_service
+
+	if [ -f /etc/systemd/system/viam-agent.service ]; then
+		echo
+		echo "It appears viam-agent is already installed. You can restart it with 'systemctl restart viam-agent' if it's not running."
+
+		if [ -z "$FORCE" ]; then
+			echo && echo
+			read -p "Force reinstall anyway? (y/n): " DO_REINSTALL
+			if [ "$DO_REINSTALL" != "y" ]; then
+				exit 1
+			fi
+		fi
+
+		systemctl stop viam-agent
+		if [ $? -ne 0 ]; then
+			echo
+			echo "Error stopping existing viam-agent service for reinstall."
+			exit 2
+		fi
+	fi
+
+	mkdir -p /opt/viam/tmp && cd /opt/viam/tmp && curl -fL -o viam-agent-temp-$ARCH "$URL" && chmod 755 viam-agent-temp-$ARCH
 	if [ $? -ne 0 ]; then
 		echo
-		echo "Error stopping existing viam-agent service for reinstall."
+		echo "Error downloading agent binary. Please correct any errors mentioned above and try again."
 		exit 2
 	fi
-fi
 
-mkdir -p /opt/viam/tmp && cd /opt/viam/tmp && curl -fL -o viam-agent-temp-$ARCH "$URL" && chmod 755 viam-agent-temp-$ARCH
-if [ $? -ne 0 ]; then
+	./viam-agent-temp-$ARCH --install
+	if [ $? -ne 0 ]; then
+		echo
+		echo "Error installing viam-agent. Please correct any errors mentioned above and try again."
+		exit 2
+	fi
+
+	enable_networkmanager
+
+	systemctl restart viam-agent
+
+	echo && echo && echo
+	echo "Viam Agent installed successfully. You may start/stop/restart it via systemd's 'systemctl' command."
+	echo "Example: 'systemctl restart viam-agent'"
 	echo
-	echo "Error downloading agent binary. Please correct any errors mentioned above and try again."
-	exit 2
-fi
+	echo "It has already been started for you and set to start automatically at boot time."
+}
 
-./viam-agent-temp-$ARCH --install
-if [ $? -ne 0 ]; then
-	echo
-	echo "Error installing viam-agent. Please correct any errors mentioned above and try again."
-	exit 2
-fi
-
-enable_networkmanager
-
-systemctl restart viam-agent
-
-echo && echo && echo
-echo "Viam Agent installed successfully. You may start/stop/restart it via systemd's 'systemctl' command."
-echo "Example: 'systemctl restart viam-agent'"
-echo
-echo "It has already been started for you and set to start automatically at boot time."
+main
