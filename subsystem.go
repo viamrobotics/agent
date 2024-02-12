@@ -179,6 +179,7 @@ func (s *AgentSubsystem) LoadCache() error {
 	}
 
 	cacheFilePath := filepath.Join(ViamDirs["cache"], fmt.Sprintf("%s.json", s.name))
+	//nolint:gosec
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -207,7 +208,7 @@ func (s *AgentSubsystem) saveCache() error {
 	if err != nil {
 		return err
 	}
-
+	//nolint:gosec
 	return os.WriteFile(cacheFilePath, cacheData, 0o644)
 }
 
@@ -320,10 +321,12 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	// chmod with execute permissions if the file is executable
 	if updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE ||
 		updateInfo.GetFormat() == pb.PackageFormat_PACKAGE_FORMAT_XZ_EXECUTABLE {
+		//nolint:gosec
 		if err := os.Chmod(verData.UnpackedPath, 0o755); err != nil {
 			return needRestart, err
 		}
 	} else {
+		//nolint:gosec
 		if err := os.Chmod(verData.UnpackedPath, 0o644); err != nil {
 			return needRestart, err
 		}

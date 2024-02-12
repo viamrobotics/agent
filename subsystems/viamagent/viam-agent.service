@@ -1,15 +1,13 @@
 [Unit]
 Description=Viam Services Agent
-After=network-online.target
-Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=10
-ConditionPathExists=/etc/viam.json
+After=NetworkManager.service network-online.target
+Wants=NetworkManager.service network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=exec
 Restart=always
-RestartSec=1
+RestartSec=5
 User=root
 TimeoutSec=120
 ExecStart=/opt/viam/bin/viam-agent --config /etc/viam.json

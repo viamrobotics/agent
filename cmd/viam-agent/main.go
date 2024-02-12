@@ -59,6 +59,7 @@ func main() {
 	}
 
 	if opts.Version {
+		//nolint:forbidigo
 		fmt.Printf("Version: %s\nGit Revision: %s\n", viamagent.GetVersion(), viamagent.GetRevision())
 		return
 	}
@@ -72,6 +73,7 @@ func main() {
 	curUser, err := user.Current()
 	exitIfError(err)
 	if curUser.Uid != "0" {
+		//nolint:forbidigo
 		fmt.Printf("viam-agent must be run as root (uid 0), but current user is %s (uid %s)\n", curUser.Username, curUser.Uid)
 		return
 	}
@@ -87,6 +89,7 @@ func main() {
 	if os.Getenv("VIAM_AGENT_DEVMODE") == "" {
 		// confirm that we're running from a proper install
 		if !strings.HasPrefix(os.Args[0], agent.ViamDirs["viam"]) {
+			//nolint:forbidigo
 			fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n"+
 				"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n"+
 				"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
