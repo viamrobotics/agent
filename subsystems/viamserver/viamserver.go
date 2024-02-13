@@ -3,6 +3,7 @@ package viamserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"os/exec"
@@ -222,7 +223,11 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 			continue
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
+		//nolint:gosec
+		client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+
+		resp, err := client.Do(req)
 		if err != nil {
 			errRet = errors.Join(errRet, errw.Wrapf(err, "checking %s status", SubsysName))
 			continue
