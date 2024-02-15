@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -28,6 +29,38 @@ func init() {
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
 	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
+}
+
+func InitPaths() error {
+	uid := os.Getuid()
+	for _, p := range ViamDirs {
+		info, err := os.Stat(p)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				//nolint:gosec
+				if err := os.MkdirAll(p, 0o755); err != nil {
+					return errw.Wrapf(err, "Error creating directory %s", p)
+				}
+				continue
+			}
+			return errw.Wrapf(err, "Error checking directory %s", p)
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			// should be impossible on Linux
+			return errw.New("cannot convert to syscall.Stat_t")
+		}
+		if uid != int(stat.Uid) {
+			return errw.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
+		}
+		if !info.IsDir() {
+			return errw.Errorf("%s should be a directory, but is not", p)
+		}
+		if info.Mode().Perm() != 0o755 {
+			return errw.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
+		}
+	}
+	return nil
 }
 
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
