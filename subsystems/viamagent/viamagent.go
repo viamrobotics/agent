@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
@@ -98,7 +97,7 @@ func GetRevision() string {
 
 func Install(logger *zap.SugaredLogger) error {
 	// Create/check required folder structure exists.
-	if err := initPaths(); err != nil {
+	if err := agent.InitPaths(); err != nil {
 		return err
 	}
 
@@ -164,37 +163,5 @@ func Install(logger *zap.SugaredLogger) error {
 	//nolint:forbidigo
 	fmt.Println("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
 
-	return nil
-}
-
-func initPaths() error {
-	uid := os.Getuid()
-	for _, p := range agent.ViamDirs {
-		info, err := os.Stat(p)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				//nolint:gosec
-				if err := os.MkdirAll(p, 0o755); err != nil {
-					return err
-				}
-				continue
-			}
-			return err
-		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			// should be impossible on Linux
-			return errors.New("cannot convert to syscall.Stat_t")
-		}
-		if uid != int(stat.Uid) {
-			return errors.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
-		}
-		if !info.IsDir() {
-			return errors.Errorf("%s should be a directory, but is not", p)
-		}
-		if info.Mode().Perm() != 0o755 {
-			return errors.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
-		}
-	}
 	return nil
 }

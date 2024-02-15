@@ -98,6 +98,9 @@ func main() {
 		}
 	}
 
+	// set up folder structure
+	exitIfError(agent.InitPaths())
+
 	// use a lockfile to prevent running two agents on the same machine
 	pidFile, err := lockfile.New(filepath.Join(agent.ViamDirs["tmp"], "viam-agent.pid"))
 	exitIfError(errors.Wrap(err, "cannot init lock file"))
