@@ -33,6 +33,7 @@ uninstall_old_service() {
 		echo && echo
 		read -p "Remove previous viam-server service? (y/n): " REMOVE_OLD
 		if [ "$REMOVE_OLD" != "y" ]; then
+			echo "Installation cancelled."
 			exit 1
 		fi
 	fi
@@ -109,6 +110,16 @@ migrate_wpa_conf() {
 	chmod 600 /etc/NetworkManager/system-connections/*.nmconnection
 }
 
+warn_nonm(){
+		echo
+		echo "Please manually install/activate NetworkManager to use network/provisioning services. Until then, you may notice errors in your logs regarding this."
+		echo
+		echo "You may disable the \"agent-provisioning\" subsystem in your device's config to avoid these."
+		echo
+		echo "To do so, click the \"Raw Json\" on the \"Config\" tab for your device at https://app.viam.com/ and set \"disable_subsystem\" to \"true\" and save"
+		echo
+		echo "This should not affect other Viam services, nor viam-server itself."
+}
 
 # Attempts to enable NetworkManager (only tested on Raspberry PiOS/Bullseye)
 enable_networkmanager() {
@@ -119,7 +130,6 @@ enable_networkmanager() {
 
 	if check_nm_version || is_bullseye; then
 		# We can automate this.
-
 		echo
 		echo "This script can attempt to upgrade/activate NetworkManager for you, but may potentially break your existing network configuration."
 		echo
@@ -133,20 +143,14 @@ enable_networkmanager() {
 			echo && echo
 			read -p "Proceed with NetworkManager upgrade/activation? (y/n): " DO_NM_INSTALL
 			if [ "$DO_NM_INSTALL" != "y" ]; then
+				echo "NetworkManager upgrade/activation skipped."
+				warn_nonm
 				return 1
 			fi
 		fi
 	else
 		# We can't automate this.
-		echo
-		echo "Please manually install/activate NetworkManager to use network/provisioning services. Until then, you may notice errors in your logs regarding this."
-		echo
-		echo "You may disable the \"agent-provisioning\" subsystem in your device's config to avoid these."
-		echo 
-		echo "To do so, click the \"Raw Json\" on the \"Config\" tab for your device at https://app.viam.com/ and set \"disable_subsystem\" to \"true\" and save"
-		echo 
-		echo "This should not affect other Viam services, nor viam-server itself."
-
+		warn_nonm()
 		return 1
 	fi
 
@@ -221,7 +225,7 @@ main() {
 		echo
 		echo "WARNING: No configuration file found at /etc/viam.json and no (valid) API keys were provided to automatically download one."
 		echo
-		echo "No Viam services will be available until a valid config file is in place."
+		echo "Viam agent may fail to fully start, or may immediately enter provisioning mode after installation, which will disconnect wifi."
 		echo
 		echo "It is recommended that you re-run this installer with the exact command (including API keys) provided on the \"Setup\" tab for your robot at https://app.viam.com/"
 		echo
@@ -231,6 +235,7 @@ main() {
 			echo && echo
 			read -p "Continue anyway (not recommended)? (y/n): " CONTINUE
 			if [ "$CONTINUE" != "y" ]; then
+				echo "Installation aborted."
 				exit 1
 			fi
 		fi
@@ -246,6 +251,7 @@ main() {
 			echo && echo
 			read -p "Force reinstall anyway? (y/n): " DO_REINSTALL
 			if [ "$DO_REINSTALL" != "y" ]; then
+				echo "Installation aborted."
 				exit 1
 			fi
 		fi

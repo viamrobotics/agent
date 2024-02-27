@@ -147,8 +147,9 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 		echo "Viam agent will be directly installed there."
 	fi
 
-	read -p "Continue pre-install?" CONTINUE
+	read -p "Continue pre-install? (y/n): " CONTINUE
 	if [ "$CONTINUE" != "y" ]; then
+		echo "Pre-install aborted."
 		exit 1
 	fi
 fi

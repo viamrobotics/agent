@@ -18,6 +18,7 @@ if [ -z "$FORCE" ]; then
 	echo && echo
 	read -p "Remove ALL Viam services, configs, and software? (y/n): " REMOVE_OLD
 	if [ "$REMOVE_OLD" != "y" ]; then
+		echo "Removal cancelled."
 		exit 1
 	fi
 fi
