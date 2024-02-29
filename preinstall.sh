@@ -133,6 +133,7 @@ fi
 if [ "$TARBALL_ONLY" -ne 1 ] && ! check_fs ; then
 	echo "Error: no valid image found at mountpoints (or manually provided path)"
 	echo "If installing on a pi (sd card), please make sure it's freshly imaged with a custom hostname."
+	echo "If the imager auto-ejected the disk, you may need to remove and reinsert it to make it visible again."
 	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually."
 	exit 1
 fi
@@ -147,8 +148,9 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 		echo "Viam agent will be directly installed there."
 	fi
 
-	read -p "Continue pre-install?" CONTINUE
+	read -p "Continue pre-install? (y/n): " CONTINUE
 	if [ "$CONTINUE" != "y" ]; then
+		echo "Pre-install aborted."
 		exit 1
 	fi
 fi
@@ -181,9 +183,10 @@ else
 	echo "Refusing to install to live root or unknown ROOTFS ($ROOTFS)"
 fi
 
-echo && echo
-echo "Install complete! You can eject/unmount and boot the image now."
-
 if [ $TEMPDIR != "" ]; then
 	rm -rf $TEMPDIR
 fi
+
+sync
+echo && echo
+echo "Install complete! You can eject/unmount and boot the image now."
