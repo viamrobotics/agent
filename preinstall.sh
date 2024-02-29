@@ -182,9 +182,10 @@ else
 	echo "Refusing to install to live root or unknown ROOTFS ($ROOTFS)"
 fi
 
-echo && echo
-echo "Install complete! You can eject/unmount and boot the image now."
-
 if [ $TEMPDIR != "" ]; then
 	rm -rf $TEMPDIR
 fi
+
+sync
+echo && echo
+echo "Install complete! You can eject/unmount and boot the image now."
