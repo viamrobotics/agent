@@ -133,6 +133,7 @@ fi
 if [ "$TARBALL_ONLY" -ne 1 ] && ! check_fs ; then
 	echo "Error: no valid image found at mountpoints (or manually provided path)"
 	echo "If installing on a pi (sd card), please make sure it's freshly imaged with a custom hostname."
+	echo "If the imager auto-ejected the disk, you may need to remove and reinsert it to make it visible again."
 	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually."
 	exit 1
 fi
