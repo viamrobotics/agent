@@ -110,7 +110,7 @@ migrate_wpa_conf() {
 	chmod 600 /etc/NetworkManager/system-connections/*.nmconnection
 }
 
-warn_nonm(){
+warn_nonm() {
 		echo
 		echo "Please manually install/activate NetworkManager to use network/provisioning services. Until then, you may notice errors in your logs regarding this."
 		echo
@@ -150,7 +150,7 @@ enable_networkmanager() {
 		fi
 	else
 		# We can't automate this.
-		warn_nonm()
+		warn_nonm
 		return 1
 	fi
 
