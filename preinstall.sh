@@ -97,8 +97,9 @@ create_tarball() {
 	ln -s "/opt/viam/cache/viam-agent-factory-$ARCH" "$TEMPDIR/opt/viam/bin/viam-agent"
 	ln -s "/opt/viam/cache/viam-agent-provisioning-factory-$ARCH" "$TEMPDIR/opt/viam/bin/agent-provisioning"
 
-	if ! [ -z $PROVIOSIONING_PATH ]; then
-		cat "$PROVIOSIONING_PATH" > "$TEMPDIR/etc/viam-provisioning.json"
+	if [ -f "$PROVISIONING_PATH" ]; then
+	        echo "Installing $PROVISIONING_PATH as /etc/viam-provisioning.json"
+		cat "$PROVISIONING_PATH" > "$TEMPDIR/etc/viam-provisioning.json"
 	fi
 
 	TARBALL="$TEMPDIR/viam-preinstall-$ARCH.tar.xz"
