@@ -159,7 +159,7 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 		exit 1
 	fi
 
-	read -p "Path to custom viam-provisioning.json (leave empty to skip):" PROVIOSIONING_PATH 
+	read -p "Path to custom viam-provisioning.json (leave empty to skip):" PROVISIONING_PATH 
 fi
 
 if ! create_tarball; then
