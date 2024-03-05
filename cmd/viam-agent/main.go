@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/provisioning"
+	"github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"go.viam.com/utils"
@@ -67,6 +68,7 @@ func main() {
 	if opts.Debug {
 		globalLogger = golog.NewDebugLogger("viam-agent")
 		provisioning.Debug = true
+		syscfg.Debug = true
 	}
 
 	// need to be root to go any further than this

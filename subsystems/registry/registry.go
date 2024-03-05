@@ -18,11 +18,11 @@ var (
 
 type CreatorFunc func(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error)
 
-func Register(name string, creator CreatorFunc, cfg *pb.DeviceSubsystemConfig) {
+func Register(name string, creator CreatorFunc, defaultCfg *pb.DeviceSubsystemConfig) {
 	mu.Lock()
 	defer mu.Unlock()
 	creators[name] = creator
-	configs[name] = cfg
+	configs[name] = defaultCfg
 }
 
 func Deregister(name string) {
