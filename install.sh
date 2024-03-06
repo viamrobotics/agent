@@ -230,6 +230,8 @@ main() {
 		echo "It is recommended that you re-run this installer with the exact command (including API keys) provided on the \"Setup\" tab for your robot at https://app.viam.com/"
 		echo
 		echo "Alternately, manually install /etc/viam.json, then re-run this installation."
+		echo
+  		echo "If you want to provision a new smart machine, check https://github.com/viamrobotics/agent-provisioning?tab=readme-ov-file#offlinepre-installation"
 
 		if [ -z "$FORCE" ]; then
 			echo && echo
