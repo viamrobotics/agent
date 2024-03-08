@@ -52,8 +52,8 @@ find_mountpoints_macos() {
 		done <<-EOF
 		$vols
 		EOF
+		rm "$volsplist"
 	fi
-	rm "$volsplist"
 	return 0
 }
 
