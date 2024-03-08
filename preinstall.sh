@@ -31,20 +31,28 @@ EOF
 )
 
 find_mountpoints_linux() {
-	if [ "$MOUNTS" == "" ]; then
+	if [ "$MOUNTS" = "" ]; then
 		MOUNTS=$(findmnt -o TARGET -l | grep -v TARGET | grep -vE '^/$')
 	fi
 }
 
 find_mountpoints_macos() {
-	if [ "$MOUNTS" == "" ]; then
-		vols=$(/usr/libexec/PlistBuddy -c "Print :VolumesFromDisks" /dev/stdin <<< "$(diskutil list -plist)" | grep -vE '[{}]' | awk '{$1=$1};1')
+	if [ "$MOUNTS" = "" ]; then
+		volsplist=$(mktemp)
+		diskutil list -plist > "$volsplist"
+		vols=$(/usr/libexec/PlistBuddy -c "Print :VolumesFromDisks" "$volsplist" | grep -vE '[{}]' | awk '{$1=$1};1')
 		while read -r vol; do
-			newMount=$(/usr/libexec/PlistBuddy -c "Print :MountPoint" /dev/stdin <<< $(diskutil info -plist "$vol"))
+			volplist=$(mktemp)
+			diskutil info -plist "$vol" > "$volplist"
+			newMount=$(/usr/libexec/PlistBuddy -c "Print :MountPoint" "$volplist")
 			if [ "$newMount" != "" ]; then
 				MOUNTS=$(echo "$newMount\n$MOUNTS")
 			fi
-		done <<< "$vols"
+			rm "$volplist"
+		done <<-EOF
+		$vols
+		EOF
+		rm "$volsplist"
 	fi
 	return 0
 }
@@ -69,7 +77,9 @@ check_fs() {
 			ARCH=aarch64
 			echo "Found Raspberry Pi bootfs mounted at $BOOTFS"
 		fi
-	done <<< "$MOUNTS"
+	done <<-EOF
+	$MOUNTS
+	EOF
 
 	if [ "$ARCH" != "" ] && ([ "$ROOTFS" != "" ] || [ "$BOOTFS" != "" ]); then
 		return 0
@@ -113,19 +123,19 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 if ! [ -z $1 ]; then
-	if [ "$1" == "--aarch64" ]; then
+	if [ "$1" = "--aarch64" ]; then
 		ARCH=aarch64
 		TARBALL_ONLY=1
-	elif [ "$1" == "--x86_64" ]; then
+	elif [ "$1" = "--x86_64" ]; then
 		ARCH=x86_64
 		TARBALL_ONLY=1
 	elif [ -d "$1" ]; then
 		MOUNTS="$1"
 	fi
 else
-	if [ $(uname) == "Linux" ]; then
+	if [ "$(uname)" = "Linux" ]; then
 		find_mountpoints_linux
-	elif [ $(uname) == "Darwin" ]; then
+	elif [ "$(uname)" = "Darwin" ]; then
 		find_mountpoints_macos
 	else
 		echo "This script only supports auto-detection on Linux and MacOS."
@@ -139,7 +149,8 @@ if [ "$TARBALL_ONLY" -ne 1 ] && ! check_fs ; then
 	echo "Error: no valid image found at mountpoints (or manually provided path)"
 	echo "If installing on a pi (sd card), please make sure it's freshly imaged with a custom hostname."
 	echo "If the imager auto-ejected the disk, you may need to remove and reinsert it to make it visible again."
-	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually."
+	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually,"\
+	"or explicitly specify the root path (/) if you want to install to the live/running system."
 	exit 1
 fi
 
@@ -184,16 +195,20 @@ if [ "$IS_PI" -eq "1" ]; then
 		sed 's/rm -f \/boot\/firstrun.sh/tar -xJpf \/boot\/firmware\/viam-preinstall.tar.xz -C \/\nrm -f \/boot\/firstrun.sh/' "$BOOTFS/firstrun.sh" > "$BOOTFS/firstrun.sh.new" 
 		mv "$BOOTFS/firstrun.sh.new" "$BOOTFS/firstrun.sh"
 	fi
-elif [ "$ROOTFS" != "" ] && [ "$ROOTFS" != "/" ]; then
+elif [ "$ROOTFS" != "" ]; then
 	tar -xJpf "$TARBALL" -C "$ROOTFS"
 else
-	echo "Refusing to install to live root or unknown ROOTFS ($ROOTFS)"
+	echo "Refusing to install to unknown/unset ROOTFS ($ROOTFS)"
 fi
 
-if [ $TEMPDIR != "" ]; then
-	rm -rf $TEMPDIR
+if [ "$TEMPDIR" != "" ]; then
+	rm -rf "$TEMPDIR"
 fi
 
 sync
 echo && echo
-echo "Install complete! You can eject/unmount and boot the image now."
+if [ "$ROOTFS" = "/" ]; then
+	echo "Install complete! Reboot, or manually start the service with 'systemctl start viam-agent'"
+else
+	echo "Install complete! You can eject/unmount and boot the image now."
+fi

@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sync"
+	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -21,6 +24,8 @@ import (
 
 const (
 	ShortFailTime = time.Second * 30
+	StartTimeout  = time.Minute
+	StopTimeout   = time.Minute
 )
 
 var ErrSubsystemDisabled = errors.New("subsystem disabled")
@@ -366,4 +371,243 @@ func (s *AgentSubsystem) tryInner(ctx context.Context, cfg *pb.DeviceSubsystemCo
 	}
 
 	return newVersion, nil
+}
+
+// InternalSubsystem is shared start/stop/update code between "internal" (not viam-server) subsystems.
+type InternalSubsystem struct {
+	// only set during New
+	name    string
+	cmdArgs []string
+	logger  *zap.SugaredLogger
+	cfgPath string
+
+	// protected by mutex
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	running   bool
+	shouldRun bool
+	lastExit  int
+	exitChan  chan struct{}
+
+	// for blocking start/stop/check ops while another is in progress
+	startStopMu sync.Mutex
+}
+
+func NewInternalSubsystem(name string, extraArgs []string, logger *zap.SugaredLogger) (*InternalSubsystem, error) {
+	if name == "" {
+		return nil, errors.New("name cannot be empty")
+	}
+	if logger == nil {
+		return nil, errors.New("logger cannot be nil")
+	}
+
+	cfgPath := path.Join(ViamDirs["etc"], name+".json")
+
+	is := &InternalSubsystem{
+		name:    name,
+		cmdArgs: append([]string{"--config", cfgPath}, extraArgs...),
+		cfgPath: cfgPath,
+		logger:  logger,
+	}
+	return is, nil
+}
+
+func (is *InternalSubsystem) Start(ctx context.Context) error {
+	is.startStopMu.Lock()
+	defer is.startStopMu.Unlock()
+
+	is.mu.Lock()
+
+	if is.running {
+		is.mu.Unlock()
+		return nil
+	}
+	if is.shouldRun {
+		is.logger.Warnf("Restarting %s after unexpected exit", is.name)
+	} else {
+		is.logger.Infof("Starting %s", is.name)
+		is.shouldRun = true
+	}
+
+	stdio := NewMatchingLogger(is.logger, false)
+	stderr := NewMatchingLogger(is.logger, true)
+
+	//nolint:gosec
+	is.cmd = exec.Command(path.Join(ViamDirs["bin"], is.name), is.cmdArgs...)
+	is.cmd.Dir = ViamDirs["viam"]
+	is.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	is.cmd.Stdout = stdio
+	is.cmd.Stderr = stderr
+
+	// watch for this line in the logs to indicate successful startup
+	c, err := stdio.AddMatcher("checkStartup", regexp.MustCompile(`startup complete`), false)
+	if err != nil {
+		is.mu.Unlock()
+		return err
+	}
+	defer stdio.DeleteMatcher("checkStartup")
+
+	err = is.cmd.Start()
+	if err != nil {
+		is.mu.Unlock()
+		return errw.Wrapf(err, "error starting %s", is.name)
+	}
+	is.running = true
+	is.exitChan = make(chan struct{})
+
+	// must be unlocked before spawning goroutine
+	is.mu.Unlock()
+	go func() {
+		err := is.cmd.Wait()
+		is.mu.Lock()
+		defer is.mu.Unlock()
+		is.running = false
+		is.logger.Infof("%s exited", is.name)
+		if err != nil {
+			is.logger.Errorw("error while getting process status", "error", err)
+		}
+		if is.cmd.ProcessState != nil {
+			is.lastExit = is.cmd.ProcessState.ExitCode()
+			if is.lastExit != 0 {
+				is.logger.Errorw("non-zero exit code", "exit code", is.lastExit)
+			}
+		}
+		close(is.exitChan)
+	}()
+
+	select {
+	case <-c:
+		is.logger.Infof("%s started", is.name)
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(StartTimeout):
+		return errw.New("startup timed out")
+	case <-is.exitChan:
+		return errw.New("startup failed")
+	}
+}
+
+func (is *InternalSubsystem) Stop(ctx context.Context) error {
+	is.startStopMu.Lock()
+	defer is.startStopMu.Unlock()
+
+	is.mu.Lock()
+	running := is.running
+	is.shouldRun = false
+	is.mu.Unlock()
+
+	if !running {
+		return nil
+	}
+
+	// interrupt early in startup
+	if is.cmd == nil {
+		return nil
+	}
+
+	is.logger.Infof("Stopping %s", is.name)
+
+	err := is.cmd.Process.Signal(syscall.SIGTERM)
+	if err != nil {
+		is.logger.Error(err)
+	}
+
+	if is.waitForExit(ctx, StopTimeout/2) {
+		is.logger.Infof("%s successfully stopped", is.name)
+		return nil
+	}
+
+	is.logger.Warnf("%s refused to exit, killing", is.name)
+	err = syscall.Kill(-is.cmd.Process.Pid, syscall.SIGKILL)
+	if err != nil {
+		is.logger.Error(err)
+	}
+
+	if is.waitForExit(ctx, StopTimeout/2) {
+		is.logger.Infof("%s successfully killed", is.name)
+		return nil
+	}
+
+	return errw.Errorf("%s process couldn't be killed", is.name)
+}
+
+func (is *InternalSubsystem) waitForExit(ctx context.Context, timeout time.Duration) bool {
+	is.mu.Lock()
+	exitChan := is.exitChan
+	running := is.running
+	is.mu.Unlock()
+
+	if !running {
+		return true
+	}
+
+	select {
+	case <-exitChan:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// HealthCheck sends a USR1 signal to the subsystem process, which should cause it to log "HEALTHY" to stdout.
+func (is *InternalSubsystem) HealthCheck(ctx context.Context) (errRet error) {
+	is.startStopMu.Lock()
+	defer is.startStopMu.Unlock()
+	is.mu.Lock()
+	defer is.mu.Unlock()
+	if !is.running {
+		return errw.Errorf("%s not running", is.name)
+	}
+
+	is.logger.Debugf("starting healthcheck for %s", is.name)
+
+	checkChan, err := is.cmd.Stdout.(*MatchingLogger).AddMatcher("healthcheck", regexp.MustCompile(`HEALTHY`), true)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		matcher, ok := is.cmd.Stdout.(*MatchingLogger)
+		if ok {
+			matcher.DeleteMatcher("healthcheck")
+		}
+	}()
+
+	err = is.cmd.Process.Signal(syscall.SIGUSR1)
+	if err != nil {
+		is.logger.Error(err)
+	}
+
+	select {
+	case <-time.After(time.Second * 30):
+	case <-ctx.Done():
+	case <-checkChan:
+		is.logger.Debugf("healthcheck for %s is good", is.name)
+		return nil
+	}
+	return errw.Errorf("timeout waiting for healthcheck on %s", is.name)
+}
+
+func (is *InternalSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
+	jsonBytes, err := cfg.GetAttributes().MarshalJSON()
+	if err != nil {
+		return true, err
+	}
+
+	fileBytes, err := os.ReadFile(is.cfgPath)
+	// If no changes, only restart if there was a new version.
+	if err == nil && bytes.Equal(fileBytes, jsonBytes) {
+		return newVersion, nil
+	}
+
+	// If an error reading the config file, restart and return the error
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return true, err
+	}
+
+	// If attribute changes, restart after writing the new config file.
+	//nolint:gosec
+	return true, os.WriteFile(is.cfgPath, jsonBytes, 0o644)
 }

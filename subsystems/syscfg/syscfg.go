@@ -1,5 +1,5 @@
-// Package provisioning contains the provisioning agent subsystem.
-package provisioning
+// Package syscfg contains the system configuration agent subsystem.
+package syscfg
 
 import (
 	"context"
@@ -16,22 +16,18 @@ func init() {
 }
 
 var (
-	Debug             = false
-	DefaultConfig     = &pb.DeviceSubsystemConfig{}
-	AppConfigFilePath = "/etc/viam.json"
+	Debug         = false
+	DefaultConfig = &pb.DeviceSubsystemConfig{}
 )
 
 const (
-	SubsysName = "agent-provisioning"
+	SubsysName = "agent-syscfg"
 )
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	extraArgs := []string{
-		"--app-config", AppConfigFilePath,
-		"--provisioning-config", "/etc/viam-provisioning.json",
-	}
+	extraArgs := []string{}
 	if Debug {
-		extraArgs = append(extraArgs, "--debug")
+		extraArgs = []string{"--debug"}
 	}
 	is, err := agent.NewInternalSubsystem(SubsysName, extraArgs, logger)
 	if err != nil {
