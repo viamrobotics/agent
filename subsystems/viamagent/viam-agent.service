@@ -1,6 +1,5 @@
 [Unit]
 Description=Viam Services Agent
-After=NetworkManager.service network-online.target
 Wants=NetworkManager.service network-online.target
 StartLimitIntervalSec=0
 
