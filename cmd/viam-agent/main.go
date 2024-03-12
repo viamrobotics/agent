@@ -170,16 +170,16 @@ func main() {
 		}
 	}
 
-	// // Check for self-update and restart if needed.
-	// needRestart, err := manager.SelfUpdate(ctx)
-	// if err != nil {
-	// 	globalLogger.Error(err)
-	// }
-	// if needRestart {
-	// 	globalLogger.Info("updated self, exiting to await restart with new version")
-	// 	return
-	// }
+	// Start viam server as soon as possible. Then, start other subsystems and check for updates
+	if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
+		if errors.Is(err, agent.ErrSubsystemDisabled) {
+			globalLogger.Warn("viam-server subsystem disabled, please manually update /etc/viam.json and connect to internet")
+		} else {
+			globalLogger.Error("could not start viam-server subsystem, please manually update /etc/viam.json and connect to internet")
+		}
+	}
 
+	globalLogger.Debug("==== Starting background checks =====")
 	manager.StartBackgroundChecks(ctx)
 
 	<-ctx.Done()
