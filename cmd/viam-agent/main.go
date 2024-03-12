@@ -175,7 +175,7 @@ func main() {
 		if errors.Is(err, agent.ErrSubsystemDisabled) {
 			globalLogger.Warn("viam-server subsystem disabled, please manually update /etc/viam.json and connect to internet")
 		} else {
-			globalLogger.Error("could not start viam-server subsystem, please manually update /etc/viam.json and connect to internet")
+			globalLogger.Errorf("could not start viam-server subsystem: %s", err)
 		}
 	}
 
