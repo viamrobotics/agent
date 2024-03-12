@@ -170,15 +170,15 @@ func main() {
 		}
 	}
 
-	// Check for self-update and restart if needed.
-	needRestart, err := manager.SelfUpdate(ctx)
-	if err != nil {
-		globalLogger.Error(err)
-	}
-	if needRestart {
-		globalLogger.Info("updated self, exiting to await restart with new version")
-		return
-	}
+	// // Check for self-update and restart if needed.
+	// needRestart, err := manager.SelfUpdate(ctx)
+	// if err != nil {
+	// 	globalLogger.Error(err)
+	// }
+	// if needRestart {
+	// 	globalLogger.Info("updated self, exiting to await restart with new version")
+	// 	return
+	// }
 
 	manager.StartBackgroundChecks(ctx)
 
