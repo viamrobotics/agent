@@ -9,6 +9,7 @@ Restart=always
 RestartSec=5
 User=root
 TimeoutSec=120
+ExecStartPre=/bin/rm -f /opt/viam/tmp/viam-agent.pid
 ExecStart=/opt/viam/bin/viam-agent --config /etc/viam.json
 FinalKillSignal=SIGQUIT
 
