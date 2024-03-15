@@ -104,7 +104,7 @@ func main() {
 	exitIfError(agent.InitPaths())
 
 	// use a lockfile to prevent running two agents on the same machine
-	pidFile, err := lockfile.New(filepath.Join("/run/viam", "viam-agent.pid"))
+	pidFile, err := lockfile.New(filepath.Join(agent.ViamDirs["run"], "viam-agent.pid"))
 	exitIfError(errors.Wrap(err, "cannot init lock file"))
 	if err = pidFile.TryLock(); err != nil {
 		globalLogger.Error(errors.Wrapf(err, "cannot lock %s", pidFile))
@@ -159,7 +159,7 @@ func main() {
 			if errors.Is(err, agent.ErrSubsystemDisabled) {
 				globalLogger.Warn("provisioning subsystem disabled, please manually update /etc/viam.json and connect to internet")
 			} else {
-				globalLogger.Error("could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet")
+				globalLogger.Error(errors.Wrapf(err, "could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet"))
 			}
 		}
 
