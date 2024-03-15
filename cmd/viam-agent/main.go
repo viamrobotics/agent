@@ -107,7 +107,7 @@ func main() {
 	pidFile, err := lockfile.New(filepath.Join("/run/viam", "viam-agent.pid"))
 	exitIfError(errors.Wrap(err, "cannot init lock file"))
 	if err = pidFile.TryLock(); err != nil {
-		globalLogger.Error(errors.Wrapf(err, "cannot lock %s: %s", pidFile, err))
+		globalLogger.Error(errors.Wrapf(err, "cannot lock %s", pidFile))
 		if errors.Is(err, lockfile.ErrBusy) {
 			globalLogger.Debug("Retrying to lock file")
 
