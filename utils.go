@@ -29,6 +29,7 @@ func init() {
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
 	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
+	ViamDirs["run"] = "/run/viam"
 }
 
 func InitPaths() error {
