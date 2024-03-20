@@ -160,7 +160,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
-	if s.waitForExit(ctx, stopTimeout/2) {
+	if s.waitForExit(ctx, stopTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
 	}

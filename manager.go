@@ -209,7 +209,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 
 // CloseAll stops all subsystems and closes the cloud connection.
 func (m *Manager) CloseAll() {
-	ctx, cancelFunc := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancelFunc := context.WithTimeout(context.Background(), time.Minute*2)
 	defer cancelFunc()
 
 	m.subsystemsMu.Lock()
