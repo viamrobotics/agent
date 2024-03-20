@@ -160,6 +160,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
+	// 2 min timeout. It must be higher than viam-server shutdown timeout of 90 secs.
 	if s.waitForExit(ctx, stopTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
