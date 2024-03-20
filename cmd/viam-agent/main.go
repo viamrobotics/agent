@@ -40,7 +40,8 @@ func main() {
 
 	var opts struct {
 		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
-		Debug   bool   `description:"Enable debug logging (for agent only)" long:"debug"                      short:"d"`
+		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"  short:"d"`
+		Fast    bool   `description:"Enable faststart mode"                 env:"VIAM_AGENT_FASTSTART"        long:"fast"   short:"f"`
 		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
 		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
 		Install bool   `description:"Install systemd service"               long:"install"`
@@ -167,7 +168,7 @@ func main() {
 	}
 
 	// if faststart is set, skip updates and start viam-server immediately, the proceed as normal
-	if os.Getenv("VIAM_AGENT_FASTSTART") != "" {
+	if opts.Fast {
 		if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
 			globalLogger.Error(err)
 		}
