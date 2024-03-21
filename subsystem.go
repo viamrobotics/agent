@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	ShortFailTime = time.Second * 30
-	StartTimeout  = time.Minute
-	StopTimeout   = time.Minute
+	ShortFailTime   = time.Second * 30
+	StartTimeout    = time.Minute
+	StopTermTimeout = time.Second * 30
+	StopKillTimeout = time.Second * 10
 )
 
 var ErrSubsystemDisabled = errors.New("subsystem disabled")
@@ -513,7 +514,7 @@ func (is *InternalSubsystem) Stop(ctx context.Context) error {
 		is.logger.Error(err)
 	}
 
-	if is.waitForExit(ctx, StopTimeout/2) {
+	if is.waitForExit(ctx, StopTermTimeout) {
 		is.logger.Infof("%s successfully stopped", is.name)
 		return nil
 	}
@@ -524,7 +525,7 @@ func (is *InternalSubsystem) Stop(ctx context.Context) error {
 		is.logger.Error(err)
 	}
 
-	if is.waitForExit(ctx, StopTimeout/2) {
+	if is.waitForExit(ctx, StopKillTimeout) {
 		is.logger.Infof("%s successfully killed", is.name)
 		return nil
 	}

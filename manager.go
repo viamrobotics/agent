@@ -25,9 +25,10 @@ import (
 const (
 	minimalCheckInterval  = time.Second * 60
 	defaultNetworkTimeout = time.Second * 15
-	stopTimeout           = time.Minute * 2
-	agentCachePath        = "agent-config.json"
-	SubsystemName         = "viam-agent"
+	// stopAllTimeout must be lower than systemd viam-agent service timeout of 4mins and higher than viam-server subsystem timeout of 2mins.
+	stopAllTimeout = time.Minute * 3
+	agentCachePath = "agent-config.json"
+	SubsystemName  = "viam-agent"
 )
 
 // Manager is the core of the agent process, and maintains the list of subsystems, as well as cloud connection.
@@ -210,8 +211,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 
 // CloseAll stops all subsystems and closes the cloud connection.
 func (m *Manager) CloseAll() {
-	// 2 min timeout. It must be higher than viam-server shutdown timeout of 90 secs.
-	ctx, cancelFunc := context.WithTimeout(context.Background(), stopTimeout)
+	ctx, cancelFunc := context.WithTimeout(context.Background(), stopAllTimeout)
 	defer cancelFunc()
 
 	m.subsystemsMu.Lock()

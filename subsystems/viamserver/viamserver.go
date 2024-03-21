@@ -28,8 +28,10 @@ func init() {
 
 const (
 	startTimeout = time.Minute * 5
-	stopTimeout  = time.Minute * 2
-	SubsysName   = "viam-server"
+	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
+	stopTermTimeout = time.Minute * 2
+	stopKillTimeout = time.Second * 10
+	SubsysName      = "viam-server"
 )
 
 var (
@@ -160,8 +162,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
-	// 2 min timeout. It must be higher than viam-server shutdown timeout of 90 secs.
-	if s.waitForExit(ctx, stopTimeout) {
+	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
 	}
@@ -172,7 +173,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Error(err)
 	}
 
-	if s.waitForExit(ctx, stopTimeout/2) {
+	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
 		return nil
 	}
