@@ -21,7 +21,7 @@ Type=exec
 Restart=always
 RestartSec=5
 User=root
-TimeoutSec=120
+TimeoutSec=240
 ExecStart=/opt/viam/bin/viam-agent --config /etc/viam.json
 FinalKillSignal=SIGQUIT
 
