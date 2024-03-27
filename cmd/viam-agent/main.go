@@ -159,7 +159,8 @@ func main() {
 			if errors.Is(err, agent.ErrSubsystemDisabled) {
 				globalLogger.Warn("provisioning subsystem disabled, please manually update /etc/viam.json and connect to internet")
 			} else {
-				globalLogger.Error(errors.Wrapf(err, "could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet"))
+				globalLogger.Error(errors.Wrapf(err, "could not start provisioning subsystem"))
+				globalLogger.Error("please manually update /etc/viam.json and connect to internet")
 			}
 		}
 
