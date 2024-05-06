@@ -182,6 +182,10 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 		errRet = errors.Join(errRet, err)
 	}
 
+	if err := out.Sync(); err != nil {
+		errRet = errors.Join(errRet, err)
+	}
+
 	outPath = filepath.Join(ViamDirs["cache"], strings.Replace(filepath.Base(inPath), ".xz", "", 1))
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath))
 	return outPath, errRet
