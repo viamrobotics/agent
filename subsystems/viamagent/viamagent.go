@@ -24,8 +24,8 @@ func init() {
 
 const (
 	subsysName      = "viam-agent"
-	serviceFileDir  = "/etc/systemd/system"
-	serviceFilePath = "/etc/systemd/system/viam-agent.service"
+	serviceFileDir  = "/usr/local/lib/systemd/system"
+	serviceFileName = "viam-agent.service"
 )
 
 var (
@@ -36,6 +36,8 @@ var (
 	//go:embed viam-agent.service
 	serviceFileContents []byte
 	DefaultConfig       = &pb.DeviceSubsystemConfig{}
+
+	serviceFilePath = filepath.Join(serviceFileDir, serviceFileName)
 )
 
 type agentSubsystem struct{}
@@ -73,7 +75,7 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	cmd := exec.Command(expectedPath, "--install")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, errors.Wrapf(err, "error running post install step %s", output)
+		return false, errors.Wrapf(err, "running post install step %s", output)
 	}
 
 	return true, nil
@@ -96,59 +98,64 @@ func GetRevision() string {
 }
 
 func Install(logger *zap.SugaredLogger) error {
+	// Check for systemd
+	cmd := exec.Command("systemctl", "whoami")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errors.Wrapf(err, "can only install on systems using systemd, but 'systemctl whoami' returned errors %s", output)
+	}
+
 	// Create/check required folder structure exists.
 	if err := agent.InitPaths(); err != nil {
 		return err
 	}
-
-	// Check for systemd
-	_, err := os.Stat(serviceFileDir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return errors.Wrapf(err, "can only install on systems using systemd, but %s is missing", serviceFileDir)
-	}
-	if err != nil {
-		return errors.Wrapf(err, "error getting info for %s", serviceFileDir)
+	//nolint:gosec
+	if err := os.MkdirAll(serviceFileDir, 0o755); err != nil {
+		return errors.Wrapf(err, "creating directory %s", serviceFileDir)
 	}
 
 	// If this is a brand new install, we want to symlink ourselves into place temporarily.
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 	curPath, err := os.Executable()
 	if err != nil {
-		return errors.Wrap(err, "cannot get path to self")
+		return errors.Wrap(err, "getting path to self")
 	}
 
 	isSelf, err := agent.CheckIfSame(curPath, expectedPath)
 	if err != nil {
-		return errors.Wrap(err, "error checking if installed viam-agent is myself")
+		return errors.Wrap(err, "checking if installed viam-agent is myself")
 	}
 
 	if !isSelf {
 		logger.Infof("adding a symlink to %s at %s", curPath, expectedPath)
 		if err := os.Remove(expectedPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return errors.Wrapf(err, "cannot remove symlink/file at %s", expectedPath)
+			return errors.Wrapf(err, "removing symlink/file at %s", expectedPath)
 		}
 		if err := os.Symlink(curPath, expectedPath); err != nil {
-			return errors.Wrapf(err, "cannot install symlink at %s", expectedPath)
+			return errors.Wrapf(err, "installing symlink at %s", expectedPath)
 		}
 	}
+
+	// one-time, remove old /etc based service file when moving to new proper local location
+	removeOldServiceFile(logger)
 
 	logger.Infof("writing systemd service file to %s", serviceFilePath)
 	//nolint:gosec
 	if err := os.WriteFile(serviceFilePath, serviceFileContents, 0o644); err != nil {
-		return errors.Wrapf(err, "unable to write systemd service file %s", serviceFilePath)
+		return errors.Wrapf(err, "writing systemd service file %s", serviceFilePath)
 	}
 
 	logger.Infof("enabling systemd viam-agent service")
-	cmd := exec.Command("systemctl", "daemon-reload")
-	output, err := cmd.CombinedOutput()
+	cmd = exec.Command("systemctl", "daemon-reload")
+	output, err = cmd.CombinedOutput()
 	if err != nil {
-		return errors.Wrapf(err, "problem running 'systemctl daemon-reload' output: %s", output)
+		return errors.Wrapf(err, "running 'systemctl daemon-reload' output: %s", output)
 	}
 
 	cmd = exec.Command("systemctl", "enable", "viam-agent")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		return errors.Wrapf(err, "problem running 'systemctl enable viam-agent' output: %s", output)
+		return errors.Wrapf(err, "running 'systemctl enable viam-agent' output: %s", output)
 	}
 
 	_, err = os.Stat("/etc/viam.json")
@@ -157,11 +164,24 @@ func Install(logger *zap.SugaredLogger) error {
 			//nolint:forbidigo
 			fmt.Println("No config file found at /etc/viam.json, please install one before running viam-agent service.")
 		} else {
-			return errors.Wrap(err, "error reading /etc/viam.json")
+			return errors.Wrap(err, "reading /etc/viam.json")
 		}
 	}
 	//nolint:forbidigo
 	fmt.Println("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
 
 	return nil
+}
+
+func removeOldServiceFile(logger *zap.SugaredLogger) {
+	oldPath := "/etc/systemd/system/viam-agent.service"
+	_, oldErr := os.Stat(oldPath)
+	_, newErr := os.Stat(serviceFilePath)
+	if oldErr == nil && errors.Is(newErr, fs.ErrNotExist) {
+		logger.Warn("Removing system service file %s in favor of vendor file at %s", oldPath, serviceFilePath)
+		logger.Warn("If you customized this file, please run 'systemctl edit viam-agent' and create overrides there")
+		if err := os.RemoveAll(oldPath); err != nil {
+			logger.Error(errors.Wrapf(err, "removing old service file %s, please delete manually", oldPath))
+		}
+	}
 }

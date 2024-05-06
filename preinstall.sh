@@ -12,8 +12,7 @@ TARBALL_ONLY=0
 SERVICE_FILE=$(cat <<EOF
 [Unit]
 Description=Viam Services Agent
-After=NetworkManager.service network-online.target
-Wants=NetworkManager.service network-online.target
+Wants=NetworkManager.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -27,6 +26,7 @@ FinalKillSignal=SIGQUIT
 
 [Install]
 WantedBy=multi-user.target
+
 EOF
 )
 
@@ -94,9 +94,9 @@ create_tarball() {
 
 	TEMPDIR=$(mktemp -d)
 
-	mkdir -p "$TEMPDIR/etc/systemd/system/multi-user.target.wants/"
-	echo "$SERVICE_FILE" > "$TEMPDIR/etc/systemd/system/viam-agent.service"
-	ln -s /etc/systemd/system/viam-agent.service "$TEMPDIR/etc/systemd/system/multi-user.target.wants/viam-agent.service"
+	mkdir -p "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/"
+	echo "$SERVICE_FILE" > "$TEMPDIR/usr/local/lib/systemd/system/viam-agent.service"
+	ln -s ../viam-agent.service "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/viam-agent.service"
 
 	mkdir -p "$TEMPDIR/opt/viam/cache"
 	curl -fsSL "$URL" -o "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
@@ -107,13 +107,14 @@ create_tarball() {
 	ln -s "/opt/viam/cache/viam-agent-factory-$ARCH" "$TEMPDIR/opt/viam/bin/viam-agent"
 	ln -s "/opt/viam/cache/viam-agent-provisioning-factory-$ARCH" "$TEMPDIR/opt/viam/bin/agent-provisioning"
 
+	mkdir -p "$TEMPDIR/etc"
 	if [ -f "$PROVISIONING_PATH" ]; then
 	        echo "Installing $PROVISIONING_PATH as /etc/viam-provisioning.json"
 		cat "$PROVISIONING_PATH" > "$TEMPDIR/etc/viam-provisioning.json"
 	fi
 
 	TARBALL="$TEMPDIR/viam-preinstall-$ARCH.tar.xz"
-	tar -cJvpf "$TARBALL" -C "$TEMPDIR" opt/ etc/ || return 1
+	tar -cJvpf "$TARBALL" -C "$TEMPDIR" opt/ etc/ usr/ || return 1
 }
 
 if [ "$(id -u)" -ne 0 ]; then

@@ -29,7 +29,6 @@ func init() {
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
 	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
-	ViamDirs["run"] = "/run/viam"
 }
 
 func InitPaths() error {
@@ -40,11 +39,11 @@ func InitPaths() error {
 			if errors.Is(err, fs.ErrNotExist) {
 				//nolint:gosec
 				if err := os.MkdirAll(p, 0o755); err != nil {
-					return errw.Wrapf(err, "Error creating directory %s", p)
+					return errw.Wrapf(err, "creating directory %s", p)
 				}
 				continue
 			}
-			return errw.Wrapf(err, "Error checking directory %s", p)
+			return errw.Wrapf(err, "checking directory %s", p)
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok {
@@ -217,12 +216,12 @@ func CheckIfSame(path1, path2 string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot evaluate symlinks pointing to %s", path1)
+		return false, errw.Wrapf(err, "evaluating symlinks pointing to %s", path1)
 	}
 
 	stat1, err := os.Stat(curPath)
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot stat %s", curPath)
+		return false, errw.Wrapf(err, "statting %s", curPath)
 	}
 
 	realPath, err := filepath.EvalSymlinks(path2)
@@ -230,7 +229,7 @@ func CheckIfSame(path1, path2 string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot evaluate symlinks pointing to %s", path2)
+		return false, errw.Wrapf(err, "evaluating symlinks pointing to %s", path2)
 	}
 
 	stat2, err := os.Stat(realPath)
@@ -238,7 +237,7 @@ func CheckIfSame(path1, path2 string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot stat %s", realPath)
+		return false, errw.Wrapf(err, "statting %s", realPath)
 	}
 
 	return os.SameFile(stat1, stat2), nil

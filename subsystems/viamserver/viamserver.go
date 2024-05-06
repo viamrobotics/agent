@@ -96,7 +96,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	err = s.cmd.Start()
 	if err != nil {
 		s.mu.Unlock()
-		return errw.Wrapf(err, "error starting %s", SubsysName)
+		return errw.Wrapf(err, "starting %s", SubsysName)
 	}
 	s.running = true
 	s.exitChan = make(chan struct{})

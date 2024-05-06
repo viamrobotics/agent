@@ -194,7 +194,7 @@ func (s *AgentSubsystem) LoadCache() error {
 	} else {
 		err = json.Unmarshal(cacheBytes, cache)
 		if err != nil {
-			s.logger.Error(errw.Wrap(err, "cannot parse subsystem cache, using new defaults"))
+			s.logger.Error(errw.Wrap(err, "parsing subsystem cache, using new defaults"))
 			s.CacheData = &CacheData{
 				Versions: make(map[string]*VersionInfo),
 			}
@@ -451,7 +451,7 @@ func (is *InternalSubsystem) Start(ctx context.Context) error {
 	err = is.cmd.Start()
 	if err != nil {
 		is.mu.Unlock()
-		return errw.Wrapf(err, "error starting %s", is.name)
+		return errw.Wrapf(err, "starting %s", is.name)
 	}
 	is.running = true
 	is.exitChan = make(chan struct{})

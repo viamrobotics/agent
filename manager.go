@@ -67,13 +67,13 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	//nolint:gosec
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
-		return errw.Wrap(err, "error reading config file")
+		return errw.Wrap(err, "reading config file")
 	}
 
 	cfg := make(map[string]map[string]string)
 	err = json.Unmarshal(b, &cfg)
 	if err != nil {
-		return errw.Wrap(err, "error parsing config file")
+		return errw.Wrap(err, "parsing config file")
 	}
 
 	cloud, ok := cfg["cloud"]
@@ -140,6 +140,9 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 
 	// check updates and (re)start
 	for name, sub := range m.loadedSubsystems {
+		if ctx.Err() != nil {
+			return
+		}
 		cancelCtx, cancel := context.WithTimeout(ctx, time.Minute*5)
 		defer cancel()
 		restart, err := sub.Update(cancelCtx, cfg[name])
@@ -244,6 +247,7 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	m.logger.Debug("starting background checks")
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
 		checkInterval := m.CheckUpdates(ctx)
@@ -276,7 +280,7 @@ func (m *Manager) LoadSubsystems(ctx context.Context) error {
 
 	cachedConfig, err := m.getCachedConfig()
 	if err != nil {
-		m.logger.Error(errw.Wrap(err, "error getting cached config"))
+		m.logger.Error(errw.Wrap(err, "getting cached config"))
 	}
 
 	for _, name := range registry.List() {
@@ -319,12 +323,12 @@ func (m *Manager) getCachedConfig() (map[string]*pb.DeviceSubsystemConfig, error
 		if errors.Is(err, fs.ErrNotExist) {
 			return cachedConfig, nil
 		}
-		return nil, errw.Wrap(err, "error reading cached config")
+		return nil, errw.Wrap(err, "reading cached config")
 	}
 
 	err = json.Unmarshal(cacheBytes, &cachedConfig)
 	if err != nil {
-		return nil, errw.Wrapf(err, "error parsing cached config")
+		return nil, errw.Wrapf(err, "parsing cached config")
 	}
 	return cachedConfig, nil
 }
@@ -387,7 +391,7 @@ func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystem
 	defer cancelFunc()
 
 	if err := m.dial(timeoutCtx); err != nil {
-		m.logger.Error(errw.Wrapf(err, "error fetching %s config", SubsystemName))
+		m.logger.Error(errw.Wrapf(err, "fetching %s config", SubsystemName))
 		conf, err := m.getCachedConfig()
 		return conf, minimalCheckInterval, err
 	}
@@ -399,7 +403,7 @@ func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystem
 	}
 	resp, err := m.client.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
-		m.logger.Error(errw.Wrapf(err, "error fetching %s config", SubsystemName))
+		m.logger.Error(errw.Wrapf(err, "fetching %s config", SubsystemName))
 		conf, err := m.getCachedConfig()
 		return conf, minimalCheckInterval, err
 	}
@@ -408,7 +412,7 @@ func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystem
 
 	err = m.saveCachedConfig(resp.GetSubsystemConfigs())
 	if err != nil {
-		m.logger.Error(errw.Wrap(err, "error saving agent config to cache"))
+		m.logger.Error(errw.Wrap(err, "saving agent config to cache"))
 	}
 
 	interval := resp.GetCheckInterval().AsDuration()
