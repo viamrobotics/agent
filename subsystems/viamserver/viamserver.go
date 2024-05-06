@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,12 +32,16 @@ const (
 	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
 	stopTermTimeout = time.Minute * 2
 	stopKillTimeout = time.Second * 10
+	fastStartName   = "fast_start"
 	SubsysName      = "viam-server"
 )
 
 var (
 	ConfigFilePath = "/etc/viam.json"
 	DefaultConfig  = &pb.DeviceSubsystemConfig{}
+
+	// Set if (cached or cloud) config has the "fast_start" attribute set on the viam-server subsystem.
+	FastStart atomic.Bool
 )
 
 type viamServer struct {
@@ -253,6 +258,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	setFastStart(cfg)
 	if newVersion {
 		s.logger.Info("awaiting user restart to run new viam-server version")
 		s.shouldRun = false
@@ -262,5 +268,20 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 }
 
 func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
+	setFastStart(updateConf)
 	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger.Named(SubsysName)})
+}
+
+func setFastStart(cfg *pb.DeviceSubsystemConfig) {
+	if cfg != nil {
+		cfgVal, ok := cfg.GetAttributes().AsMap()[fastStartName]
+		if ok {
+			cfgBool, ok := cfgVal.(bool)
+			if ok {
+				FastStart.Store(cfgBool)
+				return
+			}
+		}
+	}
+	FastStart.Store(false)
 }

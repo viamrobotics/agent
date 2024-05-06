@@ -243,7 +243,7 @@ main() {
 
 	uninstall_old_service
 
-	if [ -f /etc/systemd/system/viam-agent.service ]; then
+	if [ -f /etc/systemd/system/viam-agent.service ] || [ -f /usr/local/lib/systemd/system/viam-agent.service ]; then
 		echo
 		echo "It appears viam-agent is already installed. You can restart it with 'systemctl restart viam-agent' if it's not running."
 

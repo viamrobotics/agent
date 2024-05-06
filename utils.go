@@ -259,8 +259,7 @@ func ForceSymlink(orig, symlink string) error {
 }
 
 func SyncFS(syncPath string) (errRet error) {
-	//nolint:gosec
-	file, errRet := os.Open(syncPath)
+	file, errRet := os.Open(filepath.Dir(syncPath))
 	if errRet != nil {
 		return errw.Wrapf(errRet, "syncing fs %s", syncPath)
 	}

@@ -41,7 +41,7 @@ func main() {
 	var opts struct {
 		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
 		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"  short:"d"`
-		Fast    bool   `description:"Enable faststart mode"                 env:"VIAM_AGENT_FASTSTART"        long:"fast"   short:"f"`
+		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"   short:"f"`
 		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
 		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
 		Install bool   `description:"Install systemd service"               long:"install"`
@@ -83,10 +83,7 @@ func main() {
 	}
 
 	if opts.Install {
-		err := viamagent.Install(globalLogger)
-		if err != nil {
-			globalLogger.Error(err)
-		}
+		exitIfError(viamagent.Install(globalLogger))
 		return
 	}
 
@@ -167,12 +164,17 @@ func main() {
 		}
 	}
 
-	// if faststart is set, skip updates and start viam-server immediately, the proceed as normal
-	if opts.Fast {
+	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
+	var fastSuccess bool
+	if opts.Fast || viamserver.FastStart.Load() {
 		if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
 			globalLogger.Error(err)
+		} else {
+			fastSuccess = true
 		}
-	} else {
+	}
+
+	if !fastSuccess {
 		// wait to be online
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()

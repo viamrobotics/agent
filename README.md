@@ -39,12 +39,7 @@ sudo /bin/sh -c "$(curl -fsSL https://storage.googleapis.com/packages.viam.com/a
 ## FastStart Mode
 This bypasses the normal network/online wait and update checks during inital startup, and executes viam-server as quickly as possible. Useful if you have a device that often starts when offline or on a slow connection, and having the latest version immediately after start isn't required. Note that normal, periodic update checks will continue to run afterwards. This only affects initial startup sequencing.
 
-To use it, set "VIAM_AGENT_FASTSTART=1" in your environment. To make this permanent for the systemd service, run `sudo systemctl edit viam-agent` and insert the following override chunk:
-
-```
-[Service]
-Environment=VIAM_AGENT_FASTSTART=1
-```
+To use it, set `"fast_start": true` in the attributes for the viam-server subsystem. Alternately, set `VIAM_AGENT_FASTSTART=1` in your environment.
 
 ## Development
 
