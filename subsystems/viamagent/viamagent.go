@@ -170,7 +170,7 @@ func Install(logger *zap.SugaredLogger) error {
 	//nolint:forbidigo
 	fmt.Println("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
 
-	return nil
+	return agent.SyncFS("/etc")
 }
 
 func removeOldServiceFile(logger *zap.SugaredLogger) {

@@ -215,7 +215,7 @@ func (s *AgentSubsystem) saveCache() error {
 		return err
 	}
 	//nolint:gosec
-	return os.WriteFile(cacheFilePath, cacheData, 0o644)
+	return errors.Join(os.WriteFile(cacheFilePath, cacheData, 0o644), SyncFS(cacheFilePath))
 }
 
 // SaveCache saves the cached data to disk.
@@ -610,5 +610,5 @@ func (is *InternalSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystem
 
 	// If attribute changes, restart after writing the new config file.
 	//nolint:gosec
-	return true, os.WriteFile(is.cfgPath, jsonBytes, 0o644)
+	return true, errors.Join(os.WriteFile(is.cfgPath, jsonBytes, 0o644), SyncFS(is.cfgPath))
 }

@@ -20,6 +20,7 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
+	"golang.org/x/sys/unix"
 )
 
 var ViamDirs = map[string]string{"viam": "/opt/viam"}
@@ -92,7 +93,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 			return "", err
 		}
 		defer func() {
-			errRet = errors.Join(errRet, outfd.Close())
+			errRet = errors.Join(errRet, outfd.Close(), SyncFS(outPath))
 			if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
 				errRet = errors.Join(errRet, err)
 			}
@@ -133,7 +134,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		return "", err
 	}
 	defer func() {
-		errRet = errors.Join(errRet, out.Close())
+		errRet = errors.Join(errRet, out.Close(), SyncFS(out.Name()))
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -144,7 +145,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		errRet = errors.Join(errRet, err)
 	}
 
-	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath))
+	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 	return outPath, errRet
 }
 
@@ -170,7 +171,7 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 	}
 
 	defer func() {
-		errRet = errors.Join(errRet, out.Close())
+		errRet = errors.Join(errRet, out.Close(), SyncFS(ViamDirs["tmp"]))
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -182,7 +183,7 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 	}
 
 	outPath = filepath.Join(ViamDirs["cache"], strings.Replace(filepath.Base(inPath), ".xz", "", 1))
-	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath))
+	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 	return outPath, errRet
 }
 
@@ -253,5 +254,19 @@ func ForceSymlink(orig, symlink string) error {
 	if err != nil {
 		return errw.Wrap(err, "symlinking file")
 	}
-	return nil
+
+	return SyncFS(symlink)
+}
+
+func SyncFS(syncPath string) (errRet error) {
+	//nolint:gosec
+	file, errRet := os.Open(syncPath)
+	if errRet != nil {
+		return errw.Wrapf(errRet, "syncing fs %s", syncPath)
+	}
+	_, _, err := unix.Syscall(unix.SYS_SYNCFS, file.Fd(), 0, 0)
+	if err != 0 {
+		errRet = errw.Wrapf(err, "syncing fs %s", syncPath)
+	}
+	return errors.Join(errRet, file.Close())
 }

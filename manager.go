@@ -342,7 +342,7 @@ func (m *Manager) saveCachedConfig(cfg map[string]*pb.DeviceSubsystemConfig) err
 		return err
 	}
 	//nolint:gosec
-	return os.WriteFile(cacheFilePath, cacheData, 0o644)
+	return errors.Join(os.WriteFile(cacheFilePath, cacheData, 0o644), SyncFS(cacheFilePath))
 }
 
 // dial establishes a connection to the cloud for grpc communication.
