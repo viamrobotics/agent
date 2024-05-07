@@ -39,8 +39,6 @@ var (
 	//go:embed viam-agent.service
 	serviceFileContents []byte
 	DefaultConfig       = &pb.DeviceSubsystemConfig{}
-
-	serviceFilePath = filepath.Join(serviceFileDir, serviceFileName)
 )
 
 type agentSubsystem struct{}
@@ -80,6 +78,8 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	if err != nil {
 		return false, errw.Wrapf(err, "running post install step %s", output)
 	}
+	//nolint:forbidigo
+	fmt.Print(string(output))
 
 	return true, nil
 }
@@ -135,12 +135,9 @@ func Install(logger *zap.SugaredLogger) error {
 		}
 	}
 
-	if inSystemdPath(serviceFileDir, logger) {
-		// one-time, remove old /etc based service file when moving to new /usr/local location
-		removeOldServiceFile(logger)
-	} else {
-		logger.Warnf("Systemd does not have %s in its unit search path, installing directly to %s", serviceFileDir, fallbackFileDir)
-		serviceFilePath = filepath.Join(fallbackFileDir, serviceFileName)
+	serviceFilePath, removeOldFile, err := getServiceFilePath(logger)
+	if err != nil {
+		return errw.Wrap(err, "getting service file path")
 	}
 
 	//nolint:gosec
@@ -152,6 +149,15 @@ func Install(logger *zap.SugaredLogger) error {
 	//nolint:gosec
 	if err := os.WriteFile(serviceFilePath, serviceFileContents, 0o644); err != nil {
 		return errw.Wrapf(err, "writing systemd service file %s", serviceFilePath)
+	}
+
+	if removeOldFile {
+		oldPath := filepath.Join(fallbackFileDir, serviceFileName)
+		logger.Warn("Removing system service file %s in favor of vendor file at %s", oldPath, serviceFilePath)
+		logger.Warn("If you customized this file, please run 'systemctl edit viam-agent' and create overrides there")
+		if err := os.RemoveAll(oldPath); err != nil {
+			logger.Error(errw.Wrapf(err, "removing old service file %s, please delete manually", oldPath))
+		}
 	}
 
 	logger.Infof("enabling systemd viam-agent service")
@@ -170,29 +176,15 @@ func Install(logger *zap.SugaredLogger) error {
 	_, err = os.Stat("/etc/viam.json")
 	if err != nil {
 		if errw.Is(err, fs.ErrNotExist) {
-			//nolint:forbidigo
-			fmt.Println("No config file found at /etc/viam.json, please install one before running viam-agent service.")
+			logger.Warn("No config file found at /etc/viam.json, please install one before running viam-agent service.")
 		} else {
 			return errw.Wrap(err, "reading /etc/viam.json")
 		}
 	}
-	//nolint:forbidigo
-	fmt.Println("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
+
+	logger.Info("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
 
 	return errors.Join(agent.SyncFS("/etc"), agent.SyncFS(serviceFilePath), agent.SyncFS(agent.ViamDirs["viam"]))
-}
-
-func removeOldServiceFile(logger *zap.SugaredLogger) {
-	oldPath := "/etc/systemd/system/viam-agent.service"
-	_, oldErr := os.Stat(oldPath)
-	_, newErr := os.Stat(serviceFilePath)
-	if oldErr == nil && errw.Is(newErr, fs.ErrNotExist) {
-		logger.Warn("Removing system service file %s in favor of vendor file at %s", oldPath, serviceFilePath)
-		logger.Warn("If you customized this file, please run 'systemctl edit viam-agent' and create overrides there")
-		if err := os.RemoveAll(oldPath); err != nil {
-			logger.Error(errw.Wrapf(err, "removing old service file %s, please delete manually", oldPath))
-		}
-	}
 }
 
 func inSystemdPath(path string, logger *zap.SugaredLogger) bool {
@@ -209,4 +201,37 @@ func inSystemdPath(path string, logger *zap.SugaredLogger) bool {
 		}
 	}
 	return false
+}
+
+func getServiceFilePath(logger *zap.SugaredLogger) (string, bool, error) {
+	serviceFilePath := filepath.Join(serviceFileDir, serviceFileName)
+	_, err := os.Stat(serviceFilePath)
+	if err == nil {
+		// file is already in place, we should be good
+		return serviceFilePath, false, nil
+	}
+	if !errw.Is(err, fs.ErrNotExist) {
+		// unknown error
+		return "", false, err
+	}
+	oldFilePath := filepath.Join(fallbackFileDir, serviceFileName)
+
+	// see if we can migrate to the local path
+	if !inSystemdPath(serviceFileDir, logger) {
+		logger.Warnf("Systemd does not have %s in its unit search path, installing directly to %s", serviceFileDir, fallbackFileDir)
+		return oldFilePath, false, nil
+	}
+
+	// migrate old file if it exists
+	_, err = os.Stat(oldFilePath)
+	if err == nil {
+		return serviceFilePath, true, nil
+	}
+	if errw.Is(err, fs.ErrNotExist) {
+		// unknown error
+		return "", false, err
+	}
+
+	// new install, so there was nothing to migrate
+	return serviceFilePath, false, nil
 }
