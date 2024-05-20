@@ -20,6 +20,7 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
+	"golang.org/x/sys/unix"
 )
 
 var ViamDirs = map[string]string{"viam": "/opt/viam"}
@@ -29,7 +30,6 @@ func init() {
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
 	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
-	ViamDirs["run"] = "/run/viam"
 }
 
 func InitPaths() error {
@@ -40,11 +40,11 @@ func InitPaths() error {
 			if errors.Is(err, fs.ErrNotExist) {
 				//nolint:gosec
 				if err := os.MkdirAll(p, 0o755); err != nil {
-					return errw.Wrapf(err, "Error creating directory %s", p)
+					return errw.Wrapf(err, "creating directory %s", p)
 				}
 				continue
 			}
-			return errw.Wrapf(err, "Error checking directory %s", p)
+			return errw.Wrapf(err, "checking directory %s", p)
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok {
@@ -93,7 +93,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 			return "", err
 		}
 		defer func() {
-			errRet = errors.Join(errRet, outfd.Close())
+			errRet = errors.Join(errRet, outfd.Close(), SyncFS(outPath))
 			if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
 				errRet = errors.Join(errRet, err)
 			}
@@ -134,7 +134,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		return "", err
 	}
 	defer func() {
-		errRet = errors.Join(errRet, out.Close())
+		errRet = errors.Join(errRet, out.Close(), SyncFS(out.Name()))
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -145,7 +145,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		errRet = errors.Join(errRet, err)
 	}
 
-	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath))
+	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 	return outPath, errRet
 }
 
@@ -171,7 +171,7 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 	}
 
 	defer func() {
-		errRet = errors.Join(errRet, out.Close())
+		errRet = errors.Join(errRet, out.Close(), SyncFS(ViamDirs["tmp"]))
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -183,7 +183,7 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 	}
 
 	outPath = filepath.Join(ViamDirs["cache"], strings.Replace(filepath.Base(inPath), ".xz", "", 1))
-	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath))
+	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 	return outPath, errRet
 }
 
@@ -217,12 +217,12 @@ func CheckIfSame(path1, path2 string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot evaluate symlinks pointing to %s", path1)
+		return false, errw.Wrapf(err, "evaluating symlinks pointing to %s", path1)
 	}
 
 	stat1, err := os.Stat(curPath)
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot stat %s", curPath)
+		return false, errw.Wrapf(err, "statting %s", curPath)
 	}
 
 	realPath, err := filepath.EvalSymlinks(path2)
@@ -230,7 +230,7 @@ func CheckIfSame(path1, path2 string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot evaluate symlinks pointing to %s", path2)
+		return false, errw.Wrapf(err, "evaluating symlinks pointing to %s", path2)
 	}
 
 	stat2, err := os.Stat(realPath)
@@ -238,7 +238,7 @@ func CheckIfSame(path1, path2 string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "cannot stat %s", realPath)
+		return false, errw.Wrapf(err, "statting %s", realPath)
 	}
 
 	return os.SameFile(stat1, stat2), nil
@@ -254,5 +254,18 @@ func ForceSymlink(orig, symlink string) error {
 	if err != nil {
 		return errw.Wrap(err, "symlinking file")
 	}
-	return nil
+
+	return SyncFS(symlink)
+}
+
+func SyncFS(syncPath string) (errRet error) {
+	file, errRet := os.Open(filepath.Dir(syncPath))
+	if errRet != nil {
+		return errw.Wrapf(errRet, "syncing fs %s", syncPath)
+	}
+	_, _, err := unix.Syscall(unix.SYS_SYNCFS, file.Fd(), 0, 0)
+	if err != 0 {
+		errRet = errw.Wrapf(err, "syncing fs %s", syncPath)
+	}
+	return errors.Join(errRet, file.Close())
 }

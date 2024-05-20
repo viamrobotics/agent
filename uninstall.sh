@@ -26,7 +26,8 @@ fi
 # system services
 systemctl disable --now viam-agent
 systemctl disable --now viam-server
-rm -v /etc/systemd/system/viam-agent.service /etc/systemd/system/viam-server.service
+rm -v /etc/systemd/system/viam-agent.service /usr/local/lib/systemd/system/viam-agent.service /etc/systemd/system/viam-server.service
+systemctl daemon-reload
 
 # previous appimage installs
 rm -v /usr/local/bin/viam-server

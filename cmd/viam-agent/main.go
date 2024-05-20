@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -39,7 +40,8 @@ func main() {
 
 	var opts struct {
 		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
-		Debug   bool   `description:"Enable debug logging (for agent only)" long:"debug"                      short:"d"`
+		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"  short:"d"`
+		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"   short:"f"`
 		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
 		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
 		Install bool   `description:"Install systemd service"               long:"install"`
@@ -81,10 +83,7 @@ func main() {
 	}
 
 	if opts.Install {
-		err := viamagent.Install(globalLogger)
-		if err != nil {
-			globalLogger.Error(err)
-		}
+		exitIfError(viamagent.Install(globalLogger))
 		return
 	}
 
@@ -104,23 +103,11 @@ func main() {
 	exitIfError(agent.InitPaths())
 
 	// use a lockfile to prevent running two agents on the same machine
-	pidFile, err := lockfile.New(filepath.Join(agent.ViamDirs["run"], "viam-agent.pid"))
-	exitIfError(errors.Wrap(err, "cannot init lock file"))
-	if err = pidFile.TryLock(); err != nil {
-		globalLogger.Error(errors.Wrapf(err, "cannot lock %s", pidFile))
-		if errors.Is(err, lockfile.ErrBusy) {
-			globalLogger.Debug("Retrying to lock file")
-
-			time.Sleep(2 * time.Second)
-
-			if err = pidFile.TryLock(); err != nil {
-				globalLogger.Fatal("Please terminate any other copies of viam-agent and try again.")
-			}
-		}
-	}
+	pidFile, err := getLock()
+	exitIfError(err)
 	defer func() {
 		if err := pidFile.Unlock(); err != nil {
-			exitIfError(errors.Wrapf(err, "cannot unlock %s", pidFile))
+			globalLogger.Error(errors.Wrapf(err, "unlocking %s", pidFile))
 		}
 	}()
 
@@ -144,7 +131,7 @@ func main() {
 		if !errors.Is(err, fs.ErrNotExist) {
 			if err := os.Rename(absConfigPath, absConfigPath+".old"); err != nil {
 				// if we can't rename the file, we're up a creek, and it's fatal
-				globalLogger.Error(errors.Wrapf(err, "cannot remove invalid config file %s", absConfigPath))
+				globalLogger.Error(errors.Wrapf(err, "removing invalid config file %s", absConfigPath))
 				globalLogger.Error("unable to continue with provisioning, exiting")
 				manager.CloseAll()
 				return
@@ -159,8 +146,8 @@ func main() {
 			if errors.Is(err, agent.ErrSubsystemDisabled) {
 				globalLogger.Warn("provisioning subsystem disabled, please manually update /etc/viam.json and connect to internet")
 			} else {
-				globalLogger.Error(errors.Wrapf(err, "could not start provisioning subsystem"))
-				globalLogger.Error("please manually update /etc/viam.json and connect to internet")
+				globalLogger.Error(errors.Wrapf(err,
+					"could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet"))
 			}
 		}
 
@@ -177,20 +164,51 @@ func main() {
 		}
 	}
 
-	// Start viam server as soon as possible. Then, start other subsystems and check for updates
-	if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
-		if errors.Is(err, agent.ErrSubsystemDisabled) {
-			globalLogger.Warn("viam-server subsystem disabled, please manually update /etc/viam.json and connect to internet")
+	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
+	var fastSuccess bool
+	if opts.Fast || viamserver.FastStart.Load() {
+		if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
+			globalLogger.Error(err)
 		} else {
-			globalLogger.Errorf("could not start viam-server subsystem: %s", err)
+			fastSuccess = true
 		}
 	}
 
-	globalLogger.Debug("==== Starting background checks =====")
+	if !fastSuccess {
+		// wait to be online
+		timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		for {
+			cmd := exec.CommandContext(timeoutCtx, "systemctl", "is-active", "network-online.target")
+			_, err := cmd.CombinedOutput()
+
+			if err == nil {
+				break
+			}
+
+			if errors.As(err, &exec.ExitError{}) {
+				// if it's not an ExitError, that means it didn't even start, so bail out
+				globalLogger.Error(errors.Wrap(err, "running 'systemctl is-active network-online.target'"))
+				break
+			}
+			if !utils.SelectContextOrWait(timeoutCtx, time.Second) {
+				break
+			}
+		}
+
+		// Check for self-update and restart if needed.
+		needRestart, err := manager.SelfUpdate(ctx)
+		if err != nil {
+			globalLogger.Error(err)
+		}
+		if needRestart {
+			globalLogger.Info("updated self, exiting to await restart with new version")
+			return
+		}
+	}
+
 	manager.StartBackgroundChecks(ctx)
-
 	<-ctx.Done()
-
 	manager.CloseAll()
 
 	activeBackgroundWorkers.Wait()
@@ -248,4 +266,56 @@ func exitIfError(err error) {
 	if err != nil {
 		globalLogger.Fatal(err)
 	}
+}
+
+func getLock() (lockfile.Lockfile, error) {
+	pidFile, err := lockfile.New(filepath.Join(agent.ViamDirs["tmp"], "viam-agent.pid"))
+	if err != nil {
+		return "", errors.Wrap(err, "init lockfile")
+	}
+	err = pidFile.TryLock()
+	if err == nil {
+		return pidFile, nil
+	}
+
+	globalLogger.Warn(errors.Wrapf(err, "locking %s", pidFile))
+
+	// if it's a potentially temporary error, retry
+	if errors.Is(err, lockfile.ErrBusy) || errors.Is(err, lockfile.ErrNotExist) {
+		time.Sleep(2 * time.Second)
+		globalLogger.Warn("retrying lock")
+		err = pidFile.TryLock()
+		if err == nil {
+			return pidFile, nil
+		}
+
+		// if (still) busy, validate that the PID in question is actually viam-agent
+		// some systems use sequential, low numbered PIDs that can easily repeat after a reboot or crash
+		// this could result some other valid/running process that matches a leftover lockfile PID
+		if errors.Is(err, lockfile.ErrBusy) {
+			var staleFile bool
+			proc, err := pidFile.GetOwner()
+			if err != nil {
+				globalLogger.Error(errors.Wrap(err, "getting lockfile owner"))
+				staleFile = true
+			}
+			runPath, err := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/exe", proc.Pid))
+			if err != nil {
+				globalLogger.Error(errors.Wrap(err, "cannot get info on lockfile owner"))
+				staleFile = true
+			} else if !strings.Contains(runPath, agent.SubsystemName) {
+				globalLogger.Warnf("lockfile owner isn't %s", agent.SubsystemName)
+				staleFile = true
+			}
+			if staleFile {
+				globalLogger.Warnf("deleting lockfile %s", pidFile)
+				if err := os.RemoveAll(string(pidFile)); err != nil {
+					return "", errors.Wrap(err, "removing lockfile")
+				}
+				return pidFile, pidFile.TryLock()
+			}
+			return "", errors.Errorf("other instance of viam-agent is already running with PID: %d", proc.Pid)
+		}
+	}
+	return "", err
 }

@@ -194,7 +194,7 @@ func (s *AgentSubsystem) LoadCache() error {
 	} else {
 		err = json.Unmarshal(cacheBytes, cache)
 		if err != nil {
-			s.logger.Error(errw.Wrap(err, "cannot parse subsystem cache, using new defaults"))
+			s.logger.Error(errw.Wrap(err, "parsing subsystem cache, using new defaults"))
 			s.CacheData = &CacheData{
 				Versions: make(map[string]*VersionInfo),
 			}
@@ -215,7 +215,7 @@ func (s *AgentSubsystem) saveCache() error {
 		return err
 	}
 	//nolint:gosec
-	return os.WriteFile(cacheFilePath, cacheData, 0o644)
+	return errors.Join(os.WriteFile(cacheFilePath, cacheData, 0o644), SyncFS(cacheFilePath))
 }
 
 // SaveCache saves the cached data to disk.
@@ -451,7 +451,7 @@ func (is *InternalSubsystem) Start(ctx context.Context) error {
 	err = is.cmd.Start()
 	if err != nil {
 		is.mu.Unlock()
-		return errw.Wrapf(err, "error starting %s", is.name)
+		return errw.Wrapf(err, "starting %s", is.name)
 	}
 	is.running = true
 	is.exitChan = make(chan struct{})
@@ -610,5 +610,5 @@ func (is *InternalSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystem
 
 	// If attribute changes, restart after writing the new config file.
 	//nolint:gosec
-	return true, os.WriteFile(is.cfgPath, jsonBytes, 0o644)
+	return true, errors.Join(os.WriteFile(is.cfgPath, jsonBytes, 0o644), SyncFS(is.cfgPath))
 }
