@@ -228,7 +228,7 @@ func getServiceFilePath(logger *zap.SugaredLogger) (string, bool, error) {
 		return serviceFilePath, true, nil
 	}
 	if !errw.Is(err, fs.ErrNotExist) {
-		// unknown error
+		// unknown error when checking old service file path
 		return "", false, err
 	}
 
