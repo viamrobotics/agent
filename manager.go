@@ -19,6 +19,7 @@ import (
 	"github.com/viamrobotics/agent/subsystems/registry"
 	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
 )
 
@@ -93,6 +94,25 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	m.cloudSecret = cloud["secret"]
 
 	return nil
+}
+
+var ErrMissingCloudCreds = errors.New("can't create NetAppender without cloud creds")
+
+func (m *Manager) NetAppender(ctx context.Context) (*logging.NetAppender, error) {
+	if err := m.dial(ctx); err != nil {
+		return nil, err
+	}
+	if m.cloudAddr == "" || m.partID == "" || m.cloudSecret == "" {
+		return nil, ErrMissingCloudCreds
+	}
+	return logging.NewNetAppender(
+		&logging.CloudConfig{
+			AppAddress: m.cloudAddr,
+			ID:         m.partID,
+			Secret:     m.cloudSecret,
+		},
+		m.conn,
+	)
 }
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
