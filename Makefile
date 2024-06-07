@@ -6,8 +6,10 @@ else ifeq ($(GOARCH),arm64)
 LINUX_ARCH = aarch64
 endif
 
-GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
-TAG_VERSION ?= $(shell git tag --points-at | sort -Vr | head -n1 | cut -c2-)
+ifeq ($(shell git status -s),)
+	TAG_VERSION ?= $(shell git tag --points-at | sort -Vr | head -n1 | cut -c2-)
+	GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
+endif
 ifeq ($(TAG_VERSION),)
 PATH_VERSION = custom
 else
