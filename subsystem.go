@@ -18,8 +18,8 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 )
 
 const (
@@ -56,7 +56,7 @@ type AgentSubsystem struct {
 	disable   bool
 
 	name   string
-	logger *zap.SugaredLogger
+	logger logging.Logger
 	inner  BasicSubsystem
 }
 
@@ -164,7 +164,7 @@ func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 func NewAgentSubsystem(
 	ctx context.Context,
 	name string,
-	logger *zap.SugaredLogger,
+	logger logging.Logger,
 	subsys BasicSubsystem,
 ) (*AgentSubsystem, error) {
 	sub := &AgentSubsystem{name: name, logger: logger, inner: subsys}
@@ -379,7 +379,7 @@ type InternalSubsystem struct {
 	// only set during New
 	name    string
 	cmdArgs []string
-	logger  *zap.SugaredLogger
+	logger  logging.Logger
 	cfgPath string
 
 	// protected by mutex
@@ -394,7 +394,7 @@ type InternalSubsystem struct {
 	startStopMu sync.Mutex
 }
 
-func NewInternalSubsystem(name string, extraArgs []string, logger *zap.SugaredLogger) (*InternalSubsystem, error) {
+func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger) (*InternalSubsystem, error) {
 	if name == "" {
 		return nil, errors.New("name cannot be empty")
 	}

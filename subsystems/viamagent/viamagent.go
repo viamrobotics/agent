@@ -16,8 +16,8 @@ import (
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 )
 
 func init() {
@@ -43,7 +43,7 @@ var (
 
 type agentSubsystem struct{}
 
-func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
+func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	return agent.NewAgentSubsystem(ctx, subsysName, logger, &agentSubsystem{})
 }
 
@@ -100,7 +100,7 @@ func GetRevision() string {
 	return GitRevision
 }
 
-func Install(logger *zap.SugaredLogger) error {
+func Install(logger logging.Logger) error {
 	// Check for systemd
 	cmd := exec.Command("systemctl", "--version")
 	output, err := cmd.CombinedOutput()
@@ -187,7 +187,7 @@ func Install(logger *zap.SugaredLogger) error {
 	return errors.Join(agent.SyncFS("/etc"), agent.SyncFS(serviceFilePath), agent.SyncFS(agent.ViamDirs["viam"]))
 }
 
-func inSystemdPath(path string, logger *zap.SugaredLogger) bool {
+func inSystemdPath(path string, logger logging.Logger) bool {
 	cmd := exec.Command("systemd-path", "systemd-search-system-unit")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -203,7 +203,7 @@ func inSystemdPath(path string, logger *zap.SugaredLogger) bool {
 	return false
 }
 
-func getServiceFilePath(logger *zap.SugaredLogger) (string, bool, error) {
+func getServiceFilePath(logger logging.Logger) (string, bool, error) {
 	serviceFilePath := filepath.Join(serviceFileDir, serviceFileName)
 	_, err := os.Stat(serviceFilePath)
 	if err == nil {

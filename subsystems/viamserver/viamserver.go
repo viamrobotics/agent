@@ -19,8 +19,8 @@ import (
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 )
 
 func init() {
@@ -57,7 +57,7 @@ type viamServer struct {
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
 
-	logger *zap.SugaredLogger
+	logger logging.Logger
 }
 
 func (s *viamServer) Start(ctx context.Context) error {
@@ -267,9 +267,9 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 	return false, nil
 }
 
-func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
+func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
-	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger.Named(SubsysName)})
+	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger.Sublogger(SubsysName)})
 }
 
 func setFastStart(cfg *pb.DeviceSubsystemConfig) {

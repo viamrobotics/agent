@@ -7,8 +7,8 @@ import (
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 )
 
 func init() {
@@ -24,7 +24,7 @@ const (
 	SubsysName = "agent-syscfg"
 )
 
-func NewSubsystem(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
+func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	extraArgs := []string{}
 	if Debug {
 		extraArgs = []string{"--debug"}

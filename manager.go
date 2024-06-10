@@ -17,7 +17,6 @@ import (
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
@@ -44,14 +43,14 @@ type Manager struct {
 	cloudAddr   string
 	cloudSecret string
 
-	logger *zap.SugaredLogger
+	logger logging.Logger
 
 	subsystemsMu     sync.Mutex
 	loadedSubsystems map[string]subsystems.Subsystem
 }
 
 // NewManager returns a new Manager.
-func NewManager(ctx context.Context, logger *zap.SugaredLogger) (*Manager, error) {
+func NewManager(ctx context.Context, logger logging.Logger) (*Manager, error) {
 	manager := &Manager{
 		logger:           logger,
 		loadedSubsystems: make(map[string]subsystems.Subsystem),
@@ -396,7 +395,7 @@ func (m *Manager) dial(ctx context.Context) error {
 		dialOpts = append(dialOpts, rpc.WithInsecure())
 	}
 
-	conn, err := rpc.DialDirectGRPC(ctx, u.Host, m.logger, dialOpts...)
+	conn, err := rpc.DialDirectGRPC(ctx, u.Host, m.logger.AsZap(), dialOpts...)
 	if err != nil {
 		return err
 	}

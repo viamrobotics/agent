@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
+	"go.viam.com/rdk/logging"
 )
 
 type matcher struct {
@@ -18,14 +18,14 @@ type matcher struct {
 }
 
 // NewMatchingLogger returns a MatchingLogger.
-func NewMatchingLogger(logger *zap.SugaredLogger, isError bool) *MatchingLogger {
+func NewMatchingLogger(logger logging.Logger, isError bool) *MatchingLogger {
 	return &MatchingLogger{logger: logger, defaultError: isError}
 }
 
-// MatchingLogger provides a zap logger that also allows sending regex matched lines to a channel.
+// MatchingLogger provides a logger that also allows sending regex matched lines to a channel.
 type MatchingLogger struct {
 	mu           sync.RWMutex
-	logger       *zap.SugaredLogger
+	logger       logging.Logger
 	matchers     map[string]matcher
 	defaultError bool
 }
