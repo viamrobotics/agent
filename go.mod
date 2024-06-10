@@ -2,6 +2,8 @@ module github.com/viamrobotics/agent
 
 go 1.21.4
 
+replace go.viam.com/rdk => ../rdk
+
 require (
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/nightlyone/lockfile v1.0.0
