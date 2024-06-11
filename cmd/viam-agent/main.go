@@ -164,16 +164,6 @@ func main() {
 		}
 	}
 
-	netAppender, err := manager.NetAppender(ctx)
-	if err != nil {
-		globalLogger.Errorf("error creating appender: %s", err)
-	}
-	if netAppender != nil {
-		globalLogger.AddAppender(netAppender)
-		// warning: does this make shutdown slow when offline? pls test before merging, we don't want that probably
-		defer netAppender.Close()
-	}
-
 	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
 	var fastSuccess bool
 	if opts.Fast || viamserver.FastStart.Load() {

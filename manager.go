@@ -43,7 +43,8 @@ type Manager struct {
 	cloudAddr   string
 	cloudSecret string
 
-	logger logging.Logger
+	logger      logging.Logger
+	netAppender *logging.NetAppender
 
 	subsystemsMu     sync.Mutex
 	loadedSubsystems map[string]subsystems.Subsystem
@@ -97,14 +98,18 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 
 var ErrMissingCloudCreds = errors.New("can't create NetAppender without cloud creds")
 
-func (m *Manager) NetAppender(ctx context.Context) (*logging.NetAppender, error) {
-	if err := m.dial(ctx); err != nil {
-		return nil, err
+// create and attach a NetAppender.
+func (m *Manager) attachNetAppender() error {
+	if m.conn == nil {
+		return errors.New("NetAppender requires non-null conn")
+	}
+	if m.netAppender != nil {
+		return errors.New("Manager already has non-nil netAppender")
 	}
 	if m.cloudAddr == "" || m.partID == "" || m.cloudSecret == "" {
-		return nil, ErrMissingCloudCreds
+		return ErrMissingCloudCreds
 	}
-	return logging.NewNetAppender(
+	netAppender, err := logging.NewNetAppender(
 		&logging.CloudConfig{
 			AppAddress: m.cloudAddr,
 			ID:         m.partID,
@@ -112,6 +117,12 @@ func (m *Manager) NetAppender(ctx context.Context) (*logging.NetAppender, error)
 		},
 		m.conn,
 	)
+	if err != nil {
+		return err
+	}
+	m.netAppender = netAppender
+	m.logger.AddAppender(m.netAppender)
+	return nil
 }
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
@@ -250,6 +261,8 @@ func (m *Manager) CloseAll() {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
+	m.netAppender.Close()
+
 	if m.conn != nil {
 		err := m.conn.Close()
 		if err != nil {
@@ -365,6 +378,7 @@ func (m *Manager) saveCachedConfig(cfg map[string]*pb.DeviceSubsystemConfig) err
 }
 
 // dial establishes a connection to the cloud for grpc communication.
+// If the dial succeeds, a NetAppender will be attached to m.logger.
 func (m *Manager) dial(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -401,6 +415,11 @@ func (m *Manager) dial(ctx context.Context) error {
 	}
 	m.conn = conn
 	m.client = pb.NewAgentDeviceServiceClient(m.conn)
+
+	// todo: ideally we would create the NetAppender ASAP (so logs are captured) and only *connect* it here.
+	if err := m.attachNetAppender(); err != nil {
+		m.logger.Errorw("error attaching NetAppender", "err", err)
+	}
 	return nil
 }
 
