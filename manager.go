@@ -96,8 +96,6 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	return nil
 }
 
-var ErrMissingCloudCreds = errors.New("can't create NetAppender without cloud creds")
-
 // create and attach a NetAppender.
 func (m *Manager) attachNetAppender() error {
 	if m.conn == nil {
@@ -107,7 +105,7 @@ func (m *Manager) attachNetAppender() error {
 		return errors.New("Manager already has non-nil netAppender")
 	}
 	if m.cloudAddr == "" || m.partID == "" || m.cloudSecret == "" {
-		return ErrMissingCloudCreds
+		return errors.New("can't create NetAppender without cloud creds")
 	}
 	netAppender, err := logging.NewNetAppender(
 		&logging.CloudConfig{
@@ -416,7 +414,7 @@ func (m *Manager) dial(ctx context.Context) error {
 	m.conn = conn
 	m.client = pb.NewAgentDeviceServiceClient(m.conn)
 
-	// todo: ideally we would create the NetAppender ASAP (so logs are captured) and only *connect* it here.
+	// TODO(RSDK-7888): ideally we would create the NetAppender ASAP (so logs are captured) and only *connect* it here.
 	if err := m.attachNetAppender(); err != nil {
 		m.logger.Errorw("error attaching NetAppender", "err", err)
 	}
