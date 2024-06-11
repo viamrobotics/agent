@@ -104,8 +104,8 @@ func (m *Manager) attachNetAppender() error {
 	if m.netAppender != nil {
 		return errors.New("Manager already has non-nil netAppender")
 	}
-	if m.cloudAddr == "" || m.partID == "" || m.cloudSecret == "" {
-		return errors.New("can't create NetAppender without cloud creds")
+	if m.partID == "" {
+		return errors.New("can't create NetAppender without part ID")
 	}
 	netAppender, err := logging.NewNetAppender(
 		&logging.CloudConfig{
