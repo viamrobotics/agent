@@ -119,6 +119,7 @@ func (m *Manager) attachNetAppender() error {
 		return err
 	}
 	m.netAppender = netAppender
+	globalNetAppender = netAppender
 	m.logger.AddAppender(m.netAppender)
 	return nil
 }

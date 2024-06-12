@@ -33,7 +33,7 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.Dev
 	if Debug {
 		extraArgs = append(extraArgs, "--debug")
 	}
-	is, err := agent.NewInternalSubsystem(SubsysName, extraArgs, logger)
+	is, err := agent.NewInternalSubsystem(SubsysName, extraArgs, logger, true)
 	if err != nil {
 		return nil, err
 	}

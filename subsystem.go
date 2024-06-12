@@ -381,6 +381,7 @@ type InternalSubsystem struct {
 	cmdArgs []string
 	logger  logging.Logger
 	cfgPath string
+	upload  bool
 
 	// protected by mutex
 	mu        sync.Mutex
@@ -394,7 +395,7 @@ type InternalSubsystem struct {
 	startStopMu sync.Mutex
 }
 
-func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger) (*InternalSubsystem, error) {
+func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger, upload bool) (*InternalSubsystem, error) {
 	if name == "" {
 		return nil, errors.New("name cannot be empty")
 	}
@@ -409,6 +410,7 @@ func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger
 		cmdArgs: append([]string{"--config", cfgPath}, extraArgs...),
 		cfgPath: cfgPath,
 		logger:  logger,
+		upload:  upload,
 	}
 	return is, nil
 }
@@ -430,8 +432,8 @@ func (is *InternalSubsystem) Start(ctx context.Context) error {
 		is.shouldRun = true
 	}
 
-	stdio := NewMatchingLogger(is.logger, false)
-	stderr := NewMatchingLogger(is.logger, true)
+	stdio := NewMatchingLogger(is.logger, false, is.upload)
+	stderr := NewMatchingLogger(is.logger, true, is.upload)
 
 	//nolint:gosec
 	is.cmd = exec.Command(path.Join(ViamDirs["bin"], is.name), is.cmdArgs...)

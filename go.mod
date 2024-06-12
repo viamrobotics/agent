@@ -7,6 +7,7 @@ require (
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/pkg/errors v0.9.1
 	github.com/ulikunitz/xz v0.5.12
+	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.311
 	go.viam.com/rdk v0.28.0-rc0.0.20240610174517-1d2dd98a7d2b
 	go.viam.com/utils v0.1.79
@@ -70,7 +71,6 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/mod v0.14.0 // indirect
 	golang.org/x/net v0.25.0 // indirect

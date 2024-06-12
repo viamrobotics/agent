@@ -27,8 +27,8 @@ type matcher struct {
 }
 
 // NewMatchingLogger returns a MatchingLogger.
-func NewMatchingLogger(logger logging.Logger, isError bool) *MatchingLogger {
-	return &MatchingLogger{logger: logger, defaultError: isError}
+func NewMatchingLogger(logger logging.Logger, isError, upload bool) *MatchingLogger {
+	return &MatchingLogger{logger: logger, defaultError: isError, upload: upload}
 }
 
 // MatchingLogger provides a logger that also allows sending regex matched lines to a channel.
@@ -37,6 +37,8 @@ type MatchingLogger struct {
 	logger       logging.Logger
 	matchers     map[string]matcher
 	defaultError bool
+	// if upload is true, copy dated lines to globalNetAppender.
+	upload bool
 }
 
 // AddMatcher adds a named regex to filter from results and return to a channel, optionally masking it from normal logging.
@@ -89,9 +91,10 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 
 	// filter out already-timestamped logging from stdout
 	if dateRegex.Match(p) {
-		parsed := parseLog(p)
-		if parsed.valid() && globalNetAppender != nil {
-			globalNetAppender.Write(parsed.entry(), nil)
+		if l.upload {
+			if parsed := parseLog(p); parsed.valid() && globalNetAppender != nil {
+				globalNetAppender.Write(parsed.entry(), nil) //nolint:errcheck,gosec
+			}
 		}
 		n, err := os.Stdout.Write(p)
 		if err != nil {
@@ -141,7 +144,7 @@ func (p parsedLog) entry() zapcore.Entry {
 		level = zapcore.DebugLevel
 	}
 	file, rawLine, defined := bytes.Cut(p.location, []byte{':'})
-	line, _ := strconv.ParseUint(string(rawLine), 10, 64)
+	line, _ := strconv.ParseUint(string(rawLine), 10, 64) //nolint:errcheck
 	return zapcore.Entry{
 		Level: level,
 		// note: time.Now() is basically correct, and simpler than parsing.

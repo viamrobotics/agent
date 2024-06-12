@@ -77,8 +77,8 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.shouldRun = true
 	}
 
-	stdio := agent.NewMatchingLogger(s.logger, false)
-	stderr := agent.NewMatchingLogger(s.logger, true)
+	stdio := agent.NewMatchingLogger(s.logger, false, false)
+	stderr := agent.NewMatchingLogger(s.logger, true, false)
 	//nolint:gosec
 	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], SubsysName), "-config", ConfigFilePath)
 	s.cmd.Dir = agent.ViamDirs["viam"]
