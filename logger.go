@@ -137,6 +137,13 @@ var levels = map[string]zapcore.Level{
 	"FATAL":  zapcore.FatalLevel,
 }
 
+var colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
+
+// stripAnsiColorCodes removes color codes from a string so we can use it internally.
+func stripAnsiColorCodes(raw []byte) []byte {
+	return colorCodeRegexp.ReplaceAll(raw, nil)
+}
+
 // entry converts a parsedLog to a zapcore.Entry which can be NetAppender'd.
 func (p parsedLog) entry() zapcore.Entry {
 	level, ok := levels[string(p.level)]
@@ -167,7 +174,7 @@ func parseLog(line []byte) *parsedLog {
 	tokens := bytes.SplitN(line, []byte{'\t'}, 5)
 	return &parsedLog{
 		date:       getIndexOrNil(tokens, 0),
-		level:      getIndexOrNil(tokens, 1),
+		level:      stripAnsiColorCodes(getIndexOrNil(tokens, 1)),
 		loggerName: getIndexOrNil(tokens, 2),
 		location:   getIndexOrNil(tokens, 3),
 		tail:       getIndexOrNil(tokens, 4),
