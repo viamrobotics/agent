@@ -91,6 +91,7 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 
 	// filter out already-timestamped logging from stdout
 	if dateRegex.Match(p) {
+		// TODO(RSDK-7895): these lines are sometimes multi-line.
 		if l.upload {
 			if parsed := parseLog(p); parsed.valid() && globalNetAppender != nil {
 				globalNetAppender.Write(parsed.entry(), nil) //nolint:errcheck,gosec
