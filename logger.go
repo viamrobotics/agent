@@ -11,6 +11,8 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
+var dateRegex = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
+
 type matcher struct {
 	regex   *regexp.Regexp
 	channel chan ([]string)
@@ -79,7 +81,6 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 	}
 
 	// filter out already-timestamped logging from stdout
-	dateRegex := regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
 	if dateRegex.Match(p) {
 		n, err := os.Stdout.Write(p)
 		if err != nil {
