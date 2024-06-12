@@ -1,17 +1,24 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/zap/zapcore"
 	"go.viam.com/rdk/logging"
 )
 
 var dateRegex = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
+
+// globalNetAppender receives matching logger writes if non-nil.
+var globalNetAppender *logging.NetAppender
 
 type matcher struct {
 	regex   *regexp.Regexp
@@ -82,6 +89,10 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 
 	// filter out already-timestamped logging from stdout
 	if dateRegex.Match(p) {
+		parsed := parseLog(p)
+		if parsed.valid() && globalNetAppender != nil {
+			globalNetAppender.Write(parsed.entry(), nil)
+		}
 		n, err := os.Stdout.Write(p)
 		if err != nil {
 			return n, err
@@ -96,4 +107,66 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 	}
 
 	return len(p), nil
+}
+
+// parsedLog is a lightweight log structure we parse from subsystem logs.
+// Another approach for capturing logs from subsystems is to pass around
+// LogEntry or opentelemetry structs.
+type parsedLog struct {
+	date       []byte
+	level      []byte
+	loggerName []byte
+	location   []byte
+	tail       []byte
+}
+
+func (p parsedLog) valid() bool {
+	return len(p.date) > 0 && len(p.level) > 0 && len(p.loggerName) > 0 && len(p.location) > 0 && len(p.tail) > 0
+}
+
+var levels = map[string]zapcore.Level{
+	"DEBUG":  zapcore.DebugLevel,
+	"INFO":   zapcore.InfoLevel,
+	"WARN":   zapcore.WarnLevel,
+	"ERROR":  zapcore.ErrorLevel,
+	"DPANIC": zapcore.DPanicLevel,
+	"PANIC":  zapcore.PanicLevel,
+	"FATAL":  zapcore.FatalLevel,
+}
+
+// entry converts a parsedLog to a zapcore.Entry which can be NetAppender'd.
+func (p parsedLog) entry() zapcore.Entry {
+	level, ok := levels[string(p.level)]
+	if !ok {
+		level = zapcore.DebugLevel
+	}
+	file, rawLine, defined := bytes.Cut(p.location, []byte{':'})
+	line, _ := strconv.ParseUint(string(rawLine), 10, 64)
+	return zapcore.Entry{
+		Level: level,
+		// note: time.Now() is basically correct, and simpler than parsing.
+		Time:       time.Now().UTC(),
+		LoggerName: string(p.loggerName),
+		Message:    string(p.tail),
+		Caller:     zapcore.EntryCaller{Defined: defined, File: string(file), Line: int(line)},
+	}
+}
+
+// getIndexOrNil returns the element at `index` of `arr`, or nil if out of range.
+func getIndexOrNil[T any](arr [][]T, index int) []T {
+	if index < len(arr) {
+		return arr[index]
+	}
+	return nil
+}
+
+func parseLog(line []byte) *parsedLog {
+	tokens := bytes.SplitN(line, []byte{'\t'}, 5)
+	return &parsedLog{
+		date:       getIndexOrNil(tokens, 0),
+		level:      getIndexOrNil(tokens, 1),
+		loggerName: getIndexOrNil(tokens, 2),
+		location:   getIndexOrNil(tokens, 3),
+		tail:       getIndexOrNil(tokens, 4),
+	}
 }
