@@ -103,10 +103,8 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 	// filter out already-timestamped logging from stdout
 	if dateRegex.Match(p) {
 		// TODO(RSDK-7895): these lines are sometimes multi-line.
-		if l.upload {
-			if parsed := parseLog(p); parsed.valid() && globalNetAppender != nil {
-				globalNetAppender.Write(parsed.entry(), nil) //nolint:errcheck,gosec
-			}
+		if l.upload && globalNetAppender != nil {
+			globalNetAppender.Write(parseLog(p).entry(), nil) //nolint:errcheck,gosec
 		}
 		n, err := os.Stdout.Write(p)
 		if err != nil {
@@ -172,11 +170,22 @@ func getIndexOrNil[T any](arr [][]T, index int) []T {
 
 func parseLog(line []byte) *parsedLog {
 	tokens := bytes.SplitN(line, []byte{'\t'}, 5)
-	return &parsedLog{
+	parsed := &parsedLog{
 		date:       getIndexOrNil(tokens, 0),
 		level:      stripAnsiColorCodes(getIndexOrNil(tokens, 1)),
 		loggerName: getIndexOrNil(tokens, 2),
 		location:   getIndexOrNil(tokens, 3),
 		tail:       getIndexOrNil(tokens, 4),
 	}
+	if !parsed.valid() {
+		// in the invalid parse case, we produce a fallback message with the entire line.
+		parsed = &parsedLog{
+			date:       []byte{' '},
+			level:      []byte("WARN"),
+			loggerName: []byte("viam-agent.logparse-fail"),
+			location:   []byte{' '},
+			tail:       line,
+		}
+	}
+	return parsed
 }
