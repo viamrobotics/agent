@@ -148,7 +148,7 @@ func stripAnsiColorCodes(raw []byte) []byte {
 func (p parsedLog) entry() zapcore.Entry {
 	level, ok := levels[string(p.level)]
 	if !ok {
-		level = zapcore.DebugLevel
+		level = zapcore.WarnLevel
 	}
 	file, rawLine, defined := bytes.Cut(p.location, []byte{':'})
 	line, _ := strconv.ParseUint(string(rawLine), 10, 64) //nolint:errcheck
