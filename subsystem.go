@@ -377,11 +377,11 @@ func (s *AgentSubsystem) tryInner(ctx context.Context, cfg *pb.DeviceSubsystemCo
 // InternalSubsystem is shared start/stop/update code between "internal" (not viam-server) subsystems.
 type InternalSubsystem struct {
 	// only set during New
-	name    string
-	cmdArgs []string
-	logger  logging.Logger
-	cfgPath string
-	upload  bool
+	name      string
+	cmdArgs   []string
+	logger    logging.Logger
+	cfgPath   string
+	uploadAll bool
 
 	// protected by mutex
 	mu        sync.Mutex
@@ -395,7 +395,7 @@ type InternalSubsystem struct {
 	startStopMu sync.Mutex
 }
 
-func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger, upload bool) (*InternalSubsystem, error) {
+func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger, uploadAll bool) (*InternalSubsystem, error) {
 	if name == "" {
 		return nil, errors.New("name cannot be empty")
 	}
@@ -406,11 +406,11 @@ func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger
 	cfgPath := path.Join(ViamDirs["etc"], name+".json")
 
 	is := &InternalSubsystem{
-		name:    name,
-		cmdArgs: append([]string{"--config", cfgPath}, extraArgs...),
-		cfgPath: cfgPath,
-		logger:  logger,
-		upload:  upload,
+		name:      name,
+		cmdArgs:   append([]string{"--config", cfgPath}, extraArgs...),
+		cfgPath:   cfgPath,
+		logger:    logger,
+		uploadAll: uploadAll,
 	}
 	return is, nil
 }
@@ -432,8 +432,8 @@ func (is *InternalSubsystem) Start(ctx context.Context) error {
 		is.shouldRun = true
 	}
 
-	stdio := NewMatchingLogger(is.logger, false, is.upload)
-	stderr := NewMatchingLogger(is.logger, true, is.upload)
+	stdio := NewMatchingLogger(is.logger, false, is.uploadAll)
+	stderr := NewMatchingLogger(is.logger, true, is.uploadAll)
 
 	//nolint:gosec
 	is.cmd = exec.Command(path.Join(ViamDirs["bin"], is.name), is.cmdArgs...)

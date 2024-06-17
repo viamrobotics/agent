@@ -15,8 +15,10 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-var dateRegex = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
-var colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
+var (
+	dateRegex       = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
+	colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
+)
 
 var levels = map[string]zapcore.Level{
 	"DEBUG":  zapcore.DebugLevel,
@@ -38,8 +40,8 @@ type matcher struct {
 }
 
 // NewMatchingLogger returns a MatchingLogger.
-func NewMatchingLogger(logger logging.Logger, isError, upload bool) *MatchingLogger {
-	return &MatchingLogger{logger: logger, defaultError: isError, upload: upload}
+func NewMatchingLogger(logger logging.Logger, isError, uploadAll bool) *MatchingLogger {
+	return &MatchingLogger{logger: logger, defaultError: isError, uploadAll: uploadAll}
 }
 
 // MatchingLogger provides a logger that also allows sending regex matched lines to a channel.
@@ -48,8 +50,8 @@ type MatchingLogger struct {
 	logger       logging.Logger
 	matchers     map[string]matcher
 	defaultError bool
-	// if upload is true, copy dated lines to globalNetAppender.
-	upload bool
+	// if uploadAll is false, only send unstructured log lines to globalNetAppender.
+	uploadAll bool
 }
 
 // AddMatcher adds a named regex to filter from results and return to a channel, optionally masking it from normal logging.
@@ -101,11 +103,8 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 	}
 
 	// filter out already-timestamped logging from stdout
-	if dateRegex.Match(p) {
-		// TODO(RSDK-7895): these lines are sometimes multi-line.
-		if l.upload && globalNetAppender != nil {
-			globalNetAppender.Write(parseLog(p).entry(), nil) //nolint:errcheck,gosec
-		}
+	dateMatched := dateRegex.Match(p)
+	if dateMatched {
 		n, err := os.Stdout.Write(p)
 		if err != nil {
 			return n, err
@@ -117,6 +116,11 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		} else {
 			l.logger.Warn(fmt.Sprintf("unstructured output:\n\t%s", lines))
 		}
+	}
+
+	if globalNetAppender != nil && (l.uploadAll || !dateMatched) {
+		// TODO(RSDK-7895): these lines are sometimes multi-line.
+		globalNetAppender.Write(parseLog(p).entry(), nil) //nolint:errcheck,gosec
 	}
 
 	return len(p), nil
@@ -133,6 +137,7 @@ type parsedLog struct {
 	tail       []byte
 }
 
+// this returns false if any of the fields is empty.
 func (p parsedLog) valid() bool {
 	return len(p.date) > 0 && len(p.level) > 0 && len(p.loggerName) > 0 && len(p.location) > 0 && len(p.tail) > 0
 }
