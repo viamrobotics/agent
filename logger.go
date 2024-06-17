@@ -16,6 +16,17 @@ import (
 )
 
 var dateRegex = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
+var colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
+
+var levels = map[string]zapcore.Level{
+	"DEBUG":  zapcore.DebugLevel,
+	"INFO":   zapcore.InfoLevel,
+	"WARN":   zapcore.WarnLevel,
+	"ERROR":  zapcore.ErrorLevel,
+	"DPANIC": zapcore.DPanicLevel,
+	"PANIC":  zapcore.PanicLevel,
+	"FATAL":  zapcore.FatalLevel,
+}
 
 // globalNetAppender receives matching logger writes if non-nil.
 var globalNetAppender *logging.NetAppender
@@ -127,18 +138,6 @@ type parsedLog struct {
 func (p parsedLog) valid() bool {
 	return len(p.date) > 0 && len(p.level) > 0 && len(p.loggerName) > 0 && len(p.location) > 0 && len(p.tail) > 0
 }
-
-var levels = map[string]zapcore.Level{
-	"DEBUG":  zapcore.DebugLevel,
-	"INFO":   zapcore.InfoLevel,
-	"WARN":   zapcore.WarnLevel,
-	"ERROR":  zapcore.ErrorLevel,
-	"DPANIC": zapcore.DPanicLevel,
-	"PANIC":  zapcore.PanicLevel,
-	"FATAL":  zapcore.FatalLevel,
-}
-
-var colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
 
 // stripAnsiColorCodes removes color codes from a string so we can use it internally.
 func stripAnsiColorCodes(raw []byte) []byte {
