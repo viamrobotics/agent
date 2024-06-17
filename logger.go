@@ -120,7 +120,10 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 
 	if globalNetAppender != nil && (l.uploadAll || !dateMatched) {
 		// TODO(RSDK-7895): these lines are sometimes multi-line.
-		globalNetAppender.Write(parseLog(p).entry(), nil) //nolint:errcheck,gosec
+		err := globalNetAppender.Write(parseLog(p).entry(), nil)
+		if err != nil {
+			l.logger.Error("error writing to NetAppender: %s", err)
+		}
 	}
 
 	return len(p), nil
