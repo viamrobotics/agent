@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,6 +30,7 @@ var levels = map[string]zapcore.Level{
 }
 
 // globalNetAppender receives matching logger writes if non-nil.
+// TODO(APP-5330): remove this once we solve netappender delayed startup.
 var globalNetAppender *logging.NetAppender
 
 type matcher struct {
@@ -99,33 +99,41 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 	}
 
 	if mask {
+		// If the capture line matches any matcher and m.mask=true,
+		// don't republish it below.
 		return len(p), nil
 	}
 
-	// filter out already-timestamped logging from stdout
+	// TODO(RSDK-7895): the lines from subprocess stdout are sometimes multi-line.
 	dateMatched := dateRegex.Match(p)
-	if dateMatched {
-		n, err := os.Stdout.Write(p)
-		if err != nil {
-			return n, err
-		}
-	} else {
+	if !dateMatched {
+		// this case is the 'unstructured error' case; we were unable to parse a date.
 		lines := strings.ReplaceAll(strings.TrimSpace(string(p)), "\n", "\n\t")
+		entry := logging.LogEntry{Entry: zapcore.Entry{
+			Level:      zapcore.Level(logging.WARN),
+			Time:       time.Now().UTC(),
+			LoggerName: l.logger.Desugar().Name(),
+			Message:    fmt.Sprintf("unstructured output:\n\t%s", lines),
+			Caller:     zapcore.EntryCaller{Defined: false},
+		}}
 		if l.defaultError {
-			l.logger.Error(fmt.Sprintf("unstructured error output:\n\t%s", lines))
-		} else {
-			l.logger.Warn(fmt.Sprintf("unstructured output:\n\t%s", lines))
+			entry.Level = zapcore.Level(logging.ERROR)
 		}
+		// TODO(APP-5330): the l.logger.Write + globalNetAppender.Write here is because subloggers don't get netappenders
+		// that are added after the fact. Once this is fixed, revert to old approach.
+		l.logger.Write(&entry)
+		globalNetAppender.Write(entry.Entry, nil)
+	} else if l.uploadAll {
+		// in this case, date matching succeeded and we think this is a parseable log message.
+		// we check uploadAll because some subprocesses have their own netlogger which will
+		// upload structured logs. (But won't upload unmatched logs).
+		entry := parseLog(p).entry()
+		l.logger.Write(&logging.LogEntry{Entry: entry})
+		globalNetAppender.Write(entry, nil)
 	}
-
-	if globalNetAppender != nil && (l.uploadAll || !dateMatched) {
-		// TODO(RSDK-7895): these lines are sometimes multi-line.
-		err := globalNetAppender.Write(parseLog(p).entry(), nil)
-		if err != nil {
-			l.logger.Error("error writing to NetAppender: %s", err)
-		}
-	}
-
+	// note: this return isn't quite right; we don't know how many bytes we wrote, it can be greater
+	// than len(p) in some cases, and we don't know if the write succeeded (to stderr or network).
+	// Basically we are telling the caller not to retry part of the line.
 	return len(p), nil
 }
 
