@@ -122,14 +122,20 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		// TODO(APP-5330): the l.logger.Write + globalNetAppender.Write here is because subloggers don't get netappenders
 		// that are added after the fact. Once this is fixed, revert to old approach.
 		l.logger.Write(&entry)
-		globalNetAppender.Write(entry.Entry, nil)
+		err := globalNetAppender.Write(entry.Entry, nil)
+		if err != nil {
+			fmt.Printf("error writing to NetAppender %s", err) //nolint:forbidigo
+		}
 	} else if l.uploadAll {
 		// in this case, date matching succeeded and we think this is a parseable log message.
 		// we check uploadAll because some subprocesses have their own netlogger which will
 		// upload structured logs. (But won't upload unmatched logs).
 		entry := parseLog(p).entry()
 		l.logger.Write(&logging.LogEntry{Entry: entry})
-		globalNetAppender.Write(entry, nil)
+		err := globalNetAppender.Write(entry, nil)
+		if err != nil {
+			fmt.Printf("error writing to NetAppender %s", err) //nolint:forbidigo
+		}
 	}
 	// note: this return isn't quite right; we don't know how many bytes we wrote, it can be greater
 	// than len(p) in some cases, and we don't know if the write succeeded (to stderr or network).
