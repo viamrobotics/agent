@@ -269,7 +269,7 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
-	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger.Sublogger(SubsysName)})
+	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger})
 }
 
 func setFastStart(cfg *pb.DeviceSubsystemConfig) {
