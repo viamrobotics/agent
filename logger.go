@@ -47,7 +47,7 @@ type MatchingLogger struct {
 	logger       logging.Logger
 	matchers     map[string]matcher
 	defaultError bool
-	// if uploadAll is false, only send unstructured log lines to globalNetAppender.
+	// if uploadAll is false, only send unstructured log lines to the logger, and just print structured ones.
 	uploadAll bool
 }
 

@@ -102,6 +102,7 @@ func (m *Manager) attachNetAppender() error {
 		return errors.New("NetAppender requires non-null conn")
 	}
 	if m.netAppender != nil {
+		// TODO(RSDK-7936): handle reattach.
 		return errors.New("Manager already has non-nil netAppender")
 	}
 	if m.partID == "" {
@@ -259,7 +260,10 @@ func (m *Manager) CloseAll() {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
-	m.netAppender.Close()
+	if m.netAppender != nil {
+		m.netAppender.Close()
+		m.netAppender = nil
+	}
 
 	if m.conn != nil {
 		err := m.conn.Close()
