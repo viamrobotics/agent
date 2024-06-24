@@ -18,8 +18,8 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 )
 
 const (
@@ -56,7 +56,7 @@ type AgentSubsystem struct {
 	disable   bool
 
 	name   string
-	logger *zap.SugaredLogger
+	logger logging.Logger
 	inner  BasicSubsystem
 }
 
@@ -164,7 +164,7 @@ func (s *AgentSubsystem) HealthCheck(ctx context.Context) error {
 func NewAgentSubsystem(
 	ctx context.Context,
 	name string,
-	logger *zap.SugaredLogger,
+	logger logging.Logger,
 	subsys BasicSubsystem,
 ) (*AgentSubsystem, error) {
 	sub := &AgentSubsystem{name: name, logger: logger, inner: subsys}
@@ -377,10 +377,11 @@ func (s *AgentSubsystem) tryInner(ctx context.Context, cfg *pb.DeviceSubsystemCo
 // InternalSubsystem is shared start/stop/update code between "internal" (not viam-server) subsystems.
 type InternalSubsystem struct {
 	// only set during New
-	name    string
-	cmdArgs []string
-	logger  *zap.SugaredLogger
-	cfgPath string
+	name      string
+	cmdArgs   []string
+	logger    logging.Logger
+	cfgPath   string
+	uploadAll bool
 
 	// protected by mutex
 	mu        sync.Mutex
@@ -394,7 +395,7 @@ type InternalSubsystem struct {
 	startStopMu sync.Mutex
 }
 
-func NewInternalSubsystem(name string, extraArgs []string, logger *zap.SugaredLogger) (*InternalSubsystem, error) {
+func NewInternalSubsystem(name string, extraArgs []string, logger logging.Logger, uploadAll bool) (*InternalSubsystem, error) {
 	if name == "" {
 		return nil, errors.New("name cannot be empty")
 	}
@@ -405,10 +406,11 @@ func NewInternalSubsystem(name string, extraArgs []string, logger *zap.SugaredLo
 	cfgPath := path.Join(ViamDirs["etc"], name+".json")
 
 	is := &InternalSubsystem{
-		name:    name,
-		cmdArgs: append([]string{"--config", cfgPath}, extraArgs...),
-		cfgPath: cfgPath,
-		logger:  logger,
+		name:      name,
+		cmdArgs:   append([]string{"--config", cfgPath}, extraArgs...),
+		cfgPath:   cfgPath,
+		logger:    logger,
+		uploadAll: uploadAll,
 	}
 	return is, nil
 }
@@ -430,8 +432,8 @@ func (is *InternalSubsystem) Start(ctx context.Context) error {
 		is.shouldRun = true
 	}
 
-	stdio := NewMatchingLogger(is.logger, false)
-	stderr := NewMatchingLogger(is.logger, true)
+	stdio := NewMatchingLogger(is.logger, false, is.uploadAll)
+	stderr := NewMatchingLogger(is.logger, true, is.uploadAll)
 
 	//nolint:gosec
 	is.cmd = exec.Command(path.Join(ViamDirs["bin"], is.name), is.cmdArgs...)

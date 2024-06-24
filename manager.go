@@ -17,8 +17,8 @@ import (
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
 )
 
@@ -43,14 +43,15 @@ type Manager struct {
 	cloudAddr   string
 	cloudSecret string
 
-	logger *zap.SugaredLogger
+	logger      logging.Logger
+	netAppender *logging.NetAppender
 
 	subsystemsMu     sync.Mutex
 	loadedSubsystems map[string]subsystems.Subsystem
 }
 
 // NewManager returns a new Manager.
-func NewManager(ctx context.Context, logger *zap.SugaredLogger) (*Manager, error) {
+func NewManager(ctx context.Context, logger logging.Logger) (*Manager, error) {
 	manager := &Manager{
 		logger:           logger,
 		loadedSubsystems: make(map[string]subsystems.Subsystem),
@@ -92,6 +93,33 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	m.partID = cloud["id"]
 	m.cloudSecret = cloud["secret"]
 
+	return nil
+}
+
+// create and attach a NetAppender.
+func (m *Manager) attachNetAppender() error {
+	if m.conn == nil {
+		return errors.New("NetAppender requires non-null conn")
+	}
+	if m.netAppender != nil {
+		return errors.New("Manager already has non-nil netAppender")
+	}
+	if m.partID == "" {
+		return errors.New("can't create NetAppender without part ID")
+	}
+	netAppender, err := logging.NewNetAppender(
+		&logging.CloudConfig{
+			AppAddress: m.cloudAddr,
+			ID:         m.partID,
+			Secret:     m.cloudSecret,
+		},
+		m.conn,
+	)
+	if err != nil {
+		return err
+	}
+	m.netAppender = netAppender
+	m.logger.AddAppender(netAppender)
 	return nil
 }
 
@@ -231,6 +259,11 @@ func (m *Manager) CloseAll() {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
+	if m.netAppender != nil {
+		m.netAppender.Close()
+		m.netAppender = nil
+	}
+
 	if m.conn != nil {
 		err := m.conn.Close()
 		if err != nil {
@@ -346,6 +379,7 @@ func (m *Manager) saveCachedConfig(cfg map[string]*pb.DeviceSubsystemConfig) err
 }
 
 // dial establishes a connection to the cloud for grpc communication.
+// If the dial succeeds, a NetAppender will be attached to m.logger.
 func (m *Manager) dial(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -376,12 +410,17 @@ func (m *Manager) dial(ctx context.Context) error {
 		dialOpts = append(dialOpts, rpc.WithInsecure())
 	}
 
-	conn, err := rpc.DialDirectGRPC(ctx, u.Host, m.logger, dialOpts...)
+	conn, err := rpc.DialDirectGRPC(ctx, u.Host, m.logger.AsZap(), dialOpts...)
 	if err != nil {
 		return err
 	}
 	m.conn = conn
 	m.client = pb.NewAgentDeviceServiceClient(m.conn)
+
+	// TODO(RSDK-7888): ideally we would create the NetAppender ASAP (so logs are captured) and only *connect* it here.
+	if err := m.attachNetAppender(); err != nil {
+		m.logger.Errorw("error attaching NetAppender", "err", err)
+	}
 	return nil
 }
 

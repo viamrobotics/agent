@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	"github.com/viamrobotics/agent/subsystems"
-	"go.uber.org/zap"
 	pb "go.viam.com/api/app/agent/v1"
+	"go.viam.com/rdk/logging"
 )
 
 var (
@@ -16,7 +16,7 @@ var (
 	configs  = map[string]*pb.DeviceSubsystemConfig{}
 )
 
-type CreatorFunc func(ctx context.Context, logger *zap.SugaredLogger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error)
+type CreatorFunc func(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error)
 
 func Register(name string, creator CreatorFunc, defaultCfg *pb.DeviceSubsystemConfig) {
 	mu.Lock()

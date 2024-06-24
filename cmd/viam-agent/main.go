@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edaniels/golog"
 	"github.com/jessevdk/go-flags"
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
@@ -24,6 +23,7 @@ import (
 	"github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
+	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
 )
 
@@ -31,7 +31,7 @@ var (
 	activeBackgroundWorkers sync.WaitGroup
 
 	// only changed/set at startup, so no mutex.
-	globalLogger = golog.NewDevelopmentLogger("viam-agent")
+	globalLogger = logging.NewLogger("viam-agent")
 )
 
 //nolint:gocognit
@@ -68,7 +68,7 @@ func main() {
 	}
 
 	if opts.Debug {
-		globalLogger = golog.NewDebugLogger("viam-agent")
+		globalLogger = logging.NewDebugLogger("viam-agent")
 		provisioning.Debug = true
 		syscfg.Debug = true
 	}
