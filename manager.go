@@ -102,7 +102,6 @@ func (m *Manager) attachNetAppender() error {
 		return errors.New("NetAppender requires non-null conn")
 	}
 	if m.netAppender != nil {
-		// TODO(RSDK-7936): handle reattach.
 		return errors.New("Manager already has non-nil netAppender")
 	}
 	if m.partID == "" {
