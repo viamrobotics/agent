@@ -103,7 +103,7 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 
 	// TODO(RSDK-7895): the lines from subprocess stdout are sometimes multi-line.
 	dateMatched := dateRegex.Match(p)
-	if !dateMatched {
+	if !dateMatched { //nolint:gocritic
 		// this case is the 'unstructured error' case; we were unable to parse a date.
 		lines := strings.ReplaceAll(strings.TrimSpace(string(p)), "\n", "\n\t")
 		entry := logging.LogEntry{Entry: zapcore.Entry{
