@@ -9,9 +9,9 @@ require (
 	github.com/ulikunitz/xz v0.5.12
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.311
-	go.viam.com/rdk v0.28.0-rc0.0.20240610174517-1d2dd98a7d2b
+	go.viam.com/rdk v0.29.1-0.20240621181334-bbc9158952e9
 	go.viam.com/test v1.1.1-0.20220913152726-5da9916c08a2
-	go.viam.com/utils v0.1.79
+	go.viam.com/utils v0.1.82
 	golang.org/x/sys v0.20.0
 )
 
@@ -45,20 +45,20 @@ require (
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
-	github.com/pion/ice/v2 v2.3.13 // indirect
+	github.com/pion/ice/v2 v2.3.24 // indirect
 	github.com/pion/interceptor v0.1.25 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.12 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.14 // indirect
 	github.com/pion/rtp v1.8.5 // indirect
-	github.com/pion/sctp v1.8.14 // indirect
+	github.com/pion/sctp v1.8.16 // indirect
 	github.com/pion/sdp/v3 v3.0.9 // indirect
 	github.com/pion/srtp/v2 v2.0.18 // indirect
 	github.com/pion/stun v0.6.1 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pion/turn/v2 v2.1.4 // indirect
-	github.com/pion/webrtc/v3 v3.2.36 // indirect
+	github.com/pion/webrtc/v3 v3.2.42 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rs/cors v1.10.1 // indirect
 	github.com/smartystreets/assertions v1.13.0 // indirect
