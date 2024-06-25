@@ -3,7 +3,7 @@ on:
     inputs:
       channel:
         type: choice
-        options: [latest, stable, rc]
+        options: [stable]
       upload:
         type: boolean
 
@@ -16,7 +16,7 @@ jobs:
     - name: lint
       run: make lint
     - name: build
-      run: PATH_VERSION=latest make all
+      run: PATH_VERSION=${{ inputs.channel }} make all
     - uses: google-github-actions/auth@v2
       if: inputs.upload
       with:
