@@ -1,0 +1,17 @@
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+    - name: lint
+      run: make lint
+    - name: build
+      run: PATH_VERSION=latest make all
+    - name: upload
+      if: false
+      run: echo todo upload
