@@ -1,6 +1,11 @@
 on:
-  push:
   workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        options: [latest, stable, rc]
+      upload:
+        type: boolean
 
 jobs:
   build:
@@ -12,6 +17,15 @@ jobs:
       run: make lint
     - name: build
       run: PATH_VERSION=latest make all
-    - name: upload
-      if: false
-      run: echo todo upload
+    - uses: google-github-actions/auth@v2
+      if: inputs.upload
+      with:
+        credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+    - name: Upload Files (PR)
+      if: inputs.upload
+      uses: google-github-actions/upload-cloud-storage@v2
+      with:
+        path: bin
+        destination: packages.viam.com/apps/viam-agent/
+        glob: 'viam-agent-*'
+        parent: false
