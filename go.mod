@@ -60,7 +60,7 @@ require (
 	github.com/pion/turn/v2 v2.1.4 // indirect
 	github.com/pion/webrtc/v3 v3.2.42 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rs/cors v1.10.1 // indirect
+	github.com/rs/cors v1.11.0 // indirect
 	github.com/smartystreets/assertions v1.13.0 // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
