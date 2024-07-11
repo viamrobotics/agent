@@ -397,7 +397,9 @@ func (m *Manager) dial(ctx context.Context) error {
 	m.conn = conn
 	m.client = pb.NewAgentDeviceServiceClient(m.conn)
 
-	m.NetAppender.SetConn(conn, true)
+	if m.NetAppender != nil {
+		m.NetAppender.SetConn(conn, true)
+	}
 	return nil
 }
 
