@@ -42,7 +42,7 @@ type Manager struct {
 	cloudConfig *logging.CloudConfig
 
 	logger      logging.Logger
-	NetAppender *logging.NetAppender
+	netAppender *logging.NetAppender
 
 	subsystemsMu     sync.Mutex
 	loadedSubsystems map[string]subsystems.Subsystem
@@ -96,11 +96,17 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	return nil
 }
 
+// CreateNetAppender creates or replaces m.netAppender. Must be called after config is loaded.
 func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 	if m.cloudConfig == nil {
 		return nil, errors.New("can't create NetAppender before config has been loaded")
 	}
-	return logging.NewNetAppender(m.cloudConfig, nil, true)
+	if m.netAppender != nil {
+		m.logger.Warn("m.netAppender already exists, replacing")
+	}
+	var err error
+	m.netAppender, err = logging.NewNetAppender(m.cloudConfig, nil, true)
+	return m.netAppender, err
 }
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
@@ -239,9 +245,9 @@ func (m *Manager) CloseAll() {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
-	if m.NetAppender != nil {
-		m.NetAppender.Close()
-		m.NetAppender = nil
+	if m.netAppender != nil {
+		m.netAppender.Close()
+		m.netAppender = nil
 	}
 
 	if m.conn != nil {
@@ -400,8 +406,10 @@ func (m *Manager) dial(ctx context.Context) error {
 	m.conn = conn
 	m.client = pb.NewAgentDeviceServiceClient(m.conn)
 
-	if m.NetAppender != nil {
-		m.NetAppender.SetConn(conn, true)
+	if m.netAppender != nil {
+		m.netAppender.SetConn(conn, true)
+	} else {
+		m.logger.Warnf("unintialized NetAppender in dial() -- agent logs won't be uploaded")
 	}
 	return nil
 }
