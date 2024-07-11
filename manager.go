@@ -364,6 +364,9 @@ func (m *Manager) dial(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if m.cloudConfig == nil {
+		return errors.New("cannot dial() until successful LoadConfig")
+	}
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 	if m.client != nil {
@@ -405,6 +408,9 @@ func (m *Manager) dial(ctx context.Context) error {
 
 // GetConfig retrieves the configuration from the cloud, or returns a cached version if unable to communicate.
 func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
+	if m.cloudConfig == nil {
+		return nil, 0, errors.New("can't GetConfig until successful LoadConfig")
+	}
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, defaultNetworkTimeout)
 	defer cancelFunc()
 
