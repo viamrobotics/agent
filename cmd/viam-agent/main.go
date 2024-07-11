@@ -163,6 +163,12 @@ func main() {
 			}
 		}
 	}
+	netAppender, err := manager.CreateNetAppender()
+	if err != nil {
+		globalLogger.Errorf("error creating NetAppender: %s", err)
+	} else {
+		globalLogger.AddAppender(netAppender)
+	}
 
 	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
 	var fastSuccess bool

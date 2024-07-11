@@ -39,12 +39,10 @@ type Manager struct {
 	connMu      sync.RWMutex
 	conn        rpc.ClientConn
 	client      pb.AgentDeviceServiceClient
-	partID      string
-	cloudAddr   string
-	cloudSecret string
+	cloudConfig *logging.CloudConfig
 
 	logger      logging.Logger
-	netAppender *logging.NetAppender
+	NetAppender *logging.NetAppender
 
 	subsystemsMu     sync.Mutex
 	loadedSubsystems map[string]subsystems.Subsystem
@@ -89,38 +87,20 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 		}
 	}
 
-	m.cloudAddr = cloud["app_address"]
-	m.partID = cloud["id"]
-	m.cloudSecret = cloud["secret"]
+	m.cloudConfig = &logging.CloudConfig{
+		AppAddress: cloud["app_address"],
+		ID:         cloud["id"],
+		Secret:     cloud["secret"],
+	}
 
 	return nil
 }
 
-// create and attach a NetAppender.
-func (m *Manager) attachNetAppender() error {
-	if m.conn == nil {
-		return errors.New("NetAppender requires non-null conn")
+func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
+	if m.cloudConfig == nil {
+		return nil, errors.New("can't create NetAppender before config has been loaded")
 	}
-	if m.netAppender != nil {
-		return errors.New("Manager already has non-nil netAppender")
-	}
-	if m.partID == "" {
-		return errors.New("can't create NetAppender without part ID")
-	}
-	netAppender, err := logging.NewNetAppender(
-		&logging.CloudConfig{
-			AppAddress: m.cloudAddr,
-			ID:         m.partID,
-			Secret:     m.cloudSecret,
-		},
-		m.conn,
-	)
-	if err != nil {
-		return err
-	}
-	m.netAppender = netAppender
-	m.logger.AddAppender(netAppender)
-	return nil
+	return logging.NewNetAppender(m.cloudConfig, nil, true)
 }
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
@@ -259,9 +239,9 @@ func (m *Manager) CloseAll() {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
-	if m.netAppender != nil {
-		m.netAppender.Close()
-		m.netAppender = nil
+	if m.NetAppender != nil {
+		m.NetAppender.Close()
+		m.NetAppender = nil
 	}
 
 	if m.conn != nil {
@@ -390,18 +370,18 @@ func (m *Manager) dial(ctx context.Context) error {
 		return nil
 	}
 
-	u, err := url.Parse(m.cloudAddr)
+	u, err := url.Parse(m.cloudConfig.AppAddress)
 	if err != nil {
 		return err
 	}
 
 	dialOpts := make([]rpc.DialOption, 0, 2)
 	// Only add credentials when secret is set.
-	if m.cloudSecret != "" {
-		dialOpts = append(dialOpts, rpc.WithEntityCredentials(m.partID,
+	if m.cloudConfig.Secret != "" {
+		dialOpts = append(dialOpts, rpc.WithEntityCredentials(m.cloudConfig.ID,
 			rpc.Credentials{
 				Type:    "robot-secret",
-				Payload: m.cloudSecret,
+				Payload: m.cloudConfig.Secret,
 			},
 		))
 	}
@@ -417,10 +397,7 @@ func (m *Manager) dial(ctx context.Context) error {
 	m.conn = conn
 	m.client = pb.NewAgentDeviceServiceClient(m.conn)
 
-	// TODO(RSDK-7888): ideally we would create the NetAppender ASAP (so logs are captured) and only *connect* it here.
-	if err := m.attachNetAppender(); err != nil {
-		m.logger.Errorw("error attaching NetAppender", "err", err)
-	}
+	m.NetAppender.SetConn(conn, true)
 	return nil
 }
 
@@ -436,7 +413,7 @@ func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystem
 	}
 
 	req := &pb.DeviceAgentConfigRequest{
-		Id:                m.partID,
+		Id:                m.cloudConfig.ID,
 		HostInfo:          m.getHostInfo(),
 		SubsystemVersions: m.getSubsystemVersions(),
 	}
