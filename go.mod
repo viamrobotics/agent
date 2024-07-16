@@ -11,7 +11,7 @@ require (
 	go.viam.com/api v0.1.317
 	go.viam.com/rdk v0.32.1
 	go.viam.com/test v1.1.1-0.20220913152726-5da9916c08a2
-	go.viam.com/utils v0.1.83
+	go.viam.com/utils v0.1.85
 	golang.org/x/sys v0.20.0
 )
 
@@ -45,7 +45,7 @@ require (
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
-	github.com/pion/ice/v2 v2.3.24 // indirect
+	github.com/pion/ice/v2 v2.3.27 // indirect
 	github.com/pion/interceptor v0.1.25 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.12 // indirect
@@ -58,12 +58,12 @@ require (
 	github.com/pion/stun v0.6.1 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pion/turn/v2 v2.1.4 // indirect
-	github.com/pion/webrtc/v3 v3.2.42 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rs/cors v1.11.0 // indirect
 	github.com/smartystreets/assertions v1.13.0 // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
+	github.com/viamrobotics/webrtc/v3 v3.99.2 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
