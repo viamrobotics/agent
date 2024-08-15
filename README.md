@@ -75,7 +75,7 @@ Note that only sections/settings you explicitly want to modify need to be includ
 ## FastStart Mode
 This bypasses the normal network/online wait and update checks during inital startup, and executes viam-server as quickly as possible. Useful if you have a device that often starts when offline or on a slow connection, and having the latest version immediately after start isn't required. Note that normal, periodic update checks will continue to run afterwards. This only affects initial startup sequencing.
 
-To use it, set `"fast_start": true` in the attributes for the viam-server subsystem. Alternately, set `VIAM_AGENT_FASTSTART=1` in your environment.
+To use it, set `"fast_start": true` in the attributes for the viam-server subsystem. Alternately, set `VIAM_AGENT_FAST_START=1` in your environment.
 
 ## Development
 
