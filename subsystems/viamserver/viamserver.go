@@ -28,7 +28,7 @@ func init() {
 }
 
 const (
-	startTimeout = time.Minute * 5
+	defaultStartTimeout = time.Minute * 5
 	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
 	stopTermTimeout = time.Minute * 2
 	stopKillTimeout = time.Second * 10
@@ -53,11 +53,30 @@ type viamServer struct {
 	exitChan    chan struct{}
 	checkURL    string
 	checkURLAlt string
+	config      pb.DeviceSubsystemConfig
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
 
 	logger logging.Logger
+}
+
+// try to parse duration string from s.config, otherwise use default.
+func (s *viamServer) startTimeout() time.Duration {
+	if s.config.Attributes != nil {
+		if raw, ok := s.config.Attributes.AsMap()["start_timeout"]; ok {
+			if str, ok := raw.(string); ok {
+				durt, err := time.ParseDuration(str)
+				if err == nil {
+					s.logger.Debugf("parsed start_timeout duration string %s", str)
+					return durt
+				} else {
+					s.logger.Warnf("couldn't parse start_timeout duration string %s", str)
+				}
+			}
+		}
+	}
+	return defaultStartTimeout
 }
 
 func (s *viamServer) Start(ctx context.Context) error {
@@ -135,7 +154,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(startTimeout):
+	case <-time.After(s.startTimeout()):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")
@@ -269,7 +288,7 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
-	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger})
+	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger, config: *updateConf})
 }
 
 func setFastStart(cfg *pb.DeviceSubsystemConfig) {
