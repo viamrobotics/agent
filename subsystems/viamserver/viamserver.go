@@ -53,7 +53,7 @@ type viamServer struct {
 	exitChan    chan struct{}
 	checkURL    string
 	checkURLAlt string
-	config      pb.DeviceSubsystemConfig
+	config      *pb.DeviceSubsystemConfig
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -63,8 +63,8 @@ type viamServer struct {
 
 // try to parse duration string from s.config, otherwise use default.
 func (s *viamServer) startTimeout() time.Duration {
-	if s.config.Attributes != nil {
-		if raw, ok := s.config.Attributes.AsMap()["start_timeout"]; ok {
+	if s.config != nil && s.config.GetAttributes() != nil {
+		if raw, ok := s.config.GetAttributes().AsMap()["start_timeout"]; ok {
 			if str, ok := raw.(string); ok {
 				durt, err := time.ParseDuration(str)
 				if err == nil {
@@ -288,7 +288,7 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
-	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger, config: *updateConf})
+	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger, config: updateConf})
 }
 
 func setFastStart(cfg *pb.DeviceSubsystemConfig) {
