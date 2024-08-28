@@ -21,6 +21,7 @@ import (
 	"github.com/viamrobotics/agent/subsystems/registry"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func init() {
@@ -44,6 +45,10 @@ var (
 	FastStart atomic.Bool
 )
 
+type viamServerConfig struct {
+	startTimeout time.Duration
+}
+
 type viamServer struct {
 	mu          sync.Mutex
 	cmd         *exec.Cmd
@@ -53,7 +58,7 @@ type viamServer struct {
 	exitChan    chan struct{}
 	checkURL    string
 	checkURLAlt string
-	config      *pb.DeviceSubsystemConfig
+	config      viamServerConfig
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -61,22 +66,37 @@ type viamServer struct {
 	logger logging.Logger
 }
 
-// try to parse duration string from s.config, otherwise use default.
-func (s *viamServer) startTimeout() time.Duration {
-	if s.config != nil && s.config.GetAttributes() != nil {
-		if raw, ok := s.config.GetAttributes().AsMap()["start_timeout"]; ok {
-			if str, ok := raw.(string); ok {
-				durt, err := time.ParseDuration(str)
-				if err == nil {
-					s.logger.Debugf("parsed start_timeout duration string %s", str)
-					return durt
-				} else {
-					s.logger.Warnf("couldn't parse start_timeout duration string %s", str)
-				}
-			}
-		}
+// helper to parse a duration, otherwise return a default.
+func durationFromProtoStruct(
+	logger logging.Logger, protoStruct *structpb.Struct, key string, defaultValue time.Duration,
+) time.Duration {
+	if protoStruct == nil {
+		return defaultValue
 	}
-	return defaultStartTimeout
+	asMap := protoStruct.AsMap()
+	raw, ok := asMap[key]
+	if !ok {
+		return defaultValue
+	}
+	str, ok := raw.(string)
+	if !ok {
+		return defaultValue
+	}
+	durt, err := time.ParseDuration(str)
+	if err != nil {
+		logger.Warnf("unparseable duration string at %s: %s, error %s", key, str, err)
+		return defaultValue
+	}
+	logger.Debugf("parsed duration %s from key %s", durt.String(), key)
+	return durt
+}
+
+func configFromProto(logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) viamServerConfig {
+	ret := viamServerConfig{}
+	if updateConf != nil {
+		ret.startTimeout = durationFromProtoStruct(logger, updateConf.GetAttributes(), "start_timeout", defaultStartTimeout)
+	}
+	return ret
 }
 
 func (s *viamServer) Start(ctx context.Context) error {
@@ -154,7 +174,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(s.startTimeout()):
+	case <-time.After(s.config.startTimeout):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")
@@ -288,7 +308,8 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
-	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger, config: updateConf})
+	config := configFromProto(logger, updateConf)
+	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger, config: config})
 }
 
 func setFastStart(cfg *pb.DeviceSubsystemConfig) {
