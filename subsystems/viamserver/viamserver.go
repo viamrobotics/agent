@@ -25,6 +25,7 @@ import (
 )
 
 func init() {
+	globalConfig.Store(&viamServerConfig{startTimeout: defaultStartTimeout})
 	registry.Register(SubsysName, NewSubsystem, DefaultConfig)
 }
 
@@ -47,7 +48,7 @@ var (
 
 	// Set if (cached or cloud) config has the "fast_start" attribute set on the viam-server subsystem.
 	FastStart    atomic.Bool
-	globalConfig = &viamServerConfig{startTimeout: defaultStartTimeout}
+	globalConfig atomic.Pointer[viamServerConfig]
 )
 
 type viamServer struct {
@@ -174,7 +175,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(globalConfig.startTimeout):
+	case <-time.After(globalConfig.Load().startTimeout):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")
@@ -302,14 +303,15 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 		s.logger.Info("awaiting user restart to run new viam-server version")
 		s.shouldRun = false
 	}
-	globalConfig = configFromProto(s.logger, cfg)
+	globalConfig.Store(configFromProto(s.logger, cfg))
 	// always return false on the needRestart flag, as we await the user to kill/restart viam-server directly
 	return false, nil
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
-	globalConfig = configFromProto(logger, updateConf)
+
+	globalConfig.Store(configFromProto(logger, updateConf))
 	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger})
 }
 
