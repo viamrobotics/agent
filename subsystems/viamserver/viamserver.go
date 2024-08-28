@@ -28,6 +28,10 @@ func init() {
 	registry.Register(SubsysName, NewSubsystem, DefaultConfig)
 }
 
+type viamServerConfig struct {
+	startTimeout time.Duration
+}
+
 const (
 	defaultStartTimeout = time.Minute * 5
 	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
@@ -42,12 +46,9 @@ var (
 	DefaultConfig  = &pb.DeviceSubsystemConfig{}
 
 	// Set if (cached or cloud) config has the "fast_start" attribute set on the viam-server subsystem.
-	FastStart atomic.Bool
+	FastStart    atomic.Bool
+	globalConfig = &viamServerConfig{startTimeout: defaultStartTimeout}
 )
-
-type viamServerConfig struct {
-	startTimeout time.Duration
-}
 
 type viamServer struct {
 	mu          sync.Mutex
@@ -58,7 +59,6 @@ type viamServer struct {
 	exitChan    chan struct{}
 	checkURL    string
 	checkURLAlt string
-	config      viamServerConfig
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -91,8 +91,8 @@ func durationFromProtoStruct(
 	return durt
 }
 
-func configFromProto(logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) viamServerConfig {
-	ret := viamServerConfig{}
+func configFromProto(logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) *viamServerConfig {
+	ret := &viamServerConfig{}
 	if updateConf != nil {
 		ret.startTimeout = durationFromProtoStruct(logger, updateConf.GetAttributes(), "start_timeout", defaultStartTimeout)
 	}
@@ -174,7 +174,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(s.config.startTimeout):
+	case <-time.After(globalConfig.startTimeout):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")
@@ -302,14 +302,15 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 		s.logger.Info("awaiting user restart to run new viam-server version")
 		s.shouldRun = false
 	}
+	globalConfig = configFromProto(s.logger, cfg)
 	// always return false on the needRestart flag, as we await the user to kill/restart viam-server directly
 	return false, nil
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
-	config := configFromProto(logger, updateConf)
-	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger, config: config})
+	globalConfig = configFromProto(logger, updateConf)
+	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger})
 }
 
 func setFastStart(cfg *pb.DeviceSubsystemConfig) {
