@@ -39,12 +39,13 @@ func main() {
 	ctx := setupExitSignalHandling()
 
 	var opts struct {
-		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
-		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"  short:"d"`
-		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"   short:"f"`
+		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config"   short:"c"`
+		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"    short:"d"`
+		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"     short:"f"`
 		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
 		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
 		Install bool   `description:"Install systemd service"               long:"install"`
+		DevMode bool   `description:"Allow non-root and non-service"        env:"VIAM_AGENT_DEVMODE"          long:"dev-mode"`
 	}
 
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
@@ -76,7 +77,7 @@ func main() {
 	// need to be root to go any further than this
 	curUser, err := user.Current()
 	exitIfError(err)
-	if curUser.Uid != "0" && os.Getenv("VIAM_AGENT_DEVMODE") == "" {
+	if curUser.Uid != "0" && !opts.DevMode {
 		//nolint:forbidigo
 		fmt.Printf("viam-agent must be run as root (uid 0), but current user is %s (uid %s)\n", curUser.Username, curUser.Uid)
 		return
@@ -87,7 +88,7 @@ func main() {
 		return
 	}
 
-	if os.Getenv("VIAM_AGENT_DEVMODE") == "" {
+	if !opts.DevMode {
 		// confirm that we're running from a proper install
 		if !strings.HasPrefix(os.Args[0], agent.ViamDirs["viam"]) {
 			//nolint:forbidigo
