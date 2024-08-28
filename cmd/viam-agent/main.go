@@ -39,9 +39,9 @@ func main() {
 	ctx := setupExitSignalHandling()
 
 	var opts struct {
-		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config" short:"c"`
-		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"  short:"d"`
-		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"   short:"f"`
+		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config"   short:"c"`
+		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"    short:"d"`
+		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"     short:"f"`
 		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
 		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
 		Install bool   `description:"Install systemd service"               long:"install"`
