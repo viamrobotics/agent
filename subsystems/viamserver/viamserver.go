@@ -21,14 +21,20 @@ import (
 	"github.com/viamrobotics/agent/subsystems/registry"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func init() {
+	globalConfig.Store(&viamServerConfig{startTimeout: defaultStartTimeout})
 	registry.Register(SubsysName, NewSubsystem, DefaultConfig)
 }
 
+type viamServerConfig struct {
+	startTimeout time.Duration
+}
+
 const (
-	startTimeout = time.Minute * 5
+	defaultStartTimeout = time.Minute * 5
 	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
 	stopTermTimeout = time.Minute * 2
 	stopKillTimeout = time.Second * 10
@@ -41,7 +47,8 @@ var (
 	DefaultConfig  = &pb.DeviceSubsystemConfig{}
 
 	// Set if (cached or cloud) config has the "fast_start" attribute set on the viam-server subsystem.
-	FastStart atomic.Bool
+	FastStart    atomic.Bool
+	globalConfig atomic.Pointer[viamServerConfig]
 )
 
 type viamServer struct {
@@ -58,6 +65,39 @@ type viamServer struct {
 	startStopMu sync.Mutex
 
 	logger logging.Logger
+}
+
+// helper to parse a duration, otherwise return a default.
+func durationFromProtoStruct(
+	logger logging.Logger, protoStruct *structpb.Struct, key string, defaultValue time.Duration,
+) time.Duration {
+	if protoStruct == nil {
+		return defaultValue
+	}
+	asMap := protoStruct.AsMap()
+	raw, ok := asMap[key]
+	if !ok {
+		return defaultValue
+	}
+	str, ok := raw.(string)
+	if !ok {
+		return defaultValue
+	}
+	durt, err := time.ParseDuration(str)
+	if err != nil {
+		logger.Warnf("unparseable duration string at %s: %s, error %s", key, str, err)
+		return defaultValue
+	}
+	logger.Debugf("parsed duration %s from key %s", durt.String(), key)
+	return durt
+}
+
+func configFromProto(logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) *viamServerConfig {
+	ret := &viamServerConfig{}
+	if updateConf != nil {
+		ret.startTimeout = durationFromProtoStruct(logger, updateConf.GetAttributes(), "start_timeout", defaultStartTimeout)
+	}
+	return ret
 }
 
 func (s *viamServer) Start(ctx context.Context) error {
@@ -135,7 +175,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(startTimeout):
+	case <-time.After(globalConfig.Load().startTimeout):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")
@@ -263,12 +303,15 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 		s.logger.Info("awaiting user restart to run new viam-server version")
 		s.shouldRun = false
 	}
+	globalConfig.Store(configFromProto(s.logger, cfg))
 	// always return false on the needRestart flag, as we await the user to kill/restart viam-server directly
 	return false, nil
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	setFastStart(updateConf)
+
+	globalConfig.Store(configFromProto(logger, updateConf))
 	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger})
 }
 

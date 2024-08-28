@@ -76,7 +76,7 @@ func main() {
 	// need to be root to go any further than this
 	curUser, err := user.Current()
 	exitIfError(err)
-	if curUser.Uid != "0" {
+	if curUser.Uid != "0" && os.Getenv("VIAM_AGENT_DEVMODE") == "" {
 		//nolint:forbidigo
 		fmt.Printf("viam-agent must be run as root (uid 0), but current user is %s (uid %s)\n", curUser.Username, curUser.Uid)
 		return
