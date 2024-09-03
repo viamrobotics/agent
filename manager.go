@@ -111,6 +111,7 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
 func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
+	defer m.handlePanic()
 	m.subsystemsMu.Lock()
 	defer m.subsystemsMu.Unlock()
 
@@ -146,6 +147,7 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 
 // SubsystemUpdates checks for updates to configured subsystems and restarts them as needed.
 func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.DeviceSubsystemConfig) {
+	defer m.handlePanic()
 	if ctx.Err() != nil {
 		return
 	}
@@ -178,6 +180,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 
 // CheckUpdates retrieves an updated config from the cloud, and then passes it to SubsystemUpdates().
 func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
+	defer m.handlePanic()
 	m.logger.Debug("Checking cloud for update")
 	cfg, interval, err := m.GetConfig(ctx)
 
@@ -197,12 +200,14 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 
 // SubsystemHealthChecks makes sure all subsystems are responding, and restarts them if not.
 func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
+	defer m.handlePanic()
 	if ctx.Err() != nil {
 		return
 	}
 	m.logger.Debug("Starting health checks for all subsystems")
 	m.subsystemsMu.Lock()
 	defer m.subsystemsMu.Unlock()
+
 	for subsystemName, sub := range m.loadedSubsystems {
 		if ctx.Err() != nil {
 			return
@@ -506,4 +511,13 @@ func (m *Manager) getSubsystemVersions() map[string]string {
 		vers[name] = sys.Version()
 	}
 	return vers
+}
+
+func (m *Manager) handlePanic() {
+	// if something panicked, log it and let things continue
+	r := recover()
+	if r != nil {
+		m.logger.Error("unknown panic encountered, will attempt to recover")
+		m.logger.Error(r)
+	}
 }

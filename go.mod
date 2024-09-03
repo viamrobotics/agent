@@ -8,6 +8,7 @@ require (
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/pkg/errors v0.9.1
+	github.com/sergeymakinen/go-systemdconf/v2 v2.0.2
 	github.com/ulikunitz/xz v0.5.12
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.322

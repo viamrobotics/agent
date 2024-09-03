@@ -84,22 +84,6 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	return true, nil
 }
 
-// GetVersion returns the version embedded at build time.
-func GetVersion() string {
-	if Version == "" {
-		return "custom"
-	}
-	return Version
-}
-
-// GetRevision returns the git revision embedded at build time.
-func GetRevision() string {
-	if GitRevision == "" {
-		return "unknown"
-	}
-	return GitRevision
-}
-
 func Install(logger logging.Logger) error {
 	// Check for systemd
 	cmd := exec.Command("systemctl", "--version")

@@ -20,7 +20,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/provisioning"
-	"github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"go.viam.com/rdk/logging"
@@ -64,14 +63,13 @@ func main() {
 
 	if opts.Version {
 		//nolint:forbidigo
-		fmt.Printf("Version: %s\nGit Revision: %s\n", viamagent.GetVersion(), viamagent.GetRevision())
+		fmt.Printf("Version: %s\nGit Revision: %s\n", agent.GetVersion(), agent.GetRevision())
 		return
 	}
 
 	if opts.Debug {
 		globalLogger = logging.NewDebugLogger("viam-agent")
 		provisioning.Debug = true
-		syscfg.Debug = true
 	}
 
 	// need to be root to go any further than this
