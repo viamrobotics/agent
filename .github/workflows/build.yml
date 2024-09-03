@@ -1,0 +1,31 @@
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        options: [stable]
+      upload:
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+    - name: lint
+      run: make lint
+    - name: build
+      run: PATH_VERSION=${{ inputs.channel }} make all
+    - uses: google-github-actions/auth@v2
+      if: inputs.upload
+      with:
+        credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+    - name: Upload Files (PR)
+      if: inputs.upload
+      uses: google-github-actions/upload-cloud-storage@v2
+      with:
+        path: bin
+        destination: packages.viam.com/apps/viam-agent/
+        glob: 'viam-agent-*'
+        parent: false
