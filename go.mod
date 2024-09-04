@@ -1,6 +1,6 @@
 module github.com/viamrobotics/agent
 
-go 1.21.4
+go 1.21.13
 
 require (
 	github.com/jessevdk/go-flags v1.5.0
