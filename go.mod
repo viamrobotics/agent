@@ -1,22 +1,20 @@
 module github.com/viamrobotics/agent
 
-go 1.21.13
-
-toolchain go1.22.7
+go 1.23.1
 
 require (
-	github.com/jessevdk/go-flags v1.5.0
+	github.com/jessevdk/go-flags v1.6.1
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/pkg/errors v0.9.1
 	github.com/sergeymakinen/go-systemdconf/v2 v2.0.2
 	github.com/ulikunitz/xz v0.5.12
 	go.uber.org/zap v1.27.0
-	go.viam.com/api v0.1.322
-	go.viam.com/rdk v0.33.1
+	go.viam.com/api v0.1.337
+	go.viam.com/rdk v0.40.0
 	go.viam.com/test v1.1.1-0.20220913152726-5da9916c08a2
 	go.viam.com/utils v0.1.102
 	golang.org/x/sys v0.25.0
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.34.2
 )
 
 require (
@@ -63,7 +61,7 @@ require (
 	github.com/pion/transport/v2 v2.2.10 // indirect
 	github.com/pion/turn/v2 v2.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rs/cors v1.11.0 // indirect
+	github.com/rs/cors v1.11.1 // indirect
 	github.com/smartystreets/assertions v1.13.0 // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
