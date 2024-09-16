@@ -39,6 +39,7 @@ func main() {
 
 	var opts struct {
 		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config"   short:"c"`
+		ProvisioningConfig string `default:"/etc/viam-provisioning.json"    description:"Path to provisioning (customization) config file" long:"provisioning" short:"p"`
 		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"    short:"d"`
 		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"     short:"f"`
 		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
@@ -69,7 +70,6 @@ func main() {
 
 	if opts.Debug {
 		globalLogger = logging.NewDebugLogger("viam-agent")
-		provisioning.Debug = true
 	}
 
 	// need to be root to go any further than this
@@ -110,10 +110,15 @@ func main() {
 		}
 	}()
 
+	// pass the provisioning path arg to the subsystem
+	absProvConfigPath, err := filepath.Abs(opts.ProvisioningConfig)
+	exitIfError(err)
+	provisioning.ProvisioningConfigFilePath = absProvConfigPath
+	globalLogger.Infof("provisioning config file path: %s", absProvConfigPath)
+
 	// tie the manager config to the viam-server config
 	absConfigPath, err := filepath.Abs(opts.Config)
 	exitIfError(err)
-
 	viamserver.ConfigFilePath = absConfigPath
 	provisioning.AppConfigFilePath = absConfigPath
 	globalLogger.Infof("config file path: %s", absConfigPath)

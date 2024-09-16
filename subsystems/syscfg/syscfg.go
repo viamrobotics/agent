@@ -67,7 +67,7 @@ func (s *syscfg) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (boo
 }
 
 func (s *syscfg) Version() string {
-	return agent.Version
+	return agent.GetVersion()
 }
 
 func (s *syscfg) Start(ctx context.Context) error {

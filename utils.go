@@ -332,3 +332,12 @@ func ConvertAttributes[T any](attributes *structpb.Struct) (*T, error) {
 
 	return newConfig, nil
 }
+
+func Sleep(ctx context.Context, timeout time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		return true
+	}
+}
