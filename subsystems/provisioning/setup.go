@@ -107,7 +107,7 @@ func (w *Provisioning) initDevices() error {
 			if err != nil {
 				return err
 			}
-			w.ethDevices[ifName] = ethDev
+			w.netState.SetEthDevice(ifName, ethDev)
 		case gnm.NmDeviceTypeWifi:
 			wifiDev, ok := device.(gnm.DeviceWireless)
 			if !ok {
@@ -117,7 +117,7 @@ func (w *Provisioning) initDevices() error {
 			if err != nil {
 				return err
 			}
-			w.wifiDevices[ifName] = wifiDev
+			w.netState.SetWifiDevice(ifName, wifiDev)
 
 			if w.hotspotInterface == "" || ifName == w.cfg.HotspotInterface {
 				w.hotspotInterface = ifName

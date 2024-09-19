@@ -13,7 +13,7 @@ import (
 )
 
 func (w *Provisioning) startGRPC() error {
-	bind := BindAddr + ":4772"
+	bind := PortalBindAddr + ":4772"
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "error listening on: %s", bind)
@@ -35,10 +35,7 @@ func (w *Provisioning) startGRPC() error {
 func (w *Provisioning) GetSmartMachineStatus(ctx context.Context,
 	req *pb.GetSmartMachineStatusRequest,
 ) (*pb.GetSmartMachineStatusResponse, error) {
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
-
-	w.state.setLastInteraction()
+	w.connState.setLastInteraction()
 
 	ret := &pb.GetSmartMachineStatusResponse{
 		ProvisioningInfo: &pb.ProvisioningInfo{
@@ -46,18 +43,20 @@ func (w *Provisioning) GetSmartMachineStatus(ctx context.Context,
 			Model:        w.cfg.Model,
 			Manufacturer: w.cfg.Manufacturer,
 		},
-		HasSmartMachineCredentials: w.state.getConfigured(),
-		IsOnline:                   w.state.getOnline(),
+		HasSmartMachineCredentials: w.connState.getConfigured(),
+		IsOnline:                   w.connState.getOnline(),
 		Errors:                     w.errListAsStrings(),
 	}
 
-	lastNetwork, ok := w.networks[w.lastSSID[w.hotspotInterface]]
-	if ok {
+	lastSSID := w.netState.LastSSID(w.hotspotInterface)
+	if lastSSID != "" {
+	lastNetwork := w.netState.Network(w.hotspotInterface, lastSSID)
 		lastNetworkInfo := lastNetwork.getInfo()
 		ret.LatestConnectionAttempt = NetworkInfoToProto(&lastNetworkInfo)
 	}
 
 	// reset the errors, as they were now just displayed
+	// SMURF need locking func
 	w.errors = nil
 
 	return ret, nil
@@ -66,7 +65,7 @@ func (w *Provisioning) GetSmartMachineStatus(ctx context.Context,
 func (w *Provisioning) SetNetworkCredentials(ctx context.Context,
 	req *pb.SetNetworkCredentialsRequest,
 ) (*pb.SetNetworkCredentialsResponse, error) {
-	w.state.setLastInteraction()
+	w.connState.setLastInteraction()
 
 	if req.GetType() != NetworkTypeWifi {
 		return nil, errw.Errorf("unknown network type: %s, only %s currently supported", req.GetType(), NetworkTypeWifi)
@@ -75,16 +74,18 @@ func (w *Provisioning) SetNetworkCredentials(ctx context.Context,
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
 
+	// SMURF input locking
 	w.input.Updated = time.Now()
 	w.input.SSID = req.GetSsid()
 	w.input.PSK = req.GetPsk()
 	w.inputReceived.Store(true)
 
-	if req.GetSsid() == w.lastSSID[w.hotspotInterface] && w.lastSSID[w.hotspotInterface] != "" {
-		lastNetwork, ok := w.networks[w.lastSSID[w.hotspotInterface]]
-		if ok {
-			lastNetwork.lastError = nil
-		}
+	lastSSID := w.netState.LastSSID(w.hotspotInterface)
+	if req.GetSsid() == lastSSID && lastSSID != "" {
+		lastNetwork := w.netState.LockingNetwork(w.hotspotInterface, lastSSID)
+		lastNetwork.mu.Lock()
+		lastNetwork.lastError = nil
+		lastNetwork.mu.Unlock()
 	}
 
 	return &pb.SetNetworkCredentialsResponse{}, nil
@@ -93,7 +94,7 @@ func (w *Provisioning) SetNetworkCredentials(ctx context.Context,
 func (w *Provisioning) SetSmartMachineCredentials(ctx context.Context,
 	req *pb.SetSmartMachineCredentialsRequest,
 ) (*pb.SetSmartMachineCredentialsResponse, error) {
-	w.state.setLastInteraction()
+	w.connState.setLastInteraction()
 
 	cloud := req.GetCloud()
 	if cloud == nil {
@@ -114,7 +115,7 @@ func (w *Provisioning) SetSmartMachineCredentials(ctx context.Context,
 func (w *Provisioning) GetNetworkList(ctx context.Context,
 	req *pb.GetNetworkListRequest,
 ) (*pb.GetNetworkListResponse, error) {
-	w.state.setLastInteraction()
+	w.connState.setLastInteraction()
 
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
@@ -132,12 +133,13 @@ func (w *Provisioning) GetNetworkList(ctx context.Context,
 func (w *Provisioning) errListAsStrings() []string {
 	errList := []string{}
 
-	lastNetwork, ok := w.networks[w.lastSSID[w.hotspotInterface]]
+	lastNetwork := w.netState.Network(w.hotspotInterface, w.netState.LastSSID(w.hotspotInterface))
 
-	if ok && lastNetwork.lastError != nil {
+	if lastNetwork.lastError != nil {
 		errList = append(errList, fmt.Sprintf("SSID: %s: %s", lastNetwork.ssid, lastNetwork.lastError))
 	}
 
+	// SMURF lock errors
 	for _, err := range w.errors {
 		errList = append(errList, err.Error())
 	}

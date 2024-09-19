@@ -310,7 +310,7 @@ func (m *Manager) LoadSubsystems(ctx context.Context) error {
 	for _, name := range registry.List() {
 		cfg, ok := cachedConfig[name]
 		if !ok {
-			cfg = registry.GetDefaultConfig(name)
+			cfg = &pb.DeviceSubsystemConfig{}
 		}
 		err := m.loadSubsystem(ctx, name, cfg)
 		if err != nil {

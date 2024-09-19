@@ -16,10 +16,8 @@ import (
 )
 
 func init() {
-	registry.Register(SubsysName, NewSubsystem, DefaultConfig)
+	registry.Register(SubsysName, NewSubsystem)
 }
-
-var DefaultConfig = &pb.DeviceSubsystemConfig{}
 
 const (
 	SubsysName = "agent-syscfg"

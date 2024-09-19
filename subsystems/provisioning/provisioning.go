@@ -23,7 +23,7 @@ import (
 
 // SMURF TODO: Register and init
 func init() {
-	registry.Register(SubsysName, NewProvisioning, DefaultSubsystemConfig)
+	registry.Register(SubsysName, NewProvisioning)
 }
 
 // func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
@@ -44,32 +44,20 @@ type Provisioning struct {
 	settings    gnm.Settings
 	hostname    string
 	logger      logging.Logger
-	AppCfgPath string
+	AppCfgPath  string
 
 	// internal locking
-	state *connectionState
+	connState *connectionState
+	netState  *networkState
 
-	// locking for data updates
+	// locking for config updates
 	dataMu sync.Mutex
 	cfg         Config
-
-	// key is ssid@interface for wifi, ex: TestNetwork@wlan0
-	// interface may be "any" for no interface set, ex: TestNetwork@any
-	// wired networks are just interface, ex: eth0
-	// generate with genNetKey(ifname, ssid)
-	networks map[string]*network
-
-	// the wifi device used by provisioning and actively managed for connectivity
-	hotspotInterface string
+	hotspotInterface string // the wifi device used by provisioning and actively managed for connectivity
 	hotspotSSID      string
 
-	// key is interface name, ex: wlan0
-	primarySSID map[string]string
-	activeSSID  map[string]string
-	lastSSID    map[string]string
-	activeConn  map[string]gnm.ActiveConnection
-	ethDevices  map[string]gnm.DeviceWired
-	wifiDevices map[string]gnm.DeviceWireless
+
+	// SMURF Lock below here...
 
 	errors []error
 
@@ -106,14 +94,9 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		logger:      logger,
 		nm:          nm,
 		settings:    settings,
-		networks:    make(map[string]*network),
-		activeSSID:  make(map[string]string),
-		primarySSID: make(map[string]string),
-		lastSSID:    make(map[string]string),
-		ethDevices:  make(map[string]gnm.DeviceWired),
-		wifiDevices: make(map[string]gnm.DeviceWireless),
-		activeConn:  make(map[string]gnm.ActiveConnection),
-		state:       &connectionState{logger: logger},
+
+		connState:       NewConnectionState(logger),
+		netState:       NewNetworkState(logger),
 		input:       &UserInput{},
 	}
 
@@ -149,7 +132,8 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	if w.cfg.RoamingMode {
 		w.logger.Info("Roaming Mode enabled. Will try all connections for global internet connectivity.")
 	} else {
-		w.logger.Infof("Default (Single Network) Mode enabled. Will directly connect only to primary network: %s", w.primarySSID)
+		w.logger.Infof("Default (Single Network) Mode enabled. Will directly connect only to primary network: %s",
+			w.netState.PrimarySSID(w.hotspotInterface))
 	}
 
 	if err := w.CheckConnections(); err != nil {
@@ -158,10 +142,10 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 
 	// Is there a configured wifi network? If so, set last times to now so we use normal timeouts.
 	// Otherwise, hotspot will start immediately if not connected, while wifi network might still be booting.
-	for _, nw := range w.networks {
-		if nw.conn != nil && nw.netType == NetworkTypeWifi {
-			w.state.lastConnected = time.Now()
-			w.state.lastOnline = time.Now()
+	for _, nw := range w.netState.Networks() {
+		if nw.conn != nil && nw.netType == NetworkTypeWifi && (nw.interfaceName == "" || nw.interfaceName == w.hotspotInterface) {
+			w.connState.lastConnected = time.Now()
+			w.connState.lastOnline = time.Now()
 			break
 		}
 	}
@@ -191,7 +175,7 @@ func (w *Provisioning) Stop(ctx context.Context) error {
 	defer w.opMu.Unlock()
 
 	w.logger.Infof("%s subsystem exiting", SubsysName)
-	if w.state.getProvisioning() {
+	if w.connState.getProvisioning() {
 		err := w.StopProvisioning()
 		if err != nil {
 			w.logger.Error(err)
@@ -215,6 +199,8 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 		return false, nil
 	}
 
+	w.dataMu.Lock()
+	defer w.dataMu.Unlock()
 	w.cfg = *cfg
 	return true, nil
 }

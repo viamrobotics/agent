@@ -16,6 +16,12 @@ import (
 // This file contains the wifi/hotspot setting generation functions.
 
 func generateHotspotSettings(id, ssid, psk, ifName string) gnm.ConnectionSettings {
+	IPAsUint32, err := generateAddress(PortalBindAddr)
+	if err != nil {
+		// BindAddr is a const, so should only ever fail if code itself is changed/broken
+		panic(err)
+	}
+
 	settings := gnm.ConnectionSettings{
 		"connection": map[string]any{
 			"id":             id,

@@ -12,11 +12,8 @@ import (
 )
 
 func (w *Provisioning) NetworkScan(ctx context.Context) error {
-	w.opMu.Lock()
-	defer w.opMu.Unlock()
-
-	wifiDev, ok := w.wifiDevices[w.hotspotInterface]
-	if !ok {
+	wifiDev := w.netState.WifiDevice(w.hotspotInterface)
+	if wifiDev == nil {
 		return errw.Errorf("cannot find hotspot interface: %s", w.hotspotInterface)
 	}
 
@@ -48,9 +45,6 @@ func (w *Provisioning) NetworkScan(ctx context.Context) error {
 	if err != nil {
 		return errw.Wrap(err, "scanning wifi")
 	}
-
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
 
 	// set "now" to be reusable for consistency
 	now := time.Now()
@@ -88,14 +82,8 @@ func (w *Provisioning) NetworkScan(ctx context.Context) error {
 			continue
 		}
 
-		nw, ok := w.networks[ssid]
-		if !ok {
-			nw = &network{
-				netType: NetworkTypeWifi,
-				ssid:    ssid,
-			}
-			w.networks[ssid] = nw
-		}
+		nw := w.netState.LockingNetwork(w.hotspotSSID, ssid)
+		nw.mu.Lock()
 
 		nw.netType = NetworkTypeWifi
 		nw.ssid = ssid
@@ -106,17 +94,20 @@ func (w *Provisioning) NetworkScan(ctx context.Context) error {
 		if nw.firstSeen.IsZero() {
 			nw.firstSeen = now
 		}
+
+		nw.mu.Unlock()
 	}
 
-	for _, nw := range w.networks {
+	for _, nw := range w.netState.LockingNetworks() {
 		if ctx.Err() != nil {
 			return nil
 		}
-
+		nw.mu.Lock()
 		// if a network isn't visible, reset the firstSeen time
 		if nw.lastSeen.Before(time.Now().Add(time.Minute * -1)) {
 			nw.firstSeen = time.Time{}
 		}
+		nw.mu.Unlock()
 	}
 
 	return w.updateKnownConnections(ctx)
@@ -171,8 +162,8 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 			return err
 		}
 
-		netKey, ifName, netType := getKeyIfNameTypeFromSettings(settings)
-		if netKey == "" {
+		ifName, ssid, netType := getIfNameSSIDTypeFromSettings(settings)
+		if ifName == "" {
 			// unknown network type, or broken network
 			continue
 		}
@@ -183,17 +174,9 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 		}
 
 		// actually record the network
-		nw, ok := w.networks[netKey]
-		if !ok {
-			nw = &network{
-				netType:       netType,
-				interfaceName: ifName,
-			}
-			if netType == NetworkTypeWifi {
-				nw.ssid = getSSIDFromSettings(settings)
-			}
-			w.networks[netKey] = nw
-		}
+		nw := w.netState.LockingNetwork(ifName, ssid)
+		nw.mu.Lock()
+		nw.netType = netType
 		nw.conn = conn
 		nw.priority = getPriorityFromSettings(settings)
 
@@ -202,8 +185,9 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 			nw.isHotspot = true
 		} else if nw.priority > highestPriority[ifName] {
 			highestPriority[ifName] = nw.priority
-			w.primarySSID[ifName] = nw.ssid
+			w.netState.SetPrimarySSID(ifName, nw.ssid)
 		}
+		nw.mu.Unlock()
 	}
 
 	return nil
@@ -259,7 +243,7 @@ func getSSIDFromSettings(settings gnm.ConnectionSettings) string {
 	return string(ssidBytes)
 }
 
-func getKeyIfNameTypeFromSettings(settings gnm.ConnectionSettings) (string, string, string) {
+func getIfNameSSIDTypeFromSettings(settings gnm.ConnectionSettings) (string, string, string) {
 	_, wired := settings["802-3-ethernet"]
 	_, wireless := settings["802-11-wireless"]
 	if !wired && !wireless {
@@ -279,7 +263,7 @@ func getKeyIfNameTypeFromSettings(settings gnm.ConnectionSettings) (string, stri
 	}
 
 	if wired {
-		return genNetKey(ifName, ""), ifName, NetworkTypeWired
+		return ifName, "", NetworkTypeWired
 	}
 
 	if wireless {
@@ -287,7 +271,7 @@ func getKeyIfNameTypeFromSettings(settings gnm.ConnectionSettings) (string, stri
 		if ssid == "" {
 			return "", "", ""
 		}
-		return genNetKey(ifName, ssid), ifName, NetworkTypeWifi
+		return ifName, ssid, NetworkTypeWifi
 	}
 
 	return "", "", ""

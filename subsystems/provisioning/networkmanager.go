@@ -26,7 +26,7 @@ func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
 	defer w.dataMu.Unlock()
 	var primaryCandidates []string
 	highestPriority := int32(-999)
-	for _, nw := range w.networks {
+	for _, nw := range w.netState.Networks() {
 		if nw.conn == nil || nw.isHotspot || nw.netType != NetworkTypeWifi ||
 			(nw.interfaceName != "" && nw.interfaceName != w.hotspotInterface) {
 			continue
@@ -50,7 +50,7 @@ func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
 
 func (w *Provisioning) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
-	for _, nw := range w.networks {
+	for _, nw := range w.netState.Networks() {
 		if nw.lastSeen.After(time.Now().Add(time.Minute*-1)) && !nw.isHotspot {
 			visible = append(visible, nw.getInfo())
 		}
@@ -65,11 +65,8 @@ func (w *Provisioning) getVisibleNetworks() []NetworkInfo {
 }
 
 func (w *Provisioning) getLastNetworkTried() NetworkInfo {
-	nw, ok := w.networks[w.lastSSID[w.hotspotInterface]]
-	if !ok {
-		nw = &network{}
-	}
-	return nw.getInfo()
+	lastNetwork := w.netState.LastNetwork(w.hotspotInterface)
+	return lastNetwork.getInfo()
 }
 
 func (w *Provisioning) checkOnline(force bool) error {
@@ -99,7 +96,7 @@ func (w *Provisioning) checkOnline(force bool) error {
 		err = nil
 	}
 
-	w.state.setOnline(online)
+	w.connState.setOnline(online)
 	return err
 }
 
@@ -114,7 +111,7 @@ func (w *Provisioning) CheckConnections() error {
 		if connected && w.activeSSID[w.hotspotInterface] != "" {
 			w.logger.Debugf("Connected to: %s", w.activeSSID[w.hotspotInterface])
 		}
-		w.state.setConnected(connected)
+		w.connState.setConnected(connected)
 	}()
 
 	// merge the two device types into a single generic list
@@ -191,7 +188,7 @@ func (w *Provisioning) CheckConnections() error {
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
 func (w *Provisioning) StartProvisioning(ctx context.Context) error {
-	if w.state.getProvisioning() {
+	if w.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
 
@@ -217,7 +214,7 @@ func (w *Provisioning) StartProvisioning(ctx context.Context) error {
 		return errw.Wrap(err, "could not start web/grpc portal")
 	}
 
-	w.state.setProvisioning(true)
+	w.connState.setProvisioning(true)
 	return nil
 }
 
@@ -225,7 +222,7 @@ func (w *Provisioning) StopProvisioning() error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 	w.logger.Info("Stopping provisioning mode.")
-	w.state.setProvisioning(false)
+	w.connState.setProvisioning(false)
 	err := w.stopPortal()
 	w.provisioningWorkers.Wait()
 	err2 := w.deactivateConnection(w.hotspotInterface, w.hotspotSSID)
@@ -236,7 +233,7 @@ func (w *Provisioning) StopProvisioning() error {
 }
 
 func (w *Provisioning) ActivateConnection(ctx context.Context, ifName, ssid string) error {
-	if w.state.getProvisioning() && ifName == w.hotspotInterface {
+	if w.connState.getProvisioning() && ifName == w.hotspotInterface {
 		return errors.New("cannot activate another connection while in provisioning mode")
 	}
 
@@ -311,7 +308,7 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 	if nw.netType != NetworkTypeHotspot {
 		w.activeSSID[ifName] = ssid
 		if ifName == w.hotspotInterface && (w.cfg.RoamingMode || w.primarySSID[ifName] == ssid) {
-			w.state.setConnected(true)
+			w.connState.setConnected(true)
 		}
 		return w.checkOnline(true)
 	}
@@ -320,7 +317,7 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 }
 
 func (w *Provisioning) DeactivateConnection(ifName, ssid string) error {
-	if w.state.getProvisioning() && ifName == w.hotspotInterface {
+	if w.connState.getProvisioning() && ifName == w.hotspotInterface {
 		return errors.New("cannot deactivate another connection while in provisioning mode")
 	}
 
@@ -357,7 +354,7 @@ func (w *Provisioning) deactivateConnection(ifName, ssid string) error {
 
 	w.logger.Infof("Successfully deactivated connection: %s", netKey)
 
-	w.state.setConnected(false)
+	w.connState.setConnected(false)
 	nw.connected = false
 	nw.lastConnected = time.Now()
 	nw.lastError = nil
@@ -537,7 +534,7 @@ func (w *Provisioning) lowerMaxNetPriorities(skip string) {
 
 func (w *Provisioning) checkConfigured() {
 	_, err := os.ReadFile(w.AppCfgPath)
-	w.state.setConfigured(err == nil)
+	w.connState.setConfigured(err == nil)
 }
 
 // tryCandidates returns true if a network activated.
@@ -555,7 +552,7 @@ func (w *Provisioning) tryCandidates(ctx context.Context) bool {
 		}
 
 		// in roaming mode we need full internet
-		if w.state.getOnline() {
+		if w.connState.getOnline() {
 			return true
 		}
 
@@ -702,7 +699,7 @@ func (w *Provisioning) StartMonitoring(ctx context.Context) error {
 					w.logger.Error(err)
 					continue
 				}
-				if !w.state.getOnline() {
+				if !w.connState.getOnline() {
 					err := w.deactivateConnection(w.hotspotInterface, newSSID)
 					if err != nil {
 						w.logger.Error(err)
@@ -727,24 +724,24 @@ func (w *Provisioning) StartMonitoring(ctx context.Context) error {
 			}
 		}
 
-		isOnline := w.state.getOnline()
-		lastOnline := w.state.getLastOnline()
-		isConnected := w.state.getConnected()
-		lastConnected := w.state.getLastConnected()
+		isOnline := w.connState.getOnline()
+		lastOnline := w.connState.getLastOnline()
+		isConnected := w.connState.getConnected()
+		lastConnected := w.connState.getLastConnected()
 		hasConnectivity := isConnected || isOnline
 		lastConnectivity := lastConnected
 		if lastOnline.After(lastConnected) {
 			lastConnectivity = lastOnline
 		}
-		isConfigured := w.state.getConfigured()
+		isConfigured := w.connState.getConfigured()
 		allGood := isConfigured && (isConnected || isOnline)
 		if w.cfg.RoamingMode {
 			allGood = isOnline && isConfigured
 			hasConnectivity = isOnline
 			lastConnectivity = lastOnline
 		}
-		pMode := w.state.getProvisioning()
-		pModeChange := w.state.getProvisioningChange()
+		pMode := w.connState.getProvisioning()
+		pModeChange := w.connState.getProvisioningChange()
 		now := time.Now()
 
 		w.logger.Debugf("wifi connected: %t, internet reachable: %t, config present: %t", isConnected, isOnline, isConfigured)
@@ -753,7 +750,7 @@ func (w *Provisioning) StartMonitoring(ctx context.Context) error {
 			// complex logic, so wasting some variables for readability
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
-			inactivePortal := w.state.getLastInteraction().Before(now.Add(time.Duration(w.cfg.UserTimeout)*-1)) || userInputReceived
+			inactivePortal := w.connState.getLastInteraction().Before(now.Add(time.Duration(w.cfg.UserTimeout)*-1)) || userInputReceived
 
 			// exit/retry to test networks only if there's no recent user interaction AND configuration is present
 			haveCandidates := len(w.getCandidates(w.hotspotInterface)) > 0 && inactivePortal && isConfigured
@@ -769,7 +766,7 @@ func (w *Provisioning) StartMonitoring(ctx context.Context) error {
 				if err := w.StopProvisioning(); err != nil {
 					w.logger.Error(err)
 				} else {
-					pMode = w.state.getProvisioning()
+					pMode = w.connState.getProvisioning()
 				}
 			}
 		}
@@ -781,17 +778,17 @@ func (w *Provisioning) StartMonitoring(ctx context.Context) error {
 		// not in provisioning mode
 		if !hasConnectivity {
 			if w.tryCandidates(ctx) {
-				hasConnectivity = w.state.getConnected() || w.state.getOnline()
+				hasConnectivity = w.connState.getConnected() || w.connState.getOnline()
 				// if we're roaming or this network was JUST added, it must have internet
 				if w.cfg.RoamingMode {
-					hasConnectivity = w.state.getOnline()
+					hasConnectivity = w.connState.getOnline()
 				}
 				if hasConnectivity {
 					continue
 				}
-				lastConnectivity = w.state.getLastConnected()
+				lastConnectivity = w.connState.getLastConnected()
 				if w.cfg.RoamingMode {
-					lastConnectivity = w.state.getLastOnline()
+					lastConnectivity = w.connState.getLastOnline()
 				}
 			}
 		}

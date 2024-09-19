@@ -26,6 +26,10 @@ type connectionState struct {
 	logger logging.Logger
 }
 
+func NewConnectionState(logger logging.Logger) *connectionState {
+	return &connectionState{logger: logger}
+}
+
 func (c *connectionState) setOnline(online bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

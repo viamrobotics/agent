@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	registry.Register(subsysName, NewSubsystem, DefaultConfig)
+	registry.Register(subsysName, NewSubsystem)
 }
 
 const (
@@ -38,7 +38,6 @@ var (
 
 	//go:embed viam-agent.service
 	serviceFileContents []byte
-	DefaultConfig       = &pb.DeviceSubsystemConfig{}
 )
 
 type agentSubsystem struct{}

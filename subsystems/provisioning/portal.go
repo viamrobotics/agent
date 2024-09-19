@@ -49,7 +49,7 @@ func (w *Provisioning) startWeb() error {
 		Handler:     mux,
 		ReadTimeout: time.Second * 10,
 	}
-	bind := BindAddr + ":80"
+	bind := PortalBindAddr + ":80"
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "error listening on: %s", bind)
@@ -93,8 +93,8 @@ func (w *Provisioning) GetUserInput() *UserInput {
 		// only send user data after we've had it for ten seconds or if both are already set
 		if time.Now().After(input.Updated.Add(time.Second*10)) ||
 			(input.SSID != "" && input.PartID != "") ||
-			(input.SSID != "" && w.state.getConfigured()) ||
-			(input.PartID != "" && w.state.getOnline()) {
+			(input.SSID != "" && w.connState.getConfigured()) ||
+			(input.PartID != "" && w.connState.getOnline()) {
 			w.input = &UserInput{}
 			w.inputReceived.Store(false)
 			return input
@@ -109,7 +109,7 @@ func (w *Provisioning) portalIndex(resp http.ResponseWriter, req *http.Request) 
 			w.logger.Error(err)
 		}
 	}()
-	w.state.setLastInteraction()
+	w.connState.setLastInteraction()
 
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
@@ -121,8 +121,8 @@ func (w *Provisioning) portalIndex(resp http.ResponseWriter, req *http.Request) 
 		Banner:       w.banner,
 		LastNetwork:  w.getLastNetworkTried(),
 		VisibleSSIDs: w.getVisibleNetworks(),
-		IsOnline:     w.state.getOnline(),
-		IsConfigured: w.state.getConfigured(),
+		IsOnline:     w.connState.getOnline(),
+		IsConfigured: w.connState.getConfigured(),
 		Errors:       w.errListAsStrings(),
 	}
 
@@ -163,25 +163,25 @@ func (w *Provisioning) portalSave(resp http.ResponseWriter, req *http.Request) {
 		defer w.dataMu.Unlock()
 		defer http.Redirect(resp, req, "/", http.StatusSeeOther)
 
-		w.state.setLastInteraction()
+		w.connState.setLastInteraction()
 
 		ssid := req.FormValue("ssid")
 		psk := req.FormValue("password")
 		rawConfig := req.FormValue("viamconfig")
 
-		if ssid == "" && !w.state.getOnline() {
+		if ssid == "" && !w.connState.getOnline() {
 			w.errors = append(w.errors, errors.New("no SSID provided"))
 			return
 		}
 
-		if rawConfig == "" && !w.state.getConfigured() {
+		if rawConfig == "" && !w.connState.getConfigured() {
 			w.errors = append(w.errors, errors.New("no device config provided"))
 			return
 		}
 
 		if rawConfig != "" {
 			// we'll check if the config is valid, but NOT use the parsed config, in case additional fields are in the json
-			cfg := &DeviceConfig{}
+			cfg := &MachineConfig{}
 			if err := json.Unmarshal([]byte(rawConfig), cfg); err != nil {
 				w.errors = append(w.errors, errw.Wrap(err, "invalid json config contents"))
 				return
@@ -202,11 +202,11 @@ func (w *Provisioning) portalSave(resp http.ResponseWriter, req *http.Request) {
 			w.banner += "Added credentials for SSID: " + w.input.SSID
 		}
 
-		if ssid == w.lastSSID[w.hotspotInterface] && ssid != "" {
-			lastNetwork, ok := w.networks[w.lastSSID[w.hotspotInterface]]
-			if ok {
-				lastNetwork.lastError = nil
-			}
+		if ssid == w.netState.LastSSID(w.hotspotInterface) && ssid != "" {
+			lastNetwork := w.netState.LockingNetwork(w.hotspotInterface, ssid)
+			lastNetwork.mu.Lock()
+			lastNetwork.lastError = nil
+			lastNetwork.mu.Unlock()
 		}
 		w.input.Updated = time.Now()
 		w.inputReceived.Store(true)
