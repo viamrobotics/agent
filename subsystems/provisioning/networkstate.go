@@ -129,6 +129,10 @@ func (n *networkState) SetPrimarySSID(iface, ssid string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	if ssid == "" {
+		delete(n.primarySSID, iface)
+		return
+	}
 	n.primarySSID[iface] = ssid
 }
 
@@ -138,7 +142,7 @@ func (n *networkState) ActiveSSID(iface string) string {
 
 	ssid, ok := n.activeSSID[iface]
 	if !ok {
-		n.logger.Errorf("cannot find primary SSID for %s", iface)
+		n.logger.Errorf("cannot find active SSID for %s", iface)
 		return ""
 	}
 
@@ -149,6 +153,10 @@ func (n *networkState) SetActiveSSID(iface, ssid string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	if ssid == "" {
+		delete(n.activeSSID, iface)
+		return
+	}
 	n.activeSSID[iface] = ssid
 }
 
@@ -158,7 +166,7 @@ func (n *networkState) LastSSID(iface string) string {
 
 	ssid, ok := n.lastSSID[iface]
 	if !ok {
-		n.logger.Errorf("cannot find primary SSID for %s", iface)
+		n.logger.Errorf("cannot find last SSID for %s", iface)
 		return ""
 	}
 
@@ -178,7 +186,7 @@ func (n *networkState) ActiveConn(iface string) gnm.ActiveConnection {
 
 	conn, ok := n.activeConn[iface]
 	if !ok {
-		n.logger.Errorf("cannot find primary SSID for %s", iface)
+		n.logger.Errorf("cannot find active connection for %s", iface)
 		return nil
 	}
 
@@ -189,6 +197,10 @@ func (n *networkState) SetActiveConn(iface string, conn gnm.ActiveConnection) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	if conn == nil {
+		delete(n.activeConn, iface)
+		return
+	}
 	n.activeConn[iface] = conn
 }
 
@@ -198,7 +210,7 @@ func (n *networkState) EthDevice(iface string) gnm.DeviceWired {
 
 	dev, ok := n.ethDevice[iface]
 	if !ok {
-		n.logger.Errorf("cannot find primary SSID for %s", iface)
+		n.logger.Errorf("cannot find eth device for %s", iface)
 		return nil
 	}
 
@@ -218,7 +230,7 @@ func (n *networkState) WifiDevice(iface string) gnm.DeviceWireless {
 
 	dev, ok := n.wifiDevice[iface]
 	if !ok {
-		n.logger.Errorf("cannot find primary SSID for %s", iface)
+		n.logger.Errorf("cannot find wifi device for %s", iface)
 		return nil
 	}
 
@@ -230,4 +242,19 @@ func (n *networkState) SetWifiDevice(iface string, dev gnm.DeviceWireless) {
 	defer n.mu.Unlock()
 
 	n.wifiDevice[iface] = dev
+}
+
+func (n *networkState) Devices() map[string]gnm.Device {
+ 	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// merge the two device types into a single generic list
+	allDevices := make(map[string]gnm.Device)
+	for ifName, dev := range n.wifiDevice {
+		allDevices[ifName] = dev
+	}
+	for ifName, dev := range n.ethDevice {
+		allDevices[ifName] = dev
+	}
+	return allDevices
 }

@@ -103,34 +103,24 @@ func (w *Provisioning) checkOnline(force bool) error {
 func (w *Provisioning) CheckConnections() error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
+	// SMURF check locks
 
 	var connected bool
 	defer func() {
-		if connected && w.activeSSID[w.hotspotInterface] != "" {
-			w.logger.Debugf("Connected to: %s", w.activeSSID[w.hotspotInterface])
+		if connected && w.netState.ActiveSSID(w.hotspotInterface) != "" {
+			w.logger.Debugf("Connected to: %s", w.netState.ActiveSSID(w.hotspotInterface))
 		}
 		w.connState.setConnected(connected)
 	}()
 
-	// merge the two device types into a single generic list
-	allDevices := make(map[string]gnm.Device)
-	for ifName, dev := range w.wifiDevices {
-		allDevices[ifName] = dev
-	}
-	for ifName, dev := range w.wifiDevices {
-		allDevices[ifName] = dev
-	}
-
-	for ifName, dev := range allDevices {
+	for ifName, dev := range w.netState.Devices() {
 		activeConnection, err := dev.GetPropertyActiveConnection()
 		if err != nil {
 			return err
 		}
 		if activeConnection == nil {
-			w.activeConn[ifName] = nil
-			w.activeSSID[ifName] = ""
+			w.netState.SetActiveConn(ifName, nil)
+			w.netState.SetActiveSSID(ifName, "")
 			continue
 		}
 
@@ -144,28 +134,22 @@ func (w *Provisioning) CheckConnections() error {
 			return err
 		}
 
-		ssid := getSSIDFromSettings(settings)
-		netKey := genNetKey(ifName, ssid)
-		nw, ok := w.networks[netKey]
-		if !ok {
-			netKey := genNetKey("any", ssid)
-			nw = w.networks[netKey]
-		}
-		if nw == nil {
-			continue
-		}
+		connIfName, ssid, _ := getIfNameSSIDTypeFromSettings(settings)
+		nw := w.netState.LockingNetwork(connIfName, ssid)
 
 		state, err := activeConnection.GetPropertyState()
+		nw.mu.Lock()
 		if err != nil {
-			w.logger.Error(errw.Wrapf(err, "getting state of active connection: %s", ssid))
-			w.activeConn[ifName] = nil
+			w.logger.Error(errw.Wrapf(err, "getting state of active connection: %s", genNetKey(ifName, ssid)))
+			w.netState.SetActiveConn(ifName, nil)
+			w.netState.SetActiveSSID(ifName, "")
 			nw.connected = false
-			w.activeSSID[ifName] = ""
+		}else{
+			w.netState.SetActiveConn(ifName, activeConnection)
+			w.netState.SetActiveSSID(ifName, ssid)
+			nw.connected = true
 		}
-
-		w.activeConn[ifName] = activeConnection
-		w.activeSSID[ifName] = ssid
-		nw.connected = true
+		nw.mu.Unlock()
 
 		// if this isn't the primary wifi device, we're done
 		if ifName != w.hotspotInterface {
@@ -178,7 +162,7 @@ func (w *Provisioning) CheckConnections() error {
 		}
 
 		// in normal (single) mode, we need to be connected to the primary (highest priority) network
-		if !w.cfg.RoamingMode && state == gnm.NmActiveConnectionStateActivated && ssid == w.primarySSID[w.hotspotInterface] {
+		if !w.cfg.RoamingMode && state == gnm.NmActiveConnectionStateActivated && ssid == w.netState.PrimarySSID(w.hotspotInterface) {
 			connected = true
 		}
 	}
@@ -243,53 +227,43 @@ func (w *Provisioning) ActivateConnection(ctx context.Context, ifName, ssid stri
 }
 
 func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid string) error {
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
+	// SMURF check locks
+	// w.dataMu.Lock()
+	// defer w.dataMu.Unlock()
 
 	now := time.Now()
-	netKey := genNetKey(ifName, ssid)
-	nw, ok := w.networks[netKey]
-	if !ok && ssid != "" {
-		netKey = genNetKey("any", ssid)
-		nw = w.networks[netKey]
-	}
-	if nw == nil || nw.conn == nil {
-		return errw.Errorf("no settings found for ssid: %s", netKey)
+	nw := w.netState.LockingNetwork(ifName, ssid)
+	nw.mu.Lock()
+	defer nw.mu.Unlock()
+
+	if nw.conn == nil {
+		return errw.Errorf("no settings found for network: %s", genNetKey(ifName, ssid))
 	}
 
-	w.logger.Infof("Activating connection: %s", netKey)
+	w.logger.Infof("Activating connection: %s", genNetKey(ifName, ssid))
 
 	var netDev gnm.Device
 	if nw.netType == NetworkTypeWifi || nw.netType == NetworkTypeHotspot {
-		// use the main wifi device if it's not explicitly set
-		ifNameOpt := ifName
-		if ifNameOpt == "" {
-			ifNameOpt = w.hotspotInterface
-		}
-
 		// wifi
 		if nw.netType != NetworkTypeHotspot {
 			nw.lastTried = now
-			w.lastSSID[ifName] = ssid
+			w.netState.SetLastSSID(ifName, ssid)
 		}
-
-		netDev, ok = w.wifiDevices[ifNameOpt]
-		if !ok {
-			return errw.Errorf("cannot find wifi interface: %s", ifName)
-		}
+		netDev = w.netState.WifiDevice(ifName)
 	} else {
 		// wired
 		nw.lastTried = now
-		netDev, ok = w.ethDevices[ifName]
-		if !ok {
-			return errw.Errorf("cannot find wired interface: %s", ifName)
-		}
+		netDev = w.netState.EthDevice(ifName)
+	}
+
+	if netDev == nil {
+		return errw.Errorf("cannot activate connection due to missing interface: %s", ifName)
 	}
 
 	activeConnection, err := w.nm.ActivateConnection(nw.conn, netDev, nil)
 	if err != nil {
 		nw.lastError = err
-		return errw.Wrapf(err, "activating connection: %s", netKey)
+		return errw.Wrapf(err, "activating connection: %s", genNetKey(ifName, ssid))
 	}
 
 	if err := w.waitForConnect(ctx, netDev); err != nil {
@@ -300,14 +274,14 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 
 	nw.connected = true
 	nw.lastConnected = now
-	w.activeConn[ifName] = activeConnection
 	nw.lastError = nil
+	w.netState.SetActiveConn(ifName, activeConnection)
 
-	w.logger.Infof("Successfully activated connection: %s", netKey)
+	w.logger.Infof("Successfully activated connection: %s", genNetKey(ifName, ssid))
 
 	if nw.netType != NetworkTypeHotspot {
-		w.activeSSID[ifName] = ssid
-		if ifName == w.hotspotInterface && (w.cfg.RoamingMode || w.primarySSID[ifName] == ssid) {
+		w.netState.SetActiveSSID(ifName, ssid)
+		if ifName == w.hotspotInterface && (w.cfg.RoamingMode || w.netState.PrimarySSID(ifName) == ssid) {
 			w.connState.setConnected(true)
 		}
 		return w.checkOnline(true)
@@ -327,38 +301,36 @@ func (w *Provisioning) DeactivateConnection(ifName, ssid string) error {
 }
 
 func (w *Provisioning) deactivateConnection(ifName, ssid string) error {
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
+	// SMURF check locks
+	// w.dataMu.Lock()
+	// defer w.dataMu.Unlock()
 
-	activeConn, ok := w.activeConn[ifName]
-	if !ok {
-		return errw.Wrapf(ErrNoActiveConnectionFound, "cannot find interface: %s", ifName)
+	activeConn := w.netState.ActiveConn(ifName)
+	if activeConn == nil {
+		return errw.Wrapf(ErrNoActiveConnectionFound, "interface: %s", ifName)
 	}
 
-	netKey := genNetKey(ifName, ssid)
-	nw, ok := w.networks[netKey]
-	if !ok && ssid != "" {
-		netKey = genNetKey("any", ssid)
-		nw = w.networks[netKey]
-	}
-	if nw == nil {
-		return errw.Wrapf(ErrNoActiveConnectionFound, "%s", netKey)
-	}
+	nw := w.netState.LockingNetwork(ifName, ssid)
+	nw.mu.Lock()
+	defer nw.mu.Unlock()
 
-	w.logger.Infof("Deactivating connection: %s", netKey)
+	w.logger.Infof("Deactivating connection: %s", genNetKey(ifName, ssid))
 
 	if err := w.nm.DeactivateConnection(activeConn); err != nil {
 		nw.lastError = err
-		return errw.Wrapf(err, "deactivating connection: %s", netKey)
+		return errw.Wrapf(err, "deactivating connection: %s", genNetKey(ifName, ssid))
 	}
 
-	w.logger.Infof("Successfully deactivated connection: %s", netKey)
+	w.logger.Infof("Successfully deactivated connection: %s", genNetKey(ifName, ssid))
 
-	w.connState.setConnected(false)
+	if ifName == w.hotspotInterface {
+		w.connState.setConnected(false)
+	}
+
 	nw.connected = false
 	nw.lastConnected = time.Now()
 	nw.lastError = nil
-	w.activeSSID[ifName] = ""
+	w.netState.SetActiveSSID(ifName, "")
 	return nil
 }
 
@@ -417,48 +389,34 @@ func (w *Provisioning) addOrUpdateConnection(cfg NetworkConfig) (bool, error) {
 		return changesMade, errors.New("wifi passwords must be at least 8 characters long, or completely empty (for unsecured networks)")
 	}
 
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
+	// SMURF check locks
+	// w.dataMu.Lock()
+	// defer w.dataMu.Unlock()
 
 	netKey := genNetKey(cfg.Interface, cfg.SSID)
-	nw, ok := w.networks[netKey]
-	if !ok && cfg.SSID != "" {
-		netKey = genNetKey("any", cfg.SSID)
-		nw = w.networks[netKey]
-	}
-
-	if nw == nil {
-		nw = &network{
-			netType:       cfg.Type,
-			interfaceName: cfg.Interface,
-			ssid:          cfg.SSID,
-		}
-		netKey = genNetKey(cfg.Interface, cfg.SSID)
-		w.networks[netKey] = nw
-	}
-
+	nw := w.netState.LockingNetwork(cfg.Interface, cfg.SSID)
 	nw.lastTried = time.Time{}
 	nw.priority = cfg.Priority
 
 	var settings gnm.ConnectionSettings
 	var err error
-	if cfg.Type != NetworkTypeHotspot {
-		settings, err = generateNetworkSettings(w.cfg.Manufacturer+"-"+netKey, cfg)
-		if err != nil {
-			return changesMade, err
-		}
-	} else {
+	if cfg.Type == NetworkTypeHotspot {
 		if cfg.SSID != w.hotspotSSID {
 			return changesMade, errw.Errorf("only the builtin provisioning hotspot may use the %s network type", NetworkTypeHotspot)
 		}
 		nw.isHotspot = true
 		settings = generateHotspotSettings(w.cfg.HotspotPrefix, w.hotspotSSID, w.cfg.HotspotPassword, w.hotspotInterface)
+	}else{
+		settings, err = generateNetworkSettings(w.cfg.Manufacturer+"-"+netKey, cfg)
+		if err != nil {
+			return changesMade, err
+		}
 	}
 
-	if !w.cfg.RoamingMode && cfg.Priority == 999 {
+	if cfg.Type == NetworkTypeWifi && !w.cfg.RoamingMode && cfg.Priority == 999 {
 		// lower the priority of any existing/prior primary network
 		w.lowerMaxNetPriorities(cfg.SSID)
-		w.primarySSID[w.hotspotInterface] = cfg.SSID
+		w.netState.SetPrimarySSID(w.hotspotInterface, cfg.SSID)
 	}
 
 	w.logger.Infof("Adding/updating settings for network %s", netKey)
@@ -499,17 +457,20 @@ func (w *Provisioning) addOrUpdateConnection(cfg NetworkConfig) (bool, error) {
 
 // this doesn't error as it's not technically fatal if it fails.
 func (w *Provisioning) lowerMaxNetPriorities(skip string) {
-	for netKey, nw := range w.networks {
+	for _, nw := range w.netState.LockingNetworks() {
+		netKey := genNetKey(nw.interfaceName, nw.ssid)
 		if netKey == skip || netKey == genNetKey(w.hotspotInterface, w.hotspotSSID) || nw.priority < 999 ||
 			nw.netType != NetworkTypeWifi || (nw.interfaceName != "" && nw.interfaceName != w.hotspotInterface) {
 			continue
 		}
 
+		nw.mu.Lock()
 		if nw.conn != nil {
 			settings, err := nw.conn.GetSettings()
 			if err != nil {
 				nw.conn = nil
 				w.logger.Warnf("error (%s) encountered when getting settings for %s", err, nw.ssid)
+				nw.mu.Unlock()
 				continue
 			}
 
@@ -529,6 +490,7 @@ func (w *Provisioning) lowerMaxNetPriorities(skip string) {
 			}
 			nw.priority = getPriorityFromSettings(settings)
 		}
+		nw.mu.Unlock()
 	}
 }
 
@@ -564,8 +526,8 @@ func (w *Provisioning) tryCandidates(ctx context.Context) bool {
 func (w *Provisioning) getCandidates(ifName string) []string {
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
-	var candidates []*network
-	for _, nw := range w.networks {
+	var candidates []network
+	for _, nw := range w.netState.Networks() {
 		if nw.netType != NetworkTypeWifi || (nw.interfaceName != "" && nw.interfaceName != ifName) {
 			continue
 		}
@@ -585,7 +547,7 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 
 	if !w.cfg.RoamingMode {
 		for _, nw := range candidates {
-			if nw.ssid == w.primarySSID[w.hotspotInterface] {
+			if nw.ssid == w.netState.PrimarySSID(w.hotspotInterface) {
 				return []string{nw.ssid}
 			}
 		}
