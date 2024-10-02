@@ -22,10 +22,9 @@ type networkState struct {
 	activeSSID  map[string]string
 	lastSSID    map[string]string
 	activeConn  map[string]gnm.ActiveConnection
-	ethDevice  map[string]gnm.DeviceWired
-	wifiDevice map[string]gnm.DeviceWireless
+	ethDevice   map[string]gnm.DeviceWired
+	wifiDevice  map[string]gnm.DeviceWireless
 }
-
 
 func NewNetworkState(logger logging.Logger) *networkState {
 	return &networkState{
@@ -59,7 +58,7 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 		} else {
 			net.netType = NetworkTypeWired
 		}
-		if iface != "any" || iface != "" {
+		if iface != IfNameAny && iface != "" {
 			net.interfaceName = iface
 		}
 	}
@@ -245,7 +244,7 @@ func (n *networkState) SetWifiDevice(iface string, dev gnm.DeviceWireless) {
 }
 
 func (n *networkState) Devices() map[string]gnm.Device {
- 	n.mu.Lock()
+	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	// merge the two device types into a single generic list

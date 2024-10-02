@@ -37,15 +37,16 @@ var (
 func main() {
 	ctx := setupExitSignalHandling()
 
+	//nolint:lll
 	var opts struct {
-		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config"   short:"c"`
-		ProvisioningConfig string `default:"/etc/viam-provisioning.json"    description:"Path to provisioning (customization) config file" long:"provisioning" short:"p"`
-		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"    short:"d"`
-		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"     short:"f"`
-		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
-		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
-		Install bool   `description:"Install systemd service"               long:"install"`
-		DevMode bool   `description:"Allow non-root and non-service"        env:"VIAM_AGENT_DEVMODE"          long:"dev-mode"`
+		Config             string `default:"/etc/viam.json"                        description:"Path to config file"                              long:"config"       short:"c"`
+		ProvisioningConfig string `default:"/etc/viam-provisioning.json"           description:"Path to provisioning (customization) config file" long:"provisioning" short:"p"`
+		Debug              bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                                         long:"debug"        short:"d"`
+		Fast               bool   `description:"Enable fast start mode"            env:"VIAM_AGENT_FAST_START"                                    long:"fast"         short:"f"`
+		Help               bool   `description:"Show this help message"            long:"help"                                                    short:"h"`
+		Version            bool   `description:"Show version"                      long:"version"                                                 short:"v"`
+		Install            bool   `description:"Install systemd service"           long:"install"`
+		DevMode            bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                                       long:"dev-mode"`
 	}
 
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)

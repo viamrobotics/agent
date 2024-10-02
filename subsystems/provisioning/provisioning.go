@@ -1,8 +1,8 @@
+// Package provisioning is the subsystem responsible for network/wifi management, and initial device setup via hotspot.
 package provisioning
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"reflect"
 	"strings"
@@ -21,7 +21,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// SMURF TODO: Register and init
+// SMURF TODO: Register and init.
 func init() {
 	registry.Register(SubsysName, NewProvisioning)
 }
@@ -39,24 +39,28 @@ type Provisioning struct {
 	// holders of this lock must use HealthySleep to respond to HealthChecks from the parent agent during long operations
 	opMu sync.Mutex
 
+	// used to stop main/bg loops
+	cancel context.CancelFunc
+
 	// only set during NewProvisioning, no lock
-	nm          gnm.NetworkManager
-	settings    gnm.Settings
-	hostname    string
-	logger      logging.Logger
-	AppCfgPath  string
+	nm         gnm.NetworkManager
+	settings   gnm.Settings
+	hostname   string
+	logger     logging.Logger
+	AppCfgPath string
 
 	// internal locking
 	connState *connectionState
 	netState  *networkState
 
+	mainLoopHealth *health
+	bgLoopHealth   *health
+
 	// locking for config updates
-	dataMu sync.Mutex
-	cfg         Config
+	dataMu           sync.Mutex
+	cfg              Config
 	hotspotInterface string // the wifi device used by provisioning and actively managed for connectivity
 	hotspotSSID      string
-
-
 	// SMURF Lock below here...
 
 	errors []error
@@ -89,15 +93,19 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	}
 
 	w := &Provisioning{
-		cfg:         *cfg,
-		AppCfgPath:  AppConfigFilePath,
-		logger:      logger,
-		nm:          nm,
-		settings:    settings,
+		cfg:        *cfg,
+		AppCfgPath: AppConfigFilePath,
+		logger:     logger,
+		nm:         nm,
+		settings:   settings,
 
-		connState:       NewConnectionState(logger),
-		netState:       NewNetworkState(logger),
-		input:       &UserInput{},
+		connState: NewConnectionState(logger),
+		netState:  NewNetworkState(logger),
+
+		mainLoopHealth: &health{},
+		bgLoopHealth:   &health{},
+
+		input: &UserInput{},
 	}
 
 	w.hostname, err = settings.GetPropertyHostname()
@@ -159,17 +167,22 @@ func (w *Provisioning) Start(ctx context.Context) error {
 
 	w.processAdditionalnetworks(ctx)
 
-	// SMURF background this in a gofunc
-	// this will loop indefinitely until context cancellation or serious error
-	if err := w.StartMonitoring(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if err := w.checkOnline(true); err != nil {
 		w.logger.Error(err)
 	}
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	w.cancel = cancel
+
+	// these will loop indefinitely until context cancellation or serious error
+	w.monitorWorkers.Add(2)
+	go w.backgroundLoop(cancelCtx)
+	go w.mainLoop(cancelCtx)
 
 	w.logger.Info("agent-provisioning startup complete")
 	return nil
 }
 
-// SMURF complete these
 func (w *Provisioning) Stop(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
@@ -181,11 +194,12 @@ func (w *Provisioning) Stop(ctx context.Context) error {
 			w.logger.Error(err)
 		}
 	}
+	w.cancel()
 	w.monitorWorkers.Wait()
 	return nil
 }
 
-// Update validates and/or updates a subsystem, returns true if subsystem should be restarted
+// Update validates and/or updates a subsystem, returns true if subsystem should be restarted.
 func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSubsystemConfig) (bool, error) {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
@@ -202,16 +216,25 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
 	w.cfg = *cfg
+
+	// SMURF hotspot iface/ssid
+
 	return true, nil
 }
 
-// HealthCheck reports if a subsystem is running correctly (it is restarted if not)
+// HealthCheck reports if a subsystem is running correctly (it is restarted if not).
 func (w *Provisioning) HealthCheck(ctx context.Context) error {
-	// SMURF implement
-	return nil
+	w.opMu.Lock()
+	defer w.opMu.Unlock()
+
+	if w.bgLoopHealth.IsHealthy() && w.mainLoopHealth.IsHealthy() {
+		return nil
+	}
+
+	return errw.New("provisioning not responsive")
 }
 
-// Version returns the current version of the subsystem
+// Version returns the current version of the subsystem.
 func (w *Provisioning) Version() string {
 	return agent.GetRevision()
 }

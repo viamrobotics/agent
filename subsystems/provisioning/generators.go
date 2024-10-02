@@ -178,7 +178,7 @@ func generateAddress(addr string) (uint32, error) {
 
 func genNetKey(ifName, ssid string) string {
 	if ifName == "" {
-		ifName = "any"
+		ifName = IfNameAny
 	}
 
 	if ssid == "" {

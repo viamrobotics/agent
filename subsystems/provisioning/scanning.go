@@ -36,7 +36,7 @@ func (w *Provisioning) NetworkScan(ctx context.Context) error {
 		if lastScan > prevScan {
 			break
 		}
-		if !HealthySleep(ctx, time.Second) {
+		if !w.bgLoopHealth.Sleep(ctx, time.Second) {
 			return nil
 		}
 	}
@@ -50,7 +50,7 @@ func (w *Provisioning) NetworkScan(ctx context.Context) error {
 	now := time.Now()
 	for _, ap := range wifiList {
 		if ctx.Err() != nil {
-			return nil
+			return nil //nolint:nilerr
 		}
 		ssid, err := ap.GetPropertySSID()
 		if err != nil {
@@ -100,7 +100,7 @@ func (w *Provisioning) NetworkScan(ctx context.Context) error {
 
 	for _, nw := range w.netState.LockingNetworks() {
 		if ctx.Err() != nil {
-			return nil
+			return nil //nolint:nilerr
 		}
 		nw.mu.Lock()
 		// if a network isn't visible, reset the firstSeen time
@@ -250,7 +250,7 @@ func getIfNameSSIDTypeFromSettings(settings gnm.ConnectionSettings) (string, str
 		return "", "", ""
 	}
 
-	ifName := "any"
+	var ifName string
 	conn, ok := settings["connection"]
 	if ok {
 		ifKey, ok := conn["interface-name"]

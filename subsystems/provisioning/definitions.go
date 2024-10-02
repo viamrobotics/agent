@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -31,6 +32,10 @@ const (
 	NetworkTypeWifi    = "wifi"
 	NetworkTypeWired   = "wired"
 	NetworkTypeHotspot = "hotspot"
+
+	IfNameAny = "any"
+
+	HealthCheckTimeout = time.Minute
 )
 
 var (
@@ -48,9 +53,8 @@ var (
 		Networks:           []NetworkConfig{},
 	}
 
-
-	// Can be overwritten via cli arguments
-	AppConfigFilePath = "/etc/viam.json"
+	// Can be overwritten via cli arguments.
+	AppConfigFilePath          = "/etc/viam.json"
 	ProvisioningConfigFilePath = "/etc/viam-provisioning.json"
 
 	ErrBadPassword             = errors.New("bad or missing password")
@@ -211,7 +215,7 @@ type UserInput struct {
 	RawConfig string
 }
 
-func ConfigFromJson(defaultConf Config, jsonBytes []byte) (*Config, error) {
+func ConfigFromJSON(defaultConf Config, jsonBytes []byte) (*Config, error) {
 	minTimeout := Timeout(time.Second * 15)
 	conf := defaultConf
 	if err := json.Unmarshal(jsonBytes, &conf); err != nil {
@@ -245,7 +249,7 @@ func ConfigFromJson(defaultConf Config, jsonBytes []byte) (*Config, error) {
 	return &conf, nil
 }
 
-func LoadConfig(updateConf *agentpb.DeviceSubsystemConfig) (*Config, error){
+func LoadConfig(updateConf *agentpb.DeviceSubsystemConfig) (*Config, error) {
 	// config from disk (/etc/viam-provisioning.json)
 	jsonBytes, err := os.ReadFile(ProvisioningConfigFilePath)
 	if err != nil {
@@ -254,7 +258,7 @@ func LoadConfig(updateConf *agentpb.DeviceSubsystemConfig) (*Config, error){
 		}
 	}
 
-	cfg, err := ConfigFromJson(DefaultConf, jsonBytes)
+	cfg, err := ConfigFromJSON(DefaultConf, jsonBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +269,7 @@ func LoadConfig(updateConf *agentpb.DeviceSubsystemConfig) (*Config, error){
 		return nil, err
 	}
 
-	cfg, err = ConfigFromJson(*cfg, jsonBytes)
+	cfg, err = ConfigFromJSON(*cfg, jsonBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -332,4 +336,27 @@ func (t *Timeout) UnmarshalJSON(b []byte) error {
 	default:
 		return errw.Errorf("invalid duration: %+v", v)
 	}
+}
+
+type health struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+func (h *health) Sleep(ctx context.Context, timeout time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.last = time.Now()
+		return true
+	}
+}
+
+func (h *health) IsHealthy() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return time.Since(h.last) < HealthCheckTimeout
 }

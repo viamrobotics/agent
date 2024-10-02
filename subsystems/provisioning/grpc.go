@@ -50,7 +50,7 @@ func (w *Provisioning) GetSmartMachineStatus(ctx context.Context,
 
 	lastSSID := w.netState.LastSSID(w.hotspotInterface)
 	if lastSSID != "" {
-	lastNetwork := w.netState.Network(w.hotspotInterface, lastSSID)
+		lastNetwork := w.netState.Network(w.hotspotInterface, lastSSID)
 		lastNetworkInfo := lastNetwork.getInfo()
 		ret.LatestConnectionAttempt = NetworkInfoToProto(&lastNetworkInfo)
 	}

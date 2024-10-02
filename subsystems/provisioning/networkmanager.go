@@ -144,7 +144,7 @@ func (w *Provisioning) CheckConnections() error {
 			w.netState.SetActiveConn(ifName, nil)
 			w.netState.SetActiveSSID(ifName, "")
 			nw.connected = false
-		}else{
+		} else {
 			w.netState.SetActiveConn(ifName, activeConnection)
 			w.netState.SetActiveSSID(ifName, ssid)
 			nw.connected = true
@@ -363,7 +363,7 @@ func (w *Provisioning) waitForConnect(ctx context.Context, device gnm.Device) er
 			default:
 			}
 		default:
-			if !HealthySleep(timeoutCtx, time.Second) {
+			if !w.mainLoopHealth.Sleep(timeoutCtx, time.Second) {
 				return errw.Wrap(ctx.Err(), "waiting for network activation")
 			}
 		}
@@ -406,7 +406,7 @@ func (w *Provisioning) addOrUpdateConnection(cfg NetworkConfig) (bool, error) {
 		}
 		nw.isHotspot = true
 		settings = generateHotspotSettings(w.cfg.HotspotPrefix, w.hotspotSSID, w.cfg.HotspotPassword, w.hotspotInterface)
-	}else{
+	} else {
 		settings, err = generateNetworkSettings(w.cfg.Manufacturer+"-"+netKey, cfg)
 		if err != nil {
 			return changesMade, err
@@ -565,43 +565,34 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 	return out
 }
 
-func (w *Provisioning) startStateMonitors(ctx context.Context) {
-	if err := w.checkOnline(true); err != nil {
-		w.logger.Error(err)
-	}
-
-	w.monitorWorkers.Add(1)
-	go func() {
-		defer w.monitorWorkers.Done()
-		w.logger.Info("Background state monitors started")
-		defer w.logger.Info("Background state monitors stopped")
-		for {
-			if !Sleep(ctx, scanLoopDelay) {
-				return
-			}
-
-			w.checkConfigured()
-			if err := w.NetworkScan(ctx); err != nil {
-				w.logger.Error(err)
-			}
-			if err := w.CheckConnections(); err != nil {
-				w.logger.Error(err)
-			}
-			if err := w.checkOnline(false); err != nil {
-				w.logger.Error(err)
-			}
+func (w *Provisioning) backgroundLoop(ctx context.Context) {
+	defer w.monitorWorkers.Done()
+	w.logger.Info("Background state monitors started")
+	defer w.logger.Info("Background state monitors stopped")
+	for {
+		if !w.bgLoopHealth.Sleep(ctx, scanLoopDelay) {
+			return
 		}
-	}()
+
+		w.checkConfigured()
+		if err := w.NetworkScan(ctx); err != nil {
+			w.logger.Error(err)
+		}
+		if err := w.CheckConnections(); err != nil {
+			w.logger.Error(err)
+		}
+		if err := w.checkOnline(false); err != nil {
+			w.logger.Error(err)
+		}
+	}
 }
 
-func (w *Provisioning) StartMonitoring(ctx context.Context) error {
-	w.startStateMonitors(ctx)
-
+func (w *Provisioning) mainLoop(ctx context.Context) {
+	defer w.monitorWorkers.Done()
 	var userInputReceived bool
-
 	for {
-		if !HealthySleep(ctx, mainLoopDelay) {
-			return nil
+		if !w.mainLoopHealth.Sleep(ctx, mainLoopDelay) {
+			return
 		}
 		userInput := w.GetUserInput()
 		if userInput != nil {
@@ -647,8 +638,8 @@ func (w *Provisioning) StartMonitoring(ctx context.Context) error {
 			}
 
 			// wait 3 seconds so responses can be sent to/seen by user
-			if !HealthySleep(ctx, time.Second*3) {
-				return nil
+			if !w.mainLoopHealth.Sleep(ctx, time.Second*3) {
+				return
 			}
 			if changesMade {
 				err := w.StopProvisioning()
@@ -666,18 +657,17 @@ func (w *Provisioning) StartMonitoring(ctx context.Context) error {
 					if err != nil {
 						w.logger.Error(err)
 					}
-					w.dataMu.Lock()
-					netKey := genNetKey("", newSSID)
-					nw, ok := w.networks[netKey]
-					if ok {
+					nw := w.netState.LockingNetwork("", newSSID)
+					nw.mu.Lock()
+					if nw.conn != nil {
 						// add a user warning for the portal
 						err = errw.New("Network has no internet. Resubmit to use anyway.")
 						nw.lastError = err
 						w.logger.Warn(err)
 					} else {
-						w.logger.Error("cannot find %s in network list", netKey)
+						w.logger.Error("cannot find %s in network list", genNetKey("", newSSID))
 					}
-					w.dataMu.Unlock()
+					nw.mu.Unlock()
 					err = w.StartProvisioning(ctx)
 					if err != nil {
 						w.logger.Error(err)
