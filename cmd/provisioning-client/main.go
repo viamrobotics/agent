@@ -58,7 +58,7 @@ func main() {
 		}
 	}
 
-	conn, err := grpc.Dial(opts.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(opts.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Println(err)
 	}
