@@ -220,6 +220,9 @@ main() {
 		exit 1
 	fi
 
+	# SMURF need logic to detect 32-bit userland on 64-bit kernel
+	# $(dpkg --print-architecture)
+
 	if ! [ -d /etc/systemd/system ]; then
 		echo
 		echo "Viam Agent is only supported on systems using systemd."

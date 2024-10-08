@@ -11,10 +11,10 @@ import (
 	errw "github.com/pkg/errors"
 )
 
-func (w *Provisioning) NetworkScan(ctx context.Context) error {
-	wifiDev := w.netState.WifiDevice(w.hotspotInterface)
+func (w *Provisioning) networkScan(ctx context.Context) error {
+	wifiDev := w.netState.WifiDevice(w.Config().HotspotInterface)
 	if wifiDev == nil {
-		return errw.Errorf("cannot find hotspot interface: %s", w.hotspotInterface)
+		return errw.Errorf("cannot find hotspot interface: %s", w.Config().HotspotInterface)
 	}
 
 	prevScan, err := wifiDev.GetPropertyLastScan()
@@ -82,7 +82,7 @@ func (w *Provisioning) NetworkScan(ctx context.Context) error {
 			continue
 		}
 
-		nw := w.netState.LockingNetwork(w.hotspotSSID, ssid)
+		nw := w.netState.LockingNetwork(w.Config().hotspotSSID, ssid)
 		nw.mu.Lock()
 
 		nw.netType = NetworkTypeWifi
@@ -180,7 +180,7 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 		nw.conn = conn
 		nw.priority = getPriorityFromSettings(settings)
 
-		if nw.ssid == w.hotspotSSID {
+		if nw.ssid == w.Config().hotspotSSID {
 			nw.netType = NetworkTypeHotspot
 			nw.isHotspot = true
 		} else if nw.priority > highestPriority[ifName] {

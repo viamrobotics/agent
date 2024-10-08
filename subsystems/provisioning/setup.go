@@ -84,6 +84,7 @@ func (w *Provisioning) writeConnCheck() error {
 	return os.WriteFile(ConnCheckFilepath, []byte(ConnCheckContents), 0o644)
 }
 
+// must be run inside dataMu lock.
 func (w *Provisioning) initDevices() error {
 	devices, err := w.nm.GetDevices()
 	if err != nil {
@@ -119,8 +120,8 @@ func (w *Provisioning) initDevices() error {
 			}
 			w.netState.SetWifiDevice(ifName, wifiDev)
 
-			if w.hotspotInterface == "" || ifName == w.cfg.HotspotInterface {
-				w.hotspotInterface = ifName
+			if w.cfg.HotspotInterface == "" || ifName == w.cfg.HotspotInterface {
+				w.cfg.HotspotInterface = ifName
 				w.logger.Infof("Using %s for hotspot/provisioning, will actively manage wifi only on this device.", ifName)
 			}
 		default:
@@ -132,7 +133,7 @@ func (w *Provisioning) initDevices() error {
 		}
 	}
 
-	if w.hotspotInterface == "" {
+	if w.Config().HotspotInterface == "" {
 		return errors.New("cannot find wifi device for provisioning/hotspot")
 	}
 

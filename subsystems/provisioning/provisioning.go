@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -21,19 +20,12 @@ import (
 	"google.golang.org/grpc"
 )
 
-// SMURF TODO: Register and init.
 func init() {
 	registry.Register(SubsysName, NewProvisioning)
 }
 
-// func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-// 	subsys := &NMWrapper{}
-// 	return agent.NewAgentSubsystem(ctx, SubsysName, logger, subsys)
-// }
-
 type Provisioning struct {
-	monitorWorkers      sync.WaitGroup
-	provisioningWorkers sync.WaitGroup
+	monitorWorkers sync.WaitGroup
 
 	// blocks start/stop/etc operations
 	// holders of this lock must use HealthySleep to respond to HealthChecks from the parent agent during long operations
@@ -52,26 +44,21 @@ type Provisioning struct {
 	// internal locking
 	connState *connectionState
 	netState  *networkState
+	errors    *errorList
+	banner    *banner
 
 	mainLoopHealth *health
 	bgLoopHealth   *health
 
 	// locking for config updates
-	dataMu           sync.Mutex
-	cfg              Config
-	hotspotInterface string // the wifi device used by provisioning and actively managed for connectivity
-	hotspotSSID      string
-	// SMURF Lock below here...
-
-	errors []error
+	dataMu sync.Mutex
+	cfg    *Config
 
 	// portal
 	webServer  *http.Server
 	grpcServer *grpc.Server
+	portalData *portalData
 
-	input         *UserInput
-	inputReceived atomic.Bool
-	banner        string
 	pb.UnimplementedProvisioningServiceServer
 }
 
@@ -93,7 +80,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	}
 
 	w := &Provisioning{
-		cfg:        *cfg,
+		cfg:        cfg,
 		AppCfgPath: AppConfigFilePath,
 		logger:     logger,
 		nm:         nm,
@@ -102,10 +89,12 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		connState: NewConnectionState(logger),
 		netState:  NewNetworkState(logger),
 
+		errors:     &errorList{},
+		banner:     &banner{},
+		portalData: &portalData{},
+
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
-
-		input: &UserInput{},
 	}
 
 	w.hostname, err = settings.GetPropertyHostname()
@@ -113,10 +102,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		return nil, errw.Wrap(err, "error getting hostname from NetworkManager, is NetworkManager installed and enabled?")
 	}
 
-	w.hotspotSSID = w.cfg.HotspotPrefix + "-" + strings.ToLower(w.hostname)
-	if len(w.hotspotSSID) > 32 {
-		w.hotspotSSID = w.hotspotSSID[:32]
-	}
+	w.updateHotspotSSID()
 
 	if err := w.writeDNSMasq(); err != nil {
 		return nil, errw.Wrap(err, "error writing dnsmasq configuration")
@@ -131,7 +117,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	}
 
 	w.checkConfigured()
-	if err := w.NetworkScan(ctx); err != nil {
+	if err := w.networkScan(ctx); err != nil {
 		return nil, err
 	}
 
@@ -141,17 +127,17 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		w.logger.Info("Roaming Mode enabled. Will try all connections for global internet connectivity.")
 	} else {
 		w.logger.Infof("Default (Single Network) Mode enabled. Will directly connect only to primary network: %s",
-			w.netState.PrimarySSID(w.hotspotInterface))
+			w.netState.PrimarySSID(w.Config().HotspotInterface))
 	}
 
-	if err := w.CheckConnections(); err != nil {
+	if err := w.checkConnections(); err != nil {
 		return nil, err
 	}
 
 	// Is there a configured wifi network? If so, set last times to now so we use normal timeouts.
 	// Otherwise, hotspot will start immediately if not connected, while wifi network might still be booting.
 	for _, nw := range w.netState.Networks() {
-		if nw.conn != nil && nw.netType == NetworkTypeWifi && (nw.interfaceName == "" || nw.interfaceName == w.hotspotInterface) {
+		if nw.conn != nil && nw.netType == NetworkTypeWifi && (nw.interfaceName == "" || nw.interfaceName == w.Config().HotspotInterface) {
 			w.connState.lastConnected = time.Now()
 			w.connState.lastOnline = time.Now()
 			break
@@ -175,8 +161,6 @@ func (w *Provisioning) Start(ctx context.Context) error {
 	w.cancel = cancel
 
 	// these will loop indefinitely until context cancellation or serious error
-	w.monitorWorkers.Add(2)
-	go w.backgroundLoop(cancelCtx)
 	go w.mainLoop(cancelCtx)
 
 	w.logger.Info("agent-provisioning startup complete")
@@ -215,9 +199,11 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
-	w.cfg = *cfg
-
-	// SMURF hotspot iface/ssid
+	w.cfg = cfg
+	w.updateHotspotSSID()
+	if err := w.initDevices(); err != nil {
+		return false, err
+	}
 
 	return true, nil
 }
@@ -239,6 +225,12 @@ func (w *Provisioning) Version() string {
 	return agent.GetRevision()
 }
 
+func (w *Provisioning) Config() Config {
+	w.dataMu.Lock()
+	defer w.dataMu.Unlock()
+	return *w.cfg
+}
+
 func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
 	if !w.cfg.RoamingMode && len(w.cfg.Networks) > 0 {
 		w.logger.Warn("Additional networks configured, but Roaming Mode is not enabled. Additional wifi networks will likely be unused.")
@@ -249,10 +241,18 @@ func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
 		if err != nil {
 			w.logger.Error(errw.Wrapf(err, "error adding network %s", network.SSID))
 		}
-		if network.Interface != "" && w.GetHotspotInterface() != network.Interface {
+		if network.Interface != "" && w.Config().HotspotInterface != network.Interface {
 			if err := w.ActivateConnection(ctx, network.Interface, network.SSID); err != nil {
 				w.logger.Error(err)
 			}
 		}
+	}
+}
+
+// must be run inside dataMu lock.
+func (w *Provisioning) updateHotspotSSID() {
+	w.cfg.hotspotSSID = w.cfg.HotspotPrefix + "-" + strings.ToLower(w.hostname)
+	if len(w.cfg.hotspotSSID) > 32 {
+		w.cfg.hotspotSSID = w.cfg.hotspotSSID[:32]
 	}
 }

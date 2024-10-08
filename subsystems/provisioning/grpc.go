@@ -22,9 +22,9 @@ func (w *Provisioning) startGRPC() error {
 	w.grpcServer = grpc.NewServer(grpc.WaitForHandlers(true))
 	pb.RegisterProvisioningServiceServer(w.grpcServer, w)
 
-	w.provisioningWorkers.Add(1)
+	w.portalData.workers.Add(1)
 	go func() {
-		defer w.provisioningWorkers.Done()
+		defer w.portalData.workers.Done()
 		if err := w.grpcServer.Serve(lis); err != nil {
 			w.logger.Error(err)
 		}
@@ -48,16 +48,15 @@ func (w *Provisioning) GetSmartMachineStatus(ctx context.Context,
 		Errors:                     w.errListAsStrings(),
 	}
 
-	lastSSID := w.netState.LastSSID(w.hotspotInterface)
+	lastSSID := w.netState.LastSSID(w.Config().HotspotInterface)
 	if lastSSID != "" {
-		lastNetwork := w.netState.Network(w.hotspotInterface, lastSSID)
+		lastNetwork := w.netState.Network(w.Config().HotspotInterface, lastSSID)
 		lastNetworkInfo := lastNetwork.getInfo()
 		ret.LatestConnectionAttempt = NetworkInfoToProto(&lastNetworkInfo)
 	}
 
 	// reset the errors, as they were now just displayed
-	// SMURF need locking func
-	w.errors = nil
+	w.errors.Clear()
 
 	return ret, nil
 }
@@ -71,22 +70,22 @@ func (w *Provisioning) SetNetworkCredentials(ctx context.Context,
 		return nil, errw.Errorf("unknown network type: %s, only %s currently supported", req.GetType(), NetworkTypeWifi)
 	}
 
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
+	w.portalData.mu.Lock()
+	defer w.portalData.mu.Unlock()
 
-	// SMURF input locking
-	w.input.Updated = time.Now()
-	w.input.SSID = req.GetSsid()
-	w.input.PSK = req.GetPsk()
-	w.inputReceived.Store(true)
+	w.portalData.Updated = time.Now()
+	w.portalData.input.SSID = req.GetSsid()
+	w.portalData.input.PSK = req.GetPsk()
 
-	lastSSID := w.netState.LastSSID(w.hotspotInterface)
+	lastSSID := w.netState.LastSSID(w.Config().HotspotInterface)
 	if req.GetSsid() == lastSSID && lastSSID != "" {
-		lastNetwork := w.netState.LockingNetwork(w.hotspotInterface, lastSSID)
+		lastNetwork := w.netState.LockingNetwork(w.Config().HotspotInterface, lastSSID)
 		lastNetwork.mu.Lock()
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()
 	}
+
+	w.portalData.sendInput(w.connState)
 
 	return &pb.SetNetworkCredentialsResponse{}, nil
 }
@@ -100,14 +99,14 @@ func (w *Provisioning) SetSmartMachineCredentials(ctx context.Context,
 	if cloud == nil {
 		return nil, errors.New("request must include a Cloud config section")
 	}
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
+	w.portalData.mu.Lock()
+	defer w.portalData.mu.Unlock()
+	w.portalData.Updated = time.Now()
+	w.portalData.input.PartID = cloud.GetId()
+	w.portalData.input.Secret = cloud.GetSecret()
+	w.portalData.input.AppAddr = cloud.GetAppAddress()
 
-	w.input.Updated = time.Now()
-	w.input.PartID = cloud.GetId()
-	w.input.Secret = cloud.GetSecret()
-	w.input.AppAddr = cloud.GetAppAddress()
-	w.inputReceived.Store(true)
+	w.portalData.sendInput(w.connState)
 
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }
@@ -116,9 +115,6 @@ func (w *Provisioning) GetNetworkList(ctx context.Context,
 	req *pb.GetNetworkListRequest,
 ) (*pb.GetNetworkListResponse, error) {
 	w.connState.setLastInteraction()
-
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
 
 	visibleNetworks := w.getVisibleNetworks()
 
@@ -133,14 +129,13 @@ func (w *Provisioning) GetNetworkList(ctx context.Context,
 func (w *Provisioning) errListAsStrings() []string {
 	errList := []string{}
 
-	lastNetwork := w.netState.Network(w.hotspotInterface, w.netState.LastSSID(w.hotspotInterface))
+	lastNetwork := w.netState.Network(w.Config().HotspotInterface, w.netState.LastSSID(w.Config().HotspotInterface))
 
 	if lastNetwork.lastError != nil {
 		errList = append(errList, fmt.Sprintf("SSID: %s: %s", lastNetwork.ssid, lastNetwork.lastError))
 	}
 
-	// SMURF lock errors
-	for _, err := range w.errors {
+	for _, err := range w.errors.Errors() {
 		errList = append(errList, err.Error())
 	}
 	return errList

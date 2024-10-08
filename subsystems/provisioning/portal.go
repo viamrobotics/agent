@@ -30,6 +30,10 @@ type templateData struct {
 var templates embed.FS
 
 func (w *Provisioning) startPortal() error {
+	w.dataMu.Lock()
+	defer w.dataMu.Unlock()
+	w.portalData = &portalData{input: &userInput{}}
+
 	if err := w.startGRPC(); err != nil {
 		return errw.Wrap(err, "error starting GRPC service")
 	}
@@ -55,9 +59,9 @@ func (w *Provisioning) startWeb() error {
 		return errw.Wrapf(err, "error listening on: %s", bind)
 	}
 
-	w.provisioningWorkers.Add(1)
+	w.portalData.workers.Add(1)
 	go func() {
-		defer w.provisioningWorkers.Done()
+		defer w.portalData.workers.Done()
 		err := w.webServer.Serve(lis)
 		if !errors.Is(err, http.ErrServerClosed) {
 			w.logger.Error(err)
@@ -77,30 +81,15 @@ func (w *Provisioning) stopPortal() error {
 		err = w.webServer.Close()
 	}
 
-	w.input = &UserInput{}
-	w.inputReceived.Store(false)
+	w.portalData.mu.Lock()
+	defer w.portalData.mu.Unlock()
+	if w.portalData.cancel != nil {
+		w.portalData.cancel()
+	}
+	w.portalData.workers.Wait()
+	w.portalData = &portalData{input: &userInput{}}
 
 	return err
-}
-
-func (w *Provisioning) GetUserInput() *UserInput {
-	if w.inputReceived.Load() {
-		w.dataMu.Lock()
-		defer w.dataMu.Unlock()
-		input := w.input
-
-		// in case both network and device credentials are being updated
-		// only send user data after we've had it for ten seconds or if both are already set
-		if time.Now().After(input.Updated.Add(time.Second*10)) ||
-			(input.SSID != "" && input.PartID != "") ||
-			(input.SSID != "" && w.connState.getConfigured()) ||
-			(input.PartID != "" && w.connState.getOnline()) {
-			w.input = &UserInput{}
-			w.inputReceived.Store(false)
-			return input
-		}
-	}
-	return nil
 }
 
 func (w *Provisioning) portalIndex(resp http.ResponseWriter, req *http.Request) {
@@ -111,14 +100,13 @@ func (w *Provisioning) portalIndex(resp http.ResponseWriter, req *http.Request) 
 	}()
 	w.connState.setLastInteraction()
 
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
+	cfg := w.Config()
 
 	data := templateData{
-		Manufacturer: w.cfg.Manufacturer,
-		Model:        w.cfg.Model,
-		FragmentID:   w.cfg.FragmentID,
-		Banner:       w.banner,
+		Manufacturer: cfg.Manufacturer,
+		Model:        cfg.Model,
+		FragmentID:   cfg.FragmentID,
+		Banner:       w.banner.Get(),
 		LastNetwork:  w.getLastNetworkTried(),
 		VisibleSSIDs: w.getVisibleNetworks(),
 		IsOnline:     w.connState.getOnline(),
@@ -147,8 +135,8 @@ func (w *Provisioning) portalIndex(resp http.ResponseWriter, req *http.Request) 
 	}
 
 	// reset the errors and banner, as they were now just displayed
-	w.banner = ""
-	w.errors = nil
+	w.banner.Set("")
+	w.errors.Clear()
 }
 
 func (w *Provisioning) portalSave(resp http.ResponseWriter, req *http.Request) {
@@ -159,8 +147,6 @@ func (w *Provisioning) portalSave(resp http.ResponseWriter, req *http.Request) {
 	}()
 
 	if req.Method == http.MethodPost {
-		w.dataMu.Lock()
-		defer w.dataMu.Unlock()
 		defer http.Redirect(resp, req, "/", http.StatusSeeOther)
 
 		w.connState.setLastInteraction()
@@ -170,45 +156,46 @@ func (w *Provisioning) portalSave(resp http.ResponseWriter, req *http.Request) {
 		rawConfig := req.FormValue("viamconfig")
 
 		if ssid == "" && !w.connState.getOnline() {
-			w.errors = append(w.errors, errors.New("no SSID provided"))
+			w.errors.Add(errors.New("no SSID provided"))
 			return
 		}
 
 		if rawConfig == "" && !w.connState.getConfigured() {
-			w.errors = append(w.errors, errors.New("no device config provided"))
+			w.errors.Add(errors.New("no device config provided"))
 			return
 		}
 
+		w.portalData.mu.Lock()
+		defer w.portalData.mu.Unlock()
 		if rawConfig != "" {
 			// we'll check if the config is valid, but NOT use the parsed config, in case additional fields are in the json
 			cfg := &MachineConfig{}
 			if err := json.Unmarshal([]byte(rawConfig), cfg); err != nil {
-				w.errors = append(w.errors, errw.Wrap(err, "invalid json config contents"))
+				w.errors.Add(errw.Wrap(err, "invalid json config contents"))
 				return
 			}
 			if cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" || cfg.Cloud.AppAddress == "" {
-				w.errors = append(w.errors, errors.New("incomplete cloud config provided"))
+				w.errors.Add(errors.New("incomplete cloud config provided"))
 				return
 			}
-			w.input.RawConfig = rawConfig
+			w.portalData.input.RawConfig = rawConfig
 			w.logger.Debug("saving raw device config")
-			w.banner = "Saving device config. "
+			w.banner.Set("Saving device config. ")
 		}
 
 		if ssid != "" {
-			w.input.SSID = ssid
-			w.input.PSK = psk
-			w.logger.Debugf("saving credentials for %s", w.input.SSID)
-			w.banner += "Added credentials for SSID: " + w.input.SSID
+			w.portalData.input.SSID = ssid
+			w.portalData.input.PSK = psk
+			w.logger.Debugf("saving credentials for %s", w.portalData.input.SSID)
+			w.banner.Set(w.banner.Get() + "Added credentials for SSID: " + w.portalData.input.SSID)
 		}
 
-		if ssid == w.netState.LastSSID(w.hotspotInterface) && ssid != "" {
-			lastNetwork := w.netState.LockingNetwork(w.hotspotInterface, ssid)
+		if ssid == w.netState.LastSSID(w.Config().HotspotInterface) && ssid != "" {
+			lastNetwork := w.netState.LockingNetwork(w.Config().HotspotInterface, ssid)
 			lastNetwork.mu.Lock()
 			lastNetwork.lastError = nil
 			lastNetwork.mu.Unlock()
 		}
-		w.input.Updated = time.Now()
-		w.inputReceived.Store(true)
+		w.portalData.Updated = time.Now()
 	}
 }

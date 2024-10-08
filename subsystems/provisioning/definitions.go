@@ -60,7 +60,6 @@ var (
 	ErrBadPassword             = errors.New("bad or missing password")
 	ErrConnCheckDisabled       = errors.New("NetworkManager connectivity checking disabled by user, network management will be unavailable")
 	ErrNoActiveConnectionFound = errors.New("no active connection found")
-	mainLoopDelay              = time.Second * 1
 	scanLoopDelay              = time.Second * 15
 	connectTimeout             = time.Second * 50 // longer than the 45 second timeout in NetworkManager
 )
@@ -179,7 +178,7 @@ type CloudConfig struct {
 	Secret     string `json:"secret"`
 }
 
-func WriteDeviceConfig(file string, input UserInput) error {
+func WriteDeviceConfig(file string, input userInput) error {
 	if input.RawConfig != "" {
 		return os.WriteFile(file, []byte(input.RawConfig), 0o600)
 	}
@@ -199,9 +198,59 @@ func WriteDeviceConfig(file string, input UserInput) error {
 	return os.WriteFile(file, jsonBytes, 0o600)
 }
 
-type UserInput struct {
+type portalData struct {
+	mu      sync.Mutex
 	Updated time.Time
 
+	inputChan chan userInput
+
+	input   *userInput
+	workers sync.WaitGroup
+
+	// used to cancel background threads
+	cancel context.CancelFunc
+}
+
+func (p *portalData) sendInput(connState *connectionState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	input := *p.input
+	// in case both network and device credentials are being updated
+	// only send user data if both are already set
+	if (input.SSID != "" && input.PartID != "") ||
+		(input.SSID != "" && connState.getConfigured()) ||
+		(input.PartID != "" && connState.getOnline()) {
+		p.input = &userInput{}
+		p.inputChan <- input
+		if p.cancel != nil {
+			p.cancel()
+		}
+		return
+	}
+	// if not, wait 10 seconds for full input
+	if p.cancel != nil {
+		p.cancel()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+
+	p.workers.Add(1)
+	go func() {
+		defer p.workers.Done()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second * 10):
+		}
+		p.input = &userInput{}
+		p.inputChan <- input
+	}()
+}
+
+type userInput struct {
 	// network
 	SSID string
 	PSK  string
@@ -308,6 +357,9 @@ type Config struct {
 
 	// Additional networks to add/configure. Only useful in RoamingMode.
 	Networks []NetworkConfig `json:"networks"`
+
+	// Computed from HotspotPrefix and Manufacturer
+	hotspotSSID string
 }
 
 // Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.
@@ -343,6 +395,12 @@ type health struct {
 	last time.Time
 }
 
+func (h *health) MarkGood() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.last = time.Now()
+}
+
 func (h *health) Sleep(ctx context.Context, timeout time.Duration) bool {
 	select {
 	case <-ctx.Done():
@@ -359,4 +417,44 @@ func (h *health) IsHealthy() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return time.Since(h.last) < HealthCheckTimeout
+}
+
+type errorList struct {
+	mu     sync.Mutex
+	errors []error
+}
+
+func (e *errorList) Add(err ...error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.errors = append(e.errors, err...)
+}
+
+func (e *errorList) Clear() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.errors = []error{}
+}
+
+func (e *errorList) Errors() []error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.errors
+}
+
+type banner struct {
+	mu     sync.Mutex
+	banner string
+}
+
+func (b *banner) Set(banner string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.banner = banner
+}
+
+func (b *banner) Get() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.banner
 }
