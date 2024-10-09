@@ -3,8 +3,10 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -21,9 +23,32 @@ import (
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
 	"golang.org/x/sys/unix"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
-var ViamDirs = map[string]string{"viam": "/opt/viam"}
+var (
+	// versions embedded at build time.
+	Version     = ""
+	GitRevision = ""
+
+	ViamDirs = map[string]string{"viam": "/opt/viam"}
+)
+
+// GetVersion returns the version embedded at build time.
+func GetVersion() string {
+	if Version == "" {
+		return "custom"
+	}
+	return Version
+}
+
+// GetRevision returns the git revision embedded at build time.
+func GetRevision() string {
+	if GitRevision == "" {
+		return "unknown"
+	}
+	return GitRevision
+}
 
 func init() {
 	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
@@ -268,4 +293,51 @@ func SyncFS(syncPath string) (errRet error) {
 		errRet = errw.Wrapf(err, "syncing fs %s", syncPath)
 	}
 	return errors.Join(errRet, file.Close())
+}
+
+func WriteFileIfNew(outPath string, data []byte) (bool, error) {
+	//nolint:gosec
+	curFileBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		if !errw.Is(err, fs.ErrNotExist) {
+			return false, errw.Wrapf(err, "opening %s for reading", outPath)
+		}
+	} else if bytes.Equal(curFileBytes, data) {
+		return false, nil
+	}
+
+	//nolint:gosec
+	if err := os.MkdirAll(path.Dir(outPath), 0o755); err != nil {
+		return true, errw.Wrapf(err, "creating directory for %s", outPath)
+	}
+
+	//nolint:gosec
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		return true, errw.Wrapf(err, "writing %s", outPath)
+	}
+
+	return true, nil
+}
+
+func ConvertAttributes[T any](attributes *structpb.Struct) (*T, error) {
+	jsonBytes, err := attributes.MarshalJSON()
+	if err != nil {
+		return new(T), err
+	}
+
+	newConfig := new(T)
+	if err = json.Unmarshal(jsonBytes, newConfig); err != nil {
+		return new(T), err
+	}
+
+	return newConfig, nil
+}
+
+func Sleep(ctx context.Context, timeout time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		return true
+	}
 }

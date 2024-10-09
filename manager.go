@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +63,7 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
-	m.logger.Debugw("loading", "config", cfgPath)
+	m.logger.Debugf("loading config: %s", cfgPath)
 	//nolint:gosec
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
@@ -105,12 +106,13 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 		m.logger.Warn("m.netAppender already exists, replacing")
 	}
 	var err error
-	m.netAppender, err = logging.NewNetAppender(m.cloudConfig, nil, true)
+	m.netAppender, err = logging.NewNetAppender(m.cloudConfig, nil, true, m.logger)
 	return m.netAppender, err
 }
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
 func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
+	defer m.handlePanic()
 	m.subsystemsMu.Lock()
 	defer m.subsystemsMu.Unlock()
 
@@ -146,6 +148,7 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 
 // SubsystemUpdates checks for updates to configured subsystems and restarts them as needed.
 func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.DeviceSubsystemConfig) {
+	defer m.handlePanic()
 	if ctx.Err() != nil {
 		return
 	}
@@ -178,6 +181,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 
 // CheckUpdates retrieves an updated config from the cloud, and then passes it to SubsystemUpdates().
 func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
+	defer m.handlePanic()
 	m.logger.Debug("Checking cloud for update")
 	cfg, interval, err := m.GetConfig(ctx)
 
@@ -197,12 +201,14 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 
 // SubsystemHealthChecks makes sure all subsystems are responding, and restarts them if not.
 func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
+	defer m.handlePanic()
 	if ctx.Err() != nil {
 		return
 	}
 	m.logger.Debug("Starting health checks for all subsystems")
 	m.subsystemsMu.Lock()
 	defer m.subsystemsMu.Unlock()
+
 	for subsystemName, sub := range m.loadedSubsystems {
 		if ctx.Err() != nil {
 			return
@@ -213,7 +219,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			m.logger.Error(errw.Wrapf(err, "subsystem healthcheck failed for %s", subsystemName))
+			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", subsystemName))
 			if err := sub.Stop(ctx); err != nil {
 				m.logger.Error(errw.Wrapf(err, "stopping subsystem %s", subsystemName))
 			}
@@ -223,6 +229,8 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			if err := sub.Start(ctx); err != nil && !errors.Is(err, ErrSubsystemDisabled) {
 				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
 			}
+		} else {
+			m.logger.Debugf("Subsystem healthcheck succeeded for %s", subsystemName)
 		}
 	}
 }
@@ -305,7 +313,7 @@ func (m *Manager) LoadSubsystems(ctx context.Context) error {
 	for _, name := range registry.List() {
 		cfg, ok := cachedConfig[name]
 		if !ok {
-			cfg = registry.GetDefaultConfig(name)
+			cfg = &pb.DeviceSubsystemConfig{}
 		}
 		err := m.loadSubsystem(ctx, name, cfg)
 		if err != nil {
@@ -440,8 +448,6 @@ func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystem
 		return conf, minimalCheckInterval, err
 	}
 
-	m.logger.Debugf("Cloud-provided config: %+v", resp)
-
 	err = m.saveCachedConfig(resp.GetSubsystemConfigs())
 	if err != nil {
 		m.logger.Error(errw.Wrap(err, "saving agent config to cache"))
@@ -506,4 +512,13 @@ func (m *Manager) getSubsystemVersions() map[string]string {
 		vers[name] = sys.Version()
 	}
 	return vers
+}
+
+func (m *Manager) handlePanic() {
+	// if something panicked, log it and let things continue
+	r := recover()
+	if r != nil {
+		m.logger.Error("unknown panic encountered, will attempt to recover")
+		m.logger.Errorf("panic: %s\n%s", r, debug.Stack())
+	}
 }

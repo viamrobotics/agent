@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	registry.Register(subsysName, NewSubsystem, DefaultConfig)
+	registry.Register(subsysName, NewSubsystem)
 }
 
 const (
@@ -38,7 +38,6 @@ var (
 
 	//go:embed viam-agent.service
 	serviceFileContents []byte
-	DefaultConfig       = &pb.DeviceSubsystemConfig{}
 )
 
 type agentSubsystem struct{}
@@ -82,22 +81,6 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	fmt.Print(string(output))
 
 	return true, nil
-}
-
-// GetVersion returns the version embedded at build time.
-func GetVersion() string {
-	if Version == "" {
-		return "custom"
-	}
-	return Version
-}
-
-// GetRevision returns the git revision embedded at build time.
-func GetRevision() string {
-	if GitRevision == "" {
-		return "unknown"
-	}
-	return GitRevision
 }
 
 func Install(logger logging.Logger) error {

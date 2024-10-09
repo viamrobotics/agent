@@ -1,0 +1,46 @@
+Package files:
+ 100 /var/lib/dpkg/status
+     release a=now
+ 500 http://security.ubuntu.com/ubuntu jammy-security/multiverse amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-security,n=jammy,l=Ubuntu,c=multiverse,b=amd64
+     origin security.ubuntu.com
+ 500 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-security,n=jammy,l=Ubuntu,c=universe,b=amd64
+     origin security.ubuntu.com
+ 500 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-security,n=jammy,l=Ubuntu,c=restricted,b=amd64
+     origin security.ubuntu.com
+ 500 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-security,n=jammy,l=Ubuntu,c=main,b=amd64
+     origin security.ubuntu.com
+ 100 http://archive.ubuntu.com/ubuntu jammy-backports/universe amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-backports,n=jammy,l=Ubuntu,c=universe,b=amd64
+     origin archive.ubuntu.com
+ 100 http://archive.ubuntu.com/ubuntu jammy-backports/main amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-backports,n=jammy,l=Ubuntu,c=main,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy-updates/multiverse amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-updates,n=jammy,l=Ubuntu,c=multiverse,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy-updates/universe amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-updates,n=jammy,l=Ubuntu,c=universe,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy-updates/restricted amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-updates,n=jammy,l=Ubuntu,c=restricted,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy-updates,n=jammy,l=Ubuntu,c=main,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy/multiverse amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy,n=jammy,l=Ubuntu,c=multiverse,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy/universe amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy,n=jammy,l=Ubuntu,c=universe,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy/restricted amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy,n=jammy,l=Ubuntu,c=restricted,b=amd64
+     origin archive.ubuntu.com
+ 500 http://archive.ubuntu.com/ubuntu jammy/main amd64 Packages
+     release v=22.04,o=Ubuntu,a=jammy,n=jammy,l=Ubuntu,c=main,b=amd64
+     origin archive.ubuntu.com
+Pinned packages:

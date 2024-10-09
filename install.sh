@@ -47,6 +47,20 @@ uninstall_old_service() {
 # Uses API keys and ID provided as env vars to fetch and install /etc/viam.sjon
 fetch_config() {
 	if [ "$VIAM_API_KEY_ID" != "" ] && [ "$VIAM_API_KEY" != "" ] && [ "$VIAM_PART_ID" != "" ]; then
+
+		if [ -f /etc/viam.json ] && ! [ -z $FORCE ]; then
+			echo 
+			echo "/etc/viam.json already exists."
+			echo
+			echo "Do you wish to overwrite it with an updated version fetched using the VIAM_PART_ID provided?"
+			echo && echo
+			read -p "Overwrite /etc/viam.json ? (y/n): " OVERWRITE_CREDS
+			if [ "$OVERWRITE_CREDS" != "y" ]; then
+				return
+			fi
+		fi
+
+		echo "Writing machine credentials to /etc/viam.json"
 		curl -fsSL \
 			-H "key_id:$VIAM_API_KEY_ID" \
 			-H "key:$VIAM_API_KEY" \
@@ -206,6 +220,18 @@ main() {
 		exit 1
 	fi
 
+	if [ "$ARCH" = "aarch64" ] && ! [ -e /lib/ld-linux-aarch64.so.1 ]; then
+		echo
+		echo "Your kernel reports as aarch64 (arm64), but userspace is missing /lib/ld-linux-aarch64.so.1"
+		echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
+		exit 1
+	elif [ "$ARCH" = "x86_64" ] && ! [ -e /lib64/ld-linux-x86-64.so.2 ]; then
+		echo
+		echo "Your kernel reports as x86_64 (amd64), but userspace is missing /lib/ld-linux-x86-64.so.2"
+		echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
+		exit 1
+	fi
+
 	if ! [ -d /etc/systemd/system ]; then
 		echo
 		echo "Viam Agent is only supported on systems using systemd."
@@ -217,6 +243,9 @@ main() {
 		echo "This install script must be run as root. Try running via sudo."
 		exit 1
 	fi
+
+	# Remove old AppImage based install
+	uninstall_old_service
 
 	# Attempt to fetch the config using API keys (if set)
 	fetch_config
@@ -240,8 +269,6 @@ main() {
 			fi
 		fi
 	fi
-
-	uninstall_old_service
 
 	if [ -f /etc/systemd/system/viam-agent.service ] || [ -f /usr/local/lib/systemd/system/viam-agent.service ]; then
 		echo

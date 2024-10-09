@@ -26,7 +26,7 @@ import (
 
 func init() {
 	globalConfig.Store(&viamServerConfig{startTimeout: defaultStartTimeout})
-	registry.Register(SubsysName, NewSubsystem, DefaultConfig)
+	registry.Register(SubsysName, NewSubsystem)
 }
 
 type viamServerConfig struct {
@@ -44,7 +44,6 @@ const (
 
 var (
 	ConfigFilePath = "/etc/viam.json"
-	DefaultConfig  = &pb.DeviceSubsystemConfig{}
 
 	// Set if (cached or cloud) config has the "fast_start" attribute set on the viam-server subsystem.
 	FastStart    atomic.Bool
@@ -299,7 +298,7 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	setFastStart(cfg)
-	if newVersion {
+	if newVersion && s.running {
 		s.logger.Info("awaiting user restart to run new viam-server version")
 		s.shouldRun = false
 	}
