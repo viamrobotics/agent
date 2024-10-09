@@ -29,7 +29,8 @@ type Provisioning struct {
 
 	// blocks start/stop/etc operations
 	// holders of this lock must use HealthySleep to respond to HealthChecks from the parent agent during long operations
-	opMu sync.Mutex
+	opMu    sync.Mutex
+	running bool
 
 	// used to stop main/bg loops
 	cancel context.CancelFunc
@@ -65,7 +66,7 @@ type Provisioning struct {
 func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *agentpb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	cfg, err := LoadConfig(updateConf)
 	if err != nil {
-		return nil, errw.Wrap(err, "loading provisioning config")
+		logger.Error(errw.Wrap(err, "loading provisioning config"))
 	}
 	logger.Debugf("Provisioning Config: %+v", cfg)
 
@@ -102,7 +103,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		return nil, errw.Wrap(err, "error getting hostname from NetworkManager, is NetworkManager installed and enabled?")
 	}
 
-	w.updateHotspotSSID()
+	w.updateHotspotSSID(w.cfg)
 
 	if err := w.writeDNSMasq(); err != nil {
 		return nil, errw.Wrap(err, "error writing dnsmasq configuration")
@@ -150,6 +151,9 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 func (w *Provisioning) Start(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
+	if w.running {
+		return nil
+	}
 
 	w.processAdditionalnetworks(ctx)
 
@@ -160,16 +164,21 @@ func (w *Provisioning) Start(ctx context.Context) error {
 	cancelCtx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
 
-	// these will loop indefinitely until context cancellation or serious error
+	// This will loop indefinitely until context cancellation or serious error
+	w.monitorWorkers.Add(1)
 	go w.mainLoop(cancelCtx)
 
 	w.logger.Info("agent-provisioning startup complete")
+	w.running = true
 	return nil
 }
 
 func (w *Provisioning) Stop(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
+	if !w.running {
+		return nil
+	}
 
 	w.logger.Infof("%s subsystem exiting", SubsysName)
 	if w.connState.getProvisioning() {
@@ -178,8 +187,11 @@ func (w *Provisioning) Stop(ctx context.Context) error {
 			w.logger.Error(err)
 		}
 	}
-	w.cancel()
+	if w.cancel != nil {
+		w.cancel()
+	}
 	w.monitorWorkers.Wait()
+	w.running = false
 	return nil
 }
 
@@ -193,17 +205,21 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 		return false, err
 	}
 
+	w.updateHotspotSSID(cfg)
+	if cfg.HotspotInterface == "" {
+		cfg.HotspotInterface = w.Config().HotspotInterface
+	}
+
 	if reflect.DeepEqual(cfg, w.cfg) {
 		return false, nil
 	}
 
+	w.logger.Debug("Updated config differs from previous")
+	w.logger.Debugf("Updated config differs from previous. Previous: %+v New: %+v", w.cfg, cfg)
+
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
 	w.cfg = cfg
-	w.updateHotspotSSID()
-	if err := w.initDevices(); err != nil {
-		return false, err
-	}
 
 	return true, nil
 }
@@ -250,9 +266,9 @@ func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
 }
 
 // must be run inside dataMu lock.
-func (w *Provisioning) updateHotspotSSID() {
-	w.cfg.hotspotSSID = w.cfg.HotspotPrefix + "-" + strings.ToLower(w.hostname)
-	if len(w.cfg.hotspotSSID) > 32 {
-		w.cfg.hotspotSSID = w.cfg.hotspotSSID[:32]
+func (w *Provisioning) updateHotspotSSID(cfg *Config) {
+	cfg.hotspotSSID = cfg.HotspotPrefix + "-" + strings.ToLower(w.hostname)
+	if len(cfg.hotspotSSID) > 32 {
+		cfg.hotspotSSID = cfg.hotspotSSID[:32]
 	}
 }

@@ -34,7 +34,7 @@ amd64:
 	make GOARCH=amd64
 
 bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go subsystems/viamagent/*.service Makefile
-	go build -o $@ -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
+	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
 	test "$(PATH_VERSION)" != "custom" && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
 
 .PHONY: clean

@@ -49,8 +49,7 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 
 	net, ok := n.network[id]
 	if !ok {
-		n.logger.Debugf("cannot find existing network for %s, creating new", id)
-		net := &lockingNetwork{}
+		net = &lockingNetwork{}
 		n.network[id] = net
 		if ssid != "" {
 			net.ssid = ssid
@@ -61,6 +60,7 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 		if iface != IfNameAny && iface != "" {
 			net.interfaceName = iface
 		}
+		n.logger.Debugf("found new network %s (%s)", id, net.netType)
 	}
 
 	return net
@@ -68,9 +68,15 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 
 // Network returns a copy-by-value of a network, which should be considered read-only, and doesn't need locking.
 func (n *networkState) Network(iface, ssid string) network {
-	net := n.LockingNetwork(iface, ssid)
-	net.mu.Lock()
-	defer net.mu.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	id := genNetKey(iface, ssid)
+	net, ok := n.network[id]
+	if !ok {
+		return network{}
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	return net.network
 }
 
@@ -85,7 +91,7 @@ func (n *networkState) LockingNetworks() []*lockingNetwork {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
-	nets := make([]*lockingNetwork, len(n.network))
+	nets := []*lockingNetwork{}
 
 	for _, net := range n.network {
 		nets = append(nets, net)
@@ -98,7 +104,7 @@ func (n *networkState) Networks() []network {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
-	nets := make([]network, len(n.network))
+	nets := []network{}
 
 	for _, net := range n.network {
 		nets = append(nets, net.network)
@@ -117,7 +123,7 @@ func (n *networkState) PrimarySSID(iface string) string {
 
 	ssid, ok := n.primarySSID[iface]
 	if !ok {
-		n.logger.Errorf("cannot find primary SSID for %s", iface)
+		n.logger.Warnf("cannot find primary SSID for %s", iface)
 		return ""
 	}
 
@@ -165,7 +171,6 @@ func (n *networkState) LastSSID(iface string) string {
 
 	ssid, ok := n.lastSSID[iface]
 	if !ok {
-		n.logger.Errorf("cannot find last SSID for %s", iface)
 		return ""
 	}
 

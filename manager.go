@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +63,7 @@ func (m *Manager) LoadConfig(cfgPath string) error {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
-	m.logger.Debugw("loading", "config", cfgPath)
+	m.logger.Debugf("loading config: %s", cfgPath)
 	//nolint:gosec
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
@@ -218,7 +219,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			m.logger.Error(errw.Wrapf(err, "subsystem healthcheck failed for %s", subsystemName))
+			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", subsystemName))
 			if err := sub.Stop(ctx); err != nil {
 				m.logger.Error(errw.Wrapf(err, "stopping subsystem %s", subsystemName))
 			}
@@ -228,6 +229,8 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			if err := sub.Start(ctx); err != nil && !errors.Is(err, ErrSubsystemDisabled) {
 				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
 			}
+		} else {
+			m.logger.Debugf("Subsystem healthcheck succeeded for %s", subsystemName)
 		}
 	}
 }
@@ -445,8 +448,6 @@ func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystem
 		return conf, minimalCheckInterval, err
 	}
 
-	m.logger.Debugf("Cloud-provided config: %+v", resp)
-
 	err = m.saveCachedConfig(resp.GetSubsystemConfigs())
 	if err != nil {
 		m.logger.Error(errw.Wrap(err, "saving agent config to cache"))
@@ -518,6 +519,6 @@ func (m *Manager) handlePanic() {
 	r := recover()
 	if r != nil {
 		m.logger.Error("unknown panic encountered, will attempt to recover")
-		m.logger.Error(r)
+		m.logger.Errorf("panic: %s\n%s", r, debug.Stack())
 	}
 }

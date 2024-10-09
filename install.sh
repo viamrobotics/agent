@@ -220,8 +220,17 @@ main() {
 		exit 1
 	fi
 
-	# SMURF need logic to detect 32-bit userland on 64-bit kernel
-	# $(dpkg --print-architecture)
+	if [ "$ARCH" = "aarch64" ] && ! [ -e /lib/ld-linux-aarch64.so.1 ]; then
+		echo
+		echo "Your kernel reports as aarch64 (arm64), but userspace is missing /lib/ld-linux-aarch64.so.1"
+		echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
+		exit 1
+	elif [ "$ARCH" = "x86_64" ] && ! [ -e /lib64/ld-linux-x86-64.so.2 ]; then
+		echo
+		echo "Your kernel reports as x86_64 (amd64), but userspace is missing /lib/ld-linux-x86-64.so.2"
+		echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
+		exit 1
+	fi
 
 	if ! [ -d /etc/systemd/system ]; then
 		echo

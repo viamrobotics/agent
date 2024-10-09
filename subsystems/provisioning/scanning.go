@@ -58,6 +58,11 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 			continue
 		}
 
+		if ssid == "" {
+			w.logger.Debug("wifi network with blank ssid, ignoring")
+			continue
+		}
+
 		signal, err := ap.GetPropertyStrength()
 		if err != nil {
 			w.logger.Warn(errw.Wrap(err, "scanning wifi"))
@@ -82,7 +87,7 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 			continue
 		}
 
-		nw := w.netState.LockingNetwork(w.Config().hotspotSSID, ssid)
+		nw := w.netState.LockingNetwork(w.Config().HotspotInterface, ssid)
 		nw.mu.Lock()
 
 		nw.netType = NetworkTypeWifi
@@ -171,6 +176,11 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 		_, ok := highestPriority[ifName]
 		if !ok {
 			highestPriority[ifName] = -999
+		}
+
+		if netType != NetworkTypeWired && ssid == "" {
+			w.logger.Warn("wifi network with no ssid detected, skipping")
+			continue
 		}
 
 		// actually record the network

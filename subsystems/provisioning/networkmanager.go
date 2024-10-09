@@ -96,9 +96,6 @@ func (w *Provisioning) checkOnline(force bool) error {
 func (w *Provisioning) checkConnections() error {
 	var connected bool
 	defer func() {
-		if connected && w.netState.ActiveSSID(w.Config().HotspotInterface) != "" {
-			w.logger.Debugf("Connected to: %s", w.netState.ActiveSSID(w.Config().HotspotInterface))
-		}
 		w.connState.setConnected(connected)
 	}()
 
@@ -160,7 +157,7 @@ func (w *Provisioning) checkConnections() error {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (w *Provisioning) StartProvisioning(ctx context.Context) error {
+func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
 	if w.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
@@ -182,7 +179,7 @@ func (w *Provisioning) StartProvisioning(ctx context.Context) error {
 	}
 
 	// start portal with ssid list and known connections
-	if err := w.startPortal(); err != nil {
+	if err := w.startPortal(inputChan); err != nil {
 		err = errors.Join(err, w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID))
 		return errw.Wrap(err, "could not start web/grpc portal")
 	}
@@ -220,8 +217,13 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 	nw.mu.Lock()
 	defer nw.mu.Unlock()
 
-	if nw.conn == nil {
-		return errw.Errorf("no settings found for network: %s", genNetKey(ifName, ssid))
+	if nw.conn == nil && ssid != "" {
+		nw = w.netState.LockingNetwork(IfNameAny, ssid)
+		nw.mu.Lock()
+		defer nw.mu.Unlock()
+		if nw.conn == nil {
+			return errw.Errorf("no settings found for network: %s", genNetKey(ifName, ssid))
+		}
 	}
 
 	w.logger.Infof("Activating connection: %s", genNetKey(ifName, ssid))
@@ -599,10 +601,11 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 					priority = 100
 				}
 				cfg := NetworkConfig{
-					Type:     "wifi",
-					SSID:     userInput.SSID,
-					PSK:      userInput.PSK,
-					Priority: priority,
+					Type:      NetworkTypeWifi,
+					SSID:      userInput.SSID,
+					PSK:       userInput.PSK,
+					Priority:  priority,
+					Interface: w.Config().HotspotInterface,
 				}
 				var err error
 				changesMade, err = w.AddOrUpdateConnection(cfg)
@@ -646,7 +649,7 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 						w.logger.Error("cannot find %s in network list", genNetKey("", newSSID))
 					}
 					nw.mu.Unlock()
-					err = w.StartProvisioning(ctx)
+					err = w.StartProvisioning(ctx, inputChan)
 					if err != nil {
 						w.logger.Error(err)
 					}
@@ -680,7 +683,12 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 		pModeChange := w.connState.getProvisioningChange()
 		now := time.Now()
 
-		w.logger.Debugf("wifi connected: %t, internet reachable: %t, config present: %t", isConnected, isOnline, isConfigured)
+		w.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t",
+			isConnected,
+			genNetKey(w.Config().HotspotInterface, w.netState.ActiveSSID(w.Config().HotspotInterface)),
+			isOnline,
+			isConfigured,
+		)
 
 		if pMode {
 			// complex logic, so wasting some variables for readability
@@ -732,7 +740,7 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline for at least OfflineTimeout (2 minute default)
 		if !isConfigured || lastConnectivity.Before(now.Add(time.Duration(w.cfg.OfflineTimeout)*-1)) {
-			if err := w.StartProvisioning(ctx); err != nil {
+			if err := w.StartProvisioning(ctx, inputChan); err != nil {
 				w.logger.Error(err)
 			}
 		}

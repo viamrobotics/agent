@@ -29,10 +29,10 @@ type templateData struct {
 //go:embed templates/*
 var templates embed.FS
 
-func (w *Provisioning) startPortal() error {
+func (w *Provisioning) startPortal(inputChan chan<- userInput) error {
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
-	w.portalData = &portalData{input: &userInput{}}
+	w.portalData = &portalData{input: &userInput{}, inputChan: inputChan}
 
 	if err := w.startGRPC(); err != nil {
 		return errw.Wrap(err, "error starting GRPC service")
@@ -145,57 +145,59 @@ func (w *Provisioning) portalSave(resp http.ResponseWriter, req *http.Request) {
 			w.logger.Error(err)
 		}
 	}()
+	defer http.Redirect(resp, req, "/", http.StatusSeeOther)
 
-	if req.Method == http.MethodPost {
-		defer http.Redirect(resp, req, "/", http.StatusSeeOther)
-
-		w.connState.setLastInteraction()
-
-		ssid := req.FormValue("ssid")
-		psk := req.FormValue("password")
-		rawConfig := req.FormValue("viamconfig")
-
-		if ssid == "" && !w.connState.getOnline() {
-			w.errors.Add(errors.New("no SSID provided"))
-			return
-		}
-
-		if rawConfig == "" && !w.connState.getConfigured() {
-			w.errors.Add(errors.New("no device config provided"))
-			return
-		}
-
-		w.portalData.mu.Lock()
-		defer w.portalData.mu.Unlock()
-		if rawConfig != "" {
-			// we'll check if the config is valid, but NOT use the parsed config, in case additional fields are in the json
-			cfg := &MachineConfig{}
-			if err := json.Unmarshal([]byte(rawConfig), cfg); err != nil {
-				w.errors.Add(errw.Wrap(err, "invalid json config contents"))
-				return
-			}
-			if cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" || cfg.Cloud.AppAddress == "" {
-				w.errors.Add(errors.New("incomplete cloud config provided"))
-				return
-			}
-			w.portalData.input.RawConfig = rawConfig
-			w.logger.Debug("saving raw device config")
-			w.banner.Set("Saving device config. ")
-		}
-
-		if ssid != "" {
-			w.portalData.input.SSID = ssid
-			w.portalData.input.PSK = psk
-			w.logger.Debugf("saving credentials for %s", w.portalData.input.SSID)
-			w.banner.Set(w.banner.Get() + "Added credentials for SSID: " + w.portalData.input.SSID)
-		}
-
-		if ssid == w.netState.LastSSID(w.Config().HotspotInterface) && ssid != "" {
-			lastNetwork := w.netState.LockingNetwork(w.Config().HotspotInterface, ssid)
-			lastNetwork.mu.Lock()
-			lastNetwork.lastError = nil
-			lastNetwork.mu.Unlock()
-		}
-		w.portalData.Updated = time.Now()
+	if req.Method != http.MethodPost {
+		return
 	}
+
+	w.connState.setLastInteraction()
+
+	ssid := req.FormValue("ssid")
+	psk := req.FormValue("password")
+	rawConfig := req.FormValue("viamconfig")
+
+	if ssid == "" && !w.connState.getOnline() {
+		w.errors.Add(errors.New("no SSID provided"))
+		return
+	}
+
+	if rawConfig == "" && !w.connState.getConfigured() {
+		w.errors.Add(errors.New("no device config provided"))
+		return
+	}
+
+	w.portalData.mu.Lock()
+	defer w.portalData.mu.Unlock()
+	if rawConfig != "" {
+		// we'll check if the config is valid, but NOT use the parsed config, in case additional fields are in the json
+		cfg := &MachineConfig{}
+		if err := json.Unmarshal([]byte(rawConfig), cfg); err != nil {
+			w.errors.Add(errw.Wrap(err, "invalid json config contents"))
+			return
+		}
+		if cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" || cfg.Cloud.AppAddress == "" {
+			w.errors.Add(errors.New("incomplete cloud config provided"))
+			return
+		}
+		w.portalData.input.RawConfig = rawConfig
+		w.logger.Debug("saving raw device config")
+		w.banner.Set("Saving device config. ")
+	}
+
+	if ssid != "" {
+		w.portalData.input.SSID = ssid
+		w.portalData.input.PSK = psk
+		w.logger.Debugf("saving credentials for %s", w.portalData.input.SSID)
+		w.banner.Set(w.banner.Get() + "Added credentials for SSID: " + w.portalData.input.SSID)
+	}
+
+	if ssid == w.netState.LastSSID(w.Config().HotspotInterface) && ssid != "" {
+		lastNetwork := w.netState.LockingNetwork(w.Config().HotspotInterface, ssid)
+		lastNetwork.mu.Lock()
+		lastNetwork.lastError = nil
+		lastNetwork.mu.Unlock()
+	}
+	w.portalData.Updated = time.Now()
+	w.portalData.sendInput(w.connState)
 }

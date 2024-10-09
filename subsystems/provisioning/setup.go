@@ -133,7 +133,7 @@ func (w *Provisioning) initDevices() error {
 		}
 	}
 
-	if w.Config().HotspotInterface == "" {
+	if w.cfg.HotspotInterface == "" {
 		return errors.New("cannot find wifi device for provisioning/hotspot")
 	}
 

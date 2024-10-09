@@ -298,7 +298,7 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	setFastStart(cfg)
-	if newVersion {
+	if newVersion && s.running {
 		s.logger.Info("awaiting user restart to run new viam-server version")
 		s.shouldRun = false
 	}

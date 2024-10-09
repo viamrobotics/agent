@@ -202,7 +202,7 @@ type portalData struct {
 	mu      sync.Mutex
 	Updated time.Time
 
-	inputChan chan userInput
+	inputChan chan<- userInput
 
 	input   *userInput
 	workers sync.WaitGroup
@@ -211,10 +211,10 @@ type portalData struct {
 	cancel context.CancelFunc
 }
 
+// must be called with p.mu already locked!
 func (p *portalData) sendInput(connState *connectionState) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	input := *p.input
+
 	// in case both network and device credentials are being updated
 	// only send user data if both are already set
 	if (input.SSID != "" && input.PartID != "") ||
@@ -299,6 +299,9 @@ func ConfigFromJSON(defaultConf Config, jsonBytes []byte) (*Config, error) {
 }
 
 func LoadConfig(updateConf *agentpb.DeviceSubsystemConfig) (*Config, error) {
+	newCfg := DefaultConf
+	cfg := &newCfg
+
 	// config from disk (/etc/viam-provisioning.json)
 	jsonBytes, err := os.ReadFile(ProvisioningConfigFilePath)
 	if err != nil {
@@ -306,22 +309,24 @@ func LoadConfig(updateConf *agentpb.DeviceSubsystemConfig) (*Config, error) {
 			return nil, err
 		}
 	}
-
-	cfg, err := ConfigFromJSON(DefaultConf, jsonBytes)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		cfg, err = ConfigFromJSON(DefaultConf, jsonBytes)
+		if err != nil {
+			return cfg, errw.Wrap(err, "parsing viam-provisioning.json")
+		}
 	}
 
 	// update with config from cloud (subsys attributes)
 	jsonBytes, err = updateConf.GetAttributes().MarshalJSON()
 	if err != nil {
-		return nil, err
+		return cfg, errw.Wrap(err, "marshaling JSON from attributes")
 	}
 
 	cfg, err = ConfigFromJSON(*cfg, jsonBytes)
 	if err != nil {
-		return nil, err
+		return cfg, errw.Wrap(err, "parsing JSON from attributes")
 	}
+
 	return cfg, nil
 }
 
