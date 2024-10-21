@@ -161,14 +161,14 @@ func (p parsedLog) entry() zapcore.Entry {
 		level = zapcore.WarnLevel
 	}
 	file, rawLine, defined := bytes.Cut(p.location, []byte{':'})
-	line, _ := strconv.ParseUint(string(rawLine), 10, 64) //nolint:errcheck
+	line, _ := strconv.Atoi(string(rawLine)) //nolint:errcheck
 	return zapcore.Entry{
 		Level: level,
 		// note: time.Now() is basically correct, and simpler than parsing.
 		Time:       time.Now().UTC(),
 		LoggerName: string(p.loggerName),
 		Message:    string(p.tail),
-		Caller:     zapcore.EntryCaller{Defined: defined, File: string(file), Line: int(line)},
+		Caller:     zapcore.EntryCaller{Defined: defined, File: string(file), Line: line},
 	}
 }
 
@@ -181,6 +181,7 @@ func getIndexOrNil[T any](arr [][]T, index int) []T {
 }
 
 func parseLog(line []byte) *parsedLog {
+	line = bytes.TrimRight(line, "\r\n")
 	tokens := bytes.SplitN(line, []byte{'\t'}, 5)
 	parsed := &parsedLog{
 		date:       getIndexOrNil(tokens, 0),

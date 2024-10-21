@@ -20,7 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/provisioning"
-	"github.com/viamrobotics/agent/subsystems/syscfg"
+	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"go.viam.com/rdk/logging"
@@ -36,16 +36,23 @@ var (
 
 //nolint:gocognit
 func main() {
-	ctx := setupExitSignalHandling()
+	ctx, cancel := setupExitSignalHandling()
 
+	defer func() {
+		cancel()
+		activeBackgroundWorkers.Wait()
+	}()
+
+	//nolint:lll
 	var opts struct {
-		Config  string `default:"/etc/viam.json"                            description:"Path to config file" long:"config"   short:"c"`
-		Debug   bool   `description:"Enable debug logging (for agent only)" env:"VIAM_AGENT_DEBUG"            long:"debug"    short:"d"`
-		Fast    bool   `description:"Enable fast start mode"                env:"VIAM_AGENT_FAST_START"       long:"fast"     short:"f"`
-		Help    bool   `description:"Show this help message"                long:"help"                       short:"h"`
-		Version bool   `description:"Show version"                          long:"version"                    short:"v"`
-		Install bool   `description:"Install systemd service"               long:"install"`
-		DevMode bool   `description:"Allow non-root and non-service"        env:"VIAM_AGENT_DEVMODE"          long:"dev-mode"`
+		Config             string `default:"/etc/viam.json"                        description:"Path to config file"                              long:"config"       short:"c"`
+		ProvisioningConfig string `default:"/etc/viam-provisioning.json"           description:"Path to provisioning (customization) config file" long:"provisioning" short:"p"`
+		Debug              bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                                         long:"debug"        short:"d"`
+		Fast               bool   `description:"Enable fast start mode"            env:"VIAM_AGENT_FAST_START"                                    long:"fast"         short:"f"`
+		Help               bool   `description:"Show this help message"            long:"help"                                                    short:"h"`
+		Version            bool   `description:"Show version"                      long:"version"                                                 short:"v"`
+		Install            bool   `description:"Install systemd service"           long:"install"`
+		DevMode            bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                                       long:"dev-mode"`
 	}
 
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
@@ -64,14 +71,12 @@ func main() {
 
 	if opts.Version {
 		//nolint:forbidigo
-		fmt.Printf("Version: %s\nGit Revision: %s\n", viamagent.GetVersion(), viamagent.GetRevision())
+		fmt.Printf("Version: %s\nGit Revision: %s\n", agent.GetVersion(), agent.GetRevision())
 		return
 	}
 
 	if opts.Debug {
 		globalLogger = logging.NewDebugLogger("viam-agent")
-		provisioning.Debug = true
-		syscfg.Debug = true
 	}
 
 	// need to be root to go any further than this
@@ -112,10 +117,15 @@ func main() {
 		}
 	}()
 
+	// pass the provisioning path arg to the subsystem
+	absProvConfigPath, err := filepath.Abs(opts.ProvisioningConfig)
+	exitIfError(err)
+	provisioning.ProvisioningConfigFilePath = absProvConfigPath
+	globalLogger.Infof("provisioning config file path: %s", absProvConfigPath)
+
 	// tie the manager config to the viam-server config
 	absConfigPath, err := filepath.Abs(opts.Config)
 	exitIfError(err)
-
 	viamserver.ConfigFilePath = absConfigPath
 	provisioning.AppConfigFilePath = absConfigPath
 	globalLogger.Infof("config file path: %s", absConfigPath)
@@ -156,7 +166,6 @@ func main() {
 			globalLogger.Warn("waiting for user provisioning")
 			if !utils.SelectContextOrWait(ctx, time.Second*10) {
 				manager.CloseAll()
-				activeBackgroundWorkers.Wait()
 				return
 			}
 			if err := manager.LoadConfig(absConfigPath); err == nil {
@@ -209,6 +218,7 @@ func main() {
 			globalLogger.Error(err)
 		}
 		if needRestart {
+			manager.CloseAll()
 			globalLogger.Info("updated self, exiting to await restart with new version")
 			return
 		}
@@ -217,11 +227,9 @@ func main() {
 	manager.StartBackgroundChecks(ctx)
 	<-ctx.Done()
 	manager.CloseAll()
-
-	activeBackgroundWorkers.Wait()
 }
 
-func setupExitSignalHandling() context.Context {
+func setupExitSignalHandling() (context.Context, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 16)
 	activeBackgroundWorkers.Add(1)
@@ -266,7 +274,7 @@ func setupExitSignalHandling() context.Context {
 	}()
 
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT)
-	return ctx
+	return ctx, cancel
 }
 
 func exitIfError(err error) {

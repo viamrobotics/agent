@@ -1,0 +1,13 @@
+Package files:
+ 100 /var/lib/dpkg/status
+     release a=now
+ 500 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages
+     release v=12,o=Debian,a=stable-security,n=bookworm-security,l=Debian-Security,c=main,b=amd64
+     origin deb.debian.org
+ 500 http://deb.debian.org/debian bookworm-updates/main amd64 Packages
+     release v=12-updates,o=Debian,a=stable-updates,n=bookworm-updates,l=Debian,c=main,b=amd64
+     origin deb.debian.org
+ 500 http://deb.debian.org/debian bookworm/main amd64 Packages
+     release v=12.6,o=Debian,a=stable,n=bookworm,l=Debian,c=main,b=amd64
+     origin deb.debian.org
+Pinned packages:

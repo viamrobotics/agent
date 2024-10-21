@@ -1,0 +1,72 @@
+{{define "scripts"}}{{end}}
+{{define "body"}}
+
+<div class="container">
+  {{if eq (len .VisibleSSIDs) 0}}
+  <div>
+    <span class="btn-close" onclick="this.parentElement.style.display='none';">&times;</span>
+    We were unable to automatically find available Wifi networks to connect to. Please refresh or manually enter the SSID below.
+  </div>
+  {{end}}
+  {{if .Banner}}
+  <div>
+    {{.Banner}}
+  </div>
+  {{end}}
+
+  {{range .Errors}}
+  <div class="error">
+    <span class="btn-close" onclick="this.parentElement.style.display='none';">&times;</span>
+    <b>Error:</b> {{.}}
+  </div>
+  {{end}}
+
+  <h2>Smart Machine Setup</h2>
+
+  <div class="info">
+    <div id="info_header">Device Info</div>
+    <div id="manufacturer_label">Manufacturer:</div><div id="manufacturer">{{.Manufacturer}}</div>
+    <div id="model_label">Model:</div><div id="model">{{.Model}}</div>
+    {{if .FragmentID}}
+    <div id="fragment_label">FragmentID:</div><div id="fragment">{{.FragmentID}}</div>
+    {{end}}
+  </div>
+
+  <form method="post" action="/save">
+    {{if not .IsOnline}}
+    <div class="form-group">
+      <label for="network">Network</label>
+      {{if eq (len .VisibleSSIDs) 0}}
+        <input type="text" name="ssid" placeholder="Enter Wifi SSID" id="network" required>
+      {{else}}
+        <div class="select-border">
+          <select name="ssid" id="network" required>
+            <option value="">--Please choose an option--</option>
+            {{range .VisibleSSIDs}}
+                <option value="{{.SSID}}">{{.SSID}} ({{.Signal}}%) ({{.Security}})</option>
+            {{end}}
+          </select>
+        </div>
+      {{end}}
+    </div>    
+
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="text" name="password" id="password" placeholder="Password">
+    </div>
+    {{end}}
+
+    {{if not .IsConfigured}}
+    <div class="form-group">
+      <label for="viamconfig">Device Config</label>
+      <textarea type="textarea" name="viamconfig" id="viamconfig" required placeholder="No config found on device. Paste your viam.json file here."></textarea>
+    </div>
+    {{end}}
+
+    <button id="submit" class="btn btn-submit" type="submit" onclick="submitForm()">Save</button>
+  </form>
+  {{if not .IsOnline}}
+  <button class="btn btn-refresh" onclick="location.reload()">Refresh Network List</button>
+  {{end}}
+</div>
+{{end}}
