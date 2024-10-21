@@ -29,8 +29,9 @@ type Provisioning struct {
 
 	// blocks start/stop/etc operations
 	// holders of this lock must use HealthySleep to respond to HealthChecks from the parent agent during long operations
-	opMu    sync.Mutex
-	running bool
+	opMu     sync.Mutex
+	running  bool
+	disabled bool
 
 	// used to stop main/bg loops
 	cancel context.CancelFunc
@@ -70,22 +71,11 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	}
 	logger.Debugf("Provisioning Config: %+v", cfg)
 
-	nm, err := gnm.NewNetworkManager()
-	if err != nil {
-		return nil, err
-	}
-
-	settings, err := gnm.NewSettings()
-	if err != nil {
-		return nil, err
-	}
-
 	w := &Provisioning{
+		disabled:   updateConf.GetDisable(),
 		cfg:        cfg,
 		AppCfgPath: AppConfigFilePath,
 		logger:     logger,
-		nm:         nm,
-		settings:   settings,
 
 		connState: NewConnectionState(logger),
 		netState:  NewNetworkState(logger),
@@ -97,29 +87,48 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
 	}
+	return w, nil
+}
+
+func (w *Provisioning) init(ctx context.Context) error {
+	w.mainLoopHealth.MarkGood()
+	w.bgLoopHealth.MarkGood()
+
+	nm, err := gnm.NewNetworkManager()
+	if err != nil {
+		return err
+	}
+
+	settings, err := gnm.NewSettings()
+	if err != nil {
+		return err
+	}
+
+	w.nm = nm
+	w.settings = settings
 
 	w.hostname, err = settings.GetPropertyHostname()
 	if err != nil {
-		return nil, errw.Wrap(err, "error getting hostname from NetworkManager, is NetworkManager installed and enabled?")
+		return errw.Wrap(err, "error getting hostname from NetworkManager, is NetworkManager installed and enabled?")
 	}
 
 	w.updateHotspotSSID(w.cfg)
 
 	if err := w.writeDNSMasq(); err != nil {
-		return nil, errw.Wrap(err, "error writing dnsmasq configuration")
+		return errw.Wrap(err, "error writing dnsmasq configuration")
 	}
 
 	if err := w.testConnCheck(); err != nil {
-		return nil, err
+		return err
 	}
 
 	if err := w.initDevices(); err != nil {
-		return nil, err
+		return err
 	}
 
 	w.checkConfigured()
 	if err := w.networkScan(ctx); err != nil {
-		return nil, err
+		return err
 	}
 
 	w.warnIfMultiplePrimaryNetworks()
@@ -132,7 +141,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	}
 
 	if err := w.checkConnections(); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Is there a configured wifi network? If so, set last times to now so we use normal timeouts.
@@ -145,7 +154,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		}
 	}
 
-	return w, nil
+	return nil
 }
 
 func (w *Provisioning) Start(ctx context.Context) error {
@@ -153,6 +162,17 @@ func (w *Provisioning) Start(ctx context.Context) error {
 	defer w.opMu.Unlock()
 	if w.running {
 		return nil
+	}
+
+	if w.disabled {
+		w.logger.Infof("agent-provisioning disabled")
+		return agent.ErrSubsystemDisabled
+	}
+
+	if w.nm == nil || w.settings == nil {
+		if err := w.init(ctx); err != nil {
+			return err
+		}
 	}
 
 	w.processAdditionalnetworks(ctx)
@@ -200,9 +220,26 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 
+	var needRestart bool
+
+	if w.disabled != updateConf.GetDisable() {
+		w.disabled = updateConf.GetDisable()
+		needRestart = true
+	}
+
+	if w.disabled {
+		return needRestart, nil
+	}
+
+	if w.nm == nil || w.settings == nil {
+		if err := w.init(ctx); err != nil {
+			return true, err
+		}
+	}
+
 	cfg, err := LoadConfig(updateConf)
 	if err != nil {
-		return false, err
+		return needRestart, err
 	}
 
 	w.updateHotspotSSID(cfg)
@@ -211,23 +248,26 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 	}
 
 	if reflect.DeepEqual(cfg, w.cfg) {
-		return false, nil
+		return needRestart, nil
 	}
 
-	w.logger.Debug("Updated config differs from previous")
+	needRestart = true
 	w.logger.Debugf("Updated config differs from previous. Previous: %+v New: %+v", w.cfg, cfg)
 
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
 	w.cfg = cfg
 
-	return true, nil
+	return needRestart, nil
 }
 
 // HealthCheck reports if a subsystem is running correctly (it is restarted if not).
 func (w *Provisioning) HealthCheck(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
+	if w.disabled {
+		return nil
+	}
 
 	if w.bgLoopHealth.IsHealthy() && w.mainLoopHealth.IsHealthy() {
 		return nil

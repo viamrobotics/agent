@@ -90,7 +90,6 @@ check_fs() {
 create_tarball() {
 	echo "Creating tarball for install."
 	URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$ARCH"
-	PROVISIONING_URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent-provisioning/viam-agent-provisioning-stable-$ARCH"
 
 	TEMPDIR=$(mktemp -d)
 
@@ -100,12 +99,10 @@ create_tarball() {
 
 	mkdir -p "$TEMPDIR/opt/viam/cache"
 	curl -fsSL "$URL" -o "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
-	curl -fsSL "$PROVISIONING_URL" -o "$TEMPDIR/opt/viam/cache/viam-agent-provisioning-factory-$ARCH" || return 1
-	chmod 755 "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" "$TEMPDIR/opt/viam/cache/viam-agent-provisioning-factory-$ARCH"
+	chmod 755 "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH"
 
 	mkdir -p "$TEMPDIR/opt/viam/bin"
 	ln -s "/opt/viam/cache/viam-agent-factory-$ARCH" "$TEMPDIR/opt/viam/bin/viam-agent"
-	ln -s "/opt/viam/cache/viam-agent-provisioning-factory-$ARCH" "$TEMPDIR/opt/viam/bin/agent-provisioning"
 
 	mkdir -p "$TEMPDIR/etc"
 	if [ -f "$PROVISIONING_PATH" ]; then

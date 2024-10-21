@@ -29,13 +29,14 @@ type Config struct {
 }
 
 type syscfg struct {
-	mu      sync.RWMutex
-	healthy bool
-	cfg     Config
-	logger  logging.Logger
-	running bool
-	cancel  context.CancelFunc
-	workers sync.WaitGroup
+	mu       sync.RWMutex
+	healthy  bool
+	cfg      Config
+	logger   logging.Logger
+	running  bool
+	disabled bool
+	cancel   context.CancelFunc
+	workers  sync.WaitGroup
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
@@ -44,24 +45,35 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.Dev
 		return nil, err
 	}
 
-	return &syscfg{cfg: *cfg, logger: logger}, nil
+	return &syscfg{cfg: *cfg, logger: logger, disabled: updateConf.GetDisable()}, nil
 }
 
 func (s *syscfg) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	var needRestart bool
+	if cfg.GetDisable() != s.disabled {
+		s.disabled = cfg.GetDisable()
+		needRestart = true
+	}
+
+	if s.disabled {
+		return needRestart, nil
+	}
+
 	newConf, err := agent.ConvertAttributes[Config](cfg.GetAttributes())
 	if err != nil {
-		return false, err
+		return needRestart, err
 	}
 
 	if reflect.DeepEqual(newConf, s.cfg) {
-		return false, nil
+		return needRestart, nil
 	}
 
+	needRestart = true
 	s.cfg = *newConf
-	return true, nil
+	return needRestart, nil
 }
 
 func (s *syscfg) Version() string {
@@ -75,6 +87,11 @@ func (s *syscfg) Start(ctx context.Context) error {
 	// prevent double-starts
 	if s.running {
 		return errors.New("already running")
+	}
+
+	if s.disabled {
+		s.logger.Infof("agent-syscfg disabled")
+		return agent.ErrSubsystemDisabled
 	}
 
 	cancelCtx, cancelFunc := context.WithCancel(ctx)
@@ -129,7 +146,7 @@ func (s *syscfg) Stop(ctx context.Context) error {
 func (s *syscfg) HealthCheck(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.healthy {
+	if s.healthy || s.disabled {
 		return nil
 	}
 	return errors.New("healthcheck failed")

@@ -71,13 +71,13 @@ func (n *networkState) Network(iface, ssid string) network {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	id := genNetKey(iface, ssid)
-	net, ok := n.network[id]
+	ln, ok := n.network[id]
 	if !ok {
 		return network{}
 	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return net.network
+	ln.mu.Lock()
+	defer ln.mu.Unlock()
+	return ln.network
 }
 
 func (n *networkState) SetNetwork(iface, ssid string, net network) {
@@ -144,14 +144,7 @@ func (n *networkState) SetPrimarySSID(iface, ssid string) {
 func (n *networkState) ActiveSSID(iface string) string {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-
-	ssid, ok := n.activeSSID[iface]
-	if !ok {
-		n.logger.Errorf("cannot find active SSID for %s", iface)
-		return ""
-	}
-
-	return ssid
+	return n.activeSSID[iface]
 }
 
 func (n *networkState) SetActiveSSID(iface, ssid string) {

@@ -10,7 +10,6 @@
 
 ARCH=$(uname -m)
 URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$ARCH"
-PROVISIONING_URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent-provisioning/viam-agent-provisioning-stable-$ARCH"
 
 # Force will bypass all prompts by treating them as yes. May also be set as an environment variable when running as download.
 # sudo /bin/sh -c "FORCE=1; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
@@ -167,14 +166,6 @@ enable_networkmanager() {
 		warn_nonm
 		return 1
 	fi
-
-	echo
-	echo "Pre-installing provisioning subsystem as a backup."
-
-	mkdir -p /opt/viam/bin /opt/viam/tmp
-	cd /opt/viam/tmp && curl -fL -o viam-agent-provisioning-temp-$ARCH "$PROVISIONING_URL" && \
-	chmod 755 viam-agent-provisioning-temp-$ARCH && ln -s /opt/viam/tmp/viam-agent-provisioning-temp-$ARCH ../bin/agent-provisioning
-
 
 	if is_bullseye; then
 		echo 'deb http://deb.debian.org/debian/ bullseye-backports main' > /etc/apt/sources.list.d/backports.list && \
