@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/provisioning"
+	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"go.viam.com/rdk/logging"
