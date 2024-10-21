@@ -191,6 +191,10 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 func (w *Provisioning) StopProvisioning() error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
+	return w.stopProvisioning()
+}
+
+func (w *Provisioning) stopProvisioning() error {
 	w.logger.Info("Stopping provisioning mode.")
 	w.connState.setProvisioning(false)
 	err := w.stopPortal()

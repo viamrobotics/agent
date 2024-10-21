@@ -202,7 +202,7 @@ func (w *Provisioning) Stop(ctx context.Context) error {
 
 	w.logger.Infof("%s subsystem exiting", SubsysName)
 	if w.connState.getProvisioning() {
-		err := w.StopProvisioning()
+		err := w.stopProvisioning()
 		if err != nil {
 			w.logger.Error(err)
 		}

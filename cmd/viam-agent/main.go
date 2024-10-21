@@ -35,7 +35,12 @@ var (
 
 //nolint:gocognit
 func main() {
-	ctx := setupExitSignalHandling()
+	ctx, cancel := setupExitSignalHandling()
+
+	defer func() {
+		cancel()
+		activeBackgroundWorkers.Wait()
+	}()
 
 	//nolint:lll
 	var opts struct {
@@ -160,7 +165,6 @@ func main() {
 			globalLogger.Warn("waiting for user provisioning")
 			if !utils.SelectContextOrWait(ctx, time.Second*10) {
 				manager.CloseAll()
-				activeBackgroundWorkers.Wait()
 				return
 			}
 			if err := manager.LoadConfig(absConfigPath); err == nil {
@@ -213,6 +217,7 @@ func main() {
 			globalLogger.Error(err)
 		}
 		if needRestart {
+			manager.CloseAll()
 			globalLogger.Info("updated self, exiting to await restart with new version")
 			return
 		}
@@ -221,11 +226,9 @@ func main() {
 	manager.StartBackgroundChecks(ctx)
 	<-ctx.Done()
 	manager.CloseAll()
-
-	activeBackgroundWorkers.Wait()
 }
 
-func setupExitSignalHandling() context.Context {
+func setupExitSignalHandling() (context.Context, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 16)
 	activeBackgroundWorkers.Add(1)
@@ -270,7 +273,7 @@ func setupExitSignalHandling() context.Context {
 	}()
 
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT)
-	return ctx
+	return ctx, cancel
 }
 
 func exitIfError(err error) {
