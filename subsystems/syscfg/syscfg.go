@@ -55,6 +55,9 @@ func (s *syscfg) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (boo
 	var needRestart bool
 	if cfg.GetDisable() != s.disabled {
 		s.disabled = cfg.GetDisable()
+		if s.disabled {
+			s.logger.Infof("agent-syscfg disabled")
+		}
 		needRestart = true
 	}
 
@@ -90,7 +93,6 @@ func (s *syscfg) Start(ctx context.Context) error {
 	}
 
 	if s.disabled {
-		s.logger.Infof("agent-syscfg disabled")
 		return agent.ErrSubsystemDisabled
 	}
 

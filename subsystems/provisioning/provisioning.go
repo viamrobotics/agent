@@ -136,8 +136,11 @@ func (w *Provisioning) init(ctx context.Context) error {
 	if w.cfg.RoamingMode {
 		w.logger.Info("Roaming Mode enabled. Will try all connections for global internet connectivity.")
 	} else {
-		w.logger.Infof("Default (Single Network) Mode enabled. Will directly connect only to primary network: %s",
-			w.netState.PrimarySSID(w.Config().HotspotInterface))
+		primarySSID := w.netState.PrimarySSID(w.Config().HotspotInterface)
+		w.logger.Infof("Default (Single Network) Mode enabled. Will directly connect only to primary network: %s", primarySSID)
+		if primarySSID == "" {
+			w.logger.Warnf("cannot find primary SSID for %s", w.Config().HotspotInterface)
+		}
 	}
 
 	if err := w.checkConnections(); err != nil {
@@ -165,7 +168,6 @@ func (w *Provisioning) Start(ctx context.Context) error {
 	}
 
 	if w.disabled {
-		w.logger.Infof("agent-provisioning disabled")
 		return agent.ErrSubsystemDisabled
 	}
 
@@ -224,6 +226,9 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 
 	if w.disabled != updateConf.GetDisable() {
 		w.disabled = updateConf.GetDisable()
+		if w.disabled {
+			w.logger.Infof("agent-provisioning disabled")
+		}
 		needRestart = true
 	}
 
