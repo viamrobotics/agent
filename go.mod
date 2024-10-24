@@ -3,6 +3,7 @@ module github.com/viamrobotics/agent
 go 1.23.1
 
 require (
+	github.com/Masterminds/semver/v3 v3.3.0
 	github.com/Otterverse/gonetworkmanager/v2 v2.2.0
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1

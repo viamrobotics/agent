@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	semver "github.com/Masterminds/semver/v3"
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
@@ -32,6 +33,7 @@ type Provisioning struct {
 	opMu     sync.Mutex
 	running  bool
 	disabled bool
+	noNM     bool
 
 	// used to stop main/bg loops
 	cancel context.CancelFunc
@@ -90,11 +92,46 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	return w, nil
 }
 
+func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
+	nmErr := errw.New("NetworkManager does not appear to be responding as expected. " +
+		"Please ensure NetworkManger >= v1.42 is installed and enabled. Disabling agent-provisioning until next restart.")
+
+	nm, err := gnm.NewNetworkManager()
+	if err != nil {
+		w.noNM = true
+		w.logger.Error(err)
+		return nil, nmErr
+	}
+
+	ver, err := nm.GetPropertyVersion()
+	if err != nil {
+		w.noNM = true
+		w.logger.Error(err)
+		return nil, nmErr
+	}
+
+	w.logger.Infof("Found NetworkManager version: %s", ver)
+
+	sv, err := semver.NewVersion(ver)
+	if err != nil {
+		w.noNM = true
+		w.logger.Error(err)
+		return nil, nmErr
+	}
+
+	if !sv.GreaterThanEqual(semver.MustParse("1.42.0")) {
+		w.noNM = true
+		return nil, nmErr
+	}
+
+	return nm, nil
+}
+
 func (w *Provisioning) init(ctx context.Context) error {
 	w.mainLoopHealth.MarkGood()
 	w.bgLoopHealth.MarkGood()
 
-	nm, err := gnm.NewNetworkManager()
+	nm, err := w.getNM()
 	if err != nil {
 		return err
 	}
@@ -109,7 +146,7 @@ func (w *Provisioning) init(ctx context.Context) error {
 
 	w.hostname, err = settings.GetPropertyHostname()
 	if err != nil {
-		return errw.Wrap(err, "error getting hostname from NetworkManager, is NetworkManager installed and enabled?")
+		return errw.Wrap(err, "getting hostname from NetworkManager")
 	}
 
 	w.updateHotspotSSID(w.cfg)
@@ -167,7 +204,7 @@ func (w *Provisioning) Start(ctx context.Context) error {
 		return nil
 	}
 
-	if w.disabled {
+	if w.disabled || w.noNM {
 		return agent.ErrSubsystemDisabled
 	}
 
@@ -224,6 +261,10 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 
 	var needRestart bool
 
+	if w.noNM {
+		return needRestart, nil
+	}
+
 	if w.disabled != updateConf.GetDisable() {
 		w.disabled = updateConf.GetDisable()
 		if w.disabled {
@@ -270,7 +311,7 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 func (w *Provisioning) HealthCheck(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
-	if w.disabled {
+	if w.disabled || w.noNM {
 		return nil
 	}
 
@@ -298,12 +339,12 @@ func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
 	}
 
 	for _, network := range w.cfg.Networks {
-		_, err := w.AddOrUpdateConnection(network)
+		_, err := w.addOrUpdateConnection(network)
 		if err != nil {
 			w.logger.Error(errw.Wrapf(err, "error adding network %s", network.SSID))
 		}
-		if network.Interface != "" && w.Config().HotspotInterface != network.Interface {
-			if err := w.ActivateConnection(ctx, network.Interface, network.SSID); err != nil {
+		if network.Interface != "" {
+			if err := w.activateConnection(ctx, network.Interface, network.SSID); err != nil {
 				w.logger.Error(err)
 			}
 		}
