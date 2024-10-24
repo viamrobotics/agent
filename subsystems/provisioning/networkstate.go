@@ -123,7 +123,6 @@ func (n *networkState) PrimarySSID(iface string) string {
 
 	ssid, ok := n.primarySSID[iface]
 	if !ok {
-		n.logger.Warnf("cannot find primary SSID for %s", iface)
 		return ""
 	}
 
