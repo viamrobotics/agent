@@ -390,6 +390,7 @@ func (w *Provisioning) addOrUpdateConnection(cfg NetworkConfig) (bool, error) {
 		settings = generateHotspotSettings(w.cfg.HotspotPrefix, w.Config().hotspotSSID, w.cfg.HotspotPassword, w.Config().HotspotInterface)
 	} else {
 		settings, err = generateNetworkSettings(w.cfg.Manufacturer+"-"+netKey, cfg)
+		w.logger.Debugf("Network settings: ", settings)
 		if err != nil {
 			return changesMade, err
 		}

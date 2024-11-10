@@ -342,6 +342,7 @@ func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
 		_, err := w.addOrUpdateConnection(network)
 		if err != nil {
 			w.logger.Error(errw.Wrapf(err, "error adding network %s", network.SSID))
+			continue
 		}
 		if network.Interface != "" {
 			if err := w.activateConnection(ctx, network.Interface, network.SSID); err != nil {

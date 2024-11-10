@@ -120,9 +120,12 @@ func generateIPv4Settings(cfg NetworkConfig) (map[string]any, error) {
 		return nil, err
 	}
 
-	gateway, err := generateAddress(cfg.IPv4Gateway)
-	if err != nil {
-		return nil, err
+	var gateway uint32
+	if len(cfg.IPv4Gateway) > 0 {
+		gateway, err = generateAddress(cfg.IPv4Gateway)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	mask, err := strconv.ParseUint(ret[2], 10, 32)
