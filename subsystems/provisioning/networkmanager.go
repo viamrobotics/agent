@@ -389,9 +389,11 @@ func (w *Provisioning) addOrUpdateConnection(cfg NetworkConfig) (bool, error) {
 		nw.isHotspot = true
 		settings = generateHotspotSettings(w.cfg.HotspotPrefix, w.Config().hotspotSSID, w.cfg.HotspotPassword, w.Config().HotspotInterface)
 	} else {
-		settings, err = generateNetworkSettings(w.cfg.Manufacturer+"-"+netKey, cfg)
+		id := w.cfg.Manufacturer + "-" + netKey
+		settings, err = generateNetworkSettings(id, cfg)
+		w.logger.Debugf("Network settings: ", settings)
 		if err != nil {
-			return changesMade, err
+			return changesMade, errw.Errorf("error generating network settings for %s: %v", id, err)
 		}
 	}
 
