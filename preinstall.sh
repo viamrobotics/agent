@@ -71,7 +71,15 @@ check_fs() {
 			echo "Found target filesystem mounted at $ROOTFS with $ARCH"
 		fi
 
-		if stat "$mount/firstrun.sh" >/dev/null 2>&1; then
+		if stat "$mount/bootcode.bin" >/dev/null 2>&1; then
+			if ! stat "$mount/firstrun.sh" >/dev/null 2>&1; then
+				echo "Found possible Raspberry Pi bootfs mounted at $mount, but it is missing firstrun.sh"
+				echo "Please re-image using the offical Raspberry Pi Imager and choose 'yes' when asked to apply OS customisation settings."
+				echo "At minimum, you should set a hostname to uniquely identify the device."
+				echo "Then re-run this script BEFORE booting the SD card."
+				echo
+				continue
+			fi
 			BOOTFS="$mount"
 			IS_PI=1
 			ARCH=aarch64
@@ -166,7 +174,7 @@ fi
 
 if [ "$TARBALL_ONLY" -ne 1 ] && ! check_fs ; then
 	echo "Error: no valid image found at mountpoints (or manually provided path)"
-	echo "If installing on a pi (sd card), please make sure it's freshly imaged with a custom hostname."
+	echo "If installing on a Pi via sd card, please make sure it's freshly imaged (never booted) and customized with a unique hostname."
 	echo "If the imager auto-ejected the disk, you may need to remove and reinsert it to make it visible again."
 	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually,"\
 	"or explicitly specify the root path (/) if you want to install to the live/running system."
