@@ -12,7 +12,7 @@ TARBALL_ONLY=0
 SERVICE_FILE=$(cat <<EOF
 [Unit]
 Description=Viam Services Agent
-Wants=NetworkManager.service
+After=NetworkManager.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -91,6 +91,24 @@ create_tarball() {
 	echo "Creating tarball for install."
 	URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$ARCH"
 
+	if [ -n "$VIAM_AGENT_PATH" ]; then
+		VIAM_AGENT_PATH=$(eval echo "$VIAM_AGENT_PATH")
+		if ! [ -f "$VIAM_AGENT_PATH" ]; then
+			echo "Custom binary path provided, but file ($VIAM_AGENT_PATH) was not found."
+			return 1
+		fi
+		echo "Using custom binary: $VIAM_AGENT_PATH"
+	fi
+
+	if [ -n "$PROVISIONING_PATH" ]; then
+		PROVISIONING_PATH=$(eval echo "$PROVISIONING_PATH")
+		if ! [ -f "$PROVISIONING_PATH" ]; then
+			echo "Provisioning file path provided, but file ($PROVISIONING_PATH) was not found."
+			return 1
+		fi
+		echo "Installing $PROVISIONING_PATH as /etc/viam-provisioning.json"
+	fi
+
 	TEMPDIR=$(mktemp -d)
 
 	mkdir -p "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/"
@@ -98,7 +116,11 @@ create_tarball() {
 	ln -s ../viam-agent.service "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/viam-agent.service"
 
 	mkdir -p "$TEMPDIR/opt/viam/cache"
-	curl -fsSL "$URL" -o "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
+	if [ -f "$VIAM_AGENT_PATH" ]; then
+		cp "$VIAM_AGENT_PATH" "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
+	else
+		curl -fsSL "$URL" -o "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
+	fi
 	chmod 755 "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH"
 
 	mkdir -p "$TEMPDIR/opt/viam/bin"
@@ -106,8 +128,7 @@ create_tarball() {
 
 	mkdir -p "$TEMPDIR/etc"
 	if [ -f "$PROVISIONING_PATH" ]; then
-	        echo "Installing $PROVISIONING_PATH as /etc/viam-provisioning.json"
-		cat "$PROVISIONING_PATH" > "$TEMPDIR/etc/viam-provisioning.json"
+		cp "$PROVISIONING_PATH" "$TEMPDIR/etc/viam-provisioning.json"
 	fi
 
 	TARBALL="$TEMPDIR/viam-preinstall-$ARCH.tar.xz"
@@ -120,7 +141,7 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-if ! [ -z $1 ]; then
+if [ -n "$1" ]; then
 	if [ "$1" = "--aarch64" ]; then
 		ARCH=aarch64
 		TARBALL_ONLY=1
@@ -168,11 +189,18 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 		exit 1
 	fi
 
-	read -p "Path to custom viam-provisioning.json (leave empty to skip):" PROVISIONING_PATH 
+	if [ -z "$VIAM_AGENT_PATH" ]; then
+		read -p "Path to custom viam-agent binary (leave empty to download default): " VIAM_AGENT_PATH
+	fi
+
+	if [ -z "$PROVISIONING_PATH" ]; then
+		read -p "Path to custom viam-provisioning.json (leave empty to skip): " PROVISIONING_PATH
+	fi
 fi
 
 if ! create_tarball; then
 	echo "Error creating preinstall package."
+	exit 1
 fi
 
 if [ "$TARBALL_ONLY" -eq 1 ]; then
