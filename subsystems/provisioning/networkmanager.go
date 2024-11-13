@@ -519,7 +519,7 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 		// ssid has a connection known to network manager
 		configured := nw.conn != nil
 
-		// firstSeen is reset if a network disappears for more than a minute, so retry if it comes back (or generally after 10 minutes)
+		// firstSeen/lastTried are reset if a network disappears for more than a minute, so retry if it comes back (or 10 mins)
 		recentlyTried := nw.lastTried.After(nw.firstSeen) && nw.lastTried.After(time.Now().Add(time.Duration(w.cfg.FallbackTimeout)*-1))
 
 		if !nw.isHotspot && visible && configured && !recentlyTried {

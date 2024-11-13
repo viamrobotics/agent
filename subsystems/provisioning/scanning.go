@@ -108,9 +108,10 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 			return nil //nolint:nilerr
 		}
 		nw.mu.Lock()
-		// if a network isn't visible, reset the firstSeen time
+		// if a network isn't visible, reset the times so we'll retry if it comes back
 		if nw.lastSeen.Before(time.Now().Add(time.Minute * -1)) {
 			nw.firstSeen = time.Time{}
+			nw.lastTried = time.Time{}
 		}
 		nw.mu.Unlock()
 	}
