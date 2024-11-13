@@ -117,6 +117,16 @@ create_tarball() {
 		echo "Installing $PROVISIONING_PATH as /etc/viam-provisioning.json"
 	fi
 
+	if [ -n "$VIAM_JSON_PATH" ]; then
+		VIAM_JSON_PATH=$(eval echo "$VIAM_JSON_PATH")
+		if ! [ -f "$VIAM_JSON_PATH" ]; then
+			echo "viam.json file path provided, but file ($VIAM_JSON_PATH) was not found."
+			return 1
+		fi
+		echo "Installing $VIAM_JSON_PATH as /etc/viam.json"
+	fi
+
+
 	TEMPDIR=$(mktemp -d)
 
 	mkdir -p "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/"
@@ -137,6 +147,10 @@ create_tarball() {
 	mkdir -p "$TEMPDIR/etc"
 	if [ -f "$PROVISIONING_PATH" ]; then
 		cp "$PROVISIONING_PATH" "$TEMPDIR/etc/viam-provisioning.json"
+	fi
+
+	if [ -f "$VIAM_JSON_PATH" ]; then
+		cp "$VIAM_JSON_PATH" "$TEMPDIR/etc/viam.json"
 	fi
 
 	TARBALL="$TEMPDIR/viam-preinstall-$ARCH.tar.xz"
@@ -203,6 +217,10 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 
 	if [ -z "$PROVISIONING_PATH" ]; then
 		read -p "Path to custom viam-provisioning.json (leave empty to skip): " PROVISIONING_PATH
+	fi
+
+	if [ -z "$VIAM_JSON_PATH" ]; then
+		read -p "Path to custom viam.json (leave empty to skip): " VIAM_JSON_PATH
 	fi
 fi
 
