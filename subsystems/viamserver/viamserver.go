@@ -4,6 +4,7 @@ package viamserver
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 	"github.com/viamrobotics/agent/subsystems/registry"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
+	rdkweb "go.viam.com/rdk/robot/web"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -294,17 +296,81 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 	return errRet
 }
 
+func (s *viamServer) isRestartAllowed(ctx context.Context) (restartAllowed bool, errRet error) {
+	for _, url := range []string{s.checkURL, s.checkURLAlt} {
+		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
+
+		ctx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
+		defer cancelFunc()
+
+		url += "/restart_status"
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
+		}
+
+		// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
+		//nolint:gosec
+		client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
+		}
+
+		defer func() {
+			errRet = errors.Join(errRet, resp.Body.Close())
+		}()
+
+		var restartStatusResponse rdkweb.RestartStatusResponse
+		err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse)
+		if err != nil {
+			// Only debug-log errors from JSON decoding. Interacting with older
+			// viam-server instances will result in a decoding error, as empty HTML
+			// will be returned.
+			//
+			// TODO(benji): lower this log back to DEBUG level.
+			s.logger.Infof("ignoring error from restart allowed check for %s: %v",
+				SubsysName, err.Error())
+		} else {
+			return restartStatusResponse.RestartAllowed, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	setFastStart(cfg)
+
+	// By default, return false on the needRestart flag, as we await the user to
+	// kill/restart viam-server directly.
+	var needRestart bool
+
 	if newVersion && s.running {
-		s.logger.Info("awaiting user restart to run new viam-server version")
 		s.shouldRun = false
+
+		// viam-server can be safely restarted even while running if the process
+		// has reported it is safe to do so through its `restart_status` HTTP
+		// endpoint.
+		restartAllowed, err := s.isRestartAllowed(ctx)
+		if err != nil {
+			return false, err
+		}
+		if restartAllowed {
+			s.logger.Infof("will restart %s to run new version as it has reported allowance of a restart",
+				SubsysName)
+			needRestart = true
+		} else {
+			s.logger.Infof("awaiting user restart to run new %s version", SubsysName)
+		}
 	}
+
 	globalConfig.Store(configFromProto(s.logger, cfg))
-	// always return false on the needRestart flag, as we await the user to kill/restart viam-server directly
-	return false, nil
+
+	return needRestart, nil
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
