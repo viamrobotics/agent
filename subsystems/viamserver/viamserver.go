@@ -329,9 +329,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (restartAllowed bool,
 			// Only debug-log errors from JSON decoding. Interacting with older
 			// viam-server instances will result in a decoding error, as empty HTML
 			// will be returned.
-			//
-			// TODO(benji): lower this log back to DEBUG level.
-			s.logger.Infof("ignoring error from restart allowed check for %s: %v",
+			s.logger.Debugf("ignoring error from restart allowed check for %s: %v",
 				SubsysName, err.Error())
 		} else {
 			return restartStatusResponse.RestartAllowed, nil
