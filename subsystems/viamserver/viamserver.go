@@ -23,6 +23,7 @@ import (
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	rdkweb "go.viam.com/rdk/robot/web"
+	"go.viam.com/utils"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -282,7 +283,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		}
 
 		defer func() {
-			errRet = errors.Join(errRet, resp.Body.Close())
+			utils.UncheckedError(resp.Body.Close())
 		}()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -320,7 +321,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (restartAllowed bool,
 		}
 
 		defer func() {
-			errRet = errors.Join(errRet, resp.Body.Close())
+			utils.UncheckedError(resp.Body.Close())
 		}()
 
 		var restartStatusResponse rdkweb.RestartStatusResponse
@@ -362,7 +363,8 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 				SubsysName)
 			needRestart = true
 		} else {
-			s.logger.Infof("awaiting user restart to run new %s version", SubsysName)
+			s.logger.Infof("will not restart %s version to run new version as it has not reported"+
+				"allowance of a restart", SubsysName)
 		}
 	}
 
