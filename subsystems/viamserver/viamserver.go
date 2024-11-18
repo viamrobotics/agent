@@ -297,7 +297,9 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 	return errRet
 }
 
-func (s *viamServer) isRestartAllowed(ctx context.Context) (restartAllowed bool, errRet error) {
+// Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
+// both accessed.
+func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 	for _, url := range []string{s.checkURL, s.checkURLAlt} {
 		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
 
@@ -324,17 +326,19 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (restartAllowed bool,
 			utils.UncheckedError(resp.Body.Close())
 		}()
 
-		var restartStatusResponse rdkweb.RestartStatusResponse
-		err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse)
-		if err != nil {
-			// Only debug-log errors from JSON decoding. Interacting with older
-			// viam-server instances will result in a decoding error, as empty HTML
-			// will be returned.
-			s.logger.Debugf("ignoring error from restart allowed check for %s: %v",
-				SubsysName, err.Error())
-		} else {
-			return restartStatusResponse.RestartAllowed, nil
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// Interacting with older viam-server instances will result in a
+			// non-successful HTTP response status code, as the `restart_status`
+			// endpoint will not be available. Continue to next URL in this
+			// case.
+			continue
 		}
+
+		var restartStatusResponse rdkweb.RestartStatusResponse
+		if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
+			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
+		}
+		return restartStatusResponse.RestartAllowed, nil
 	}
 	return false, nil
 }
@@ -356,14 +360,14 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 		// endpoint.
 		restartAllowed, err := s.isRestartAllowed(ctx)
 		if err != nil {
-			return false, err
+			return needRestart, err
 		}
 		if restartAllowed {
-			s.logger.Infof("will restart %s to run new version as it has reported allowance of a restart",
+			s.logger.Infof("will restart %s to run new version, as it has reported allowance of a restart",
 				SubsysName)
 			needRestart = true
 		} else {
-			s.logger.Infof("will not restart %s version to run new version as it has not reported"+
+			s.logger.Infof("will not restart %s version to run new version, as it has not reported"+
 				"allowance of a restart", SubsysName)
 		}
 	}
