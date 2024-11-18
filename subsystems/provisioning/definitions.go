@@ -365,6 +365,9 @@ type Config struct {
 
 	// Computed from HotspotPrefix and Manufacturer
 	hotspotSSID string
+
+	// When true, it will disable power save for all wifi connections managed by NetworkManager.
+	DisableWifiPowerSave *bool `json:"disable_wifi_power_save"`
 }
 
 // Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.
