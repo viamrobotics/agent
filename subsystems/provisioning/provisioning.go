@@ -21,6 +21,14 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	wifiPowerSaveFilepath = "/etc/NetworkManager/conf.d/wifi-powersave.conf"
+
+	wifiPowerSaveContentsDefault = "[connection]\n# Do not modify existing setting\nwifi.powersave = 1"
+	wifiPowerSaveContentsDisable = "[connection]\n# Explicitly disable\nwifi.powersave = 2"
+	wifiPowerSaveContentsEnable  = "[connection]\n# Explicitly enable\nwifi.powersave = 3"
+)
+
 func init() {
 	registry.Register(SubsysName, NewProvisioning)
 }
@@ -214,6 +222,10 @@ func (w *Provisioning) Start(ctx context.Context) error {
 		}
 	}
 
+	if err := w.writeWifiPowerSave(); err != nil {
+		w.logger.Error(errw.Wrap(err, "error applying wifi power save configuration"))
+	}
+
 	w.processAdditionalnetworks(ctx)
 
 	if err := w.checkOnline(true); err != nil {
@@ -358,4 +370,31 @@ func (w *Provisioning) updateHotspotSSID(cfg *Config) {
 	if len(cfg.hotspotSSID) > 32 {
 		cfg.hotspotSSID = cfg.hotspotSSID[:32]
 	}
+}
+
+func (w *Provisioning) writeWifiPowerSave() error {
+	contents := wifiPowerSaveContentsDefault
+
+	if w.cfg.DisableWifiPowerSave != nil && *w.cfg.DisableWifiPowerSave {
+		contents = wifiPowerSaveContentsDisable
+	}
+
+	if w.cfg.DisableWifiPowerSave != nil && !*w.cfg.DisableWifiPowerSave {
+		contents = wifiPowerSaveContentsEnable
+	}
+
+	isNew, err := agent.WriteFileIfNew(wifiPowerSaveFilepath, []byte(contents))
+	if err != nil {
+		return errw.Wrap(err, "error writing wifi-powersave.conf")
+	}
+
+	if isNew {
+		w.logger.Infof("Updated %s to: %q", wifiPowerSaveFilepath, contents)
+		// Reload NetworkManager to apply changes
+		if err := w.nm.Reload(0); err != nil {
+			return errw.Wrap(err, "error reloading NetworkManager after wifi-powersave.conf update")
+		}
+	}
+
+	return nil
 }
