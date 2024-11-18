@@ -159,6 +159,8 @@ func main() {
 			} else {
 				globalLogger.Error(errors.Wrapf(err,
 					"could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet"))
+				manager.CloseAll()
+				return
 			}
 		}
 
@@ -179,6 +181,9 @@ func main() {
 	} else {
 		globalLogger.AddAppender(netAppender)
 	}
+
+	// wait until now when we (potentially) have a network logger to record this
+	globalLogger.Infof("Viam Agent Version: %s\nGit Revision: %s\n", agent.GetVersion(), agent.GetRevision())
 
 	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
 	var fastSuccess bool

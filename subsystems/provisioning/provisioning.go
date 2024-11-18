@@ -165,7 +165,7 @@ func (w *Provisioning) init(ctx context.Context) error {
 
 	w.checkConfigured()
 	if err := w.networkScan(ctx); err != nil {
-		return err
+		w.logger.Error(err)
 	}
 
 	w.warnIfMultiplePrimaryNetworks()
@@ -181,7 +181,7 @@ func (w *Provisioning) init(ctx context.Context) error {
 	}
 
 	if err := w.checkConnections(); err != nil {
-		return err
+		w.logger.Error(err)
 	}
 
 	// Is there a configured wifi network? If so, set last times to now so we use normal timeouts.

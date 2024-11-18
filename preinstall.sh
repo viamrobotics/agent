@@ -12,7 +12,7 @@ TARBALL_ONLY=0
 SERVICE_FILE=$(cat <<EOF
 [Unit]
 Description=Viam Services Agent
-Wants=NetworkManager.service
+After=NetworkManager.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -71,7 +71,15 @@ check_fs() {
 			echo "Found target filesystem mounted at $ROOTFS with $ARCH"
 		fi
 
-		if stat "$mount/firstrun.sh" >/dev/null 2>&1; then
+		if stat "$mount/bootcode.bin" >/dev/null 2>&1; then
+			if ! stat "$mount/firstrun.sh" >/dev/null 2>&1; then
+				echo "Found possible Raspberry Pi bootfs mounted at $mount, but it is missing firstrun.sh"
+				echo "Please re-image using the offical Raspberry Pi Imager and choose 'yes' when asked to apply OS customisation settings."
+				echo "At minimum, you should set a hostname to uniquely identify the device."
+				echo "Then re-run this script BEFORE booting the SD card."
+				echo
+				continue
+			fi
 			BOOTFS="$mount"
 			IS_PI=1
 			ARCH=aarch64
@@ -91,6 +99,34 @@ create_tarball() {
 	echo "Creating tarball for install."
 	URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$ARCH"
 
+	if [ -n "$VIAM_AGENT_PATH" ]; then
+		VIAM_AGENT_PATH=$(eval echo "$VIAM_AGENT_PATH")
+		if ! [ -f "$VIAM_AGENT_PATH" ]; then
+			echo "Custom binary path provided, but file ($VIAM_AGENT_PATH) was not found."
+			return 1
+		fi
+		echo "Using custom binary: $VIAM_AGENT_PATH"
+	fi
+
+	if [ -n "$PROVISIONING_PATH" ]; then
+		PROVISIONING_PATH=$(eval echo "$PROVISIONING_PATH")
+		if ! [ -f "$PROVISIONING_PATH" ]; then
+			echo "Provisioning file path provided, but file ($PROVISIONING_PATH) was not found."
+			return 1
+		fi
+		echo "Installing $PROVISIONING_PATH as /etc/viam-provisioning.json"
+	fi
+
+	if [ -n "$VIAM_JSON_PATH" ]; then
+		VIAM_JSON_PATH=$(eval echo "$VIAM_JSON_PATH")
+		if ! [ -f "$VIAM_JSON_PATH" ]; then
+			echo "viam.json file path provided, but file ($VIAM_JSON_PATH) was not found."
+			return 1
+		fi
+		echo "Installing $VIAM_JSON_PATH as /etc/viam.json"
+	fi
+
+
 	TEMPDIR=$(mktemp -d)
 
 	mkdir -p "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/"
@@ -98,7 +134,11 @@ create_tarball() {
 	ln -s ../viam-agent.service "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/viam-agent.service"
 
 	mkdir -p "$TEMPDIR/opt/viam/cache"
-	curl -fsSL "$URL" -o "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
+	if [ -f "$VIAM_AGENT_PATH" ]; then
+		cp "$VIAM_AGENT_PATH" "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
+	else
+		curl -fsSL "$URL" -o "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH" || return 1
+	fi
 	chmod 755 "$TEMPDIR/opt/viam/cache/viam-agent-factory-$ARCH"
 
 	mkdir -p "$TEMPDIR/opt/viam/bin"
@@ -106,8 +146,11 @@ create_tarball() {
 
 	mkdir -p "$TEMPDIR/etc"
 	if [ -f "$PROVISIONING_PATH" ]; then
-	        echo "Installing $PROVISIONING_PATH as /etc/viam-provisioning.json"
-		cat "$PROVISIONING_PATH" > "$TEMPDIR/etc/viam-provisioning.json"
+		cp "$PROVISIONING_PATH" "$TEMPDIR/etc/viam-provisioning.json"
+	fi
+
+	if [ -f "$VIAM_JSON_PATH" ]; then
+		cp "$VIAM_JSON_PATH" "$TEMPDIR/etc/viam.json"
 	fi
 
 	TARBALL="$TEMPDIR/viam-preinstall-$ARCH.tar.xz"
@@ -120,7 +163,7 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-if ! [ -z $1 ]; then
+if [ -n "$1" ]; then
 	if [ "$1" = "--aarch64" ]; then
 		ARCH=aarch64
 		TARBALL_ONLY=1
@@ -145,7 +188,7 @@ fi
 
 if [ "$TARBALL_ONLY" -ne 1 ] && ! check_fs ; then
 	echo "Error: no valid image found at mountpoints (or manually provided path)"
-	echo "If installing on a pi (sd card), please make sure it's freshly imaged with a custom hostname."
+	echo "If installing on a Pi via sd card, please make sure it's freshly imaged (never booted) and customized with a unique hostname."
 	echo "If the imager auto-ejected the disk, you may need to remove and reinsert it to make it visible again."
 	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually,"\
 	"or explicitly specify the root path (/) if you want to install to the live/running system."
@@ -168,11 +211,22 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 		exit 1
 	fi
 
-	read -p "Path to custom viam-provisioning.json (leave empty to skip):" PROVISIONING_PATH 
+	if [ -z "$VIAM_AGENT_PATH" ]; then
+		read -p "Path to custom viam-agent binary (leave empty to download default): " VIAM_AGENT_PATH
+	fi
+
+	if [ -z "$PROVISIONING_PATH" ]; then
+		read -p "Path to custom viam-provisioning.json (leave empty to skip): " PROVISIONING_PATH
+	fi
+
+	if [ -z "$VIAM_JSON_PATH" ]; then
+		read -p "Path to custom viam.json (leave empty to skip): " VIAM_JSON_PATH
+	fi
 fi
 
 if ! create_tarball; then
 	echo "Error creating preinstall package."
+	exit 1
 fi
 
 if [ "$TARBALL_ONLY" -eq 1 ]; then
