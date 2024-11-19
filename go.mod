@@ -13,7 +13,7 @@ require (
 	github.com/ulikunitz/xz v0.5.12
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.357
-	go.viam.com/rdk v0.45.0
+	go.viam.com/rdk v0.51.0
 	go.viam.com/test v1.2.3
 	go.viam.com/utils v0.1.112
 	golang.org/x/sys v0.26.0
@@ -141,11 +141,11 @@ require (
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/xfmoulet/qoi v0.2.0 // indirect
-	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/zitadel/oidc v1.13.5 // indirect
 	github.com/ziutek/mymysql v1.5.4 // indirect
 	go-hep.org/x/hep v0.32.1 // indirect
-	go.mongodb.org/mongo-driver v1.12.2 // indirect
+	go.mongodb.org/mongo-driver v1.17.1 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.54.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect
@@ -176,5 +176,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	nhooyr.io/websocket v1.8.9 // indirect
 )
-
-replace go.viam.com/rdk => ../rdk
