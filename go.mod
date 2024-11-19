@@ -4,7 +4,7 @@ go 1.23.1
 
 require (
 	github.com/Masterminds/semver/v3 v3.3.0
-	github.com/Otterverse/gonetworkmanager/v2 v2.2.0
+	github.com/Otterverse/gonetworkmanager/v2 v2.2.1
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/nightlyone/lockfile v1.0.0

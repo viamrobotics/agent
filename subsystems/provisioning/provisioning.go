@@ -29,7 +29,6 @@ type Provisioning struct {
 	monitorWorkers sync.WaitGroup
 
 	// blocks start/stop/etc operations
-	// holders of this lock must use HealthySleep to respond to HealthChecks from the parent agent during long operations
 	opMu     sync.Mutex
 	running  bool
 	disabled bool
@@ -95,6 +94,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
 	nmErr := errw.New("NetworkManager does not appear to be responding as expected. " +
 		"Please ensure NetworkManger >= v1.42 is installed and enabled. Disabling agent-provisioning until next restart.")
+	wifiErr := errw.New("No WiFi devices available. Disabling agent-provisioning until next restart.")
 
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
@@ -122,6 +122,18 @@ func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
 	if !sv.GreaterThanEqual(semver.MustParse("1.42.0")) {
 		w.noNM = true
 		return nil, nmErr
+	}
+
+	flags, err := nm.GetPropertyRadioFlags()
+	if err != nil {
+		w.noNM = true
+		w.logger.Error(err)
+		return nil, wifiErr
+	}
+
+	if flags&gnm.NmRadioFlagsWlanAvailable != gnm.NmRadioFlagsWlanAvailable {
+		w.noNM = true
+		return nil, wifiErr
 	}
 
 	return nm, nil
@@ -156,6 +168,10 @@ func (w *Provisioning) init(ctx context.Context) error {
 	}
 
 	if err := w.testConnCheck(); err != nil {
+		return err
+	}
+
+	if err := w.enableWifi(ctx); err != nil {
 		return err
 	}
 
