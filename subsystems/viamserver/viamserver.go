@@ -22,7 +22,6 @@ import (
 	"github.com/viamrobotics/agent/subsystems/registry"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
-	rdkweb "go.viam.com/rdk/robot/web"
 	"go.viam.com/utils"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -52,6 +51,14 @@ var (
 	FastStart    atomic.Bool
 	globalConfig atomic.Pointer[viamServerConfig]
 )
+
+// RestartStatusResponse is the http/json response from viam_server's /health_check URL
+// This MUST remain in sync with RDK.
+type RestartStatusResponse struct {
+	// RestartAllowed represents whether this instance of the viam-server can be
+	// safely restarted.
+	RestartAllowed bool `json:"restart_allowed"`
+}
 
 type viamServer struct {
 	mu          sync.Mutex
@@ -334,7 +341,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 			continue
 		}
 
-		var restartStatusResponse rdkweb.RestartStatusResponse
+		var restartStatusResponse RestartStatusResponse
 		if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
 			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
 		}
