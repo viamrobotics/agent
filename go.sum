@@ -55,8 +55,8 @@ github.com/NYTimes/gziphandler v1.1.1 h1:ZUDjpQae29j0ryrS0u/B8HZfJBtBQHjqw2rQ2cq
 github.com/NYTimes/gziphandler v1.1.1/go.mod h1:n/CVRwUEOgIxrgPvAQhUUr9oeUtvrhMomdKFjzJNB0c=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/OpenPeeDeeP/depguard v1.0.1/go.mod h1:xsIw86fROiiwelg+jB2uM9PiKihMMmUx/1V+TNhjQvM=
-github.com/Otterverse/gonetworkmanager/v2 v2.2.0 h1:aYEOjBO2I+OMORNpCBXqvVgzHcGks5MWmKv0JmrT5po=
-github.com/Otterverse/gonetworkmanager/v2 v2.2.0/go.mod h1:Bc8kOugBgzCBC0R8oLa3wHnGet7k2ZpMHUobZtxlwhU=
+github.com/Otterverse/gonetworkmanager/v2 v2.2.1 h1:yNov3VIkatRprIhCkoshWEeUG4pyNPJQMLHSFXqi09g=
+github.com/Otterverse/gonetworkmanager/v2 v2.2.1/go.mod h1:Bc8kOugBgzCBC0R8oLa3wHnGet7k2ZpMHUobZtxlwhU=
 github.com/PuerkitoBio/goquery v1.6.0/go.mod h1:GsLWisAFVj4WgDibEWF4pvYnkVQBpKBKeU+7zCJoLcc=
 github.com/Shopify/sarama v1.19.0/go.mod h1:FVkBWblsNy7DGZRfXLU0O9RCGt5g3g3yEuWXgklEdEo=
 github.com/Shopify/toxiproxy v2.1.4+incompatible/go.mod h1:OXgGpZ6Cli1/URJOF1DMxUHB2q5Ap20/P/eIdh4G0pI=

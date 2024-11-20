@@ -4,9 +4,11 @@ package provisioning
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io/fs"
 	"os"
+	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
@@ -138,4 +140,25 @@ func (w *Provisioning) initDevices() error {
 	}
 
 	return nil
+}
+
+func (w *Provisioning) enableWifi(ctx context.Context) error {
+	if err := w.nm.SetPropertyWirelessEnabled(true); err != nil {
+		return err
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	for {
+		if !w.mainLoopHealth.Sleep(timeoutCtx, time.Second) {
+			return errw.Wrap(timeoutCtx.Err(), "enabling wifi")
+		}
+		enabled, err := w.nm.GetPropertyWirelessEnabled()
+		if err != nil {
+			return err
+		}
+		if enabled {
+			return nil
+		}
+	}
 }
