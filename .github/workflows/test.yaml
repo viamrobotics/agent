@@ -1,0 +1,27 @@
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  test:
+    name: Test lint and build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Lint
+      run: |
+        make lint
+        GEN_DIFF=$(git status -s)
+        if [ -n "$GEN_DIFF" ]; then
+            echo '"make lint" resulted in the following untracked changes:' 1>&2
+            git diff
+            echo '"make lint" resulted in changes not in git' 1>&2
+            git status
+            exit 1
+        fi
+    - name: Build
+      run: make all
