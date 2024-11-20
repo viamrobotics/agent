@@ -33,9 +33,9 @@ const (
 	wifiPowerSaveContentsDefault = "# This file intentionally left blank.\n"
 	wifiPowerSaveContentsDisable = "[connection]\n# Explicitly disable\nwifi.powersave = 2\n"
 	wifiPowerSaveContentsEnable  = "[connection]\n# Explicitly enable\nwifi.powersave = 3\n"
-	NetworkTypeWifi    = "wifi"
-	NetworkTypeWired   = "wired"
-	NetworkTypeHotspot = "hotspot"
+	NetworkTypeWifi              = "wifi"
+	NetworkTypeWired             = "wired"
+	NetworkTypeHotspot           = "hotspot"
 
 	IfNameAny = "any"
 
