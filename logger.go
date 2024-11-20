@@ -43,7 +43,7 @@ func NewMatchingLogger(logger logging.Logger, isError, uploadAll bool) *Matching
 
 // MatchingLogger provides a logger that also allows sending regex matched lines to a channel.
 type MatchingLogger struct {
-	mu        sync.RWMutex
+	mu           sync.RWMutex
 	logger       logging.Logger
 	matchers     map[string]matcher
 	defaultError bool
