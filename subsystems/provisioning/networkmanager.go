@@ -175,13 +175,13 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 		return err
 	}
 	if err := w.activateConnection(ctx, w.Config().HotspotInterface, w.Config().hotspotSSID); err != nil {
-		return errw.Wrap(err, "error starting provisioning mode hotspot")
+		return errw.Wrap(err, "starting provisioning mode hotspot")
 	}
 
 	// start portal with ssid list and known connections
 	if err := w.startPortal(inputChan); err != nil {
 		err = errors.Join(err, w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID))
-		return errw.Wrap(err, "could not start web/grpc portal")
+		return errw.Wrap(err, "starting web/grpc portal")
 	}
 
 	w.connState.setProvisioning(true)

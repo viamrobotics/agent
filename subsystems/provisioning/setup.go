@@ -35,35 +35,35 @@ func (w *Provisioning) writeDNSMasq() error {
 func (w *Provisioning) testConnCheck() error {
 	connCheckEnabled, err := w.nm.GetPropertyConnectivityCheckEnabled()
 	if err != nil {
-		return errw.Wrap(err, "error getting NetworkManager connectivity check state")
+		return errw.Wrap(err, "getting NetworkManager connectivity check state")
 	}
 
 	if !connCheckEnabled {
 		hasConnCheck, err := w.nm.GetPropertyConnectivityCheckAvailable()
 		if err != nil {
-			return errw.Wrap(err, "error getting NetworkManager connectivity check configuration")
+			return errw.Wrap(err, "getting NetworkManager connectivity check configuration")
 		}
 
 		if !hasConnCheck {
 			if err := w.writeConnCheck(); err != nil {
-				return (errw.Wrap(err, "error writing NetworkManager connectivity check configuration"))
+				return (errw.Wrap(err, "writing NetworkManager connectivity check configuration"))
 			}
 			if err := w.nm.Reload(0); err != nil {
-				return (errw.Wrap(err, "error reloading NetworkManager"))
+				return (errw.Wrap(err, "reloading NetworkManager"))
 			}
 
 			hasConnCheck, err = w.nm.GetPropertyConnectivityCheckAvailable()
 			if err != nil {
-				return errw.Wrap(err, "error getting NetworkManager connectivity check configuration")
+				return errw.Wrap(err, "getting NetworkManager connectivity check configuration")
 			}
 			if !hasConnCheck {
-				return errors.New("error configuring NetworkManager connectivity check")
+				return errors.New("configuring NetworkManager connectivity check")
 			}
 		}
 
 		connCheckEnabled, err = w.nm.GetPropertyConnectivityCheckEnabled()
 		if err != nil {
-			return errw.Wrap(err, "error getting NetworkManager connectivity check state")
+			return errw.Wrap(err, "getting NetworkManager connectivity check state")
 		}
 
 		if !connCheckEnabled {

@@ -29,6 +29,10 @@ const (
 	ConnCheckFilepath = "/etc/NetworkManager/conf.d/80-viam.conf"
 	ConnCheckContents = "[connectivity]\nuri=http://packages.viam.com/check_network_status.txt\ninterval=300\n"
 
+	wifiPowerSaveFilepath        = "/etc/NetworkManager/conf.d/81-viam-wifi-powersave.conf"
+	wifiPowerSaveContentsDefault = "# This file intentionally left blank.\n"
+	wifiPowerSaveContentsDisable = "[connection]\n# Explicitly disable\nwifi.powersave = 2\n"
+	wifiPowerSaveContentsEnable  = "[connection]\n# Explicitly enable\nwifi.powersave = 3\n"
 	NetworkTypeWifi    = "wifi"
 	NetworkTypeWired   = "wired"
 	NetworkTypeHotspot = "hotspot"
@@ -366,8 +370,8 @@ type Config struct {
 	// Computed from HotspotPrefix and Manufacturer
 	hotspotSSID string
 
-	// When true, it will disable power save for all wifi connections managed by NetworkManager.
-	DisableWifiPowerSave *bool `json:"disable_wifi_power_save"`
+	// If set, will explicitly enable or disable power save for all wifi connections managed by NetworkManager.
+	WifiPowerSave *bool `json:"wifi_power_save"`
 }
 
 // Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.

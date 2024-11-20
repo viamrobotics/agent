@@ -19,7 +19,7 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 
 	prevScan, err := wifiDev.GetPropertyLastScan()
 	if err != nil {
-		return errw.Wrap(err, "error scanning wifi")
+		return errw.Wrap(err, "scanning wifi")
 	}
 
 	err = wifiDev.RequestScan()

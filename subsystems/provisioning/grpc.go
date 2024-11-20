@@ -16,7 +16,7 @@ func (w *Provisioning) startGRPC() error {
 	bind := PortalBindAddr + ":4772"
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
-		return errw.Wrapf(err, "error listening on: %s", bind)
+		return errw.Wrapf(err, "listening on: %s", bind)
 	}
 
 	w.grpcServer = grpc.NewServer(grpc.WaitForHandlers(true))
