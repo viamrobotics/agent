@@ -35,11 +35,11 @@ func (w *Provisioning) startPortal(inputChan chan<- userInput) error {
 	w.portalData = &portalData{input: &userInput{}, inputChan: inputChan}
 
 	if err := w.startGRPC(); err != nil {
-		return errw.Wrap(err, "error starting GRPC service")
+		return errw.Wrap(err, "starting GRPC service")
 	}
 
 	if err := w.startWeb(); err != nil {
-		return errw.Wrap(err, "error starting web portal service")
+		return errw.Wrap(err, "starting web portal service")
 	}
 
 	return nil
@@ -56,7 +56,7 @@ func (w *Provisioning) startWeb() error {
 	bind := PortalBindAddr + ":80"
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
-		return errw.Wrapf(err, "error listening on: %s", bind)
+		return errw.Wrapf(err, "listening on: %s", bind)
 	}
 
 	w.portalData.workers.Add(1)
