@@ -313,9 +313,9 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 		ctx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
 		defer cancelFunc()
 
-		url += "/restart_status"
+		restartURL := url + "/restart_status"
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, restartURL, nil)
 		if err != nil {
 			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
 		}
@@ -326,6 +326,11 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 
 		resp, err := client.Do(req)
 		if err != nil {
+			if url == s.checkURL {
+				// if this is only the first URL, we want to continue, not return, so log the error
+				s.logger.Warn(errw.Wrapf(err, "checking whether %s allows restart", SubsysName))
+				continue
+			}
 			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
 		}
 
