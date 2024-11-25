@@ -345,16 +345,14 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	}
 
 	// update current and previous versions
-	var previousVersion string
 	if s.CacheData.CurrentVersion != s.CacheData.PreviousVersion {
-		previousVersion = s.CacheData.PreviousVersion
 		s.CacheData.PreviousVersion = s.CacheData.CurrentVersion
 	}
 	s.CacheData.CurrentVersion = updateInfo.GetVersion()
 	verData.Installed = time.Now()
 
 	// if we made it here we performed an update and need to restart
-	s.logger.Infof("%s updated from %s to %s", s.name, previousVersion, verData.Version)
+	s.logger.Infof("%s updated from %s to %s", s.name, s.CacheData.PreviousVersion, s.CacheData.CurrentVersion)
 	needRestart = true
 
 	// record the cache
