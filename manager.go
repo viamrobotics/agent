@@ -309,6 +309,7 @@ func (m *Manager) LoadSubsystems(ctx context.Context) error {
 	if err != nil {
 		m.logger.Error(errw.Wrap(err, "getting cached config"))
 	}
+	m.processConfig(cachedConfig)
 
 	for _, name := range registry.List() {
 		cfg, ok := cachedConfig[name]
@@ -422,6 +423,24 @@ func (m *Manager) dial(ctx context.Context) error {
 	return nil
 }
 
+// process non-subsystem effects of a config (i.e. agent-specific stuff that needs to happen when loading cache).
+func (m *Manager) processConfig(cfg map[string]*pb.DeviceSubsystemConfig) {
+	if agent, ok := cfg["viam-agent"]; ok {
+		if debug, ok := agent.Attributes.AsMap()["debug"].(bool); !ok {
+			m.logger.Error("viam-agent debug attribute is present but is not a bool")
+		} else {
+			// note: if this is present (true or false, rather than missing) it overrides the CLI debug switch.
+			// if the user removes the `debug` attribute, we don't revert to the CLI debug switch state. (we ideally should).
+			// note: this assumes m.logger is the global logger shared by the other subsystems.
+			if debug {
+				m.logger.SetLevel(logging.DEBUG)
+			} else {
+				m.logger.SetLevel(logging.INFO)
+			}
+		}
+	}
+}
+
 // GetConfig retrieves the configuration from the cloud, or returns a cached version if unable to communicate.
 func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
 	if m.cloudConfig == nil {
@@ -452,6 +471,8 @@ func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystem
 	if err != nil {
 		m.logger.Error(errw.Wrap(err, "saving agent config to cache"))
 	}
+
+	m.processConfig(resp.GetSubsystemConfigs())
 
 	interval := resp.GetCheckInterval().AsDuration()
 
