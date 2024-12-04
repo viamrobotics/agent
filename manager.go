@@ -345,8 +345,8 @@ func (m *Manager) getCachedConfig() (map[string]*pb.DeviceSubsystemConfig, error
 	cachedConfig := map[string]*pb.DeviceSubsystemConfig{SubsystemName: {}}
 
 	cacheFilePath := filepath.Join(ViamDirs["cache"], agentCachePath)
-	//nolint:gosec
-	cacheBytes, err := os.ReadFile(cacheFilePath)
+
+	cacheBytes, err := os.ReadFile(cacheFilePath) //nolint:gosec
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return cachedConfig, nil
@@ -423,10 +423,10 @@ func (m *Manager) dial(ctx context.Context) error {
 	return nil
 }
 
-// process non-subsystem effects of a config (i.e. agent-specific stuff that needs to happen when loading cache).
+// process non-subsystem effects of a config (i.e. agent-specific stuff that needs to happen when loading cache and when updating).
 func (m *Manager) processConfig(cfg map[string]*pb.DeviceSubsystemConfig) {
 	if agent, ok := cfg["viam-agent"]; ok {
-		if debug, ok := agent.Attributes.AsMap()["debug"].(bool); !ok {
+		if debug, ok := agent.GetAttributes().AsMap()["debug"].(bool); !ok {
 			m.logger.Error("viam-agent debug attribute is present but is not a bool")
 		} else {
 			// note: if this is present (true or false, rather than missing) it overrides the CLI debug switch.
