@@ -426,16 +426,18 @@ func (m *Manager) dial(ctx context.Context) error {
 // process non-subsystem effects of a config (i.e. agent-specific stuff that needs to happen when loading cache and when updating).
 func (m *Manager) processConfig(cfg map[string]*pb.DeviceSubsystemConfig) {
 	if agent, ok := cfg["viam-agent"]; ok {
-		if debug, ok := agent.GetAttributes().AsMap()["debug"].(bool); !ok {
-			m.logger.Error("viam-agent debug attribute is present but is not a bool")
-		} else {
-			// note: if this is present (true or false, rather than missing) it overrides the CLI debug switch.
-			// if the user removes the `debug` attribute, we don't revert to the CLI debug switch state. (we ideally should).
-			// note: this assumes m.logger is the global logger shared by the other subsystems.
-			if debug {
-				m.logger.SetLevel(logging.DEBUG)
+		if debugRaw, ok := agent.GetAttributes().AsMap()["debug"]; ok {
+			if debug, ok := debugRaw.(bool); !ok {
+				m.logger.Error("viam-agent debug attribute is present but is not a bool")
 			} else {
-				m.logger.SetLevel(logging.INFO)
+				// note: if this is present (true or false, rather than missing) it overrides the CLI debug switch.
+				// if the user removes the `debug` attribute, we don't revert to the CLI debug switch state. (we ideally should).
+				// note: this assumes m.logger is the global logger shared by the other subsystems.
+				if debug {
+					m.logger.SetLevel(logging.DEBUG)
+				} else {
+					m.logger.SetLevel(logging.INFO)
+				}
 			}
 		}
 	}
