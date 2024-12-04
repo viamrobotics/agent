@@ -76,7 +76,7 @@ func main() {
 	}
 
 	if opts.Debug {
-		globalLogger = logging.NewDebugLogger("viam-agent")
+		globalLogger.SetLevel(logging.DEBUG)
 	}
 
 	// need to be root to go any further than this
