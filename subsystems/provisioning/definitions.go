@@ -37,8 +37,6 @@ const (
 	NetworkTypeWired             = "wired"
 	NetworkTypeHotspot           = "hotspot"
 
-	IfNameAny = "any"
-
 	HealthCheckTimeout = time.Minute
 )
 

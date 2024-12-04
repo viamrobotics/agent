@@ -312,6 +312,7 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 	if cfg.HotspotInterface == "" {
 		cfg.HotspotInterface = w.Config().HotspotInterface
 	}
+	w.netState.SetHotspotInterface(cfg.HotspotInterface)
 
 	if reflect.DeepEqual(cfg, w.cfg) {
 		return needRestart, nil

@@ -2,7 +2,6 @@ package provisioning
 
 import (
 	"encoding/binary"
-	"fmt"
 	"net"
 	"regexp"
 	"strconv"
@@ -177,15 +176,4 @@ func generateAddress(addr string) (uint32, error) {
 	}
 
 	return binary.LittleEndian.Uint32(outBytes), nil
-}
-
-func genNetKey(ifName, ssid string) string {
-	if ifName == "" {
-		ifName = IfNameAny
-	}
-
-	if ssid == "" {
-		return ifName
-	}
-	return fmt.Sprintf("%s@%s", ssid, ifName)
 }

@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"fmt"
 	"sync"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -10,6 +11,9 @@ import (
 type networkState struct {
 	mu     sync.RWMutex
 	logger logging.Logger
+
+	// the wifi interface to default to when no interface is specified
+	hotspotInterface string
 
 	// key is ssid@interface for wifi, ex: TestNetwork@wlan0
 	// interface may be "any" for no interface set, ex: TestNetwork@any
@@ -39,13 +43,36 @@ func NewNetworkState(logger logging.Logger) *networkState {
 	}
 }
 
+func (n *networkState) SetHotspotInterface(iface string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.hotspotInterface = iface
+}
+
+func (n *networkState) GenNetKey(ifName, ssid string) string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.genNetKey(ifName, ssid)
+}
+
+func (n *networkState) genNetKey(ifName, ssid string) string {
+	if ifName == "" && ssid != "" {
+		ifName = n.hotspotInterface
+	}
+
+	if ssid == "" {
+		return ifName
+	}
+	return fmt.Sprintf("%s@%s", ssid, ifName)
+}
+
 // LockingNetwork returns a pointer to a network, wrapped in a lockable struct, so updates are persisted
 // Users must lock the returned network before updates.
 func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	id := genNetKey(iface, ssid)
+	id := n.genNetKey(iface, ssid)
 
 	net, ok := n.network[id]
 	if !ok {
@@ -57,9 +84,7 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 		} else {
 			net.netType = NetworkTypeWired
 		}
-		if iface != IfNameAny && iface != "" {
-			net.interfaceName = iface
-		}
+		net.interfaceName = iface
 		n.logger.Debugf("found new network %s (%s)", id, net.netType)
 	}
 
@@ -70,7 +95,7 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 func (n *networkState) Network(iface, ssid string) network {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	id := genNetKey(iface, ssid)
+	id := n.genNetKey(iface, ssid)
 	ln, ok := n.network[id]
 	if !ok {
 		return network{}

@@ -169,9 +169,13 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 		}
 
 		ifName, ssid, netType := getIfNameSSIDTypeFromSettings(settings)
-		if ifName == "" {
+		if netType == "" {
 			// unknown network type, or broken network
 			continue
+		}
+
+		if ifName == "" && netType == NetworkTypeWifi {
+			ifName = w.Config().HotspotInterface
 		}
 
 		_, ok := highestPriority[ifName]

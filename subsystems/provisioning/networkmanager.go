@@ -126,7 +126,7 @@ func (w *Provisioning) checkConnections() error {
 		state, err := activeConnection.GetPropertyState()
 		nw.mu.Lock()
 		if err != nil {
-			w.logger.Error(errw.Wrapf(err, "getting state of active connection: %s", genNetKey(ifName, ssid)))
+			w.logger.Error(errw.Wrapf(err, "getting state of active connection: %s", w.netState.GenNetKey(ifName, ssid)))
 			w.netState.SetActiveConn(ifName, nil)
 			w.netState.SetActiveSSID(ifName, "")
 			nw.connected = false
@@ -221,16 +221,11 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 	nw.mu.Lock()
 	defer nw.mu.Unlock()
 
-	if nw.conn == nil && ssid != "" {
-		nw = w.netState.LockingNetwork(IfNameAny, ssid)
-		nw.mu.Lock()
-		defer nw.mu.Unlock()
-		if nw.conn == nil {
-			return errw.Errorf("no settings found for network: %s", genNetKey(ifName, ssid))
-		}
+	if nw.conn == nil {
+		return errw.Errorf("no settings found for network: %s", w.netState.GenNetKey(ifName, ssid))
 	}
 
-	w.logger.Infof("Activating connection: %s", genNetKey(ifName, ssid))
+	w.logger.Infof("Activating connection: %s", w.netState.GenNetKey(ifName, ssid))
 
 	var netDev gnm.Device
 	if nw.netType == NetworkTypeWifi || nw.netType == NetworkTypeHotspot {
@@ -253,7 +248,7 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 	activeConnection, err := w.nm.ActivateConnection(nw.conn, netDev, nil)
 	if err != nil {
 		nw.lastError = err
-		return errw.Wrapf(err, "activating connection: %s", genNetKey(ifName, ssid))
+		return errw.Wrapf(err, "activating connection: %s", w.netState.GenNetKey(ifName, ssid))
 	}
 
 	if err := w.waitForConnect(ctx, netDev); err != nil {
@@ -267,7 +262,7 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 	nw.lastError = nil
 	w.netState.SetActiveConn(ifName, activeConnection)
 
-	w.logger.Infof("Successfully activated connection: %s", genNetKey(ifName, ssid))
+	w.logger.Infof("Successfully activated connection: %s", w.netState.GenNetKey(ifName, ssid))
 
 	if nw.netType != NetworkTypeHotspot {
 		w.netState.SetActiveSSID(ifName, ssid)
@@ -300,14 +295,14 @@ func (w *Provisioning) deactivateConnection(ifName, ssid string) error {
 	nw.mu.Lock()
 	defer nw.mu.Unlock()
 
-	w.logger.Infof("Deactivating connection: %s", genNetKey(ifName, ssid))
+	w.logger.Infof("Deactivating connection: %s", w.netState.GenNetKey(ifName, ssid))
 
 	if err := w.nm.DeactivateConnection(activeConn); err != nil {
 		nw.lastError = err
-		return errw.Wrapf(err, "deactivating connection: %s", genNetKey(ifName, ssid))
+		return errw.Wrapf(err, "deactivating connection: %s", w.netState.GenNetKey(ifName, ssid))
 	}
 
-	w.logger.Infof("Successfully deactivated connection: %s", genNetKey(ifName, ssid))
+	w.logger.Infof("Successfully deactivated connection: %s", w.netState.GenNetKey(ifName, ssid))
 
 	if ifName == w.Config().HotspotInterface {
 		w.connState.setConnected(false)
@@ -375,7 +370,7 @@ func (w *Provisioning) addOrUpdateConnection(cfg NetworkConfig) (bool, error) {
 		return changesMade, errors.New("wifi passwords must be at least 8 characters long, or completely empty (for unsecured networks)")
 	}
 
-	netKey := genNetKey(cfg.Interface, cfg.SSID)
+	netKey := w.netState.GenNetKey(cfg.Interface, cfg.SSID)
 	nw := w.netState.LockingNetwork(cfg.Interface, cfg.SSID)
 	nw.lastTried = time.Time{}
 	nw.priority = cfg.Priority
@@ -442,8 +437,8 @@ func (w *Provisioning) addOrUpdateConnection(cfg NetworkConfig) (bool, error) {
 // this doesn't error as it's not technically fatal if it fails.
 func (w *Provisioning) lowerMaxNetPriorities(skip string) {
 	for _, nw := range w.netState.LockingNetworks() {
-		netKey := genNetKey(nw.interfaceName, nw.ssid)
-		if netKey == skip || netKey == genNetKey(w.Config().HotspotInterface, w.Config().hotspotSSID) || nw.priority < 999 ||
+		netKey := w.netState.GenNetKey(nw.interfaceName, nw.ssid)
+		if netKey == skip || netKey == w.netState.GenNetKey(w.Config().HotspotInterface, w.Config().hotspotSSID) || nw.priority < 999 ||
 			nw.netType != NetworkTypeWifi || (nw.interfaceName != "" && nw.interfaceName != w.Config().HotspotInterface) {
 			continue
 		}
@@ -533,7 +528,6 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 				return []string{nw.ssid}
 			}
 		}
-		return []string{}
 	}
 
 	// sort by priority
@@ -607,11 +601,10 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 					priority = 100
 				}
 				cfg := NetworkConfig{
-					Type:      NetworkTypeWifi,
-					SSID:      userInput.SSID,
-					PSK:       userInput.PSK,
-					Priority:  priority,
-					Interface: w.Config().HotspotInterface,
+					Type:     NetworkTypeWifi,
+					SSID:     userInput.SSID,
+					PSK:      userInput.PSK,
+					Priority: priority,
 				}
 				var err error
 				changesMade, err = w.AddOrUpdateConnection(cfg)
@@ -652,7 +645,7 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 						nw.lastError = err
 						w.logger.Warn(err)
 					} else {
-						w.logger.Error("cannot find %s in network list", genNetKey("", newSSID))
+						w.logger.Error("cannot find %s in network list", w.netState.GenNetKey("", newSSID))
 					}
 					nw.mu.Unlock()
 					err = w.StartProvisioning(ctx, inputChan)
@@ -691,7 +684,7 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 
 		w.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t",
 			isConnected,
-			genNetKey(w.Config().HotspotInterface, w.netState.ActiveSSID(w.Config().HotspotInterface)),
+			w.netState.GenNetKey(w.Config().HotspotInterface, w.netState.ActiveSSID(w.Config().HotspotInterface)),
 			isOnline,
 			isConfigured,
 		)
