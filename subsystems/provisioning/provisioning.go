@@ -162,6 +162,7 @@ func (w *Provisioning) init(ctx context.Context) error {
 	}
 
 	w.updateHotspotSSID(w.cfg)
+	w.netState.SetHotspotInterface(w.cfg.HotspotInterface)
 
 	if err := w.writeDNSMasq(); err != nil {
 		return errw.Wrap(err, "writing dnsmasq configuration")
