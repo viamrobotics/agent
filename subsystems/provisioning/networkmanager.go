@@ -710,6 +710,7 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 					w.logger.Error(err)
 				} else {
 					pMode = w.connState.getProvisioning()
+					pModeChange = w.connState.getProvisioningChange()
 				}
 			}
 		}
@@ -736,9 +737,11 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 			}
 		}
 
+		hitOfflineTimeout := lastConnectivity.Before(now.Add(time.Duration(w.cfg.OfflineTimeout)*-1)) &&
+			pModeChange.Before(now.Add(time.Duration(w.cfg.OfflineTimeout)*-1))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
-		// OR as long as we've been offline for at least OfflineTimeout (2 minute default)
-		if !isConfigured || lastConnectivity.Before(now.Add(time.Duration(w.cfg.OfflineTimeout)*-1)) {
+		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
+		if !isConfigured || hitOfflineTimeout {
 			if err := w.StartProvisioning(ctx, inputChan); err != nil {
 				w.logger.Error(err)
 			}
