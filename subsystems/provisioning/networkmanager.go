@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"reflect"
 	"sort"
 	"time"
@@ -691,6 +692,16 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 
 		if pMode {
 			// complex logic, so wasting some variables for readability
+
+			if w.cfg.DeviceRebootAfterOfflineMinutes > 0 && lastOnline.Before(now.Add(time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes)*-1)) {
+				w.logger.Infof("device has been offline for more than %s minutes, rebooting", w.cfg.DeviceRebootAfterOfflineMinutes)
+
+				cmd := exec.Command("systemctl", "reboot")
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					w.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
+				}
+			}
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
 			inactivePortal := w.connState.getLastInteraction().Before(now.Add(time.Duration(w.cfg.UserTimeout)*-1)) || userInputReceived
