@@ -697,7 +697,10 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 			if w.cfg.DeviceRebootAfterOfflineMinutes > 0 && now.After(lastOnline.Add(deviceRebootAfterOfflineDuration)) {
 				w.logger.Infof("device has been offline for more than %s minutes, rebooting", deviceRebootAfterOfflineDuration)
 				syscall.Sync()
-				syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
+				err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
+				if err != nil {
+					w.logger.Error(err)
+				}
 			}
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
