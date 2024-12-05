@@ -298,8 +298,8 @@ func ConfigFromJSON(defaultConf Config, jsonBytes []byte) (*Config, error) {
 	}
 
 	if conf.DeviceRebootAfterOfflineMinutes != 0 &&
-		conf.DeviceRebootAfterOfflineMinutes < int(time.Duration(conf.OfflineTimeout).Minutes()) &&
-		conf.DeviceRebootAfterOfflineMinutes < int(time.Duration(conf.UserTimeout).Minutes()) {
+		conf.DeviceRebootAfterOfflineMinutes < conf.OfflineTimeout &&
+		conf.DeviceRebootAfterOfflineMinutes < conf.UserTimeout {
 		return &conf, errw.Errorf("device_reboot_after_offline_minutes cannot be less than offline_timeout or user_timeout")
 	}
 
@@ -379,7 +379,7 @@ type Config struct {
 
 	// If set, will reboot the device after it has been offline for this duration
 	// 0 will disable this feature.
-	DeviceRebootAfterOfflineMinutes int `json:"device_reboot_after_offline_minutes"`
+	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes"`
 }
 
 // Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.
@@ -396,7 +396,7 @@ func (t *Timeout) UnmarshalJSON(b []byte) error {
 	}
 	switch value := v.(type) {
 	case float64:
-		*t = Timeout(value * float64(time.Second))
+		*t = Timeout(value * float64(time.Minute))
 		return nil
 	case string:
 		tmp, err := time.ParseDuration(value)

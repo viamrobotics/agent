@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"reflect"
 	"sort"
-	"syscall"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -692,14 +692,14 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 
 		if pMode {
 			// complex logic, so wasting some variables for readability
-			deviceRebootAfterOfflineDuration := time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes) * time.Minute
 
-			if w.cfg.DeviceRebootAfterOfflineMinutes > 0 && now.After(lastOnline.Add(deviceRebootAfterOfflineDuration)) {
-				w.logger.Infof("device has been offline for more than %s minutes, rebooting", deviceRebootAfterOfflineDuration)
-				syscall.Sync()
-				err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
+			if w.cfg.DeviceRebootAfterOfflineMinutes > 0 && lastOnline.Before(now.Add(time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes)*-1)) {
+				w.logger.Infof("device has been offline for more than %s minutes, rebooting", w.cfg.DeviceRebootAfterOfflineMinutes)
+
+				cmd := exec.Command("systemctl", "reboot")
+				output, err := cmd.CombinedOutput()
 				if err != nil {
-					w.logger.Error(err)
+					w.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
 				}
 			}
 
