@@ -183,7 +183,7 @@ func main() {
 	}
 
 	// wait until now when we (potentially) have a network logger to record this
-	globalLogger.Infof("Viam Agent Version: %s\nGit Revision: %s\n", agent.GetVersion(), agent.GetRevision())
+	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", agent.GetVersion(), agent.GetRevision())
 
 	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
 	var fastSuccess bool

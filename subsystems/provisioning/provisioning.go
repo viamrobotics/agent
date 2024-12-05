@@ -162,6 +162,7 @@ func (w *Provisioning) init(ctx context.Context) error {
 	}
 
 	w.updateHotspotSSID(w.cfg)
+	w.netState.SetHotspotInterface(w.cfg.HotspotInterface)
 
 	if err := w.writeDNSMasq(); err != nil {
 		return errw.Wrap(err, "writing dnsmasq configuration")
@@ -312,6 +313,7 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 	if cfg.HotspotInterface == "" {
 		cfg.HotspotInterface = w.Config().HotspotInterface
 	}
+	w.netState.SetHotspotInterface(cfg.HotspotInterface)
 
 	if reflect.DeepEqual(cfg, w.cfg) {
 		return needRestart, nil

@@ -124,6 +124,7 @@ func (w *Provisioning) initDevices() error {
 
 			if w.cfg.HotspotInterface == "" || ifName == w.cfg.HotspotInterface {
 				w.cfg.HotspotInterface = ifName
+				w.netState.SetHotspotInterface(ifName)
 				w.logger.Infof("Using %s for hotspot/provisioning, will actively manage wifi only on this device.", ifName)
 			}
 		default:
