@@ -297,6 +297,12 @@ func ConfigFromJSON(defaultConf Config, jsonBytes []byte) (*Config, error) {
 		return &conf, errw.Errorf("timeout values cannot be less than %s", time.Duration(minTimeout))
 	}
 
+	if conf.DeviceRebootAfterOfflineMinutes != 0 &&
+		conf.DeviceRebootAfterOfflineMinutes < int(time.Duration(conf.OfflineTimeout).Minutes()) &&
+		conf.DeviceRebootAfterOfflineMinutes < int(time.Duration(conf.UserTimeout).Minutes()) {
+		return &conf, errw.Errorf("device_reboot_after_offline_minutes cannot be less than offline_timeout or user_timeout")
+	}
+
 	return &conf, nil
 }
 
@@ -370,6 +376,10 @@ type Config struct {
 
 	// If set, will explicitly enable or disable power save for all wifi connections managed by NetworkManager.
 	WifiPowerSave *bool `json:"wifi_power_save"`
+
+	// If set, will reboot the device after it has been offline for this duration
+	// 0 will disable this feature.
+	DeviceRebootAfterOfflineMinutes int `json:"device_reboot_after_offline_minutes"`
 }
 
 // Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.

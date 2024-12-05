@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"syscall"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -691,6 +692,13 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 
 		if pMode {
 			// complex logic, so wasting some variables for readability
+			deviceRebootAfterOfflineDuration := time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes) * time.Minute
+
+			if w.cfg.DeviceRebootAfterOfflineMinutes > 0 && now.After(lastOnline.Add(deviceRebootAfterOfflineDuration)) {
+				w.logger.Infof("device has been offline for more than %s minutes, rebooting", deviceRebootAfterOfflineDuration)
+				syscall.Sync()
+				syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
+			}
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
 			inactivePortal := w.connState.getLastInteraction().Before(now.Add(time.Duration(w.cfg.UserTimeout)*-1)) || userInputReceived
