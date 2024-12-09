@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,8 +18,6 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-	"github.com/viamrobotics/agent/subsystems/provisioning"
-	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"go.viam.com/rdk/logging"
@@ -34,6 +31,18 @@ var (
 	globalLogger = logging.NewLogger("viam-agent")
 )
 
+//nolint:lll
+type agentOpts struct {
+	Config             string `default:"/etc/viam.json"                        description:"Path to config file"                              long:"config"       short:"c"`
+	ProvisioningConfig string `default:"/etc/viam-provisioning.json"           description:"Path to provisioning (customization) config file" long:"provisioning" short:"p"`
+	Debug              bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                                         long:"debug"        short:"d"`
+	Fast               bool   `description:"Enable fast start mode"            env:"VIAM_AGENT_FAST_START"                                    long:"fast"         short:"f"`
+	Help               bool   `description:"Show this help message"            long:"help"                                                    short:"h"`
+	Version            bool   `description:"Show version"                      long:"version"                                                 short:"v"`
+	Install            bool   `description:"Install systemd service"           long:"install"`
+	DevMode            bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                                       long:"dev-mode"`
+}
+
 //nolint:gocognit
 func main() {
 	ctx, cancel := setupExitSignalHandling()
@@ -43,17 +52,7 @@ func main() {
 		activeBackgroundWorkers.Wait()
 	}()
 
-	//nolint:lll
-	var opts struct {
-		Config             string `default:"/etc/viam.json"                        description:"Path to config file"                              long:"config"       short:"c"`
-		ProvisioningConfig string `default:"/etc/viam-provisioning.json"           description:"Path to provisioning (customization) config file" long:"provisioning" short:"p"`
-		Debug              bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                                         long:"debug"        short:"d"`
-		Fast               bool   `description:"Enable fast start mode"            env:"VIAM_AGENT_FAST_START"                                    long:"fast"         short:"f"`
-		Help               bool   `description:"Show this help message"            long:"help"                                                    short:"h"`
-		Version            bool   `description:"Show version"                      long:"version"                                                 short:"v"`
-		Install            bool   `description:"Install systemd service"           long:"install"`
-		DevMode            bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                                       long:"dev-mode"`
-	}
+	var opts agentOpts
 
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
 	parser.Usage = "runs as a background service and manages updates and the process lifecycle for viam-server."
@@ -117,63 +116,16 @@ func main() {
 		}
 	}()
 
-	// pass the provisioning path arg to the subsystem
-	absProvConfigPath, err := filepath.Abs(opts.ProvisioningConfig)
-	exitIfError(err)
-	provisioning.ProvisioningConfigFilePath = absProvConfigPath
-	globalLogger.Infof("provisioning config file path: %s", absProvConfigPath)
-
-	// tie the manager config to the viam-server config
-	absConfigPath, err := filepath.Abs(opts.Config)
-	exitIfError(err)
-	viamserver.ConfigFilePath = absConfigPath
-	provisioning.AppConfigFilePath = absConfigPath
-	globalLogger.Infof("config file path: %s", absConfigPath)
+	absConfigPath := setupProvisioningPaths(opts)
 
 	// main manager structure
 	manager, err := agent.NewManager(ctx, globalLogger)
 	exitIfError(err)
 
-	err = manager.LoadConfig(absConfigPath)
+	loadConfigErr := manager.LoadConfig(absConfigPath)
 	//nolint:nestif
-	if err != nil {
-		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
-		// Rename the file (if it exists) and wait to provision a new one.
-		if !errors.Is(err, fs.ErrNotExist) {
-			if err := os.Rename(absConfigPath, absConfigPath+".old"); err != nil {
-				// if we can't rename the file, we're up a creek, and it's fatal
-				globalLogger.Error(errors.Wrapf(err, "removing invalid config file %s", absConfigPath))
-				globalLogger.Error("unable to continue with provisioning, exiting")
-				manager.CloseAll()
-				return
-			}
-		}
-
-		// We manually start the provisioning service to allow the user to update it and wait.
-		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
-		globalLogger.Infof("main config file %s missing or corrupt, entering provisioning mode", absConfigPath)
-
-		if err := manager.StartSubsystem(ctx, provisioning.SubsysName); err != nil {
-			if errors.Is(err, agent.ErrSubsystemDisabled) {
-				globalLogger.Warn("provisioning subsystem disabled, please manually update /etc/viam.json and connect to internet")
-			} else {
-				globalLogger.Error(errors.Wrapf(err,
-					"could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet"))
-				manager.CloseAll()
-				return
-			}
-		}
-
-		for {
-			globalLogger.Warn("waiting for user provisioning")
-			if !utils.SelectContextOrWait(ctx, time.Second*10) {
-				manager.CloseAll()
-				return
-			}
-			if err := manager.LoadConfig(absConfigPath); err == nil {
-				break
-			}
-		}
+	if loadConfigErr != nil {
+		runPlatformProvisioning(ctx, manager, loadConfigErr, absConfigPath)
 	}
 	netAppender, err := manager.CreateNetAppender()
 	if err != nil {
@@ -268,12 +220,11 @@ func setupExitSignalHandling() (context.Context, func()) {
 			// this will eventually be handled elsewhere as a restart, not exit
 			case syscall.SIGHUP:
 
-			// ignore SIGURG entirely, it's used for real-time scheduling notifications
-			case syscall.SIGURG:
-
 			// log everything else
 			default:
-				globalLogger.Debugw("received unknown signal", "signal", sig)
+				if !ignoredSignal(sig) {
+					globalLogger.Debugw("received unknown signal", "signal", sig)
+				}
 			}
 		}
 	}()
@@ -282,6 +233,7 @@ func setupExitSignalHandling() (context.Context, func()) {
 	return ctx, cancel
 }
 
+// helper to log.Fatal if error is non-nil.
 func exitIfError(err error) {
 	if err != nil {
 		globalLogger.Fatal(err)
