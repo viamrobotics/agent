@@ -17,12 +17,10 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
-	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -71,13 +69,8 @@ func InitPaths() error {
 			}
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			// should be impossible on Linux
-			return errw.New("cannot convert to syscall.Stat_t")
-		}
-		if uid != int(stat.Uid) {
-			return errw.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
+		if err := checkPathOwner(uid, info); err != nil {
+			return err
 		}
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)
@@ -281,18 +274,6 @@ func ForceSymlink(orig, symlink string) error {
 	}
 
 	return SyncFS(symlink)
-}
-
-func SyncFS(syncPath string) (errRet error) {
-	file, errRet := os.Open(filepath.Dir(syncPath))
-	if errRet != nil {
-		return errw.Wrapf(errRet, "syncing fs %s", syncPath)
-	}
-	_, _, err := unix.Syscall(unix.SYS_SYNCFS, file.Fd(), 0, 0)
-	if err != 0 {
-		errRet = errw.Wrapf(err, "syncing fs %s", syncPath)
-	}
-	return errors.Join(errRet, file.Close())
 }
 
 func WriteFileIfNew(outPath string, data []byte) (bool, error) {
