@@ -378,7 +378,7 @@ type Config struct {
 	WifiPowerSave *bool `json:"wifi_power_save"`
 
 	// If set, will reboot the device after it has been offline for this duration
-	// 0 will disable this feature.
+	// 0, default, will disable this feature.
 	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes"`
 }
 
