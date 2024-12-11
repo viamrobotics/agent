@@ -298,7 +298,7 @@ func ConfigFromJSON(defaultConf Config, jsonBytes []byte) (*Config, error) {
 	}
 
 	if conf.DeviceRebootAfterOfflineMinutes != 0 &&
-		conf.DeviceRebootAfterOfflineMinutes < conf.OfflineTimeout &&
+		conf.DeviceRebootAfterOfflineMinutes < conf.OfflineTimeout ||
 		conf.DeviceRebootAfterOfflineMinutes < conf.UserTimeout {
 		return &conf, errw.Errorf("device_reboot_after_offline_minutes cannot be less than offline_timeout or user_timeout")
 	}

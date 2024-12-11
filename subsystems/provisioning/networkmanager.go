@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"reflect"
 	"sort"
+	"syscall"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -693,16 +694,6 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 		if pMode {
 			// complex logic, so wasting some variables for readability
 
-			if w.cfg.DeviceRebootAfterOfflineMinutes > 0 && lastOnline.Before(now.Add(time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes)*-1)) {
-				w.logger.Infof("device has been offline for more than %s minutes, rebooting", w.cfg.DeviceRebootAfterOfflineMinutes)
-
-				cmd := exec.Command("systemctl", "reboot")
-				output, err := cmd.CombinedOutput()
-				if err != nil {
-					w.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
-				}
-			}
-
 			// portal interaction time is updated when a user loads a page or makes a grpc request
 			inactivePortal := w.connState.getLastInteraction().Before(now.Add(time.Duration(w.cfg.UserTimeout)*-1)) || userInputReceived
 
@@ -746,6 +737,20 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 					lastConnectivity = w.connState.getLastOnline()
 				}
 			}
+		}
+
+		offlineRebootTimeout := w.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
+			lastConnectivity.Before(now.Add(time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes)*-1))
+		if offlineRebootTimeout {
+			w.logger.Infof("device has been offline for more than %s minutes, rebooting", w.cfg.DeviceRebootAfterOfflineMinutes)
+
+			syscall.Sync() // flush file system buffers
+			cmd := exec.Command("systemctl", "reboot")
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				w.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
+			}
+			time.Sleep(time.Second * 100) // systemd DefaultTimeoutStopSec defaults to 90 seconds
 		}
 
 		hitOfflineTimeout := lastConnectivity.Before(now.Add(time.Duration(w.cfg.OfflineTimeout)*-1)) &&
