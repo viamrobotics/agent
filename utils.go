@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -49,6 +50,14 @@ func GetRevision() string {
 }
 
 func init() {
+	if runtime.GOOS == "windows" {
+		// note: forward slash isn't an abs path on windows, but resolves to one.
+		var err error
+		ViamDirs["viam"], err = filepath.Abs(ViamDirs["viam"])
+		if err != nil {
+			panic(err)
+		}
+	}
 	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
@@ -57,6 +66,10 @@ func init() {
 
 func InitPaths() error {
 	uid := os.Getuid()
+	expectedPerms := 0o755
+	if runtime.GOOS == "windows" {
+		expectedPerms = 0o777
+	}
 	for _, p := range ViamDirs {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -75,8 +88,8 @@ func InitPaths() error {
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)
 		}
-		if info.Mode().Perm() != 0o755 {
-			return errw.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
+		if info.Mode().Perm() != fs.FileMode(expectedPerms) {
+			return errw.Errorf("%s should have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
 		}
 	}
 	return nil

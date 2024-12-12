@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -81,7 +82,7 @@ func main() {
 	// need to be root to go any further than this
 	curUser, err := user.Current()
 	exitIfError(err)
-	if curUser.Uid != "0" && !opts.DevMode {
+	if runtime.GOOS != "windows" && curUser.Uid != "0" && !opts.DevMode {
 		//nolint:forbidigo
 		fmt.Printf("viam-agent must be run as root (uid 0), but current user is %s (uid %s)\n", curUser.Username, curUser.Uid)
 		return
@@ -92,7 +93,7 @@ func main() {
 		return
 	}
 
-	if !opts.DevMode {
+	if !opts.DevMode && runtime.GOOS != "windows" {
 		// confirm that we're running from a proper install
 		if !strings.HasPrefix(os.Args[0], agent.ViamDirs["viam"]) {
 			//nolint:forbidigo

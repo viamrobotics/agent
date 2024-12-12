@@ -8,7 +8,7 @@ import (
 )
 
 func runPlatformProvisioning(ctx context.Context, manager *agent.Manager, loadConfigErr error, absConfigPath string) {
-	panic("todo fancy error for provisioning on windows")
+	globalLogger.Warn("provisioning not available on windows yet")
 }
 
 func setupProvisioningPaths(opts agentOpts) string { return "" }
