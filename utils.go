@@ -16,13 +16,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
-	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -51,6 +50,14 @@ func GetRevision() string {
 }
 
 func init() {
+	if runtime.GOOS == "windows" {
+		// note: forward slash isn't an abs path on windows, but resolves to one.
+		var err error
+		ViamDirs["viam"], err = filepath.Abs(ViamDirs["viam"])
+		if err != nil {
+			panic(err)
+		}
+	}
 	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
@@ -59,6 +66,10 @@ func init() {
 
 func InitPaths() error {
 	uid := os.Getuid()
+	expectedPerms := 0o755
+	if runtime.GOOS == "windows" {
+		expectedPerms = 0o777
+	}
 	for _, p := range ViamDirs {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -71,19 +82,14 @@ func InitPaths() error {
 			}
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			// should be impossible on Linux
-			return errw.New("cannot convert to syscall.Stat_t")
-		}
-		if uid != int(stat.Uid) {
-			return errw.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
+		if err := checkPathOwner(uid, info); err != nil {
+			return err
 		}
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)
 		}
-		if info.Mode().Perm() != 0o755 {
-			return errw.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
+		if info.Mode().Perm() != fs.FileMode(expectedPerms) {
+			return errw.Errorf("%s should have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
 		}
 	}
 	return nil
@@ -281,18 +287,6 @@ func ForceSymlink(orig, symlink string) error {
 	}
 
 	return SyncFS(symlink)
-}
-
-func SyncFS(syncPath string) (errRet error) {
-	file, errRet := os.Open(filepath.Dir(syncPath))
-	if errRet != nil {
-		return errw.Wrapf(errRet, "syncing fs %s", syncPath)
-	}
-	_, _, err := unix.Syscall(unix.SYS_SYNCFS, file.Fd(), 0, 0)
-	if err != 0 {
-		errRet = errw.Wrapf(err, "syncing fs %s", syncPath)
-	}
-	return errors.Join(errRet, file.Close())
 }
 
 func WriteFileIfNew(outPath string, data []byte) (bool, error) {

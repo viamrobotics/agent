@@ -18,6 +18,7 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	autils "github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 )
@@ -438,7 +439,7 @@ func (is *InternalSubsystem) Start(ctx context.Context) error {
 	//nolint:gosec
 	is.cmd = exec.Command(path.Join(ViamDirs["bin"], is.name), is.cmdArgs...)
 	is.cmd.Dir = ViamDirs["viam"]
-	is.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	autils.PlatformSubprocessSettings(is.cmd)
 	is.cmd.Stdout = stdio
 	is.cmd.Stderr = stderr
 
@@ -522,10 +523,7 @@ func (is *InternalSubsystem) Stop(ctx context.Context) error {
 	}
 
 	is.logger.Warnf("%s refused to exit, killing", is.name)
-	err = syscall.Kill(-is.cmd.Process.Pid, syscall.SIGKILL)
-	if err != nil {
-		is.logger.Error(err)
-	}
+	autils.PlatformKill(is.logger, is.cmd)
 
 	if is.waitForExit(ctx, StopKillTimeout) {
 		is.logger.Infof("%s successfully killed", is.name)
@@ -553,44 +551,6 @@ func (is *InternalSubsystem) waitForExit(ctx context.Context, timeout time.Durat
 	case <-time.After(timeout):
 		return false
 	}
-}
-
-// HealthCheck sends a USR1 signal to the subsystem process, which should cause it to log "HEALTHY" to stdout.
-func (is *InternalSubsystem) HealthCheck(ctx context.Context) (errRet error) {
-	is.startStopMu.Lock()
-	defer is.startStopMu.Unlock()
-	is.mu.Lock()
-	defer is.mu.Unlock()
-	if !is.running {
-		return errw.Errorf("%s not running", is.name)
-	}
-
-	is.logger.Debugf("starting healthcheck for %s", is.name)
-
-	checkChan, err := is.cmd.Stdout.(*MatchingLogger).AddMatcher("healthcheck", regexp.MustCompile(`HEALTHY`), true)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		matcher, ok := is.cmd.Stdout.(*MatchingLogger)
-		if ok {
-			matcher.DeleteMatcher("healthcheck")
-		}
-	}()
-
-	err = is.cmd.Process.Signal(syscall.SIGUSR1)
-	if err != nil {
-		is.logger.Error(err)
-	}
-
-	select {
-	case <-time.After(time.Second * 30):
-	case <-ctx.Done():
-	case <-checkChan:
-		is.logger.Debugf("healthcheck for %s is good", is.name)
-		return nil
-	}
-	return errw.Errorf("timeout waiting for healthcheck on %s", is.name)
 }
 
 func (is *InternalSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
