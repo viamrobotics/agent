@@ -37,6 +37,13 @@ bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go subsyste
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
 	test "$(PATH_VERSION)" != "custom" && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
 
+windows: bin/viam-agent.exe
+
+bin/viam-agent.exe:
+	GOOS=windows GOARCH=amd64 go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
+	file $@
+	du -hc $@
+
 .PHONY: clean
 clean:
 	rm -rf bin/

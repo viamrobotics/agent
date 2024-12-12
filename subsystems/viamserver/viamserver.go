@@ -20,6 +20,7 @@ import (
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
+	autils "github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
@@ -131,7 +132,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	//nolint:gosec
 	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], SubsysName), "-config", ConfigFilePath)
 	s.cmd.Dir = agent.ViamDirs["viam"]
-	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	autils.PlatformSubprocessSettings(s.cmd)
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
 
@@ -222,10 +223,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
-	err = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-	if err != nil {
-		s.logger.Error(err)
-	}
+	autils.PlatformKill(s.logger, s.cmd)
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
