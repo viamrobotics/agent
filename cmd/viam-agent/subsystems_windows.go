@@ -7,10 +7,10 @@ import (
 	"github.com/viamrobotics/agent"
 )
 
-func runPlatformProvisioning(ctx context.Context, manager *agent.Manager, loadConfigErr error, absConfigPath string) {
+func runPlatformProvisioning(context.Context, *agent.Manager, error, string) {
 	globalLogger.Warn("provisioning not available on windows yet")
 }
 
-func setupProvisioningPaths(opts agentOpts) string { return "" }
+func setupProvisioningPaths(agentOpts) string { return "" }
 
-func ignoredSignal(sig os.Signal) bool { return false }
+func ignoredSignal(os.Signal) bool { return false }

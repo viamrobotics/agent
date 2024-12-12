@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -21,8 +20,8 @@ import (
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/viamagent"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
+	autils "github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
-	"go.viam.com/utils"
 )
 
 var (
@@ -152,23 +151,7 @@ func main() {
 		// wait to be online
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
-		for {
-			cmd := exec.CommandContext(timeoutCtx, "systemctl", "is-active", "network-online.target")
-			_, err := cmd.CombinedOutput()
-
-			if err == nil {
-				break
-			}
-
-			if e := (&exec.ExitError{}); !errors.As(err, &e) {
-				// if it's not an ExitError, that means it didn't even start, so bail out
-				globalLogger.Error(errors.Wrap(err, "running 'systemctl is-active network-online.target'"))
-				break
-			}
-			if !utils.SelectContextOrWait(timeoutCtx, time.Second) {
-				break
-			}
-		}
+		autils.WaitOnline(globalLogger, timeoutCtx)
 
 		// Check for self-update and restart if needed.
 		needRestart, err := manager.SelfUpdate(ctx)
