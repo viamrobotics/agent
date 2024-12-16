@@ -571,6 +571,11 @@ func (w *Provisioning) backgroundLoop(ctx context.Context, scanChan chan<- bool)
 			return
 		}
 
+		if w.cfg.MDNSMode {
+			w.logger.Info("skipping background loop because mdnsmode")
+			return
+		}
+
 		w.checkConfigured()
 		if err := w.networkScan(ctx); err != nil {
 			w.logger.Error(err)
