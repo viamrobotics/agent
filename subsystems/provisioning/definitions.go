@@ -372,6 +372,7 @@ type Config struct {
 	WifiPowerSave *bool `json:"wifi_power_save"`
 
 	// When true, advertise via mdns on pre-existing network instead of using static IP and captive portal.
+	// (Instead of the default behavior of starting a captive portal).
 	MDNSMode bool `json:"mdns_mode"`
 }
 

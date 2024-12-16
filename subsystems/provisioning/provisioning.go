@@ -145,6 +145,10 @@ func (w *Provisioning) init(ctx context.Context) error {
 	w.mainLoopHealth.MarkGood()
 	w.bgLoopHealth.MarkGood()
 
+	if w.cfg.MDNSMode {
+		w.logger.Info("skipping networkmanager init because mdnsmode")
+		return nil
+	}
 	nm, err := w.getNM()
 	if err != nil {
 		return err
@@ -386,6 +390,9 @@ func (w *Provisioning) updateHotspotSSID(cfg *Config) {
 
 // must be run inside dataMu lock.
 func (w *Provisioning) writeWifiPowerSave(ctx context.Context) error {
+	if w.cfg.MDNSMode {
+		return nil
+	}
 	contents := wifiPowerSaveContentsDefault
 	if w.cfg.WifiPowerSave != nil {
 		if *w.cfg.WifiPowerSave {

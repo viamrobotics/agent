@@ -65,6 +65,9 @@ func (w *Provisioning) getLastNetworkTried() NetworkInfo {
 }
 
 func (w *Provisioning) checkOnline(force bool) error {
+	if w.cfg.MDNSMode {
+		return nil
+	}
 	if force {
 		if err := w.nm.CheckConnectivity(); err != nil {
 			w.logger.Error(err)
