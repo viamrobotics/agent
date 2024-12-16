@@ -370,6 +370,9 @@ type Config struct {
 
 	// If set, will explicitly enable or disable power save for all wifi connections managed by NetworkManager.
 	WifiPowerSave *bool `json:"wifi_power_save"`
+
+	// When true, advertise via mdns on pre-existing network instead of using static IP and captive portal.
+	MDNSMode bool `json:"mdns_mode"`
 }
 
 // Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.

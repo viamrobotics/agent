@@ -47,7 +47,7 @@ func (w *Provisioning) startPortal(inputChan chan<- userInput) error {
 
 // the address to listen on.
 func (w *Provisioning) listenAddr() string {
-	if w.mdnsMode {
+	if w.cfg.MDNSMode {
 		return "0.0.0.0"
 	}
 	return PortalBindAddr

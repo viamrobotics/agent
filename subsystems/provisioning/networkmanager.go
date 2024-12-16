@@ -169,7 +169,7 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 	defer w.opMu.Unlock()
 
 	w.logger.Info("Starting provisioning mode.")
-	if !w.mdnsMode {
+	if !w.cfg.MDNSMode {
 		_, err := w.addOrUpdateConnection(NetworkConfig{
 			Type:      NetworkTypeHotspot,
 			Interface: w.Config().HotspotInterface,
@@ -189,7 +189,7 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 		return errw.Wrap(err, "starting web/grpc portal")
 	}
 
-	if w.mdnsMode {
+	if w.cfg.MDNSMode {
 		w.logger.Infof("mdnsMode is set, advertising provisioning host %s", provisioningMDNSHost)
 		var err error
 		w.mdnsServer, err = zeroconf.RegisterDynamic(
@@ -301,7 +301,7 @@ func (w *Provisioning) DeactivateConnection(ifName, ssid string) error {
 }
 
 func (w *Provisioning) deactivateConnection(ifName, ssid string) error {
-	if w.mdnsMode {
+	if w.cfg.MDNSMode {
 		return nil
 	}
 	activeConn := w.netState.ActiveConn(ifName)

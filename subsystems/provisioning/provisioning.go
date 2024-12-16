@@ -39,11 +39,8 @@ type Provisioning struct {
 	cancel context.CancelFunc
 
 	// only set during NewProvisioning, no lock
-	nm       gnm.NetworkManager
-	settings gnm.Settings
-	// when mdnsMode is true, advertise via mdns on pre-existing network
-	// instead of using static IP and captive portal.
-	mdnsMode   bool
+	nm         gnm.NetworkManager
+	settings   gnm.Settings
 	hostname   string
 	logger     logging.Logger
 	AppCfgPath string
