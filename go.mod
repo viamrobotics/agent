@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	github.com/Masterminds/semver/v3 v3.3.0
 	github.com/Otterverse/gonetworkmanager/v2 v2.2.1
+	github.com/edaniels/zeroconf v1.0.10
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/nightlyone/lockfile v1.0.0
@@ -29,7 +30,6 @@ require (
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
 	github.com/dgottlieb/smarty-assertions v1.2.5 // indirect
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0 // indirect
-	github.com/edaniels/zeroconf v1.0.10 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect

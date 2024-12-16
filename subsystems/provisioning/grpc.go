@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -12,8 +13,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+const GRPCPort = 4772
+
 func (w *Provisioning) startGRPC() error {
-	bind := PortalBindAddr + ":4772"
+	bind := w.listenAddr() + ":" + strconv.Itoa(GRPCPort)
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)

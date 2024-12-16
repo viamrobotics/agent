@@ -9,8 +9,11 @@ import (
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
+	"github.com/edaniels/zeroconf"
 	errw "github.com/pkg/errors"
 )
+
+const provisioningMDNSHost = "provisioning-poc"
 
 func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
 	if w.cfg.RoamingMode {
@@ -166,22 +169,34 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 	defer w.opMu.Unlock()
 
 	w.logger.Info("Starting provisioning mode.")
-	_, err := w.addOrUpdateConnection(NetworkConfig{
-		Type:      NetworkTypeHotspot,
-		Interface: w.Config().HotspotInterface,
-		SSID:      w.Config().hotspotSSID,
-	})
-	if err != nil {
-		return err
-	}
-	if err := w.activateConnection(ctx, w.Config().HotspotInterface, w.Config().hotspotSSID); err != nil {
-		return errw.Wrap(err, "starting provisioning mode hotspot")
+	if !w.mdnsMode {
+		_, err := w.addOrUpdateConnection(NetworkConfig{
+			Type:      NetworkTypeHotspot,
+			Interface: w.Config().HotspotInterface,
+			SSID:      w.Config().hotspotSSID,
+		})
+		if err != nil {
+			return err
+		}
+		if err := w.activateConnection(ctx, w.Config().HotspotInterface, w.Config().hotspotSSID); err != nil {
+			return errw.Wrap(err, "starting provisioning mode hotspot")
+		}
 	}
 
 	// start portal with ssid list and known connections
 	if err := w.startPortal(inputChan); err != nil {
 		err = errors.Join(err, w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID))
 		return errw.Wrap(err, "starting web/grpc portal")
+	}
+
+	if w.mdnsMode {
+		w.logger.Infof("mdnsMode is set, advertising provisioning host %s", provisioningMDNSHost)
+		var err error
+		w.mdnsServer, err = zeroconf.RegisterDynamic(
+			provisioningMDNSHost, "_rpc._tcp", "local.", GRPCPort, []string{"grpc"}, nil, w.logger.AsZap())
+		if err != nil {
+			return err
+		}
 	}
 
 	w.connState.setProvisioning(true)
@@ -286,6 +301,9 @@ func (w *Provisioning) DeactivateConnection(ifName, ssid string) error {
 }
 
 func (w *Provisioning) deactivateConnection(ifName, ssid string) error {
+	if w.mdnsMode {
+		return nil
+	}
 	activeConn := w.netState.ActiveConn(ifName)
 	if activeConn == nil {
 		return errw.Wrapf(ErrNoActiveConnectionFound, "interface: %s", ifName)

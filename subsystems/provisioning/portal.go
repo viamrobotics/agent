@@ -45,6 +45,14 @@ func (w *Provisioning) startPortal(inputChan chan<- userInput) error {
 	return nil
 }
 
+// the address to listen on.
+func (w *Provisioning) listenAddr() string {
+	if w.mdnsMode {
+		return "0.0.0.0"
+	}
+	return PortalBindAddr
+}
+
 func (w *Provisioning) startWeb() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", w.portalIndex)
@@ -53,7 +61,7 @@ func (w *Provisioning) startWeb() error {
 		Handler:     mux,
 		ReadTimeout: time.Second * 10,
 	}
-	bind := PortalBindAddr + ":80"
+	bind := w.listenAddr() + ":80"
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)
@@ -88,6 +96,11 @@ func (w *Provisioning) stopPortal() error {
 	}
 	w.portalData.workers.Wait()
 	w.portalData = &portalData{input: &userInput{}}
+
+	if w.mdnsServer != nil {
+		w.mdnsServer.Shutdown()
+		w.mdnsServer = nil
+	}
 
 	return err
 }
