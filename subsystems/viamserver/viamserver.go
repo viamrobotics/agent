@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -110,6 +111,12 @@ func configFromProto(logger logging.Logger, updateConf *pb.DeviceSubsystemConfig
 	return ret
 }
 
+func pathExists(path string) bool {
+	// todo: give the manager access to this
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func (s *viamServer) Start(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
@@ -129,8 +136,12 @@ func (s *viamServer) Start(ctx context.Context) error {
 
 	stdio := agent.NewMatchingLogger(s.logger, false, false)
 	stderr := agent.NewMatchingLogger(s.logger, true, false)
+	binPath := path.Join(agent.ViamDirs["bin"], SubsysName)
+	if !pathExists(binPath) {
+		println("PATH DOESN'T EXIST")
+	}
 	//nolint:gosec
-	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], SubsysName), "-config", ConfigFilePath)
+	s.cmd = exec.Command(binPath, "-config", ConfigFilePath)
 	s.cmd.Dir = agent.ViamDirs["viam"]
 	autils.PlatformSubprocessSettings(s.cmd)
 	s.cmd.Stdout = stdio

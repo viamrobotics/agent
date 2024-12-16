@@ -231,6 +231,7 @@ func (s *AgentSubsystem) SaveCache() error {
 //
 //nolint:gocognit
 func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error) {
+	println("update for", s.name)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

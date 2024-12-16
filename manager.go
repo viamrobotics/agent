@@ -156,6 +156,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 	defer m.subsystemsMu.Unlock()
 
 	// check updates and (re)start
+	println("SubsystemUpdates loop")
 	for name, sub := range m.loadedSubsystems {
 		if ctx.Err() != nil {
 			return
@@ -201,6 +202,7 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 
 // SubsystemHealthChecks makes sure all subsystems are responding, and restarts them if not.
 func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
+	println("top of subsys health checks")
 	defer m.handlePanic()
 	if ctx.Err() != nil {
 		return
