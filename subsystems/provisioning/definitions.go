@@ -42,17 +42,18 @@ const (
 
 var (
 	DefaultConf = Config{
-		Manufacturer:       "viam",
-		Model:              "custom",
-		FragmentID:         "",
-		HotspotPrefix:      "viam-setup",
-		HotspotPassword:    "viamsetup",
-		DisableDNSRedirect: false,
-		RoamingMode:        false,
-		OfflineTimeout:     Timeout(time.Minute * 2),
-		UserTimeout:        Timeout(time.Minute * 5),
-		FallbackTimeout:    Timeout(time.Minute * 10),
-		Networks:           []NetworkConfig{},
+		Manufacturer:                    "viam",
+		Model:                           "custom",
+		FragmentID:                      "",
+		HotspotPrefix:                   "viam-setup",
+		HotspotPassword:                 "viamsetup",
+		DisableDNSRedirect:              false,
+		RoamingMode:                     false,
+		OfflineTimeout:                  Timeout(time.Minute * 2),
+		UserTimeout:                     Timeout(time.Minute * 5),
+		FallbackTimeout:                 Timeout(time.Minute * 10),
+		DeviceRebootAfterOfflineMinutes: Timeout(0),
+		Networks:                        []NetworkConfig{},
 	}
 
 	// Can be overwritten via cli arguments.
@@ -299,9 +300,11 @@ func ConfigFromJSON(defaultConf Config, jsonBytes []byte) (*Config, error) {
 	}
 
 	if conf.DeviceRebootAfterOfflineMinutes != 0 &&
-		conf.DeviceRebootAfterOfflineMinutes < conf.OfflineTimeout ||
-		conf.DeviceRebootAfterOfflineMinutes < conf.UserTimeout {
-		return &conf, errw.Errorf("device_reboot_after_offline_minutes cannot be less than offline_timeout or user_timeout")
+		(conf.DeviceRebootAfterOfflineMinutes < conf.OfflineTimeout || conf.DeviceRebootAfterOfflineMinutes < conf.UserTimeout) {
+		badOffline := conf.DeviceRebootAfterOfflineMinutes
+		conf.DeviceRebootAfterOfflineMinutes = defaultConf.DeviceRebootAfterOfflineMinutes
+		return &conf, errw.Errorf("device_reboot_after_offline_minutes (%s) cannot be less than offline_timeout (%s) or user_timeout (%s)",
+			time.Duration(badOffline), time.Duration(conf.OfflineTimeout), time.Duration(conf.UserTimeout))
 	}
 
 	return &conf, nil
@@ -383,7 +386,7 @@ type Config struct {
 	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes"`
 }
 
-// Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.
+// Timeout allows parsing golang-style durations (1h20m30s) OR minutes-as-float from/to json.
 type Timeout time.Duration
 
 func (t Timeout) MarshalJSON() ([]byte, error) {

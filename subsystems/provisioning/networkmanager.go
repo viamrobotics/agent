@@ -746,7 +746,7 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 		offlineRebootTimeout := w.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
 			lastConnectivity.Before(now.Add(time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes)*-1))
 		if offlineRebootTimeout {
-			w.logger.Infof("device has been offline for more than %s minutes, rebooting", w.cfg.DeviceRebootAfterOfflineMinutes)
+			w.logger.Infof("device has been offline for more than %s, rebooting", time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes))
 			cmd := exec.Command("systemctl", "reboot")
 			output, err := cmd.CombinedOutput()
 			if err != nil {
