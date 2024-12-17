@@ -14,6 +14,12 @@ import (
 	errw "github.com/pkg/errors"
 )
 
+var (
+	ErrNM = errw.New("NetworkManager does not appear to be responding as expected. " +
+		"Please ensure NetworkManger >= v1.30 is installed and enabled. Disabling agent-provisioning until next restart.")
+	ErrNoWifi = errw.New("No WiFi devices available. Disabling agent-provisioning until next restart.")
+)
+
 func (w *Provisioning) writeDNSMasq() error {
 	DNSMasqContents := DNSMasqContentsRedirect
 	if w.cfg.DisableDNSRedirect {
@@ -137,7 +143,7 @@ func (w *Provisioning) initDevices() error {
 	}
 
 	if w.cfg.HotspotInterface == "" {
-		return errors.New("cannot find wifi device for provisioning/hotspot")
+		return ErrNoWifi
 	}
 
 	return nil

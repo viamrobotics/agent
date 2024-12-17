@@ -44,7 +44,9 @@ func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
 func (w *Provisioning) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
 	for _, nw := range w.netState.Networks() {
-		if nw.lastSeen.After(time.Now().Add(time.Minute*-1)) && !nw.isHotspot {
+		recentlySeen := nw.lastSeen.After(w.connState.getProvisioningChange().Add(time.Duration(w.Config().OfflineTimeout * -2)))
+
+		if !nw.isHotspot && recentlySeen {
 			visible = append(visible, nw.getInfo())
 		}
 	}
@@ -509,8 +511,8 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 		if nw.netType != NetworkTypeWifi || (nw.interfaceName != "" && nw.interfaceName != ifName) {
 			continue
 		}
-		// ssid seen within the past minute
-		visible := nw.lastSeen.After(time.Now().Add(time.Minute * -1))
+		// ssid seen within the past two minutes
+		visible := nw.lastSeen.After(time.Now().Add(time.Minute * -2))
 
 		// ssid has a connection known to network manager
 		configured := nw.conn != nil
@@ -553,6 +555,9 @@ func (w *Provisioning) backgroundLoop(ctx context.Context, scanChan chan<- bool)
 
 		w.checkConfigured()
 		if err := w.networkScan(ctx); err != nil {
+			w.logger.Error(err)
+		}
+		if err := w.updateKnownConnections(ctx); err != nil {
 			w.logger.Error(err)
 		}
 		if err := w.checkConnections(); err != nil {
@@ -656,9 +661,9 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 				}
 			}
 		case <-scanChan:
-		case <-time.After(scanLoopDelay * 4):
+		case <-time.After((scanLoopDelay + scanTimeout) * 2):
 			// safety fallback if something hangs
-			w.logger.Warn("wifi scan has not completed for %s", scanLoopDelay*5)
+			w.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
 		}
 
 		w.mainLoopHealth.MarkGood()

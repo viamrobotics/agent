@@ -15,6 +15,10 @@ type networkState struct {
 	// the wifi interface to default to when no interface is specified
 	hotspotInterface string
 
+	// these variables track and disable the scan-in-hotspot functionality
+	scanFailCount   uint
+	noScanInHotspot bool
+
 	// key is ssid@interface for wifi, ex: TestNetwork@wlan0
 	// interface may be "any" for no interface set, ex: TestNetwork@any
 	// wired networks are just interface, ex: eth0
@@ -41,6 +45,41 @@ func NewNetworkState(logger logging.Logger) *networkState {
 		wifiDevice:  make(map[string]gnm.DeviceWireless),
 		activeConn:  make(map[string]gnm.ActiveConnection),
 	}
+}
+
+func (n *networkState) NoScanInHotspot() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.noScanInHotspot
+}
+
+func (n *networkState) SetNoScanInHotspot(noScan bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.noScanInHotspot = noScan
+}
+
+func (n *networkState) IncrementFailScan() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.scanFailCount++
+	if n.scanFailCount >= 3 {
+		n.noScanInHotspot = true
+		n.logger.Warn("Device hardware/software does not appear to support wifi scanning while hotspot is active. " +
+			"Further scanning will be disabled while in hotspot mode. Relying on fallback timeout to exit hotspot mode and allow rescans.")
+	}
+}
+
+func (n *networkState) FailScan() uint {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.scanFailCount
+}
+
+func (n *networkState) ResetFailScan() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.scanFailCount = 0
 }
 
 func (n *networkState) SetHotspotInterface(iface string) {
