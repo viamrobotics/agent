@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"reflect"
 	"sort"
 	"time"
@@ -735,6 +736,21 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 					lastConnectivity = w.connState.getLastOnline()
 				}
 			}
+		}
+
+		offlineRebootTimeout := w.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
+			lastConnectivity.Before(now.Add(time.Duration(w.cfg.DeviceRebootAfterOfflineMinutes)*-1))
+		if offlineRebootTimeout {
+			w.logger.Infof("device has been offline for more than %s minutes, rebooting", w.cfg.DeviceRebootAfterOfflineMinutes)
+			cmd := exec.Command("systemctl", "reboot")
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				w.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
+			}
+			if !w.mainLoopHealth.Sleep(ctx, time.Minute*5) {
+				return
+			}
+			w.logger.Errorf("failed to reboot after %s time", time.Minute*5)
 		}
 
 		hitOfflineTimeout := lastConnectivity.Before(now.Add(time.Duration(w.cfg.OfflineTimeout)*-1)) &&
