@@ -44,6 +44,7 @@ func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
 func (w *Provisioning) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
 	for _, nw := range w.netState.Networks() {
+		// note this does NOT use VisibleNetworkTimeout (like getCandidates does)
 		recentlySeen := nw.lastSeen.After(w.connState.getProvisioningChange().Add(time.Duration(w.Config().OfflineTimeout * -2)))
 
 		if !nw.isHotspot && recentlySeen {
@@ -511,8 +512,8 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 		if nw.netType != NetworkTypeWifi || (nw.interfaceName != "" && nw.interfaceName != ifName) {
 			continue
 		}
-		// ssid seen within the past two minutes
-		visible := nw.lastSeen.After(time.Now().Add(time.Minute * -2))
+		// ssid seen within the past minute
+		visible := nw.lastSeen.After(time.Now().Add(VisibleNetworkTimeout * -1))
 
 		// ssid has a connection known to network manager
 		configured := nw.conn != nil
