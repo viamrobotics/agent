@@ -11,7 +11,18 @@ import (
 	errw "github.com/pkg/errors"
 )
 
+var (
+	ErrScanTimeout = errw.New("wifi scanning timed out")
+
+	// how long is a scanned network "visible" for candidate selection?
+	VisibleNetworkTimeout = time.Minute
+)
+
 func (w *Provisioning) networkScan(ctx context.Context) error {
+	if w.connState.getProvisioning() && w.netState.NoScanInHotspot() {
+		return nil
+	}
+
 	wifiDev := w.netState.WifiDevice(w.Config().HotspotInterface)
 	if wifiDev == nil {
 		return errw.Errorf("cannot find hotspot interface: %s", w.Config().HotspotInterface)
@@ -27,17 +38,26 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 		return errw.Wrap(err, "scanning wifi")
 	}
 
-	var lastScan int64
+	scanDeadline := time.Now().Add(scanTimeout)
 	for {
-		lastScan, err = wifiDev.GetPropertyLastScan()
+		lastScan, err := wifiDev.GetPropertyLastScan()
 		if err != nil {
 			return errw.Wrap(err, "scanning wifi")
 		}
 		if lastScan > prevScan {
+			if w.connState.getProvisioning() {
+				w.netState.ResetFailScan()
+			}
 			break
 		}
 		if !w.bgLoopHealth.Sleep(ctx, time.Second) {
 			return nil
+		}
+		if time.Now().After(scanDeadline) {
+			if w.connState.getProvisioning() {
+				w.netState.IncrementFailScan()
+			}
+			return ErrScanTimeout
 		}
 	}
 
@@ -109,14 +129,14 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 		}
 		nw.mu.Lock()
 		// if a network isn't visible, reset the times so we'll retry if it comes back
-		if nw.lastSeen.Before(time.Now().Add(time.Minute * -1)) {
+		if nw.lastSeen.Before(time.Now().Add(VisibleNetworkTimeout * -1)) {
 			nw.firstSeen = time.Time{}
 			nw.lastTried = time.Time{}
 		}
 		nw.mu.Unlock()
 	}
 
-	return w.updateKnownConnections(ctx)
+	return nil
 }
 
 func parseWPAFlags(apFlags, wpaFlags, rsnFlags uint32) string {

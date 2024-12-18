@@ -3,6 +3,7 @@ package provisioning
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"reflect"
 	"strings"
@@ -92,22 +93,18 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 }
 
 func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
-	nmErr := errw.New("NetworkManager does not appear to be responding as expected. " +
-		"Please ensure NetworkManger >= v1.42 is installed and enabled. Disabling agent-provisioning until next restart.")
-	wifiErr := errw.New("No WiFi devices available. Disabling agent-provisioning until next restart.")
-
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
 		w.noNM = true
 		w.logger.Error(err)
-		return nil, nmErr
+		return nil, ErrNM
 	}
 
 	ver, err := nm.GetPropertyVersion()
 	if err != nil {
 		w.noNM = true
 		w.logger.Error(err)
-		return nil, nmErr
+		return nil, ErrNM
 	}
 
 	w.logger.Infof("Found NetworkManager version: %s", ver)
@@ -116,24 +113,28 @@ func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
 	if err != nil {
 		w.noNM = true
 		w.logger.Error(err)
-		return nil, nmErr
+		return nil, ErrNM
 	}
 
-	if !sv.GreaterThanEqual(semver.MustParse("1.42.0")) {
+	if !sv.GreaterThanEqual(semver.MustParse("1.30.0")) {
 		w.noNM = true
-		return nil, nmErr
+		return nil, ErrNM
 	}
 
-	flags, err := nm.GetPropertyRadioFlags()
-	if err != nil {
-		w.noNM = true
-		w.logger.Error(err)
-		return nil, wifiErr
-	}
+	// Bail out here early if we can't find a wifi radio
+	// Older versions will bail out during initDevices() if scan fails to find a wifi interface
+	if sv.GreaterThanEqual(semver.MustParse("1.38.0")) {
+		flags, err := nm.GetPropertyRadioFlags()
+		if err != nil {
+			w.noNM = true
+			w.logger.Error(err)
+			return nil, ErrNoWifi
+		}
 
-	if flags&gnm.NmRadioFlagsWlanAvailable != gnm.NmRadioFlagsWlanAvailable {
-		w.noNM = true
-		return nil, wifiErr
+		if flags&gnm.NmRadioFlagsWlanAvailable != gnm.NmRadioFlagsWlanAvailable {
+			w.noNM = true
+			return nil, ErrNoWifi
+		}
 	}
 
 	return nm, nil
@@ -177,11 +178,17 @@ func (w *Provisioning) init(ctx context.Context) error {
 	}
 
 	if err := w.initDevices(); err != nil {
+		if errors.Is(err, ErrNoWifi) {
+			w.noNM = true
+		}
 		return err
 	}
 
 	w.checkConfigured()
 	if err := w.networkScan(ctx); err != nil {
+		w.logger.Error(err)
+	}
+	if err := w.updateKnownConnections(ctx); err != nil {
 		w.logger.Error(err)
 	}
 
