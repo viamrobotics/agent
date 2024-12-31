@@ -127,6 +127,13 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
+	binPath := path.Join(agent.ViamDirs["bin"], SubsysName)
+	if !pathExists(binPath) {
+		s.logger.Warnf("viam-server binary missing at %s, not starting", binPath)
+		// todo: nested func so unlock is deferable
+		s.mu.Unlock()
+		return nil
+	}
 	if s.shouldRun {
 		s.logger.Warnf("Restarting %s after unexpected exit", SubsysName)
 	} else {
@@ -136,10 +143,6 @@ func (s *viamServer) Start(ctx context.Context) error {
 
 	stdio := agent.NewMatchingLogger(s.logger, false, false)
 	stderr := agent.NewMatchingLogger(s.logger, true, false)
-	binPath := path.Join(agent.ViamDirs["bin"], SubsysName)
-	if !pathExists(binPath) {
-		println("PATH DOESN'T EXIST")
-	}
 	//nolint:gosec
 	s.cmd = exec.Command(binPath, "-config", ConfigFilePath)
 	s.cmd.Dir = agent.ViamDirs["viam"]
