@@ -180,11 +180,14 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 	}
 }
 
+const minInterval = 5*time.Second
+
 // CheckUpdates retrieves an updated config from the cloud, and then passes it to SubsystemUpdates().
 func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 	defer m.handlePanic()
 	m.logger.Debug("Checking cloud for update")
 	cfg, interval, err := m.GetConfig(ctx)
+	interval = max(interval, minInterval) // because zero causes bad loop in caller
 
 	// randomly fuzz the interval by +/- 5%
 	interval = fuzzTime(interval, 0.05)
