@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -230,6 +231,16 @@ func (s *AgentSubsystem) SaveCache() error {
 	return s.saveCache()
 }
 
+// hardcoding for now pending release process for windows rdk (not sure how discovery loop works).
+// replace with normal process asap.
+var staticWindowsViamServer = &pb.SubsystemUpdateInfo{
+	Filename: "viam-server-amd64.exe",
+	Url:      "https://storage.googleapis.com/packages.viam.com/temp/viam-server-windows-amd64-alpha-1-546e6603.exe",
+	Version:  "alpha-1",
+	Sha256:   []byte("b8b999ab26c7156a62beccbb7e039b66f5fdb762b535dbbc369c3865832ed179"),
+	Format:   pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE,
+}
+
 // Update is the main function of the AgentSubsystem wrapper, as it's shared between subsystems. Returns true if a restart is needed.
 //
 //nolint:gocognit
@@ -253,7 +264,11 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	updateInfo := cfg.GetUpdateInfo()
 	if updateInfo == nil {
-		return false, errNilUpdateInfo
+		if runtime.GOOS == "windows" {
+			updateInfo = staticWindowsViamServer
+		} else {
+			return false, errNilUpdateInfo
+		}
 	}
 
 	// check if we already have the version given by the cloud
