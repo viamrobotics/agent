@@ -68,7 +68,7 @@ fetch_config() {
 	fi
 }
 
-# Verifies that NetworkManager is 1.42 or newer.
+# Verifies that NetworkManager is 1.30 or newer.
 check_nm_version() {
 	which nmcli >/dev/null 2>&1 || return 1
 
@@ -77,7 +77,7 @@ check_nm_version() {
 	NM_VERSION_MAJOR=$(echo $NM_VERSION | cut -d. -f1)
 	NM_VERSION_MINOR=$(echo $NM_VERSION | cut -d. -f2)
 
-	if [ $NM_VERSION_MAJOR -ge 1 ] && [ $NM_VERSION_MINOR -ge 42 ]; then
+	if [ $NM_VERSION_MAJOR -ge 1 ] && [ $NM_VERSION_MINOR -ge 30 ]; then
 		return 0
 	fi
 
@@ -139,7 +139,7 @@ enable_networkmanager() {
 	systemctl is-enabled NetworkManager && check_nm_version && return
 
 	echo
-	echo "Viam provides a wifi management and device provisioning service. To use it, NetworkManager 1.42 (or newer) must be installed and active."
+	echo "Viam provides a wifi management and device provisioning service. To use it, NetworkManager 1.30 (or newer) must be installed and active."
 
 	if check_nm_version || is_bullseye; then
 		# We can automate this.
@@ -177,7 +177,7 @@ enable_networkmanager() {
 	fi
 
 	if systemctl cat NetworkManager >/dev/null; then
-		systemctl enable --now NetworkManager || (echo "Failed to active NetworkManager" && return 1)
+		systemctl enable --now NetworkManager || (echo "Failed to activate NetworkManager" && return 1)
 		systemctl disable dhcpcd
 	else
 		return 1

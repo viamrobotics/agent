@@ -42,17 +42,18 @@ const (
 
 var (
 	DefaultConf = Config{
-		Manufacturer:       "viam",
-		Model:              "custom",
-		FragmentID:         "",
-		HotspotPrefix:      "viam-setup",
-		HotspotPassword:    "viamsetup",
-		DisableDNSRedirect: false,
-		RoamingMode:        false,
-		OfflineTimeout:     Timeout(time.Minute * 2),
-		UserTimeout:        Timeout(time.Minute * 5),
-		FallbackTimeout:    Timeout(time.Minute * 10),
-		Networks:           []NetworkConfig{},
+		Manufacturer:                    "viam",
+		Model:                           "custom",
+		FragmentID:                      "",
+		HotspotPrefix:                   "viam-setup",
+		HotspotPassword:                 "viamsetup",
+		DisableDNSRedirect:              false,
+		RoamingMode:                     false,
+		OfflineTimeout:                  Timeout(time.Minute * 2),
+		UserTimeout:                     Timeout(time.Minute * 5),
+		FallbackTimeout:                 Timeout(time.Minute * 10),
+		DeviceRebootAfterOfflineMinutes: Timeout(0),
+		Networks:                        []NetworkConfig{},
 	}
 
 	// Can be overwritten via cli arguments.
@@ -63,6 +64,7 @@ var (
 	ErrConnCheckDisabled       = errors.New("NetworkManager connectivity checking disabled by user, network management will be unavailable")
 	ErrNoActiveConnectionFound = errors.New("no active connection found")
 	scanLoopDelay              = time.Second * 15
+	scanTimeout                = time.Second * 30
 	connectTimeout             = time.Second * 50 // longer than the 45 second timeout in NetworkManager
 )
 
@@ -297,6 +299,14 @@ func ConfigFromJSON(defaultConf Config, jsonBytes []byte) (*Config, error) {
 		return &conf, errw.Errorf("timeout values cannot be less than %s", time.Duration(minTimeout))
 	}
 
+	if conf.DeviceRebootAfterOfflineMinutes != 0 &&
+		(conf.DeviceRebootAfterOfflineMinutes < conf.OfflineTimeout || conf.DeviceRebootAfterOfflineMinutes < conf.UserTimeout) {
+		badOffline := conf.DeviceRebootAfterOfflineMinutes
+		conf.DeviceRebootAfterOfflineMinutes = defaultConf.DeviceRebootAfterOfflineMinutes
+		return &conf, errw.Errorf("device_reboot_after_offline_minutes (%s) cannot be less than offline_timeout (%s) or user_timeout (%s)",
+			time.Duration(badOffline), time.Duration(conf.OfflineTimeout), time.Duration(conf.UserTimeout))
+	}
+
 	return &conf, nil
 }
 
@@ -370,9 +380,13 @@ type Config struct {
 
 	// If set, will explicitly enable or disable power save for all wifi connections managed by NetworkManager.
 	WifiPowerSave *bool `json:"wifi_power_save"`
+
+	// If set, will reboot the device after it has been offline for this duration
+	// 0, default, will disable this feature.
+	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes"`
 }
 
-// Timeout allows parsing golang-style durations (1h20m30s) OR seconds-as-float from/to json.
+// Timeout allows parsing golang-style durations (1h20m30s) OR minutes-as-float from/to json.
 type Timeout time.Duration
 
 func (t Timeout) MarshalJSON() ([]byte, error) {
@@ -386,7 +400,7 @@ func (t *Timeout) UnmarshalJSON(b []byte) error {
 	}
 	switch value := v.(type) {
 	case float64:
-		*t = Timeout(value * float64(time.Second))
+		*t = Timeout(value * float64(time.Minute))
 		return nil
 	case string:
 		tmp, err := time.ParseDuration(value)
