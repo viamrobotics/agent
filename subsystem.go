@@ -30,7 +30,10 @@ const (
 	StopKillTimeout = time.Second * 10
 )
 
-var ErrSubsystemDisabled = errors.New("subsystem disabled")
+var (
+	ErrSubsystemDisabled = errors.New("subsystem disabled")
+	errNilUpdateInfo     = errors.New("updateInfo is nil; are you on an unsupported platform?")
+)
 
 // BasicSubsystem is the minimal interface.
 type BasicSubsystem interface {
@@ -249,6 +252,9 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	}
 
 	updateInfo := cfg.GetUpdateInfo()
+	if updateInfo == nil {
+		return false, errNilUpdateInfo
+	}
 
 	// check if we already have the version given by the cloud
 	verData, ok := s.CacheData.Versions[updateInfo.GetVersion()]
