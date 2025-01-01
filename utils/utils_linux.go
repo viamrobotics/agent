@@ -24,6 +24,7 @@ func PlatformKill(logger logging.Logger, cmd *exec.Cmd) {
 	}
 }
 
+// WaitOnline attempts to wait until the network comes up, with various bailout conditions.
 func WaitOnline(logger logging.Logger, ctx context.Context) {
 	for {
 		cmd := exec.CommandContext(ctx, "systemctl", "is-active", "network-online.target")
