@@ -11,11 +11,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/provisioning"
+
 	// register-only.
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"go.viam.com/utils"
 )
+
+func main() {
+	commonMain()
+}
 
 // platform-specific provisioning logic.
 func runPlatformProvisioning(ctx context.Context, manager *agent.Manager, loadConfigErr error, absConfigPath string) {

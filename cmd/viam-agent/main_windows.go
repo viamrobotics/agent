@@ -36,7 +36,9 @@ func main() {
 	if inService, err := svc.IsWindowsService(); err != nil {
 		panic(err)
 	} else if !inService {
-		panic("this can only be run as a windows service")
+		println("no service detected -- running as normal process")
+		commonMain()
+		return
 	}
 
 	var err error
@@ -48,10 +50,10 @@ func main() {
 
 	elog.Info(1, fmt.Sprintf("starting %s service", serviceName))
 	err = svc.Run(serviceName, &agentService{})
+	go commonMain()
 	if err != nil {
 		elog.Error(1, fmt.Sprintf("%s service failed: %v", serviceName, err))
 		return
 	}
-	// todo: start gorouting
 	elog.Info(1, fmt.Sprintf("%s service stopped", serviceName))
 }
