@@ -164,8 +164,16 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 	if err != nil {
 		return "", err
 	}
+	closed := false
 	defer func() {
-		errRet = errors.Join(errRet, out.Close(), SyncFS(out.Name()))
+		if !closed {
+			errRet = errors.Join(errRet, out.Close())
+		}
+		if runtime.GOOS != "windows" {
+			// note: error is different on windows (EBADF?).
+			// also this has in theory already synced in the success case.
+			errRet = errors.Join(errRet, SyncFS(out.Name()))
+		}
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -175,6 +183,8 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 	if err != nil && !os.IsNotExist(err) {
 		errRet = errors.Join(errRet, err)
 	}
+	errRet = errors.Join(errRet, out.Close())
+	closed = true
 
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 	return outPath, errRet

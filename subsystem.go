@@ -31,10 +31,7 @@ const (
 	StopKillTimeout = time.Second * 10
 )
 
-var (
-	ErrSubsystemDisabled = errors.New("subsystem disabled")
-	errNilUpdateInfo     = errors.New("updateInfo is nil; are you on an unsupported platform?")
-)
+var ErrSubsystemDisabled = errors.New("subsystem disabled")
 
 // BasicSubsystem is the minimal interface.
 type BasicSubsystem interface {
@@ -231,13 +228,18 @@ func (s *AgentSubsystem) SaveCache() error {
 	return s.saveCache()
 }
 
+func mustDecodeBase64(s string) []byte {
+	ret, _ := base64.StdEncoding.DecodeString(s)
+	return ret
+}
+
 // hardcoding for now pending release process for windows rdk (not sure how discovery loop works).
 // replace with normal process asap.
 var staticWindowsViamServer = &pb.SubsystemUpdateInfo{
 	Filename: "viam-server-amd64.exe",
 	Url:      "https://storage.googleapis.com/packages.viam.com/temp/viam-server-windows-amd64-alpha-1-546e6603.exe",
 	Version:  "alpha-1",
-	Sha256:   []byte("b8b999ab26c7156a62beccbb7e039b66f5fdb762b535dbbc369c3865832ed179"),
+	Sha256:   mustDecodeBase64("uLmZqybHFWpivsy7fgObZvX9t2K1Ndu8Npw4ZYMu0Xk="),
 	Format:   pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE,
 }
 
@@ -245,7 +247,6 @@ var staticWindowsViamServer = &pb.SubsystemUpdateInfo{
 //
 //nolint:gocognit
 func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error) {
-	println("update for", s.name)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -264,10 +265,10 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	updateInfo := cfg.GetUpdateInfo()
 	if updateInfo == nil {
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == "windows" && s.name == "viam-server" {
 			updateInfo = staticWindowsViamServer
 		} else {
-			return false, errNilUpdateInfo
+			return false, fmt.Errorf("updateInfo for %s is nil. are you on an unsupported platform?", s.name)
 		}
 	}
 
