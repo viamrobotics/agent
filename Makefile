@@ -64,3 +64,10 @@ upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSI
 .PHONY: upload-installer
 upload-installer:
 	gsutil -h "Cache-Control:no-cache" cp preinstall.sh install.sh uninstall.sh gs://packages.viam.com/apps/viam-agent/
+
+sc-create:
+	# create a windows service
+	# todo: move this to an installer script
+	# note: this works in cmd.exe but not powershell
+	# nope: follow example here https://pkg.go.dev/golang.org/x/sys/windows/svc/example
+	sc create viam-agent binpath= c:\opt\viam\bin\viam-agent.exe start= auto
