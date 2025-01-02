@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -128,6 +129,9 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	}
 	binPath := path.Join(agent.ViamDirs["bin"], SubsysName)
+	if runtime.GOOS == "windows" {
+		binPath += ".exe"
+	}
 	if !pathExists(binPath) {
 		s.logger.Warnf("viam-server binary missing at %s, not starting", binPath)
 		// todo: nested func so unlock is deferable

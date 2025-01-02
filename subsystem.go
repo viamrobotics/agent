@@ -236,7 +236,7 @@ func mustDecodeBase64(s string) []byte {
 // hardcoding for now pending release process for windows rdk (not sure how discovery loop works).
 // replace with normal process asap.
 var staticWindowsViamServer = &pb.SubsystemUpdateInfo{
-	Filename: "viam-server-amd64.exe",
+	Filename: "viam-server.exe",
 	Url:      "https://storage.googleapis.com/packages.viam.com/temp/viam-server-windows-amd64-alpha-1-546e6603.exe",
 	Version:  "alpha-1",
 	Sha256:   mustDecodeBase64("uLmZqybHFWpivsy7fgObZvX9t2K1Ndu8Npw4ZYMu0Xk="),
