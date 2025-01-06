@@ -232,7 +232,8 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	err := s.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
-		s.logger.Error(err)
+		// todo(windows): I think this fails on windows; make sure stop/start works, potentially skip to kill().
+		s.logger.Error(errw.Wrap(err, "terminating"))
 	}
 
 	if s.waitForExit(ctx, stopTermTimeout) {
