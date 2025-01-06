@@ -49,8 +49,8 @@ func main() {
 	defer elog.Close()
 
 	elog.Info(1, fmt.Sprintf("starting %s service", serviceName))
-	err = svc.Run(serviceName, &agentService{})
 	go commonMain()
+	err = svc.Run(serviceName, &agentService{})
 	if err != nil {
 		elog.Error(1, fmt.Sprintf("%s service failed: %v", serviceName, err))
 		return
