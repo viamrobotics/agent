@@ -228,21 +228,6 @@ func (s *AgentSubsystem) SaveCache() error {
 	return s.saveCache()
 }
 
-func mustDecodeBase64(s string) []byte {
-	ret, _ := base64.StdEncoding.DecodeString(s)
-	return ret
-}
-
-// hardcoding for now pending release process for windows rdk (not sure how discovery loop works).
-// replace with normal process asap.
-var staticWindowsViamServer = &pb.SubsystemUpdateInfo{
-	Filename: "viam-server.exe",
-	Url:      "https://storage.googleapis.com/packages.viam.com/temp/viam-server-windows-amd64-alpha-1-546e6603.exe",
-	Version:  "alpha-1",
-	Sha256:   mustDecodeBase64("uLmZqybHFWpivsy7fgObZvX9t2K1Ndu8Npw4ZYMu0Xk="),
-	Format:   pb.PackageFormat_PACKAGE_FORMAT_EXECUTABLE,
-}
-
 // Update is the main function of the AgentSubsystem wrapper, as it's shared between subsystems. Returns true if a restart is needed.
 //
 //nolint:gocognit
@@ -265,11 +250,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	updateInfo := cfg.GetUpdateInfo()
 	if updateInfo == nil {
-		if runtime.GOOS == "windows" && s.name == "viam-server" {
-			updateInfo = staticWindowsViamServer
-		} else {
-			return false, fmt.Errorf("updateInfo for %s is nil. are you on an unsupported platform?", s.name)
-		}
+		return false, fmt.Errorf("updateInfo for %s is nil. are you on an unsupported platform?", s.name)
 	}
 
 	// check if we already have the version given by the cloud
@@ -364,6 +345,9 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	// symlink the extracted file to bin
 	verData.SymlinkPath = path.Join(ViamDirs["bin"], updateInfo.GetFilename())
+	if runtime.GOOS == "windows" {
+		verData.SymlinkPath += ".exe"
+	}
 	if err = ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
 		return needRestart, errw.Wrap(err, "creating symlink")
 	}
