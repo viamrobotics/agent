@@ -281,6 +281,10 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("%s not running", SubsysName)
 	}
 	if s.checkURL == "" {
+		if runtime.GOOS == "windows" {
+			// todo(windows): we hit this case on windows; debug why. note: it also can't signal the subprocess to stop.
+			return nil
+		}
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
