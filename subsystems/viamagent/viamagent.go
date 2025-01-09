@@ -123,14 +123,14 @@ func Install(logger logging.Logger) error {
 		return errw.Wrap(err, "getting service file path")
 	}
 
-	//nolint:gosec
-	if err := os.MkdirAll(filepath.Dir(serviceFilePath), 0o755); err != nil {
-		return errw.Wrapf(err, "creating directory %s", filepath.Dir(serviceFilePath))
-	}
+	// use this later to avoid re-enabling an existing agent service a user might have disabled
+	_, err = os.Stat(serviceFilePath)
+	newInstall := err != nil
 
 	logger.Infof("writing systemd service file to %s", serviceFilePath)
-	//nolint:gosec
-	if err := os.WriteFile(serviceFilePath, serviceFileContents, 0o644); err != nil {
+
+	newFile, err := agent.WriteFileIfNew(serviceFilePath, serviceFileContents)
+	if err != nil {
 		return errw.Wrapf(err, "writing systemd service file %s", serviceFilePath)
 	}
 
@@ -143,17 +143,21 @@ func Install(logger logging.Logger) error {
 		}
 	}
 
-	logger.Infof("enabling systemd viam-agent service")
-	cmd = exec.Command("systemctl", "daemon-reload")
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return errw.Wrapf(err, "running 'systemctl daemon-reload' output: %s", output)
+	if newFile {
+		cmd = exec.Command("systemctl", "daemon-reload")
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return errw.Wrapf(err, "running 'systemctl daemon-reload' output: %s", output)
+		}
 	}
 
-	cmd = exec.Command("systemctl", "enable", "viam-agent")
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return errw.Wrapf(err, "running 'systemctl enable viam-agent' output: %s", output)
+	if newInstall {
+		logger.Infof("enabling systemd viam-agent service")
+		cmd = exec.Command("systemctl", "enable", "viam-agent")
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return errw.Wrapf(err, "running 'systemctl enable viam-agent' output: %s", output)
+		}
 	}
 
 	_, err = os.Stat("/etc/viam.json")

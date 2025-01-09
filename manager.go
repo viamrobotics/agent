@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	minimalCheckInterval  = time.Second * 60
+	minimalCheckInterval  = time.Second * 5
 	defaultNetworkTimeout = time.Second * 15
 	// stopAllTimeout must be lower than systemd subsystems/viamagent/viam-agent.service timeout of 4mins
 	// and higher than subsystems/viamserver/viamserver.go timeout of 2mins.

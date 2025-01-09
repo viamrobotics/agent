@@ -37,7 +37,7 @@
     <div class="form-group">
       <label for="network">Network</label>
       {{if eq (len .VisibleSSIDs) 0}}
-        <input type="text" name="ssid" placeholder="Enter Wifi SSID" id="network" required>
+        <input type="text" name="ssid" placeholder="Enter Wifi SSID" id="network" required autocorrect="off" autocapitalize="off">
       {{else}}
         <div class="select-border">
           <select name="ssid" id="network" required>
@@ -52,14 +52,14 @@
 
     <div class="form-group">
       <label for="password">Password</label>
-      <input type="text" name="password" id="password" placeholder="Password">
+      <input type="text" name="password" id="password" placeholder="Password" autocorrect="off" autocapitalize="off">
     </div>
     {{end}}
 
     {{if not .IsConfigured}}
     <div class="form-group">
       <label for="viamconfig">Device Config</label>
-      <textarea type="textarea" name="viamconfig" id="viamconfig" required placeholder="No config found on device. Paste your viam.json file here."></textarea>
+      <textarea type="textarea" name="viamconfig" id="viamconfig" required placeholder="No config found on device. Paste your viam.json file here." autocorrect="off" autocapitalize="off"></textarea>
     </div>
     {{end}}
 
