@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -191,6 +192,14 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 	closed = true
 
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command(
+			"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
+			"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
+		)
+		cmd.Start()
+		errRet = errors.Join(errRet, cmd.Wait())
+	}
 	return outPath, errRet
 }
 
