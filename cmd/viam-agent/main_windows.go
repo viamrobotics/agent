@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
 
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
@@ -21,8 +24,13 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 		c := <-r
 		if c.Cmd == svc.Stop || c.Cmd == svc.Shutdown {
 			elog.Info(1, fmt.Sprintf("%s service stopping", serviceName))
-			globalManager.CloseAll()
-			elog.Info(1, "globalManager closed all")
+			pid := os.Getegid()
+			cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
+			err := cmd.Run()
+			if err != nil {
+				elog.Error(1, fmt.Sprintf("error running taskkill #%s", err))
+			}
+			elog.Info(1, "taskkilled")
 			break
 		} else {
 			elog.Error(1, fmt.Sprintf("unexpected control request #%d", c))
