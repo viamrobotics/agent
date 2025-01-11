@@ -25,7 +25,7 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 		c := <-r
 		if c.Cmd == svc.Stop || c.Cmd == svc.Shutdown {
 			elog.Info(1, fmt.Sprintf("%s service stopping", serviceName))
-			pid := os.Getegid()
+			pid := os.Getpid()
 			cmd := exec.Command("wmic", "process", "where", fmt.Sprintf("ParentProcessId=%d", strconv.Itoa(pid)), "get", "ProcessId")
 			output, err := cmd.Output()
 			if err != nil {
