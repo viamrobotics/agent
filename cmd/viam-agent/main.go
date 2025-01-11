@@ -27,6 +27,7 @@ import (
 var (
 	activeBackgroundWorkers sync.WaitGroup
 
+	globalManager *agent.Manager
 	// only changed/set at startup, so no mutex.
 	globalLogger = logging.NewLogger("viam-agent")
 )
@@ -119,15 +120,15 @@ func commonMain() {
 	absConfigPath := setupProvisioningPaths(opts)
 
 	// main manager structure
-	manager, err := agent.NewManager(ctx, globalLogger)
+	globalManager, err := agent.NewManager(ctx, globalLogger)
 	exitIfError(err)
 
-	loadConfigErr := manager.LoadConfig(absConfigPath)
+	loadConfigErr := globalManager.LoadConfig(absConfigPath)
 	//nolint:nestif
 	if loadConfigErr != nil {
-		runPlatformProvisioning(ctx, manager, loadConfigErr, absConfigPath)
+		runPlatformProvisioning(ctx, globalManager, loadConfigErr, absConfigPath)
 	}
-	netAppender, err := manager.CreateNetAppender()
+	netAppender, err := globalManager.CreateNetAppender()
 	if err != nil {
 		globalLogger.Errorf("error creating NetAppender: %s", err)
 	} else {
@@ -140,7 +141,7 @@ func commonMain() {
 	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
 	var fastSuccess bool
 	if opts.Fast || viamserver.FastStart.Load() {
-		if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
+		if err := globalManager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
 			globalLogger.Error(err)
 		} else {
 			fastSuccess = true
@@ -154,20 +155,20 @@ func commonMain() {
 		autils.WaitOnline(globalLogger, timeoutCtx)
 
 		// Check for self-update and restart if needed.
-		needRestart, err := manager.SelfUpdate(ctx)
+		needRestart, err := globalManager.SelfUpdate(ctx)
 		if err != nil {
 			globalLogger.Error(err)
 		}
 		if needRestart {
-			manager.CloseAll()
+			globalManager.CloseAll()
 			globalLogger.Info("updated self, exiting to await restart with new version")
 			return
 		}
 	}
 
-	manager.StartBackgroundChecks(ctx)
+	globalManager.StartBackgroundChecks(ctx)
 	<-ctx.Done()
-	manager.CloseAll()
+	globalManager.CloseAll()
 }
 
 func setupExitSignalHandling() (context.Context, func()) {
