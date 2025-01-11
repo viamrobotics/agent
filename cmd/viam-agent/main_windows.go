@@ -29,9 +29,10 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 			cmd := exec.Command("WMIC.exe", "process", "where", fmt.Sprintf("ParentProcessId=%d", strconv.Itoa(pid)), "get", "ProcessId")
 			output, err := cmd.Output()
 			if err != nil {
+				elog.Error(1, fmt.Sprintf("error executing %s %s", cmd.Path, cmd.Args))
 				elog.Error(1, fmt.Sprintf("error getting child process for #%d, #%s", pid, err))
 			}
-			lines := strings.Split(string(output), "\n")
+			lines := strings.Split(string(output), "\r\n")
 			for _, line := range lines[1:] {
 				if line == "" {
 					continue
