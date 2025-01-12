@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	errw "github.com/pkg/errors"
@@ -68,6 +69,10 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		return false, nil
 	}
 
+	if runtime.GOOS == "windows" {
+		// no systemd on windows
+		return true, nil
+	}
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 
 	// Run the newly updated version to install systemd and other service files.
