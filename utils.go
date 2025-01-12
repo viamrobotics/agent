@@ -32,6 +32,8 @@ var (
 	GitRevision = ""
 
 	ViamDirs = map[string]string{"viam": "/opt/viam"}
+	// so RequestRestart can exit the main loop
+	GlobalCancel func()
 )
 
 // GetVersion returns the version embedded at build time.

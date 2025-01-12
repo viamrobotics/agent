@@ -2,10 +2,9 @@ package agent
 
 import (
 	"io/fs"
-	"os/exec"
 	"syscall"
 
-	errw "github.com/pkg/errors"
+	"github.com/pkg/errors"
 )
 
 // platform-specific UID check.
@@ -42,8 +41,12 @@ func RequestRestart() error {
 	// } else if !inService {
 	// 	return errors.New("can't request restart -- not in service")
 	// }
-	if _, err := exec.Command("net", "stop", "viam-agent").Output(); err != nil {
-		return errw.Wrap(err, "restarting windows service")
+	// if _, err := exec.Command("net", "stop", "viam-agent").Output(); err != nil {
+	// 	return errw.Wrap(err, "restarting windows service")
+	// }
+	if GlobalCancel == nil {
+		return errors.New("globalcancel is nil, can't restart")
 	}
+	GlobalCancel()
 	return nil
 }
