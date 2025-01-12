@@ -72,11 +72,11 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 	if runtime.GOOS == "windows" {
 		// no systemd on windows -- check if binary is runnable, then restart service.
-		if err := exec.Command(expectedPath, "--version").Wait(); err != nil {
+		if _, err := exec.Command(expectedPath, "--version").Output(); err != nil {
 			return false, errw.Wrap(err, "testing binary")
 		}
 		// note: sc.exe doesn't have a restart command it seems.
-		if err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Wait(); err != nil {
+		if _, err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Output(); err != nil {
 			return false, errw.Wrap(err, "restarting windows service")
 		}
 		return true, nil
