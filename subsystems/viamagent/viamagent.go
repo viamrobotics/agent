@@ -69,13 +69,21 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		return false, nil
 	}
 
+	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 	if runtime.GOOS == "windows" {
-		// no systemd on windows
+		// no systemd on windows -- check if binary is runnable, then restart service.
+		if err := exec.Command(expectedPath, "--version").Wait(); err != nil {
+			return false, errw.Wrap(err, "testing binary")
+		}
+		// note: sc.exe doesn't have a restart command it seems.
+		if err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Wait(); err != nil {
+			return false, errw.Wrap(err, "restarting windows service")
+		}
 		return true, nil
 	}
-	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 
 	// Run the newly updated version to install systemd and other service files.
+	// Note: this also restarts the daemon.
 	//nolint:gosec
 	cmd := exec.Command(expectedPath, "--install")
 	output, err := cmd.CombinedOutput()
@@ -88,6 +96,7 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	return true, nil
 }
 
+// Install installs systemd and restarts the daemon.
 func Install(logger logging.Logger) error {
 	// Check for systemd
 	cmd := exec.Command("systemctl", "--version")
