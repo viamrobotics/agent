@@ -81,7 +81,10 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		// if _, err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Output(); err != nil {
 		// 	return false, errw.Wrap(err, "restarting windows service")
 		// }
-		agent.GlobalManager.CloseAll()
+		if agent.GlobalCancel == nil {
+			return false, errors.New("can't call globalCancel because it's nil")
+		}
+		agent.GlobalCancel()
 		return true, nil
 	}
 

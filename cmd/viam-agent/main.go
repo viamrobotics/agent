@@ -46,6 +46,7 @@ type agentOpts struct {
 //nolint:gocognit
 func commonMain() {
 	ctx, cancel := setupExitSignalHandling()
+	agent.GlobalCancel = cancel
 
 	defer func() {
 		cancel()

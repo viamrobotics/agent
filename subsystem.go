@@ -375,6 +375,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 func (s *AgentSubsystem) tryInner(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
 	inner, ok := s.inner.(updatable)
+	s.logger.Infof("in %s tryInner, updatable is %t", s.name, ok)
 	if ok {
 		return inner.Update(ctx, cfg, newVersion)
 	}
