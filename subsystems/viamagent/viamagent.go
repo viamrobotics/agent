@@ -72,7 +72,7 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 	if runtime.GOOS == "windows" {
-		// no systemd on windows -- check if binary is runnable, then restart service.
+		// no systemd on windows -- for now you need to double-restart.
 		if _, err := exec.Command(expectedPath, "--version").Output(); err != nil {
 			return false, errw.Wrap(err, "testing binary")
 		}
@@ -81,10 +81,10 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		// if _, err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Output(); err != nil {
 		// 	return false, errw.Wrap(err, "restarting windows service")
 		// }
-		if agent.GlobalCancel == nil {
-			return false, errors.New("can't call globalCancel because it's nil")
-		}
-		agent.GlobalCancel()
+		// if agent.GlobalCancel == nil {
+		// 	return false, errors.New("can't call globalCancel because it's nil")
+		// }
+		// agent.GlobalCancel()
 		return true, nil
 	}
 
