@@ -35,3 +35,7 @@ func SyncFS(syncPath string) (errRet error) {
 	}
 	return errors.Join(errRet, file.Close())
 }
+
+func RequestRestart() error {
+	return nil
+}

@@ -194,6 +194,11 @@ func (s *viamServer) Start(ctx context.Context) error {
 		close(s.exitChan)
 	}()
 
+	timeout := globalConfig.Load().startTimeout
+	if runtime.GOOS == "windows" {
+		// otherwise pin_url update can't be tested; todo fix this
+		timeout = time.Second * 10
+	}
 	select {
 	case matches := <-c:
 		s.checkURL = matches[1]
@@ -203,7 +208,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(globalConfig.Load().startTimeout):
+	case <-time.After(timeout):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")

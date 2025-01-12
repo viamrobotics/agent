@@ -76,15 +76,9 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 		if _, err := exec.Command(expectedPath, "--version").Output(); err != nil {
 			return false, errw.Wrap(err, "testing binary")
 		}
-		// note: sc.exe doesn't have a restart command it seems.
-		// note: this stops but doesn't start
-		// if _, err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Output(); err != nil {
-		// 	return false, errw.Wrap(err, "restarting windows service")
-		// }
-		// if agent.GlobalCancel == nil {
-		// 	return false, errors.New("can't call globalCancel because it's nil")
-		// }
-		// agent.GlobalCancel()
+		if err := agent.RequestRestart(); err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 
