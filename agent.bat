@@ -2,7 +2,7 @@
 :: installer for agent on windows
 
 set root=\opt\viam
-set fname=viam-agent-windows-amd64-alpha-9-f68e150.exe
+set fname=viam-agent-windows-amd64-alpha-11-4725f4c.exe
 mkdir %root%\cache
 mkdir %root%\bin
 curl https://storage.googleapis.com/packages.viam.com/temp/%fname% -o %root%\cache\%fname%
