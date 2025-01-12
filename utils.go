@@ -32,11 +32,6 @@ var (
 	GitRevision = ""
 
 	ViamDirs = map[string]string{"viam": "/opt/viam"}
-
-	// GlobalManager allows subsystems and other contexts to trigger CloseAll.
-	GlobalManager *Manager
-	// This lets other things stop the main thread.
-	GlobalCancel func()
 )
 
 // GetVersion returns the version embedded at build time.

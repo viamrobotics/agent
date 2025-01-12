@@ -46,7 +46,6 @@ type agentOpts struct {
 //nolint:gocognit
 func commonMain() {
 	ctx, cancel := setupExitSignalHandling()
-	agent.GlobalCancel = cancel
 
 	defer func() {
 		cancel()
@@ -122,7 +121,6 @@ func commonMain() {
 	// main manager structure
 	manager, err := agent.NewManager(ctx, globalLogger)
 	exitIfError(err)
-	agent.GlobalManager = manager
 
 	loadConfigErr := manager.LoadConfig(absConfigPath)
 	//nolint:nestif
