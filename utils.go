@@ -32,6 +32,9 @@ var (
 	GitRevision = ""
 
 	ViamDirs = map[string]string{"viam": "/opt/viam"}
+
+	// GlobalManager allows subsystems and other contexts to trigger CloseAll.
+	GlobalManager *Manager
 )
 
 // GetVersion returns the version embedded at build time.

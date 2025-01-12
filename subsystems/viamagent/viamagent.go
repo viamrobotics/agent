@@ -65,6 +65,7 @@ func (a *agentSubsystem) HealthCheck(ctx context.Context) error {
 // Update here handles the post-update installation of systemd files and the like.
 // The actual update check and download is done in the wrapper (agent.AgentSubsystem).
 func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
+	// todo: pass logger into this function; these are important events
 	if !newVersion {
 		return false, nil
 	}
@@ -76,9 +77,11 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 			return false, errw.Wrap(err, "testing binary")
 		}
 		// note: sc.exe doesn't have a restart command it seems.
-		if _, err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Output(); err != nil {
-			return false, errw.Wrap(err, "restarting windows service")
-		}
+		// note: this stops but doesn't start
+		// if _, err := exec.Command("powershell", "-command", "Restart-Service viam-agent").Output(); err != nil {
+		// 	return false, errw.Wrap(err, "restarting windows service")
+		// }
+		agent.GlobalManager.CloseAll()
 		return true, nil
 	}
 

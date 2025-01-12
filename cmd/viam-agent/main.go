@@ -27,7 +27,6 @@ import (
 var (
 	activeBackgroundWorkers sync.WaitGroup
 
-	globalManager *agent.Manager
 	// only changed/set at startup, so no mutex.
 	globalLogger = logging.NewLogger("viam-agent")
 )
@@ -120,15 +119,16 @@ func commonMain() {
 	absConfigPath := setupProvisioningPaths(opts)
 
 	// main manager structure
-	globalManager, err := agent.NewManager(ctx, globalLogger)
+	manager, err := agent.NewManager(ctx, globalLogger)
 	exitIfError(err)
+	agent.GlobalManager = manager
 
-	loadConfigErr := globalManager.LoadConfig(absConfigPath)
+	loadConfigErr := manager.LoadConfig(absConfigPath)
 	//nolint:nestif
 	if loadConfigErr != nil {
-		runPlatformProvisioning(ctx, globalManager, loadConfigErr, absConfigPath)
+		runPlatformProvisioning(ctx, manager, loadConfigErr, absConfigPath)
 	}
-	netAppender, err := globalManager.CreateNetAppender()
+	netAppender, err := manager.CreateNetAppender()
 	if err != nil {
 		globalLogger.Errorf("error creating NetAppender: %s", err)
 	} else {
@@ -141,7 +141,7 @@ func commonMain() {
 	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
 	var fastSuccess bool
 	if opts.Fast || viamserver.FastStart.Load() {
-		if err := globalManager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
+		if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
 			globalLogger.Error(err)
 		} else {
 			fastSuccess = true
@@ -155,20 +155,20 @@ func commonMain() {
 		autils.WaitOnline(globalLogger, timeoutCtx)
 
 		// Check for self-update and restart if needed.
-		needRestart, err := globalManager.SelfUpdate(ctx)
+		needRestart, err := manager.SelfUpdate(ctx)
 		if err != nil {
 			globalLogger.Error(err)
 		}
 		if needRestart {
-			globalManager.CloseAll()
+			manager.CloseAll()
 			globalLogger.Info("updated self, exiting to await restart with new version")
 			return
 		}
 	}
 
-	globalManager.StartBackgroundChecks(ctx)
+	manager.StartBackgroundChecks(ctx)
 	<-ctx.Done()
-	globalManager.CloseAll()
+	manager.CloseAll()
 }
 
 func setupExitSignalHandling() (context.Context, func()) {
