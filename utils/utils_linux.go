@@ -44,3 +44,8 @@ func WaitOnline(logger logging.Logger, ctx context.Context) {
 		}
 	}
 }
+
+// KillTree kills the process tree on windows (because other signaling doesn't work).
+func KillTree(pid int) error {
+	return nil
+}

@@ -2,11 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 
+	"github.com/viamrobotics/agent/utils"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
@@ -25,29 +22,8 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 		c := <-r
 		if c.Cmd == svc.Stop || c.Cmd == svc.Shutdown {
 			elog.Info(1, fmt.Sprintf("%s service stopping", serviceName))
-			pid := os.Getpid()
-			cmd := exec.Command("WMIC.exe", "process", "where", fmt.Sprintf("ParentProcessId=%d", pid), "get", "ProcessId")
-			output, err := cmd.Output()
-			if err != nil {
-				elog.Error(1, fmt.Sprintf("error executing %s %s", cmd.Path, cmd.Args))
-				elog.Error(1, fmt.Sprintf("error getting child process for #%d, #%s", pid, err))
-			}
-			lines := strings.Split(string(output), "\r\n")
-			for _, line := range lines[1:] {
-				if line == "" {
-					continue
-				}
-				var childPID int
-				_, err := fmt.Sscan(line, &childPID)
-				if err != nil {
-					elog.Error(1, fmt.Sprintf("not a valid childProcess line %s, #%s", line, err))
-					continue
-				}
-				cmd = exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(childPID))
-				err = cmd.Run()
-				if err != nil {
-					elog.Error(1, fmt.Sprintf("error running taskkill #%s", err))
-				}
+			if err := utils.KillTree(-1); err != nil {
+				elog.Error(1, fmt.Sprintf("error killing subtree %s", err))
 			}
 			elog.Info(1, "taskkilled")
 			break

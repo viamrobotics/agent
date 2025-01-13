@@ -235,9 +235,16 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	s.logger.Infof("Stopping %s", SubsysName)
 
+	if runtime.GOOS == "windows" {
+		// note: Signal(SIGTERM) returns 'not supported on windows' error on windows
+		// note: this kills all subproces, not just RDK
+		if err := autils.KillTree(-1); err != nil {
+			return errw.Wrap(err, "stopping viam-server process tree")
+		}
+		return nil
+	}
 	err := s.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
-		// todo(windows): I think this fails on windows; make sure stop/start works, potentially skip to kill().
 		s.logger.Error(errw.Wrap(err, "terminating"))
 	}
 
@@ -245,8 +252,9 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
 	}
-
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
+
+	// todo: kill process tree
 	autils.PlatformKill(s.logger, s.cmd)
 
 	if s.waitForExit(ctx, stopKillTimeout) {
