@@ -41,10 +41,12 @@ var (
 	serviceFileContents []byte
 )
 
-type agentSubsystem struct{}
+type agentSubsystem struct {
+	logger logging.Logger
+}
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	return agent.NewAgentSubsystem(ctx, subsysName, logger, &agentSubsystem{})
+	return agent.NewAgentSubsystem(ctx, subsysName, logger, &agentSubsystem{logger: logger})
 }
 
 // Start does nothing (we're already running as we ARE the agent.)
@@ -72,13 +74,16 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
 	if runtime.GOOS == "windows" {
+		a.logger.Info("windows postinstall")
 		// no systemd on windows -- for now you need to double-restart.
 		if _, err := exec.Command(expectedPath, "--version").Output(); err != nil {
 			return false, errw.Wrap(err, "testing binary")
 		}
+		a.logger.Info("windows okay test binary")
 		if err := agent.RequestRestart(); err != nil {
 			return false, err
 		}
+		a.logger.Info("windows requested restart")
 		return true, nil
 	}
 

@@ -2,7 +2,9 @@ package agent
 
 import (
 	"io/fs"
+	"os"
 	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -48,5 +50,7 @@ func RequestRestart() error {
 		return errors.New("globalcancel is nil, can't restart")
 	}
 	GlobalCancel()
+	time.Sleep(5 * time.Second) // todo: rearchitect to wait for exit
+	os.Exit(1)                  // non-zero exit code to trigger service restart; test whether this is necessary
 	return nil
 }
