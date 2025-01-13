@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 )
 
 // platform-specific UID check.
@@ -51,6 +52,9 @@ func RequestRestart() error {
 	}
 	GlobalCancel()
 	time.Sleep(5 * time.Second) // todo: rearchitect to wait for exit
-	os.Exit(1)                  // non-zero exit code to trigger service restart; test whether this is necessary
+	if err := utils.KillTree(-1); err != nil {
+		return err
+	}
+	os.Exit(1) // non-zero exit code to trigger service restart; test whether this is necessary
 	return nil
 }
