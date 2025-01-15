@@ -1,0 +1,34 @@
+name: Build MSI
+
+on: [push]
+
+jobs:
+  build-msi:
+    runs-on: windows-2019
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23.1'
+
+      - name: Install Make
+        run: choco install make --yes
+
+      - name: Install WiX 5.0
+        run: dotnet tool install --global wix
+
+      - name: Build Go binary
+        run: make windows
+
+      - name: Build MSI
+        run: wix build agent.wxs -define GoBinDir="${{ github.workspace }}" -define MSIProductVersion="0.0.3" -ext WixToolset.Util.wixext -ext WixToolset.Firewall.wixext  -o agent.msi
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: agent.msi
+          path: agent.msi
