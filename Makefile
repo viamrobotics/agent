@@ -40,10 +40,8 @@ bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go subsyste
 .PHONY: windows
 windows: bin/viam-agent.exe
 
-bin/viam-agent.exe: export GOOS=windows
-bin/viam-agent.exe: export GOARCH=amd64
 bin/viam-agent.exe:
-	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
+	GOOS=windows GOARCH=amd64 go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
 
 .PHONY: clean
 clean:

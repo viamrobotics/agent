@@ -14,22 +14,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Install GitHub CLI
-        run: |
-          choco install gh --yes
-
-      # Step 3: Only needed while we provide manual versions
-      - name: Check for existing version
-        shell: bash
-        run: |
-          if gh release view | grep "agent-${{ github.event.inputs.msi_version }}.msi"; then
-            echo "Error: An artifact with version '${{ github.event.inputs.msi_version }}' already exists. Please increment the version."
-            exit 1
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -55,7 +40,7 @@ jobs:
           wix build agent.wxs -define GoBinDir="${{ github.workspace }}\bin" -define MSIProductVersion="${{ github.event.inputs.msi_version }}" -ext WixToolset.Util.wixext -ext WixToolset.Firewall.wixext -o agent-${{ github.event.inputs.msi_version }}.msi
     
       - name: Upload MSI artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: agent-${{ github.event.inputs.msi_version }}.msi
           path: agent-${{ github.event.inputs.msi_version }}.msi
