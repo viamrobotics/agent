@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	errw "github.com/pkg/errors"
@@ -40,10 +41,12 @@ var (
 	serviceFileContents []byte
 )
 
-type agentSubsystem struct{}
+type agentSubsystem struct {
+	logger logging.Logger
+}
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	return agent.NewAgentSubsystem(ctx, subsysName, logger, &agentSubsystem{})
+	return agent.NewAgentSubsystem(ctx, subsysName, logger, &agentSubsystem{logger: logger})
 }
 
 // Start does nothing (we're already running as we ARE the agent.)
@@ -64,13 +67,28 @@ func (a *agentSubsystem) HealthCheck(ctx context.Context) error {
 // Update here handles the post-update installation of systemd files and the like.
 // The actual update check and download is done in the wrapper (agent.AgentSubsystem).
 func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
+	// todo: pass logger into this function; these are important events
 	if !newVersion {
 		return false, nil
 	}
 
 	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
+	if runtime.GOOS == "windows" {
+		a.logger.Info("windows postinstall")
+		// no systemd on windows -- for now you need to double-restart.
+		if _, err := exec.Command(expectedPath, "--version").Output(); err != nil {
+			return false, errw.Wrap(err, "testing binary")
+		}
+		a.logger.Info("windows okay test binary")
+		if err := agent.RequestRestart(); err != nil {
+			return false, err
+		}
+		a.logger.Info("windows requested restart")
+		return true, nil
+	}
 
 	// Run the newly updated version to install systemd and other service files.
+	// Note: this also restarts the daemon.
 	//nolint:gosec
 	cmd := exec.Command(expectedPath, "--install")
 	output, err := cmd.CombinedOutput()
@@ -83,6 +101,7 @@ func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 	return true, nil
 }
 
+// Install installs systemd and restarts the daemon.
 func Install(logger logging.Logger) error {
 	// Check for systemd
 	cmd := exec.Command("systemctl", "--version")

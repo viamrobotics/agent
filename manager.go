@@ -446,7 +446,7 @@ func (m *Manager) processConfig(cfg map[string]*pb.DeviceSubsystemConfig) {
 // GetConfig retrieves the configuration from the cloud, or returns a cached version if unable to communicate.
 func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
 	if m.cloudConfig == nil {
-		return nil, 0, errors.New("can't GetConfig until successful LoadConfig")
+		return nil, minimalCheckInterval, errors.New("can't GetConfig until successful LoadConfig")
 	}
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, defaultNetworkTimeout)
 	defer cancelFunc()

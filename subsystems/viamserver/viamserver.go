@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,7 @@ import (
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/registry"
+	autils "github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
@@ -109,6 +112,12 @@ func configFromProto(logger logging.Logger, updateConf *pb.DeviceSubsystemConfig
 	return ret
 }
 
+func pathExists(path string) bool {
+	// todo: give the manager access to this
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func (s *viamServer) Start(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
@@ -116,6 +125,16 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.mu.Lock()
 
 	if s.running {
+		s.mu.Unlock()
+		return nil
+	}
+	binPath := path.Join(agent.ViamDirs["bin"], SubsysName)
+	if runtime.GOOS == "windows" {
+		binPath += ".exe"
+	}
+	if !pathExists(binPath) {
+		s.logger.Warnf("viam-server binary missing at %s, not starting", binPath)
+		// todo: nested func so unlock is deferable
 		s.mu.Unlock()
 		return nil
 	}
@@ -129,9 +148,9 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stdio := agent.NewMatchingLogger(s.logger, false, false)
 	stderr := agent.NewMatchingLogger(s.logger, true, false)
 	//nolint:gosec
-	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], SubsysName), "-config", ConfigFilePath)
+	s.cmd = exec.Command(binPath, "-config", ConfigFilePath)
 	s.cmd.Dir = agent.ViamDirs["viam"]
-	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	autils.PlatformSubprocessSettings(s.cmd)
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
 
@@ -175,6 +194,11 @@ func (s *viamServer) Start(ctx context.Context) error {
 		close(s.exitChan)
 	}()
 
+	timeout := globalConfig.Load().startTimeout
+	if runtime.GOOS == "windows" {
+		// otherwise pin_url update can't be tested; todo fix this
+		timeout = time.Second * 10
+	}
 	select {
 	case matches := <-c:
 		s.checkURL = matches[1]
@@ -184,7 +208,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(globalConfig.Load().startTimeout):
+	case <-time.After(timeout):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")
@@ -211,21 +235,27 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	s.logger.Infof("Stopping %s", SubsysName)
 
+	if runtime.GOOS == "windows" {
+		// note: Signal(SIGTERM) returns 'not supported on windows' error on windows
+		// note: this kills all subproces, not just RDK
+		if err := autils.KillTree(-1); err != nil {
+			return errw.Wrap(err, "stopping viam-server process tree")
+		}
+		return nil
+	}
 	err := s.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
-		s.logger.Error(err)
+		s.logger.Error(errw.Wrap(err, "terminating"))
 	}
 
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
 	}
-
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
-	err = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-	if err != nil {
-		s.logger.Error(err)
-	}
+
+	// todo: kill process tree
+	autils.PlatformKill(s.logger, s.cmd)
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
@@ -264,6 +294,10 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("%s not running", SubsysName)
 	}
 	if s.checkURL == "" {
+		if runtime.GOOS == "windows" {
+			// todo(windows): we hit this case on windows; debug why. note: it also can't signal the subprocess to stop.
+			return nil
+		}
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
