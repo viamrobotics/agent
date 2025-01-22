@@ -413,7 +413,7 @@ func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, 
 				SubsysName)
 			needRestart = true
 		} else {
-			s.logger.Infof("will not restart %s version to run new version, as it has not reported"+
+			s.logger.Infof("will not restart %s version to run new version, as it has not reported "+
 				"allowance of a restart", SubsysName)
 		}
 	}
