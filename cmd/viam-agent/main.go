@@ -140,6 +140,8 @@ func main() {
 		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
 		// Rename the file (if it exists) and wait to provision a new one.
 		if !errors.Is(err, fs.ErrNotExist) {
+			globalLogger.Error(errors.Wrapf(err, "reading %s", absConfigPath))
+			globalLogger.Warn("renaming %s to %s.old", absConfigPath, absConfigPath)
 			if err := os.Rename(absConfigPath, absConfigPath+".old"); err != nil {
 				// if we can't rename the file, we're up a creek, and it's fatal
 				globalLogger.Error(errors.Wrapf(err, "removing invalid config file %s", absConfigPath))

@@ -172,6 +172,9 @@ func (s *viamServer) Start(ctx context.Context) error {
 				s.logger.Errorw("non-zero exit code", "exit code", s.lastExit)
 			}
 		}
+		if s.shouldRun {
+			s.logger.Infof("%s exited unexpectedly and will be restarted shortly", SubsysName)
+		}
 		close(s.exitChan)
 	}()
 
