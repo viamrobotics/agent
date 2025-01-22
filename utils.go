@@ -32,7 +32,7 @@ var (
 	GitRevision = ""
 
 	ViamDirs = map[string]string{"viam": "/opt/viam"}
-	// so RequestRestart can exit the main loop
+	// so RequestRestart can exit the main loop.
 	GlobalCancel func()
 )
 

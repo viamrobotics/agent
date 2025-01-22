@@ -341,6 +341,10 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
 // both accessed.
 func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
+	if runtime.GOOS == "windows" {
+		// todo(windows): this function throws 'unsupported protocol scheme', needs debugging
+		return true, nil
+	}
 	for _, url := range []string{s.checkURL, s.checkURLAlt} {
 		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
 

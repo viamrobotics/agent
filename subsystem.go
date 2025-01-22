@@ -250,7 +250,7 @@ func (s *AgentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConf
 
 	updateInfo := cfg.GetUpdateInfo()
 	if updateInfo == nil {
-		return false, fmt.Warnf("updateInfo for %s is nil. are you on an unsupported platform?", s.name)
+		return false, fmt.Errorf("updateInfo for %s is nil. are you on an unsupported platform?", s.name)
 	}
 
 	// check if we already have the version given by the cloud

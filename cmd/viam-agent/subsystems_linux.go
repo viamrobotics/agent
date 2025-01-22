@@ -11,7 +11,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems/provisioning"
-
 	// register-only.
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
