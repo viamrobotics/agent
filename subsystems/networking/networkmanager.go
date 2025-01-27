@@ -46,7 +46,8 @@ func (w *Provisioning) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
 	for _, nw := range w.netState.Networks() {
 		// note this does NOT use VisibleNetworkTimeout (like getCandidates does)
-		recentlySeen := nw.lastSeen.After(w.connState.getProvisioningChange().Add(time.Duration(w.Config().OfflineBeforeStartingHotspotMinutes * -2)))
+		recentlySeen := nw.lastSeen.After(w.connState.getProvisioningChange().Add(
+			time.Duration(w.Config().OfflineBeforeStartingHotspotMinutes * -2)))
 
 		if !nw.isHotspot && recentlySeen {
 			visible = append(visible, nw.getInfo())
@@ -153,7 +154,8 @@ func (w *Provisioning) checkConnections() error {
 		}
 
 		// in normal (single) mode, we need to be connected to the primary (highest priority) network
-		if !w.cfg.TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated && ssid == w.netState.PrimarySSID(w.Config().HotspotInterface) {
+		if !w.cfg.TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated &&
+			ssid == w.netState.PrimarySSID(w.Config().HotspotInterface) {
 			connected = true
 		}
 	}
@@ -520,7 +522,8 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 		configured := nw.conn != nil
 
 		// firstSeen/lastTried are reset if a network disappears for more than a minute, so retry if it comes back (or 10 mins)
-		recentlyTried := nw.lastTried.After(nw.firstSeen) && nw.lastTried.After(time.Now().Add(time.Duration(w.cfg.RetryConnectionTimeoutMinutes)*-1))
+		recentlyTried := nw.lastTried.After(nw.firstSeen) &&
+			nw.lastTried.After(time.Now().Add(time.Duration(w.cfg.RetryConnectionTimeoutMinutes)*-1))
 
 		if !nw.isHotspot && visible && configured && !recentlyTried {
 			candidates = append(candidates, nw)

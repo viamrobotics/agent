@@ -141,7 +141,8 @@ func main() {
 	//nolint:nestif
 	if err != nil {
 		if cfg.AdvancedSettings.DisableNetworkConfiguration {
-			globalLogger.Errorf("Cannot read %s and network configuration is diabled. Please correct and restart viam-agent.", utils.AppConfigFilePath)
+			globalLogger.Errorf("Cannot read %s and network configuration is diabled. Please correct and restart viam-agent.",
+				utils.AppConfigFilePath)
 			manager.CloseAll()
 			return
 		}
@@ -165,7 +166,8 @@ func main() {
 		globalLogger.Infof("main config file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
 
 		if err := manager.StartSubsystem(ctx, networking.SubsysName); err != nil {
-			globalLogger.Error(errors.Wrapf(err, "could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet"))
+			globalLogger.Error(errors.Wrapf(err, "could not start provisioning subsystem, "+
+				"please manually update /etc/viam.json and connect to internet"))
 			manager.CloseAll()
 			return
 		}

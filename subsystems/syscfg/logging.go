@@ -32,7 +32,6 @@ func (s *syscfg) EnforceLogging() error {
 		}
 
 		// if journald is NOT enabled, simply return
-		
 		if err := checkJournaldEnabled(); err != nil {
 			return nil
 		}

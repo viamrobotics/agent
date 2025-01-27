@@ -281,15 +281,20 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	// SystemConfiguration
 	// zero isn't allowed, revert to default, but don't warn
 	if cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes == 0 {
-		cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes
+		//nolint:gofumpt
+		cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes =
+			DefaultConfiguration.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes
 	}
 	if cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes == 0 {
-		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
+		//nolint:gofumpt
+		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes =
+			DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
 	}
 	if cfg.SystemConfiguration.OSAutoUpgradeType != "" &&
 		cfg.SystemConfiguration.OSAutoUpgradeType != "security" &&
 		cfg.SystemConfiguration.OSAutoUpgradeType != "all" {
-		errOut = errors.Join(errOut, errw.Errorf("agent.system_configuration.os_auto_upgrade_type can only be 'security' or 'all' (was: %s)",
+		errOut = errors.Join(errOut, errw.Errorf(
+			"agent.system_configuration.os_auto_upgrade_type can only be 'security' or 'all' (was: %s)",
 			cfg.SystemConfiguration.OSAutoUpgradeType))
 		cfg.SystemConfiguration.OSAutoUpgradeType = DefaultConfiguration.SystemConfiguration.OSAutoUpgradeType
 	}
@@ -305,11 +310,13 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	}
 	if cfg.NetworkConfiguration.HotspotPrefix == "" {
 		cfg.NetworkConfiguration.HotspotPrefix = DefaultConfiguration.NetworkConfiguration.HotspotPrefix
-		errOut = errors.Join(errOut, errw.New("network_configuration.hotspot_prefix should not be empty, please omit empty fields entirely"))
+		errOut = errors.Join(errOut,
+			errw.New("network_configuration.hotspot_prefix should not be empty, please omit empty fields entirely"))
 	}
 	if cfg.NetworkConfiguration.HotspotPassword == "" {
 		cfg.NetworkConfiguration.HotspotPassword = DefaultConfiguration.NetworkConfiguration.HotspotPassword
-		errOut = errors.Join(errOut, errw.New("network_configuration.hotspot_password should not be empty, please omit empty fields entirely"))
+		errOut = errors.Join(errOut,
+			errw.New("network_configuration.hotspot_password should not be empty, please omit empty fields entirely"))
 	}
 
 	if cfg.NetworkConfiguration.HotspotSSID == "" {
@@ -328,7 +335,9 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	var haveBadTimeout bool
 	minTimeout := Timeout(time.Minute)
 	if cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes < minTimeout {
-		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
+		//nolint:gofumpt
+		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes =
+			DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
 		haveBadTimeout = true
 	}
 
@@ -338,7 +347,9 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	}
 
 	if cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes < minTimeout {
-		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes = DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
+		//nolint:gofumpt
+		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes =
+			DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
 		haveBadTimeout = true
 	}
 
@@ -352,8 +363,11 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		badOffline := cfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes
 		cfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes = DefaultConfiguration.NetworkConfiguration.DeviceRebootAfterOfflineMinutes
 		errOut = errors.Join(errOut,
-			errw.Errorf("device_reboot_after_offline_minutes (%s) cannot be less than offline_before_starting_hotspot_minutes (%s) or user_idle_minutes (%s)",
-				time.Duration(badOffline), time.Duration(cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes), time.Duration(cfg.NetworkConfiguration.UserIdleMinutes)),
+			errw.Errorf("device_reboot_after_offline_minutes (%s) cannot be less than offline_before_starting_hotspot_minutes (%s) "+
+				"or user_idle_minutes (%s)",
+				time.Duration(badOffline),
+				time.Duration(cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes),
+				time.Duration(cfg.NetworkConfiguration.UserIdleMinutes)),
 		)
 	}
 
