@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent"
+	"github.com/viamrobotics/agent/utils"
 )
 
 const (
@@ -22,21 +22,12 @@ const (
 	unattendedUpgradesPath = "/etc/apt/apt.conf.d/50unattended-upgrades"
 )
 
-type UpgradesConfig struct {
-	// Type can be
-	// Empty/missing ("") to make no changes
-	// "disable" (or "disabled") to disable auto-upgrades
-	// "security" to enable ONLY security upgrades
-	// "all" to enable upgrades from all configured sources
-	Type string `json:"type"`
-}
-
 func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
 	s.mu.RLock()
-	cfg := s.cfg.Upgrades
+	cfg := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	if cfg.Type == "" {
+	if cfg == "" {
 		return nil
 	}
 
@@ -45,8 +36,8 @@ func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
 		return err
 	}
 
-	if cfg.Type == "disable" || cfg.Type == "disabled" {
-		isNew, err := agent.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsDisabled))
+	if cfg == "disable" || cfg == "disabled" {
+		isNew, err := utils.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsDisabled))
 		if err != nil {
 			return err
 		}
@@ -64,18 +55,18 @@ func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
 		}
 	}
 
-	securityOnly := cfg.Type == "security"
+	securityOnly := cfg == "security"
 	confContents, err := generateOrigins(securityOnly)
 	if err != nil {
 		return err
 	}
 
-	isNew1, err := agent.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsEnabled))
+	isNew1, err := utils.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsEnabled))
 	if err != nil {
 		return err
 	}
 
-	isNew2, err := agent.WriteFileIfNew(unattendedUpgradesPath, []byte(confContents))
+	isNew2, err := utils.WriteFileIfNew(unattendedUpgradesPath, []byte(confContents))
 	if err != nil {
 		return err
 	}

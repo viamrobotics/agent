@@ -1,49 +1,39 @@
-// Package provisioning is the subsystem responsible for network/wifi management, and initial device setup via hotspot.
-package provisioning
+// Package networking is the subsystem responsible for network/wifi management, and initial device setup via hotspot.
+package networking
 
 import (
 	"context"
 	"errors"
 	"net/http"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
-	"github.com/viamrobotics/agent/subsystems/registry"
-	agentpb "go.viam.com/api/app/agent/v1"
+	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	"google.golang.org/grpc"
 )
 
-func init() {
-	registry.Register(SubsysName, NewProvisioning)
-}
-
 type Provisioning struct {
 	monitorWorkers sync.WaitGroup
 
 	// blocks start/stop/etc operations
-	opMu     sync.Mutex
-	running  bool
-	disabled bool
-	noNM     bool
+	opMu    sync.Mutex
+	running bool
+	noNM    bool
 
 	// used to stop main/bg loops
 	cancel context.CancelFunc
 
 	// only set during NewProvisioning, no lock
-	nm         gnm.NetworkManager
-	settings   gnm.Settings
-	hostname   string
-	logger     logging.Logger
-	AppCfgPath string
+	nm       gnm.NetworkManager
+	settings gnm.Settings
+	logger   logging.Logger
 
 	// internal locking
 	connState *connectionState
@@ -56,7 +46,10 @@ type Provisioning struct {
 
 	// locking for config updates
 	dataMu sync.Mutex
-	cfg    *Config
+
+	// SMURF process these in Update
+	cfg  utils.NetworkConfiguration
+	nets utils.AdditionalNetworks
 
 	// portal
 	webServer  *http.Server
@@ -66,18 +59,11 @@ type Provisioning struct {
 	pb.UnimplementedProvisioningServiceServer
 }
 
-func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *agentpb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	cfg, err := LoadConfig(updateConf)
-	if err != nil {
-		logger.Error(errw.Wrap(err, "loading provisioning config"))
-	}
-	logger.Debugf("Provisioning Config: %+v", cfg)
-
-	w := &Provisioning{
-		disabled:   updateConf.GetDisable(),
-		cfg:        cfg,
-		AppCfgPath: AppConfigFilePath,
-		logger:     logger,
+func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
+	return &Provisioning{
+		cfg:    cfg.NetworkConfiguration,
+		nets:   cfg.AdditionalNetworks,
+		logger: logger,
 
 		connState: NewConnectionState(logger),
 		netState:  NewNetworkState(logger),
@@ -89,7 +75,6 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
 	}
-	return w, nil
 }
 
 func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
@@ -157,12 +142,6 @@ func (w *Provisioning) init(ctx context.Context) error {
 	w.nm = nm
 	w.settings = settings
 
-	w.hostname, err = settings.GetPropertyHostname()
-	if err != nil {
-		return errw.Wrap(err, "getting hostname from NetworkManager")
-	}
-
-	w.updateHotspotSSID(w.cfg)
 	w.netState.SetHotspotInterface(w.cfg.HotspotInterface)
 
 	if err := w.writeDNSMasq(); err != nil {
@@ -194,11 +173,11 @@ func (w *Provisioning) init(ctx context.Context) error {
 
 	w.warnIfMultiplePrimaryNetworks()
 
-	if w.cfg.RoamingMode {
-		w.logger.Info("Roaming Mode enabled. Will try all connections for global internet connectivity.")
+	if w.cfg.TurnOnHotspotIfWifiHasNoInternet {
+		w.logger.Info("Wifi internet checking enabled. Will try all connections for global internet connectivity.")
 	} else {
 		primarySSID := w.netState.PrimarySSID(w.Config().HotspotInterface)
-		w.logger.Infof("Default (Single Network) Mode enabled. Will directly connect only to primary network: %s", primarySSID)
+		w.logger.Infof("Internet checks disabled. Will directly connect to primary network: %s", primarySSID)
 		if primarySSID == "" {
 			w.logger.Warnf("cannot find primary SSID for %s", w.Config().HotspotInterface)
 		}
@@ -226,10 +205,6 @@ func (w *Provisioning) Start(ctx context.Context) error {
 	defer w.opMu.Unlock()
 	if w.running {
 		return nil
-	}
-
-	if w.disabled || w.noNM {
-		return agent.ErrSubsystemDisabled
 	}
 
 	if w.nm == nil || w.settings == nil {
@@ -283,47 +258,28 @@ func (w *Provisioning) Stop(ctx context.Context) error {
 }
 
 // Update validates and/or updates a subsystem, returns true if subsystem should be restarted.
-func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSubsystemConfig) (bool, error) {
+func (w *Provisioning) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 
-	var needRestart bool
-
 	if w.noNM {
-		return needRestart, nil
-	}
-
-	if w.disabled != updateConf.GetDisable() {
-		w.disabled = updateConf.GetDisable()
-		if w.disabled {
-			w.logger.Infof("agent-provisioning disabled")
-		}
-		needRestart = true
-	}
-
-	if w.disabled {
-		return needRestart, nil
+		return needRestart
 	}
 
 	if w.nm == nil || w.settings == nil {
 		if err := w.init(ctx); err != nil {
-			return true, err
+			w.logger.Error(err)
+			return needRestart
 		}
 	}
 
-	cfg, err := LoadConfig(updateConf)
-	if err != nil {
-		return needRestart, err
+	if cfg.NetworkConfiguration.HotspotInterface == "" {
+		cfg.NetworkConfiguration.HotspotInterface = w.Config().HotspotInterface
 	}
+	w.netState.SetHotspotInterface(cfg.NetworkConfiguration.HotspotInterface)
 
-	w.updateHotspotSSID(cfg)
-	if cfg.HotspotInterface == "" {
-		cfg.HotspotInterface = w.Config().HotspotInterface
-	}
-	w.netState.SetHotspotInterface(cfg.HotspotInterface)
-
-	if reflect.DeepEqual(cfg, w.cfg) {
-		return needRestart, nil
+	if reflect.DeepEqual(cfg.NetworkConfiguration, w.cfg) && reflect.DeepEqual(cfg.AdditionalNetworks, w.nets) {
+		return needRestart
 	}
 
 	needRestart = true
@@ -331,16 +287,17 @@ func (w *Provisioning) Update(ctx context.Context, updateConf *agentpb.DeviceSub
 
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
-	w.cfg = cfg
+	w.cfg = cfg.NetworkConfiguration
+	w.nets = cfg.AdditionalNetworks
 
-	return needRestart, nil
+	return needRestart
 }
 
 // HealthCheck reports if a subsystem is running correctly (it is restarted if not).
 func (w *Provisioning) HealthCheck(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
-	if w.disabled || w.noNM {
+	if w.noNM {
 		return nil
 	}
 
@@ -351,23 +308,18 @@ func (w *Provisioning) HealthCheck(ctx context.Context) error {
 	return errw.New("provisioning not responsive")
 }
 
-// Version returns the current version of the subsystem.
-func (w *Provisioning) Version() string {
-	return agent.GetRevision()
-}
-
-func (w *Provisioning) Config() Config {
+func (w *Provisioning) Config() utils.NetworkConfiguration {
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
-	return *w.cfg
+	return w.cfg
 }
 
 func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
-	if !w.cfg.RoamingMode && len(w.cfg.Networks) > 0 {
-		w.logger.Warn("Additional networks configured, but Roaming Mode is not enabled. Additional wifi networks will likely be unused.")
+	if !w.cfg.TurnOnHotspotIfWifiHasNoInternet && len(w.nets) > 0 {
+		w.logger.Warn("Additional networks configured, but internet checking is not enabled. Additional networks may be unused.")
 	}
 
-	for _, network := range w.cfg.Networks {
+	for _, network := range w.nets {
 		_, err := w.addOrUpdateConnection(network)
 		if err != nil {
 			w.logger.Error(errw.Wrapf(err, "adding network %s", network.SSID))
@@ -382,14 +334,6 @@ func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
 }
 
 // must be run inside dataMu lock.
-func (w *Provisioning) updateHotspotSSID(cfg *Config) {
-	cfg.hotspotSSID = cfg.HotspotPrefix + "-" + strings.ToLower(w.hostname)
-	if len(cfg.hotspotSSID) > 32 {
-		cfg.hotspotSSID = cfg.hotspotSSID[:32]
-	}
-}
-
-// must be run inside dataMu lock.
 func (w *Provisioning) writeWifiPowerSave(ctx context.Context) error {
 	contents := wifiPowerSaveContentsDefault
 	if w.cfg.WifiPowerSave != nil {
@@ -400,7 +344,7 @@ func (w *Provisioning) writeWifiPowerSave(ctx context.Context) error {
 		}
 	}
 
-	isNew, err := agent.WriteFileIfNew(wifiPowerSaveFilepath, []byte(contents))
+	isNew, err := utils.WriteFileIfNew(wifiPowerSaveFilepath, []byte(contents))
 	if err != nil {
 		return errw.Wrap(err, "writing wifi-powersave.conf")
 	}

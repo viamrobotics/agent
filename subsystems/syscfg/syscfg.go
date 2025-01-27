@@ -8,79 +8,46 @@ import (
 	"sync"
 
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
-	"github.com/viamrobotics/agent/subsystems/registry"
-	pb "go.viam.com/api/app/agent/v1"
+	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 )
-
-func init() {
-	registry.Register(SubsysName, NewSubsystem)
-}
 
 const (
 	SubsysName = "agent-syscfg"
 )
 
-type Config struct {
-	Logging  LogConfig      `json:"logging"`
-	Upgrades UpgradesConfig `json:"upgrades"`
-}
-
 type syscfg struct {
-	mu       sync.RWMutex
-	healthy  bool
-	cfg      Config
-	logger   logging.Logger
-	running  bool
-	disabled bool
-	cancel   context.CancelFunc
-	workers  sync.WaitGroup
+	mu      sync.RWMutex
+	healthy bool
+	cfg     utils.SystemConfiguration
+	logger  logging.Logger
+	running bool
+	cancel  context.CancelFunc
+	workers sync.WaitGroup
 }
 
-func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	cfg, err := agent.ConvertAttributes[Config](updateConf.GetAttributes())
-	if err != nil {
-		return nil, err
+func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
+	return &syscfg{
+		logger: logger,
+		cfg:    cfg.SystemConfiguration,
 	}
-
-	return &syscfg{cfg: *cfg, logger: logger, disabled: updateConf.GetDisable()}, nil
 }
 
-func (s *syscfg) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error) {
+func (s *syscfg) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var needRestart bool
-	if cfg.GetDisable() != s.disabled {
-		s.disabled = cfg.GetDisable()
-		if s.disabled {
-			s.logger.Infof("agent-syscfg disabled")
-		}
+	if !reflect.DeepEqual(cfg.SystemConfiguration, s.cfg) {
 		needRestart = true
 	}
 
-	if s.disabled {
-		return needRestart, nil
-	}
-
-	newConf, err := agent.ConvertAttributes[Config](cfg.GetAttributes())
-	if err != nil {
-		return needRestart, err
-	}
-
-	if reflect.DeepEqual(newConf, s.cfg) {
-		return needRestart, nil
-	}
-
-	needRestart = true
-	s.cfg = *newConf
-	return needRestart, nil
+	s.cfg = cfg.SystemConfiguration
+	return
 }
 
 func (s *syscfg) Version() string {
-	return agent.GetVersion()
+	return utils.GetVersion()
 }
 
 func (s *syscfg) Start(ctx context.Context) error {
@@ -90,10 +57,6 @@ func (s *syscfg) Start(ctx context.Context) error {
 	// prevent double-starts
 	if s.running {
 		return errors.New("already running")
-	}
-
-	if s.disabled {
-		return agent.ErrSubsystemDisabled
 	}
 
 	cancelCtx, cancelFunc := context.WithCancel(ctx)
@@ -148,7 +111,7 @@ func (s *syscfg) Stop(ctx context.Context) error {
 func (s *syscfg) HealthCheck(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.healthy || s.disabled {
+	if s.healthy {
 		return nil
 	}
 	return errors.New("healthcheck failed")

@@ -12,44 +12,21 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
-	"github.com/viamrobotics/agent/subsystems/registry"
-	pb "go.viam.com/api/app/agent/v1"
+	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
-	"go.viam.com/utils"
-	"google.golang.org/protobuf/types/known/structpb"
+	goutils "go.viam.com/utils"
 )
 
-func init() {
-	globalConfig.Store(&viamServerConfig{startTimeout: defaultStartTimeout})
-	registry.Register(SubsysName, NewSubsystem)
-}
-
-type viamServerConfig struct {
-	startTimeout time.Duration
-}
-
 const (
-	defaultStartTimeout = time.Minute * 5
 	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
 	stopTermTimeout = time.Minute * 2
 	stopKillTimeout = time.Second * 10
-	fastStartName   = "fast_start"
 	SubsysName      = "viam-server"
-)
-
-var (
-	ConfigFilePath = "/etc/viam.json"
-
-	// Set if (cached or cloud) config has the "fast_start" attribute set on the viam-server subsystem.
-	FastStart    atomic.Bool
-	globalConfig atomic.Pointer[viamServerConfig]
 )
 
 // RestartStatusResponse is the http/json response from viam_server's /health_check URL
@@ -61,52 +38,20 @@ type RestartStatusResponse struct {
 }
 
 type viamServer struct {
-	mu          sync.Mutex
-	cmd         *exec.Cmd
-	running     bool
-	shouldRun   bool
-	lastExit    int
-	exitChan    chan struct{}
-	checkURL    string
-	checkURLAlt string
+	mu           sync.Mutex
+	cmd          *exec.Cmd
+	running      bool
+	shouldRun    bool
+	lastExit     int
+	exitChan     chan struct{}
+	startTimeout time.Duration
+	checkURL     string
+	checkURLAlt  string
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
 
 	logger logging.Logger
-}
-
-// helper to parse a duration, otherwise return a default.
-func durationFromProtoStruct(
-	logger logging.Logger, protoStruct *structpb.Struct, key string, defaultValue time.Duration,
-) time.Duration {
-	if protoStruct == nil {
-		return defaultValue
-	}
-	asMap := protoStruct.AsMap()
-	raw, ok := asMap[key]
-	if !ok {
-		return defaultValue
-	}
-	str, ok := raw.(string)
-	if !ok {
-		return defaultValue
-	}
-	durt, err := time.ParseDuration(str)
-	if err != nil {
-		logger.Warnf("unparseable duration string at %s: %s, error %s", key, str, err)
-		return defaultValue
-	}
-	logger.Debugf("parsed duration %s from key %s", durt.String(), key)
-	return durt
-}
-
-func configFromProto(logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) *viamServerConfig {
-	ret := &viamServerConfig{}
-	if updateConf != nil {
-		ret.startTimeout = durationFromProtoStruct(logger, updateConf.GetAttributes(), "start_timeout", defaultStartTimeout)
-	}
-	return ret
 }
 
 func (s *viamServer) Start(ctx context.Context) error {
@@ -126,11 +71,11 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.shouldRun = true
 	}
 
-	stdio := agent.NewMatchingLogger(s.logger, false, false)
-	stderr := agent.NewMatchingLogger(s.logger, true, false)
+	stdio := utils.NewMatchingLogger(s.logger, false, false)
+	stderr := utils.NewMatchingLogger(s.logger, true, false)
 	//nolint:gosec
-	s.cmd = exec.Command(path.Join(agent.ViamDirs["bin"], SubsysName), "-config", ConfigFilePath)
-	s.cmd.Dir = agent.ViamDirs["viam"]
+	s.cmd = exec.Command(path.Join(utils.ViamDirs["bin"], SubsysName), "-config", utils.AppConfigFilePath)
+	s.cmd.Dir = utils.ViamDirs["viam"]
 	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
@@ -187,7 +132,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(globalConfig.Load().startTimeout):
+	case <-time.After(s.startTimeout):
 		return errw.New("startup timed out")
 	case <-s.exitChan:
 		return errw.New("startup failed")
@@ -293,7 +238,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		}
 
 		defer func() {
-			utils.UncheckedError(resp.Body.Close())
+			goutils.UncheckedError(resp.Body.Close())
 		}()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -338,7 +283,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 		}
 
 		defer func() {
-			utils.UncheckedError(resp.Body.Close())
+			goutils.UncheckedError(resp.Body.Close())
 		}()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -358,57 +303,51 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (s *viamServer) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
+func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	setFastStart(cfg)
-
-	// By default, return false on the needRestart flag, as we await the user to
-	// kill/restart viam-server directly.
-	var needRestart bool
-
-	if newVersion && s.running {
-		s.shouldRun = false
-
-		// viam-server can be safely restarted even while running if the process
-		// has reported it is safe to do so through its `restart_status` HTTP
-		// endpoint.
-		restartAllowed, err := s.isRestartAllowed(ctx)
-		if err != nil {
-			return needRestart, err
-		}
-		if restartAllowed {
-			s.logger.Infof("will restart %s to run new version, as it has reported allowance of a restart",
-				SubsysName)
-			needRestart = true
-		} else {
-			s.logger.Infof("will not restart %s version to run new version, as it has not reported"+
-				"allowance of a restart", SubsysName)
-		}
-	}
-
-	globalConfig.Store(configFromProto(s.logger, cfg))
-
-	return needRestart, nil
+	s.startTimeout = time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes)
+	return false
 }
 
-func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	setFastStart(updateConf)
+func (s *viamServer) SafeToRestart(ctx context.Context) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	globalConfig.Store(configFromProto(logger, updateConf))
-	return agent.NewAgentSubsystem(ctx, SubsysName, logger, &viamServer{logger: logger})
+	if !s.running {
+		return true
+	}
+
+	s.shouldRun = false
+
+	// viam-server can be safely restarted even while running if the process
+	// has reported it is safe to do so through its `restart_status` HTTP
+	// endpoint.
+	restartAllowed, err := s.isRestartAllowed(ctx)
+	if err != nil {
+		s.logger.Error(err)
+		return restartAllowed
+	}
+	if restartAllowed {
+		s.logger.Infof("will restart %s to run new version, as it has reported allowance of a restart", SubsysName)
+	} else {
+		s.logger.Infof("will not restart %s version to run new version, as it has not reported allowance of a restart", SubsysName)
+	}
+	return restartAllowed
 }
 
-func setFastStart(cfg *pb.DeviceSubsystemConfig) {
-	if cfg != nil {
-		cfgVal, ok := cfg.GetAttributes().AsMap()[fastStartName]
-		if ok {
-			cfgBool, ok := cfgVal.(bool)
-			if ok {
-				FastStart.Store(cfgBool)
-				return
-			}
-		}
+// SMURF IMPLEMENT.
+func (s *viamServer) Version() string {
+	return ""
+}
+
+func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
+	return &viamServer{
+		logger:       logger,
+		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 	}
-	FastStart.Store(false)
+}
+
+type RestartCheck interface {
+	SafeToRestart(ctx context.Context) bool
 }

@@ -4,15 +4,15 @@ package syscfg
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
-	"regexp"
 
 	errw "github.com/pkg/errors"
 	sysd "github.com/sergeymakinen/go-systemdconf/v2"
 	"github.com/sergeymakinen/go-systemdconf/v2/conf"
-	"github.com/viamrobotics/agent"
+	"github.com/viamrobotics/agent/utils"
 )
 
 var (
@@ -20,17 +20,10 @@ var (
 	defaultLogLimit  = "512M"
 )
 
-type LogConfig struct {
-	Disable       bool   `json:"disable"`
-	SystemMaxUse  string `json:"system_max_use"`
-	RuntimeMaxUse string `json:"runtime_max_use"`
-}
-
 func (s *syscfg) EnforceLogging() error {
 	s.mu.RLock()
-	cfg := s.cfg.Logging
-	s.mu.RUnlock()
-	if cfg.Disable {
+	defer s.mu.RUnlock()
+	if s.cfg.LoggingJournaldRuntimeMaxUseMegabytes < 0 || s.cfg.LoggingJournaldSystemMaxUseMegabytes < 0 {
 		if err := os.Remove(journaldConfPath); err != nil {
 			if errw.Is(err, fs.ErrNotExist) {
 				return nil
@@ -39,7 +32,7 @@ func (s *syscfg) EnforceLogging() error {
 		}
 
 		// if journald is NOT enabled, simply return
-		//nolint:nilerr
+		
 		if err := checkJournaldEnabled(); err != nil {
 			return nil
 		}
@@ -56,20 +49,15 @@ func (s *syscfg) EnforceLogging() error {
 		return err
 	}
 
-	persistSize := cfg.SystemMaxUse
-	tempSize := cfg.RuntimeMaxUse
+	persistSize := fmt.Sprintf("%dM", s.cfg.LoggingJournaldSystemMaxUseMegabytes)
+	tempSize := fmt.Sprintf("%dM", s.cfg.LoggingJournaldRuntimeMaxUseMegabytes)
 
-	if persistSize == "" {
+	if persistSize == "0M" {
 		persistSize = defaultLogLimit
 	}
 
-	if tempSize == "" {
+	if tempSize == "0M" {
 		tempSize = defaultLogLimit
-	}
-
-	sizeRegEx := regexp.MustCompile(`^[0-9]+[KMGTPE]$`)
-	if !(sizeRegEx.MatchString(persistSize) && sizeRegEx.MatchString(tempSize)) {
-		return errw.New("logfile size limits must be specificed in bytes, with one optional suffix character [KMGTPE]")
 	}
 
 	journalConf := &conf.JournaldFile{
@@ -84,7 +72,7 @@ func (s *syscfg) EnforceLogging() error {
 		return errw.Wrapf(err, "marshaling new file for %s", journaldConfPath)
 	}
 
-	isNew, err1 := agent.WriteFileIfNew(journaldConfPath, newFileBytes)
+	isNew, err1 := utils.WriteFileIfNew(journaldConfPath, newFileBytes)
 	if err1 != nil {
 		// We may have written a corrupt file, try to remove to salvage at least default behavior.
 		if err := os.RemoveAll(journaldConfPath); err != nil {

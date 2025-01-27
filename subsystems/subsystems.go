@@ -4,7 +4,7 @@ package subsystems
 import (
 	"context"
 
-	pb "go.viam.com/api/app/agent/v1"
+	"github.com/viamrobotics/agent/utils"
 )
 
 type Subsystem interface {
@@ -15,11 +15,8 @@ type Subsystem interface {
 	Stop(ctx context.Context) error
 
 	// Update validates and/or updates a subsystem, returns true if subsystem should be restarted
-	Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig) (bool, error)
+	Update(ctx context.Context, cfg utils.AgentConfig) bool
 
 	// HealthCheck reports if a subsystem is running correctly (it is restarted if not)
 	HealthCheck(ctx context.Context) error
-
-	// Version returns the current version of the subsystem
-	Version() string
 }

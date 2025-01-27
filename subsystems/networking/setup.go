@@ -1,4 +1,4 @@
-package provisioning
+package networking
 
 // This file includes functions used only once during startup in NewNMWrapper()
 
@@ -22,7 +22,7 @@ var (
 
 func (w *Provisioning) writeDNSMasq() error {
 	DNSMasqContents := DNSMasqContentsRedirect
-	if w.cfg.DisableDNSRedirect {
+	if w.cfg.DisableCaptivePortalRedirect {
 		DNSMasqContents = DNSMasqContentsSetupOnly
 	}
 

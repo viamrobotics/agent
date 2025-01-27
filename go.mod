@@ -10,6 +10,7 @@ require (
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/pkg/errors v0.9.1
 	github.com/sergeymakinen/go-systemdconf/v2 v2.0.2
+	github.com/tidwall/jsonc v0.3.2
 	github.com/ulikunitz/xz v0.5.12
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.357
@@ -23,7 +24,7 @@ require (
 
 require (
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
-	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
+	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
@@ -39,9 +40,9 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.0 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0 // indirect
 	github.com/improbable-eng/grpc-web v0.15.0 // indirect
-	github.com/klauspost/compress v1.17.2 // indirect
+	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.2 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
@@ -93,3 +94,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	nhooyr.io/websocket v1.8.9 // indirect
 )
+
+replace go.viam.com/api => ../api/

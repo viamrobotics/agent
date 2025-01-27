@@ -1,4 +1,4 @@
-package provisioning
+package networking
 
 // This file includes functions used for wifi scans.
 
@@ -215,7 +215,7 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 		nw.conn = conn
 		nw.priority = getPriorityFromSettings(settings)
 
-		if nw.ssid == w.Config().hotspotSSID {
+		if nw.ssid == w.Config().HotspotSSID {
 			nw.netType = NetworkTypeHotspot
 			nw.isHotspot = true
 		} else if nw.priority > highestPriority[ifName] {
