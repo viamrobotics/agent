@@ -46,10 +46,8 @@ type Provisioning struct {
 
 	// locking for config updates
 	dataMu sync.Mutex
-
-	// SMURF process these in Update
-	cfg  utils.NetworkConfiguration
-	nets utils.AdditionalNetworks
+	cfg    utils.NetworkConfiguration
+	nets   utils.AdditionalNetworks
 
 	// portal
 	webServer  *http.Server
@@ -289,6 +287,10 @@ func (w *Provisioning) Update(ctx context.Context, cfg utils.AgentConfig) (needR
 	defer w.dataMu.Unlock()
 	w.cfg = cfg.NetworkConfiguration
 	w.nets = cfg.AdditionalNetworks
+
+	if err := w.writeDNSMasq(); err != nil {
+		w.logger.Error(errw.Wrap(err, "writing dnsmasq configuration"))
+	}
 
 	return needRestart
 }

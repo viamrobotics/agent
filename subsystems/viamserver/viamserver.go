@@ -336,11 +336,6 @@ func (s *viamServer) SafeToRestart(ctx context.Context) bool {
 	return restartAllowed
 }
 
-// SMURF IMPLEMENT.
-func (s *viamServer) Version() string {
-	return ""
-}
-
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
 	return &viamServer{
 		logger:       logger,

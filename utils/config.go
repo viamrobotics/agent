@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	netlib "net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -129,7 +131,7 @@ type NetworkConfiguration struct {
 type AdditionalNetworks map[string]NetworkDefinition
 
 type NetworkDefinition struct {
-	// "wifi", "wired", "wifi-static", "wired-static"
+	// "wifi", "wired"
 	Type string `json:"type"`
 
 	// name of interface, ex: "wlan0", "eth0", "enp14s0", etc.
@@ -371,7 +373,81 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		)
 	}
 
-	// SMURF validate additional_networks
+	// Additional Networks
+	for name, net := range cfg.AdditionalNetworks {
+		if net.Type != "wifi" && net.Type != "wired" {
+			errOut = errors.Join(errOut, errw.Errorf("network %s has invalid type (%s), must be one of "+
+				"wifi or wired", name, net.Type))
+			delete(cfg.AdditionalNetworks, name)
+			continue
+		}
+
+		if len(net.Interface) > 15 || regexp.MustCompile(`\s`).MatchString(net.Interface) {
+			errOut = errors.Join(errOut, errw.Errorf("network %s has invalid interface name (%s), "+
+				"must be 15 characters or less, without spaces", name, net.Interface))
+			delete(cfg.AdditionalNetworks, name)
+			continue
+		}
+
+		if len(net.SSID) > 32 {
+			errOut = errors.Join(errOut, errw.Errorf("network %s has invalid SSID (%s), "+
+				"must be 32 characters or less", name, net.SSID))
+			delete(cfg.AdditionalNetworks, name)
+			continue
+		}
+
+		if len(net.PSK) > 64 || (net.PSK != "" && len(net.PSK) < 8) {
+			errOut = errors.Join(errOut, errw.Errorf("network %s has invalid PSK (%s), "+
+				"must be between 8 and 63 characters, or exactly 64 hex characters", name, net.PSK))
+			delete(cfg.AdditionalNetworks, name)
+			continue
+		}
+
+		if net.Priority > 999 || net.Priority < -999 {
+			errOut = errors.Join(errOut, errw.Errorf("network %s has invalid priority (%d), "+
+				"must be between -999 and 999", name, net.Priority))
+			delete(cfg.AdditionalNetworks, name)
+			continue
+		}
+
+		if net.IPv4Address != "" {
+			_, _, err := netlib.ParseCIDR(net.IPv4Address)
+			if err != nil {
+				errOut = errors.Join(errOut, errw.Errorf("network %s has invalid ipv4_address, "+
+					"%s", name, err))
+				delete(cfg.AdditionalNetworks, name)
+				continue
+			}
+		}
+
+		if net.IPv4Gateway != "" {
+			ip := netlib.ParseIP(net.IPv4Gateway)
+			if ip == nil {
+				errOut = errors.Join(errOut, errw.Errorf("network %s has invalid ipv4_gateway (%s), "+
+					"must be ipv4 address", name, net.IPv4Gateway))
+				delete(cfg.AdditionalNetworks, name)
+				continue
+			}
+		}
+
+		for _, dns := range net.IPv4DNS {
+			ip := netlib.ParseIP(dns)
+			if ip == nil {
+				errOut = errors.Join(errOut, errw.Errorf("network %s has invalid ipv4_dns entry (%s), "+
+					"must be ipv4 address", name, dns))
+				delete(cfg.AdditionalNetworks, name)
+				continue
+			}
+		}
+
+		if net.IPv4RouteMetric < 0 {
+			errOut = errors.Join(errOut, errw.Errorf("network %s has invalid ipv4_route_metric (%d), "+
+				"must be >= 0", name, net.IPv4RouteMetric))
+			delete(cfg.AdditionalNetworks, name)
+			continue
+		}
+	}
+
 	return cfg, errOut
 }
 

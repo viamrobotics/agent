@@ -3,15 +3,13 @@ package networking
 // This file includes functions used only once during startup in NewNMWrapper()
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io/fs"
-	"os"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 )
 
 var (
@@ -26,16 +24,8 @@ func (w *Provisioning) writeDNSMasq() error {
 		DNSMasqContents = DNSMasqContentsSetupOnly
 	}
 
-	fileBytes, err := os.ReadFile(DNSMasqFilepath)
-	if err == nil && bytes.Equal(fileBytes, []byte(DNSMasqContents)) {
-		return nil
-	}
-
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	//nolint:gosec
-	return os.WriteFile(DNSMasqFilepath, []byte(DNSMasqContents), 0o644)
+	_, err := utils.WriteFileIfNew(DNSMasqFilepath, []byte(DNSMasqContents))
+	return err
 }
 
 func (w *Provisioning) testConnCheck() error {
@@ -80,16 +70,8 @@ func (w *Provisioning) testConnCheck() error {
 }
 
 func (w *Provisioning) writeConnCheck() error {
-	fileBytes, err := os.ReadFile(ConnCheckFilepath)
-	if err == nil && bytes.Equal(fileBytes, []byte(ConnCheckContents)) {
-		return nil
-	}
-
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	//nolint:gosec
-	return os.WriteFile(ConnCheckFilepath, []byte(ConnCheckContents), 0o644)
+	_, err := utils.WriteFileIfNew(ConnCheckFilepath, []byte(ConnCheckContents))
+	return err
 }
 
 // must be run inside dataMu lock.

@@ -74,6 +74,12 @@ func (c *VersionCache) ViamServerVersion() string {
 	return c.ViamServer.CurrentVersion
 }
 
+func (c *VersionCache) ViamServerPreviousVersion() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ViamServer.PreviousVersion
+}
+
 // LoadCache loads the cached data for the subsystem from disk.
 func (c *VersionCache) load() {
 	c.mu.Lock()

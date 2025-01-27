@@ -51,6 +51,7 @@ type Manager struct {
 	cfgMu sync.RWMutex
 	cfg   utils.AgentConfig
 
+	// also guarded by cfgMu
 	viamServerNeedsRestart bool
 
 	viamServer subsystems.Subsystem
@@ -256,11 +257,13 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 		interval = minimalCheckInterval
 	}
 
+	m.cfgMu.RLock()
 	if m.cfg.AdvancedSettings.Debug {
 		m.logger.SetLevel(logging.DEBUG)
 	} else {
 		m.logger.SetLevel(logging.INFO)
 	}
+	m.cfgMu.RUnlock()
 
 	// randomly fuzz the interval by +/- 5%
 	interval = utils.FuzzTime(interval, 0.05)
@@ -284,6 +287,9 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 	}
 	m.logger.Debug("Starting health checks for all subsystems")
 
+	m.cfgMu.RLock()
+	defer m.cfgMu.RUnlock()
+
 	for subsystemName, sub := range map[string]subsystems.Subsystem{
 		"viam-server": m.viamServer,
 		"sysconfig":   m.sysConfig,
@@ -292,6 +298,22 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+
+		switch subsystemName {
+		case "viam-server":
+			if m.cfg.AdvancedSettings.DisableViamServer {
+				return
+			}
+		case "sysconfig":
+			if m.cfg.AdvancedSettings.DisableSystemConfiguration {
+				return
+			}
+		case "networking":
+			if m.cfg.AdvancedSettings.DisableNetworkConfiguration {
+				return
+			}
+		}
+
 		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
 		defer cancelFunc()
 		if err := sub.HealthCheck(ctxTimeout); err != nil {
@@ -306,7 +328,6 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 				return
 			}
 
-			// SMURF check if disabled!
 			if err := sub.Start(ctx); err != nil && !errors.Is(err, utils.ErrSubsystemDisabled) {
 				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
 			}
@@ -358,7 +379,10 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
 		checkInterval := minimalCheckInterval
-		if m.cfg.AdvancedSettings.WaitForUpdateCheck {
+		m.cfgMu.RLock()
+		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck
+		m.cfgMu.RUnlock()
+		if wait {
 			checkInterval = m.CheckUpdates(ctx)
 		}
 
@@ -516,12 +540,17 @@ func (m *Manager) getHostInfo() *pb.HostInfo {
 }
 
 func (m *Manager) getVersions() *pb.VersionInfo {
-	// SMURF TODO
+	m.cfgMu.RLock()
+	defer m.cfgMu.RUnlock()
 	vers := &pb.VersionInfo{
 		AgentRunning:        Version,
-		AgentInstalled:      "",
-		ViamServerRunning:   "",
-		ViamServerInstalled: "",
+		AgentInstalled:      m.cache.AgentVersion(),
+		ViamServerRunning:   m.cache.ViamServerVersion(),
+		ViamServerInstalled: m.cache.ViamServerVersion(),
+	}
+
+	if m.viamServerNeedsRestart {
+		vers.ViamServerRunning = m.cache.ViamServerPreviousVersion()
 	}
 
 	return vers
