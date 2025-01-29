@@ -48,6 +48,9 @@ type Versions struct {
 	CurrentVersion  string                  `json:"current_version"`
 	PreviousVersion string                  `json:"previous_version"`
 	Versions        map[string]*VersionInfo `json:"versions"`
+
+	// temporary, so not exported for json/caching
+	runningVersion string
 }
 
 // VersionInfo records details about each version of a subsystem.
@@ -74,10 +77,16 @@ func (c *VersionCache) ViamServerVersion() string {
 	return c.ViamServer.CurrentVersion
 }
 
-func (c *VersionCache) ViamServerPreviousVersion() string {
+func (c *VersionCache) ViamServerRunningVersion() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.ViamServer.PreviousVersion
+}
+
+func (c *VersionCache) MarkViamServerRunningVersion() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ViamServer.runningVersion = c.ViamServer.CurrentVersion
 }
 
 // LoadCache loads the cached data for the subsystem from disk.

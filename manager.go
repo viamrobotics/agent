@@ -133,6 +133,7 @@ func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
 
 	switch name {
 	case viamserver.SubsysName:
+		m.cache.MarkViamServerRunningVersion()
 		return m.viamServer.Start(ctx)
 	case networking.SubsysName:
 		return m.networking.Start(ctx)
@@ -207,6 +208,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 				m.viamServerNeedsRestart = true
 			}
 		}
+		m.cache.MarkViamServerRunningVersion()
 		if err := m.viamServer.Start(ctx); err != nil {
 			m.logger.Error(err)
 		}
@@ -328,6 +330,9 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 				return
 			}
 
+			if subsystemName == "viam-server" {
+				m.cache.MarkViamServerRunningVersion()
+			}
 			if err := sub.Start(ctx); err != nil && !errors.Is(err, utils.ErrSubsystemDisabled) {
 				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
 			}
@@ -545,12 +550,8 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	vers := &pb.VersionInfo{
 		AgentRunning:        Version,
 		AgentInstalled:      m.cache.AgentVersion(),
-		ViamServerRunning:   m.cache.ViamServerVersion(),
+		ViamServerRunning:   m.cache.ViamServerRunningVersion(),
 		ViamServerInstalled: m.cache.ViamServerVersion(),
-	}
-
-	if m.viamServerNeedsRestart {
-		vers.ViamServerRunning = m.cache.ViamServerPreviousVersion()
 	}
 
 	return vers
