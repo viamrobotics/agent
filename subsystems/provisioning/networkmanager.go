@@ -2,12 +2,16 @@ package provisioning
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"reflect"
 	"sort"
 	"time"
+
+	"errors"
+
+	blem "github.com/maxhorowitz/btprov/ble/manager"
+	"go.viam.com/utils"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
@@ -160,7 +164,8 @@ func (w *Provisioning) checkConnections() error {
 	return nil
 }
 
-// StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
+// StartProvisioning does one of two things, either (1) puts the wifi in hotspot mode and starts a captive portal,
+// or (2) starts advertising BLE characteristics for provisioning.
 func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
 	if w.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
@@ -170,26 +175,65 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 	defer w.opMu.Unlock()
 
 	w.logger.Info("Starting provisioning mode.")
-	_, err := w.addOrUpdateConnection(NetworkConfig{
-		Type:      NetworkTypeHotspot,
-		Interface: w.Config().HotspotInterface,
-		SSID:      w.Config().hotspotSSID,
-	})
-	if err != nil {
-		return err
-	}
-	if err := w.activateConnection(ctx, w.Config().HotspotInterface, w.Config().hotspotSSID); err != nil {
-		return errw.Wrap(err, "starting provisioning mode hotspot")
-	}
+	switch w.GetProvisioningMethod() {
+	case provisioningMethodHotspot:
+		_, err := w.addOrUpdateConnection(NetworkConfig{
+			Type:      NetworkTypeHotspot,
+			Interface: w.Config().HotspotInterface,
+			SSID:      w.Config().hotspotSSID,
+		})
+		if err != nil {
+			return err
+		}
+		if err := w.activateConnection(ctx, w.Config().HotspotInterface, w.Config().hotspotSSID); err != nil {
+			return errw.Wrap(err, "starting provisioning mode hotspot")
+		}
 
-	// start portal with ssid list and known connections
-	if err := w.startPortal(inputChan); err != nil {
-		err = errors.Join(err, w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID))
-		return errw.Wrap(err, "starting web/grpc portal")
+		// start portal with ssid list and known connections
+		if err := w.startPortal(inputChan); err != nil {
+			err = errors.Join(err, w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID))
+			return errw.Wrap(err, "starting web/grpc portal")
+		}
+	case provisioningMethodBLE:
+		if err := w.blePeripheral.StartAdvertising(); err != nil {
+			return errw.WithMessage(err, "failed to start advertising from the BLE peripheral")
+		}
+		utils.ManagedGo(func() {
+			creds, err := blem.WaitForCredentials(ctx, w.logger.AsZap(), w.blePeripheral)
+			if err != nil {
+				w.logger.Errorf("failed to wait for robot and WiFi credentials over BLE: %v", err)
+			}
+			inputChan <- userInput{
+				SSID:      creds.GetSSID(),
+				PSK:       creds.GetPsk(),
+				PartID:    creds.GetRobotPartKeyID(),
+				Secret:    creds.GetRobotPartKey(),
+				AppAddr:   "app.viam.com:443",
+				RawConfig: "",
+			}
+		}, nil)
 	}
 
 	w.connState.setProvisioning(true)
 	return nil
+}
+
+func (w *Provisioning) SetProvisioningMethod(pm provisioningMethod) error {
+	w.muProvisioningMethod.Lock()
+	defer w.muProvisioningMethod.Unlock()
+
+	if pm == w.provisioningMethod {
+		return errw.Errorf("failure to set provisioning method to %s, it is already set!", pm)
+	}
+	w.provisioningMethod = pm
+	return nil
+}
+
+func (w *Provisioning) GetProvisioningMethod() provisioningMethod {
+	w.muProvisioningMethod.Lock()
+	defer w.muProvisioningMethod.Unlock()
+
+	return w.provisioningMethod
 }
 
 func (w *Provisioning) StopProvisioning() error {
@@ -201,12 +245,18 @@ func (w *Provisioning) StopProvisioning() error {
 func (w *Provisioning) stopProvisioning() error {
 	w.logger.Info("Stopping provisioning mode.")
 	w.connState.setProvisioning(false)
-	err := w.stopPortal()
-	err2 := w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID)
-	if errors.Is(err2, ErrNoActiveConnectionFound) {
-		return err
+	switch w.GetProvisioningMethod() {
+	case provisioningMethodHotspot:
+		err := w.stopPortal()
+		err2 := w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID)
+		if errors.Is(err2, ErrNoActiveConnectionFound) {
+			return err
+		}
+		return errors.Join(err, err2)
+	case provisioningMethodBLE:
+		return w.blePeripheral.StopAdvertising()
 	}
-	return errors.Join(err, err2)
+	return nil
 }
 
 func (w *Provisioning) ActivateConnection(ctx context.Context, ifName, ssid string) error {

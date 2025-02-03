@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	blep "github.com/maxhorowitz/btprov/ble/peripheral"
+
 	semver "github.com/Masterminds/semver/v3"
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
@@ -63,8 +65,22 @@ type Provisioning struct {
 	grpcServer *grpc.Server
 	portalData *portalData
 
+	// Toggle for bluetooth/WiFi provisioning method
+	muProvisioningMethod sync.Mutex
+	provisioningMethod   provisioningMethod
+
+	// BLE peripheral used for bluetooth provisioning (if selected as desired provisoning method).
+	blePeripheral blep.BLEPeripheral
+
 	pb.UnimplementedProvisioningServiceServer
 }
+
+type provisioningMethod int
+
+const (
+	provisioningMethodHotspot provisioningMethod = iota
+	provisioningMethodBLE
+)
 
 func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *agentpb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	cfg, err := LoadConfig(updateConf)
@@ -88,6 +104,9 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
+
+		muProvisioningMethod: sync.Mutex{},
+		provisioningMethod:   provisioningMethodBLE,
 	}
 	return w, nil
 }
