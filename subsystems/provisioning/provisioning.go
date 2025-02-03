@@ -10,10 +10,9 @@ import (
 	"sync"
 	"time"
 
-	blep "github.com/maxhorowitz/btprov/ble/peripheral"
-
 	semver "github.com/Masterminds/semver/v3"
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
+	blep "github.com/maxhorowitz/btprov/ble/peripheral"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
@@ -75,11 +74,11 @@ type Provisioning struct {
 	pb.UnimplementedProvisioningServiceServer
 }
 
-type provisioningMethod int
+type provisioningMethod string
 
 const (
-	provisioningMethodHotspot provisioningMethod = iota
-	provisioningMethodBLE
+	provisioningMethodHotspot provisioningMethod = "WiFi"
+	provisioningMethodBLE     provisioningMethod = "BLE"
 )
 
 func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *agentpb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {

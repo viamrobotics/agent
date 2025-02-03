@@ -2,19 +2,17 @@ package provisioning
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"reflect"
 	"sort"
 	"time"
 
-	"errors"
-
-	blem "github.com/maxhorowitz/btprov/ble/manager"
-	"go.viam.com/utils"
-
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
+	blem "github.com/maxhorowitz/btprov/ble/manager"
 	errw "github.com/pkg/errors"
+	"go.viam.com/utils"
 )
 
 func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
