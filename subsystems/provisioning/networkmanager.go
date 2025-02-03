@@ -11,6 +11,7 @@ import (
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	blem "github.com/maxhorowitz/btprov/ble/manager"
+	blep "github.com/maxhorowitz/btprov/ble/peripheral"
 	errw "github.com/pkg/errors"
 	"go.viam.com/utils"
 )
@@ -193,6 +194,13 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 			return errw.Wrap(err, "starting web/grpc portal")
 		}
 	case provisioningMethodBLE:
+		if w.blePeripheral == nil {
+			var err error
+			w.blePeripheral, err = blep.NewLinuxBLEPeripheral(ctx, w.logger.AsZap(), "Viam Agent BLE")
+			if err != nil {
+				return errw.WithMessage(err, "failure to set up Linux BLE peripheral")
+			}
+		}
 		if err := w.blePeripheral.StartAdvertising(); err != nil {
 			return errw.WithMessage(err, "failed to start advertising from the BLE peripheral")
 		}
@@ -206,7 +214,7 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 				PSK:       creds.GetPsk(),
 				PartID:    creds.GetRobotPartKeyID(),
 				Secret:    creds.GetRobotPartKey(),
-				AppAddr:   "app.viam.com:443",
+				AppAddr:   "https://app.viam.com:443",
 				RawConfig: "",
 			}
 		}, nil)
