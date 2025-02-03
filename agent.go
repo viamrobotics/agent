@@ -40,7 +40,7 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 	cmd := exec.Command(expectedPath, "--install")
 	output, err := cmd.CombinedOutput()
 	logger.Info("running viam-agent --install for new version")
-	logger.Info(output)
+	logger.Info(string(output))
 	if err != nil {
 		return false, errw.Wrapf(err, "running post install step %s", output)
 	}

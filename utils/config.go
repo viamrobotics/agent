@@ -61,104 +61,104 @@ var (
 )
 
 type AgentConfig struct {
-	AdvancedSettings     AdvancedSettings     `json:"advanced_settings"`
-	SystemConfiguration  SystemConfiguration  `json:"system_configuration"`
-	NetworkConfiguration NetworkConfiguration `json:"network_configuration"`
-	AdditionalNetworks   AdditionalNetworks   `json:"additional_networks"`
+	AdvancedSettings     AdvancedSettings     `json:"advanced_settings,omitempty"`
+	SystemConfiguration  SystemConfiguration  `json:"system_configuration,omitempty"`
+	NetworkConfiguration NetworkConfiguration `json:"network_configuration,omitempty"`
+	AdditionalNetworks   AdditionalNetworks   `json:"additional_networks,omitempty"`
 }
 
 type AdvancedSettings struct {
-	Debug                         bool    `json:"debug"`
-	WaitForUpdateCheck            bool    `json:"wait_for_update_check"`
-	DisableViamServer             bool    `json:"disable_viam_server"`
-	DisableNetworkConfiguration   bool    `json:"disable_network_configuration"`
-	DisableSystemConfiguration    bool    `json:"disable_system_configuration"`
-	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes"`
+	Debug                         bool    `json:"debug,omitempty"`
+	WaitForUpdateCheck            bool    `json:"wait_for_update_check,omitempty"`
+	DisableViamServer             bool    `json:"disable_viam_server,omitempty"`
+	DisableNetworkConfiguration   bool    `json:"disable_network_configuration,omitempty"`
+	DisableSystemConfiguration    bool    `json:"disable_system_configuration,omitempty"`
+	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes,omitempty"`
 }
 
 type SystemConfiguration struct {
 	// can set either to -1 to disable, defaults to 512M (when int is 0)
-	LoggingJournaldSystemMaxUseMegabytes  int `json:"logging_journald_system_max_use_megabytes"`
-	LoggingJournaldRuntimeMaxUseMegabytes int `json:"logging_journald_runtime_max_use_megabytes"`
+	LoggingJournaldSystemMaxUseMegabytes  int `json:"logging_journald_system_max_use_megabytes,omitempty"`
+	LoggingJournaldRuntimeMaxUseMegabytes int `json:"logging_journald_runtime_max_use_megabytes,omitempty"`
 
 	// UpgradeType can be
 	// Empty/missing ("") to make no changes
 	// "disable" (or "disabled") to disable auto-upgrades
 	// "security" to enable ONLY security upgrades
 	// "all" to enable upgrades from all configured sources
-	OSAutoUpgradeType string `json:"os_auto_upgrade_type"`
+	OSAutoUpgradeType string `json:"os_auto_upgrade_type,omitempty"`
 }
 
 type NetworkConfiguration struct {
 	// Things typically set in viam-defaults.json
-	Manufacturer string `json:"manufacturer"`
-	Model        string `json:"model"`
-	FragmentID   string `json:"fragment_id"`
+	Manufacturer string `json:"manufacturer,omitempty"`
+	Model        string `json:"model,omitempty"`
+	FragmentID   string `json:"fragment_id,omitempty"`
 
 	// The interface to use for hotspot/provisioning/wifi management. Ex: "wlan0"
 	// Defaults to the first discovered 802.11 device
-	HotspotInterface string `json:"hotspot_interface"`
+	HotspotInterface string `json:"hotspot_interface,omitempty"`
 	// The prefix to prepend to the hotspot name.
-	HotspotPrefix string `json:"hotspot_prefix"`
+	HotspotPrefix string `json:"hotspot_prefix,omitempty"`
 	// Normally left blank, and computed from HotspotPrefix and Manufacturer
-	HotspotSSID string `json:"hotspot_ssid"`
+	HotspotSSID string `json:"hotspot_ssid,omitempty"`
 	// Password required to connect to the hotspot.
-	HotspotPassword string `json:"hotspot_password"`
+	HotspotPassword string `json:"hotspot_password,omitempty"`
 	// If true, mobile (phone) users connecting to the hotspot won't be automatically redirected to the web portal.
-	DisableCaptivePortalRedirect bool `json:"disable_captive_portal_redirect"`
+	DisableCaptivePortalRedirect bool `json:"disable_captive_portal_redirect,omitempty"`
 
 	// When true, will try all known networks looking for internet (global) connectivity.
 	// Otherwise, will only try the primary wifi network and consider that sufficient if connected (regardless of global connectivity.)
-	TurnOnHotspotIfWifiHasNoInternet bool `json:"turn_on_hotspot_if_wifi_has_no_internet"`
+	TurnOnHotspotIfWifiHasNoInternet bool `json:"turn_on_hotspot_if_wifi_has_no_internet,omitempty"`
 
 	// If set, will explicitly enable or disable power save for all wifi connections managed by NetworkManager.
-	WifiPowerSave *bool `json:"wifi_power_save"`
+	WifiPowerSave *bool `json:"wifi_power_save,omitempty"`
 
 	// How long without a connection before starting provisioning (hotspot) mode.
-	OfflineBeforeStartingHotspotMinutes Timeout `json:"offline_before_starting_hotspot_minutes"`
+	OfflineBeforeStartingHotspotMinutes Timeout `json:"offline_before_starting_hotspot_minutes,omitempty"`
 
 	// How long since the last user interaction (via GRPC/app or web portal) before the state machine can resume.
-	UserIdleMinutes Timeout `json:"user_idle_minutes"`
+	UserIdleMinutes Timeout `json:"user_idle_minutes,omitempty"`
 
 	// If not "online", always drop out of hotspot mode and retry everything after this time limit.
-	RetryConnectionTimeoutMinutes Timeout `json:"retry_connection_timeout_minutes"`
+	RetryConnectionTimeoutMinutes Timeout `json:"retry_connection_timeout_minutes,omitempty"`
 
 	// If set, will reboot the device after it has been offline for this duration
 	// 0, default, will disable this feature.
-	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes"`
+	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes,omitempty"`
 }
 
 type AdditionalNetworks map[string]NetworkDefinition
 
 type NetworkDefinition struct {
 	// "wifi", "wired"
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 
 	// name of interface, ex: "wlan0", "eth0", "enp14s0", etc.
-	Interface string `json:"interface"`
+	Interface string `json:"interface,omitempty"`
 
 	// Wifi Settings
-	SSID string `json:"ssid"`
-	PSK  string `json:"psk"`
+	SSID string `json:"ssid,omitempty"`
+	PSK  string `json:"psk,omitempty"`
 
 	// Autoconnect Priority (primarily for wifi)
 	// higher values are preferred/tried first
 	// defaults to 0, but wifi networks added via hotspot are set to 999 when not in roaming mode
-	Priority int32 `json:"priority"`
+	Priority int32 `json:"priority,omitempty"`
 
 	// CIDR format address, ex: 192.168.0.1/24
 	// If unset, will default to "auto" (dhcp)
-	IPv4Address string `json:"ipv4_address"`
-	IPv4Gateway string `json:"ipv4_gateway"`
+	IPv4Address string `json:"ipv4_address,omitempty"`
+	IPv4Gateway string `json:"ipv4_gateway,omitempty"`
 
 	// optional
-	IPv4DNS []string `json:"ipv4_dns"`
+	IPv4DNS []string `json:"ipv4_dns,omitempty"`
 
 	// optional, 0 or -1 is default
 	// lower values are preferred (lower "cost")
 	// wired networks default to 100
 	// wireless networks default to 600
-	IPv4RouteMetric int64 `json:"ipv4_route_metric"`
+	IPv4RouteMetric int64 `json:"ipv4_route_metric,omitempty"`
 }
 
 func DefaultConfig() AgentConfig {

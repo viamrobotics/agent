@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -124,14 +125,15 @@ func (c *VersionCache) save() error {
 	return err
 }
 
+//SMURF uneeded?
 // Save saves the cached data to disk.
-func (c *VersionCache) Save() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.save()
-}
+// func (c *VersionCache) Save() error {
+// 	c.mu.Lock()
+// 	defer c.mu.Unlock()
+// 	return c.save()
+// }
 
-// Update processes data for the two binaries, agent itself, and viam-server.
+// Update processes data for the two binaries: agent itself, and viam-server.
 func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -144,7 +146,7 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	}
 	newVersion := cfg.GetVersion()
 	if newVersion == "customURL" {
-		newVersion = "customURL" + cfg.GetUrl()
+		newVersion = "customURL+" + cfg.GetUrl()
 	}
 
 	if newVersion == data.TargetVersion {
@@ -190,6 +192,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		return needRestart, errw.Errorf("version data not found for %s %s", binary, data.TargetVersion)
 	}
 
+	isCustomURL := strings.HasPrefix(verData.Version, "customURL+")
+
 	if data.TargetVersion == data.CurrentVersion {
 		// if a known version, make sure the symlink is correct
 		same, err := utils.CheckIfSame(verData.DlPath, verData.SymlinkPath)
@@ -208,6 +212,11 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 		if err != nil {
 			c.logger.Error(err)
+		}
+
+		// if we're here, we have a mismatched checksum, as likely the URL changed, so wipe it and recompute later
+		if isCustomURL {
+			verData.UnpackedSHA = []byte{}
 		}
 	}
 
@@ -228,6 +237,10 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	// TODO handle compressed formats, for now, the raw download is the same file
 	verData.UnpackedPath = verData.DlPath
 	verData.DlSHA = actualSha
+
+	if len(verData.UnpackedSHA) <= 1 && isCustomURL {
+		verData.UnpackedSHA = actualSha
+	}
 
 	if len(verData.UnpackedSHA) > 1 && !bytes.Equal(verData.UnpackedSHA, actualSha) {
 		//nolint:goerr113
