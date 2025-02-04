@@ -16,7 +16,7 @@ else
 PATH_VERSION = v$(TAG_VERSION)
 endif
 
-LDFLAGS = "-s -w -X 'github.com/viamrobotics/agent.Version=${TAG_VERSION}' -X 'github.com/viamrobotics/agent.GitRevision=${GIT_REVISION}'"
+LDFLAGS = "-s -w -X 'github.com/viamrobotics/agent/utils.Version=${TAG_VERSION}' -X 'github.com/viamrobotics/agent/utils.GitRevision=${GIT_REVISION}'"
 TAGS = osusergo,netgo
 
 

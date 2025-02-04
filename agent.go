@@ -22,14 +22,8 @@ const (
 	serviceFileName = "viam-agent.service"
 )
 
-var (
-	// versions embedded at build time.
-	Version     = ""
-	GitRevision = ""
-
-	//go:embed viam-agent.service
-	serviceFileContents []byte
-)
+//go:embed viam-agent.service
+var serviceFileContents []byte
 
 // InstallNewVersion runs the newly downloaded binary's Install() for installation of systemd files and the like.
 func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error) {

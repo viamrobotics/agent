@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gabriel-vasile/mimetype"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"github.com/viamrobotics/agent/utils"
@@ -52,6 +53,7 @@ type Versions struct {
 
 	// temporary, so not exported for json/caching
 	runningVersion string
+	brokenTarget   bool
 }
 
 // VersionInfo records details about each version of a subsystem.
@@ -125,14 +127,6 @@ func (c *VersionCache) save() error {
 	return err
 }
 
-//SMURF uneeded?
-// Save saves the cached data to disk.
-// func (c *VersionCache) Save() error {
-// 	c.mu.Lock()
-// 	defer c.mu.Unlock()
-// 	return c.save()
-// }
-
 // Update processes data for the two binaries: agent itself, and viam-server.
 func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	c.mu.Lock()
@@ -154,6 +148,7 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	}
 
 	data.TargetVersion = newVersion
+	data.brokenTarget = false
 	info, ok := data.Versions[newVersion]
 	if !ok {
 		info = &VersionInfo{}
@@ -186,6 +181,10 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	}
 
 	var needRestart bool
+
+	if data.brokenTarget {
+		return needRestart, nil
+	}
 
 	verData, ok := data.Versions[data.TargetVersion]
 	if !ok {
@@ -227,6 +226,9 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	var err error
 	verData.DlPath, err = utils.DownloadFile(ctx, verData.URL)
 	if err != nil {
+		if isCustomURL {
+			data.brokenTarget = true
+		}
 		return needRestart, errw.Wrapf(err, "downloading %s", binary)
 	}
 	actualSha, err := utils.GetFileSum(verData.DlPath)
@@ -239,6 +241,15 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	verData.DlSHA = actualSha
 
 	if len(verData.UnpackedSHA) <= 1 && isCustomURL {
+		// new custom download, so need to check the file is an executable binary and use locally generated sha
+		mtype, err := mimetype.DetectFile(verData.UnpackedPath)
+		if err != nil {
+			return needRestart, errw.Wrapf(err, "determining file type of download")
+		}
+		if !mtype.Is("application/x-elf") && !mtype.Is("application/x-executable") {
+			data.brokenTarget = true
+			return needRestart, errw.Errorf("downloaded file is %s, not application/x-elf or application/x-executable, skipping", mtype)
+		}
 		verData.UnpackedSHA = actualSha
 	}
 

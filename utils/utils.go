@@ -138,16 +138,20 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
-		return "", errw.Wrap(err, "checking viam-server status")
+		return "", errw.Wrap(err, "downloading file")
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", errw.Wrap(err, "checking viam-server status")
+		return "", errw.Wrap(err, "downloading file")
 	}
 	defer func() {
 		errRet = errors.Join(errRet, resp.Body.Close())
 	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return "", errw.Errorf("got response '%s' while downloading %s", resp.Status, parsedURL)
+	}
 
 	//nolint:gosec
 	if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {

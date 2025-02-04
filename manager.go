@@ -563,7 +563,7 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	m.cfgMu.RLock()
 	defer m.cfgMu.RUnlock()
 	vers := &pb.VersionInfo{
-		AgentRunning:        Version,
+		AgentRunning:        utils.GetVersion(),
 		AgentInstalled:      m.cache.AgentVersion(),
 		ViamServerRunning:   m.cache.ViamServerRunningVersion(),
 		ViamServerInstalled: m.cache.ViamServerVersion(),

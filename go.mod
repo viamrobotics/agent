@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	github.com/Masterminds/semver/v3 v3.3.0
 	github.com/Otterverse/gonetworkmanager/v2 v2.2.1
+	github.com/gabriel-vasile/mimetype v1.4.8
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/nightlyone/lockfile v1.0.0
@@ -83,7 +84,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/mod v0.21.0 // indirect
-	golang.org/x/net v0.30.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.22.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/text v0.21.0 // indirect

@@ -23,7 +23,7 @@ var (
 func (s *syscfg) EnforceLogging() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.cfg.LoggingJournaldRuntimeMaxUseMegabytes < 0 || s.cfg.LoggingJournaldSystemMaxUseMegabytes < 0 {
+	if s.cfg.LoggingJournaldRuntimeMaxUseMegabytes < 0 && s.cfg.LoggingJournaldSystemMaxUseMegabytes < 0 {
 		if err := os.Remove(journaldConfPath); err != nil {
 			if errw.Is(err, fs.ErrNotExist) {
 				return nil
@@ -48,6 +48,10 @@ func (s *syscfg) EnforceLogging() error {
 		return err
 	}
 
+	journalConf := &conf.JournaldFile{
+		Journal: conf.JournaldJournalSection{},
+	}
+
 	persistSize := fmt.Sprintf("%dM", s.cfg.LoggingJournaldSystemMaxUseMegabytes)
 	tempSize := fmt.Sprintf("%dM", s.cfg.LoggingJournaldRuntimeMaxUseMegabytes)
 
@@ -59,11 +63,12 @@ func (s *syscfg) EnforceLogging() error {
 		tempSize = defaultLogLimit
 	}
 
-	journalConf := &conf.JournaldFile{
-		Journal: conf.JournaldJournalSection{
-			SystemMaxUse:  sysd.Value{persistSize},
-			RuntimeMaxUse: sysd.Value{tempSize},
-		},
+	if s.cfg.LoggingJournaldSystemMaxUseMegabytes >= 0 {
+		journalConf.Journal.SystemMaxUse = sysd.Value{persistSize}
+	}
+
+	if s.cfg.LoggingJournaldRuntimeMaxUseMegabytes >= 0 {
+		journalConf.Journal.RuntimeMaxUse = sysd.Value{tempSize}
 	}
 
 	newFileBytes, err := sysd.Marshal(journalConf)
