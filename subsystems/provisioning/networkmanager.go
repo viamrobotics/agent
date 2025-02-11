@@ -175,8 +175,8 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 
 	w.logger.Info("Starting provisioning mode.")
 
-	var wg *sync.WaitGroup
-	var provisioningErrorsLock *sync.Mutex
+	wg := &sync.WaitGroup{}
+	provisioningErrorsLock := &sync.Mutex{}
 	var provisioningErrors error
 
 	// Spawn goroutine for spinning up hot spot and serving captive portal.
@@ -257,9 +257,9 @@ func (w *Provisioning) stopProvisioning() error {
 	w.logger.Info("Stopping provisioning mode.")
 	w.connState.setProvisioning(false)
 
-	var wg *sync.WaitGroup
+	wg := &sync.WaitGroup{}
 	var provisioningErrors error
-	var provisioningErrorsLock *sync.Mutex
+	provisioningErrorsLock := &sync.Mutex{}
 
 	// Spawn goroutine to tear down the captive portal and WiFi hotspot.
 	wg.Add(1)
