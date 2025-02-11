@@ -7,12 +7,12 @@ import (
 	"os/exec"
 	"reflect"
 	"sort"
+	"sync"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
-	blem "github.com/maxhorowitz/btprov/ble/manager"
-	blep "github.com/maxhorowitz/btprov/ble/peripheral"
 	errw "github.com/pkg/errors"
+	"go.uber.org/multierr"
 	"go.viam.com/utils"
 )
 
@@ -174,72 +174,77 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 	defer w.opMu.Unlock()
 
 	w.logger.Info("Starting provisioning mode.")
-	switch w.GetProvisioningMethod() {
-	case provisioningMethodHotspot:
+
+	var wg *sync.WaitGroup
+	var provisioningErrorsLock *sync.Mutex
+	var provisioningErrors error
+
+	// Spawn goroutine for spinning up hot spot and serving captive portal.
+	wg.Add(1)
+	utils.ManagedGo(func() {
 		_, err := w.addOrUpdateConnection(NetworkConfig{
 			Type:      NetworkTypeHotspot,
 			Interface: w.Config().HotspotInterface,
 			SSID:      w.Config().hotspotSSID,
 		})
 		if err != nil {
-			return err
+			provisioningErrorsLock.Lock()
+			defer provisioningErrorsLock.Unlock()
+			provisioningErrors = multierr.Combine(provisioningErrors, err)
+			return
 		}
 		if err := w.activateConnection(ctx, w.Config().HotspotInterface, w.Config().hotspotSSID); err != nil {
-			return errw.Wrap(err, "starting provisioning mode hotspot")
+			provisioningErrorsLock.Lock()
+			defer provisioningErrorsLock.Unlock()
+			provisioningErrors = multierr.Combine(provisioningErrors, errw.Wrap(err, "starting provisioning mode hotspot"))
+			return
 		}
 
 		// start portal with ssid list and known connections
 		if err := w.startPortal(inputChan); err != nil {
 			err = errors.Join(err, w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID))
-			return errw.Wrap(err, "starting web/grpc portal")
+			provisioningErrorsLock.Lock()
+			defer provisioningErrorsLock.Unlock()
+			provisioningErrors = multierr.Combine(provisioningErrors, errw.Wrap(err, "starting web/grpc portal"))
+			return
 		}
-	case provisioningMethodBLE:
-		if w.blePeripheral == nil {
-			var err error
-			w.blePeripheral, err = blep.NewLinuxBLEPeripheral(ctx, w.logger.AsZap(), "Viam Agent BLE")
-			if err != nil {
-				return errw.WithMessage(err, "failure to set up Linux BLE peripheral")
+	}, wg.Done)
+
+	// Spawn goroutine for starting advertising bluetooth service.
+	wg.Add(1)
+	utils.ManagedGo(func() {
+		if w.bluetoothWiFiProvisioning != nil {
+			if err := w.bluetoothWiFiProvisioning.Start(ctx); err != nil {
+				provisioningErrorsLock.Lock()
+				defer provisioningErrorsLock.Unlock()
+				provisioningErrors = multierr.Combine(provisioningErrors, errw.Wrap(err, "failed to start bluetooth WiFi provisioning"))
 			}
+
+			// This goroutine should outlive its surrounding goroutine and is meant to "listen" for credentials sent over bluetooth.
+			utils.ManagedGo(func() {
+				creds, err := w.bluetoothWiFiProvisioning.WaitForCredentials(ctx)
+				if err != nil {
+					// Not an issue if the captive portal provisioning flow works instead.
+					w.logger.Errorf("failed to get robot and WiFi credentials over bluetooth: %v", err)
+					return
+				}
+				inputChan <- userInput{
+					SSID:      creds.GetSSID(),
+					PSK:       creds.GetPsk(),
+					PartID:    creds.GetRobotPartKeyID(),
+					Secret:    creds.GetRobotPartKey(),
+					AppAddr:   "https://app.viam.com:443",
+					RawConfig: "",
+				}
+			}, nil)
 		}
-		if err := w.blePeripheral.StartAdvertising(); err != nil {
-			return errw.WithMessage(err, "failed to start advertising from the BLE peripheral")
-		}
-		utils.ManagedGo(func() {
-			creds, err := blem.WaitForCredentials(ctx, w.logger.AsZap(), w.blePeripheral)
-			if err != nil {
-				w.logger.Errorf("failed to wait for robot and WiFi credentials over BLE: %v", err)
-			}
-			inputChan <- userInput{
-				SSID:      creds.GetSSID(),
-				PSK:       creds.GetPsk(),
-				PartID:    creds.GetRobotPartKeyID(),
-				Secret:    creds.GetRobotPartKey(),
-				AppAddr:   "https://app.viam.com:443",
-				RawConfig: "",
-			}
-		}, nil)
-	}
+	}, wg.Done)
+
+	// Return after both the captive portal (served at WiFi hotspot) and bluetooth services are initialized.
+	wg.Wait()
 
 	w.connState.setProvisioning(true)
 	return nil
-}
-
-func (w *Provisioning) SetProvisioningMethod(pm provisioningMethod) error {
-	w.muProvisioningMethod.Lock()
-	defer w.muProvisioningMethod.Unlock()
-
-	if pm == w.provisioningMethod {
-		return errw.Errorf("failure to set provisioning method to %s, it is already set!", pm)
-	}
-	w.provisioningMethod = pm
-	return nil
-}
-
-func (w *Provisioning) GetProvisioningMethod() provisioningMethod {
-	w.muProvisioningMethod.Lock()
-	defer w.muProvisioningMethod.Unlock()
-
-	return w.provisioningMethod
 }
 
 func (w *Provisioning) StopProvisioning() error {
@@ -251,18 +256,38 @@ func (w *Provisioning) StopProvisioning() error {
 func (w *Provisioning) stopProvisioning() error {
 	w.logger.Info("Stopping provisioning mode.")
 	w.connState.setProvisioning(false)
-	switch w.GetProvisioningMethod() {
-	case provisioningMethodHotspot:
+
+	var wg *sync.WaitGroup
+	var provisioningErrors error
+	var provisioningErrorsLock *sync.Mutex
+
+	// Spawn goroutine to tear down the captive portal and WiFi hotspot.
+	wg.Add(1)
+	utils.ManagedGo(func() {
 		err := w.stopPortal()
 		err2 := w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID)
+		provisioningErrorsLock.Lock()
+		defer provisioningErrorsLock.Unlock()
 		if errors.Is(err2, ErrNoActiveConnectionFound) {
-			return err
+			provisioningErrors = multierr.Combine(provisioningErrors, err)
+			return
 		}
-		return errors.Join(err, err2)
-	case provisioningMethodBLE:
-		return w.blePeripheral.StopAdvertising()
-	}
-	return nil
+		provisioningErrors = multierr.Combine(provisioningErrors, errors.Join(err, err2))
+	}, wg.Done)
+
+	// Spawn goroutine to stop advertising the provisioning bluetooth service.
+	wg.Add(1)
+	utils.ManagedGo(func() {
+		if err := w.bluetoothWiFiProvisioning.Stop(context.Background()); err != nil {
+			provisioningErrorsLock.Lock()
+			defer provisioningErrorsLock.Unlock()
+			provisioningErrors = multierr.Combine(provisioningErrors, err)
+		}
+	}, wg.Done)
+
+	wg.Wait()
+
+	return provisioningErrors
 }
 
 func (w *Provisioning) ActivateConnection(ctx context.Context, ifName, ssid string) error {

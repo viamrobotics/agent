@@ -4,6 +4,7 @@ package provisioning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 	semver "github.com/Masterminds/semver/v3"
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
-	blep "github.com/maxhorowitz/btprov/ble/peripheral"
+	btprov "github.com/maxhorowitz/btprov/ble/manager"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
@@ -64,22 +65,11 @@ type Provisioning struct {
 	grpcServer *grpc.Server
 	portalData *portalData
 
-	// Toggle for bluetooth/WiFi provisioning method
-	muProvisioningMethod sync.Mutex
-	provisioningMethod   provisioningMethod
-
-	// BLE peripheral used for bluetooth provisioning (if selected as desired provisoning method).
-	blePeripheral blep.BLEPeripheral
+	// Used for provisioning WiFi over bluetooth (BLE)
+	bluetoothWiFiProvisioning btprov.BluetoothWiFiProvisioner
 
 	pb.UnimplementedProvisioningServiceServer
 }
-
-type provisioningMethod string
-
-const (
-	provisioningMethodHotspot provisioningMethod = "WiFi"
-	provisioningMethodBLE     provisioningMethod = "BLE"
-)
 
 func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *agentpb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
 	cfg, err := LoadConfig(updateConf)
@@ -87,6 +77,12 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		logger.Error(errw.Wrap(err, "loading provisioning config"))
 	}
 	logger.Debugf("Provisioning Config: %+v", cfg)
+
+	btIdentifier := fmt.Sprintf("%s.%s.%s", cfg.Manufacturer, cfg.Model, cfg.FragmentID)
+	bluetoothWiFiProvisioner, err := btprov.NewBluetoothWiFiProvisioner(ctx, logger.AsZap(), btIdentifier)
+	if err != nil {
+		logger.Error(errw.Wrap(err, "failed to initialize bluetooth provisioning"))
+	}
 
 	w := &Provisioning{
 		disabled:   updateConf.GetDisable(),
@@ -104,8 +100,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
 
-		muProvisioningMethod: sync.Mutex{},
-		provisioningMethod:   provisioningMethodBLE,
+		bluetoothWiFiProvisioning: bluetoothWiFiProvisioner,
 	}
 	return w, nil
 }
