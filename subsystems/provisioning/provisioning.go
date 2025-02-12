@@ -4,7 +4,6 @@ package provisioning
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -82,12 +81,6 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	}
 	logger.Debugf("Provisioning Config: %+v", cfg)
 
-	btIdentifier := fmt.Sprintf("%s.%s.%s", cfg.Manufacturer, cfg.Model, cfg.FragmentID)
-	bluetoothWiFiProvisioner, err := btprov.NewBluetoothWiFiProvisioner(ctx, logger, btIdentifier)
-	if err != nil {
-		logger.Error(errw.Wrap(err, "failed to initialize bluetooth provisioning"))
-	}
-
 	w := &Provisioning{
 		disabled:   updateConf.GetDisable(),
 		cfg:        cfg,
@@ -103,8 +96,6 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
-
-		bluetoothWiFiProvisioning: bluetoothWiFiProvisioner,
 	}
 	return w, nil
 }

@@ -3,6 +3,7 @@ package provisioning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
+	btprov "github.com/viamrobotics/agent/subsystems/provisioning/bluetooth"
 	"go.uber.org/multierr"
 	"go.viam.com/utils"
 )
@@ -201,12 +203,22 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 			hotspotError = errw.Wrap(err, "starting web/grpc portal")
 			return
 		}
+		w.portalData.workers.Wait()
 	}, wg.Done)
 
 	// Spawn a goroutine for starting to advertise a bluetooth service.
 	var bluetoothError error
 	wg.Add(1)
 	utils.ManagedGo(func() {
+		if w.bluetoothWiFiProvisioning == nil {
+			btIdentifier := fmt.Sprintf("%s.%s.%s", w.cfg.Manufacturer, w.cfg.Model, w.cfg.FragmentID)
+			bluetoothWiFiProvisioner, err := btprov.NewBluetoothWiFiProvisioner(ctx, w.logger, btIdentifier)
+			if err != nil {
+				bluetoothError = errw.Wrap(err, "failed to initialize bluetooth WiFi provisioning")
+				return
+			}
+			w.bluetoothWiFiProvisioning = bluetoothWiFiProvisioner
+		}
 		if w.bluetoothWiFiProvisioning != nil {
 			if err := w.bluetoothWiFiProvisioning.Start(ctx); err != nil {
 				bluetoothError = errw.Wrap(err, "failed to start bluetooth WiFi provisioning")
