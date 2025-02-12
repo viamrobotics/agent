@@ -1,3 +1,4 @@
+// Package ble contains an interface for interacting with the bluetooth stack on a Linux device, specifically with respect to provisioning.
 package ble
 
 import (
@@ -7,20 +8,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
-	"go.viam.com/utils"
-
 	"github.com/edaniels/golog"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
+	"go.viam.com/utils"
 	"tinygo.org/x/bluetooth"
 )
 
-type BLEPeripheral interface {
-	StartAdvertising(context.Context) error
+type BLEService interface {
+	StartAdvertising(ctx context.Context) error
 	StopAdvertising() error
-
-	UpdateAvailableWiFiNetworks(*AvailableWiFiNetworks)
-
+	UpdateAvailableWiFiNetworks(awns *AvailableWiFiNetworks)
 	ReadSsid() (string, error)
 	ReadPsk() (string, error)
 	ReadRobotPartKeyID() (string, error)
@@ -63,7 +61,9 @@ type linuxBLEService struct {
 	characteristicRobotPartKey   *linuxBLECharacteristic[*string]
 }
 
-func NewLinuxBLEPeripheral(ctx context.Context, logger golog.Logger, name string) (BLEPeripheral, error) {
+// NewLinuxBLEService returns a bluetooth-low-energy service that advertises writeable characteristics for WiFi and robot part credentials,
+// and a separate readable characteristic for the most recently available WiFi networks near the unprovisioned device.
+func NewLinuxBLEService(ctx context.Context, logger golog.Logger, name string) (BLEService, error) {
 	if err := validateSystem(logger); err != nil {
 		return nil, errors.WithMessage(err, "cannot initialize bluetooth peripheral, system requisites not met")
 	}
@@ -239,6 +239,7 @@ func NewLinuxBLEPeripheral(ctx context.Context, logger golog.Logger, name string
 	}, nil
 }
 
+// StartAdvertising begins advertising a BLE service.
 func (s *linuxBLEService) StartAdvertising(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -264,6 +265,7 @@ func (s *linuxBLEService) StartAdvertising(ctx context.Context) error {
 	return nil
 }
 
+// StopAdvertising stops advertising a BLE service.
 func (s *linuxBLEService) StopAdvertising() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -282,24 +284,28 @@ func (s *linuxBLEService) StopAdvertising() error {
 	return nil
 }
 
+// UpdateAvailableWiFiNetworks passes the (assumed) most recently available WiFi networks through a channel so that
+// they can be written to the BLE characteristic (and thus updated on paired devices which are "provisioning").
 func (s *linuxBLEService) UpdateAvailableWiFiNetworks(awns *AvailableWiFiNetworks) {
 	s.availableWiFiNetworksChannelWriteOnly <- awns
 }
 
-type ErrBLECharNoValue struct {
+// EmptyBluetoothCharacteristicError represents the error which is raised when we attempt to read from an empty BLE characteristic.
+type EmptyBluetoothCharacteristicError struct {
 	missingValue string
 }
 
-func (e *ErrBLECharNoValue) Error() string {
+func (e *EmptyBluetoothCharacteristicError) Error() string {
 	return fmt.Sprintf("No value has been written to BLE characteristic for %s", e.missingValue)
 }
 
-func newErrBLECharNoValue(missingValue string) error {
-	return &ErrBLECharNoValue{
+func newEmptyBluetoothCharacteristicError(missingValue string) error {
+	return &EmptyBluetoothCharacteristicError{
 		missingValue: missingValue,
 	}
 }
 
+// ReadSsid returns the written ssid value or raises an EmptyBluetoothCharacteristicError error.
 func (s *linuxBLEService) ReadSsid() (string, error) {
 	if s.characteristicSsid == nil {
 		return "", errors.New("characteristic ssid is nil")
@@ -312,11 +318,12 @@ func (s *linuxBLEService) ReadSsid() (string, error) {
 		return "", errors.New("characteristic ssid is inactive")
 	}
 	if s.characteristicSsid.currentValue == nil {
-		return "", newErrBLECharNoValue("ssid")
+		return "", newEmptyBluetoothCharacteristicError("ssid")
 	}
 	return *s.characteristicSsid.currentValue, nil
 }
 
+// ReadPsk returns the written psk value or raises an EmptyBluetoothCharacteristicError error.
 func (s *linuxBLEService) ReadPsk() (string, error) {
 	if s.characteristicPsk == nil {
 		return "", errors.New("characteristic psk is nil")
@@ -329,11 +336,12 @@ func (s *linuxBLEService) ReadPsk() (string, error) {
 		return "", errors.New("characteristic psk is inactive")
 	}
 	if s.characteristicPsk.currentValue == nil {
-		return "", newErrBLECharNoValue("psk")
+		return "", newEmptyBluetoothCharacteristicError("psk")
 	}
 	return *s.characteristicPsk.currentValue, nil
 }
 
+// ReadRobotPartKeyID returns the written robot part key ID value or raises an EmptyBluetoothCharacteristicError error.
 func (s *linuxBLEService) ReadRobotPartKeyID() (string, error) {
 	if s.characteristicRobotPartKeyID == nil {
 		return "", errors.New("characteristic robot part key ID is nil")
@@ -346,11 +354,12 @@ func (s *linuxBLEService) ReadRobotPartKeyID() (string, error) {
 		return "", errors.New("characteristic robot part key ID is inactive")
 	}
 	if s.characteristicRobotPartKeyID.currentValue == nil {
-		return "", newErrBLECharNoValue("robot part key ID")
+		return "", newEmptyBluetoothCharacteristicError("robot part key ID")
 	}
 	return *s.characteristicRobotPartKeyID.currentValue, nil
 }
 
+// ReadRobotPartKey returns the written robot part key value or raises an EmptyBluetoothCharacteristicError error.
 func (s *linuxBLEService) ReadRobotPartKey() (string, error) {
 	if s.characteristicRobotPartKey == nil {
 		return "", errors.New("characteristic robot part key is nil")
@@ -363,7 +372,7 @@ func (s *linuxBLEService) ReadRobotPartKey() (string, error) {
 		return "", errors.New("characteristic robot part key is inactive")
 	}
 	if s.characteristicRobotPartKey.currentValue == nil {
-		return "", newErrBLECharNoValue("robot part key")
+		return "", newEmptyBluetoothCharacteristicError("robot part key")
 	}
 	return *s.characteristicRobotPartKey.currentValue, nil
 }

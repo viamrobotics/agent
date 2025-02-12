@@ -5,9 +5,10 @@ go 1.23.5
 require (
 	github.com/Masterminds/semver/v3 v3.3.0
 	github.com/Otterverse/gonetworkmanager/v2 v2.2.1
+	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0
+	github.com/godbus/dbus v4.1.0+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
-	github.com/maxhorowitz/btprov v0.0.0-20250211175030-ebf6846d9d26
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/pkg/errors v0.9.1
 	github.com/sergeymakinen/go-systemdconf/v2 v2.0.2
@@ -21,6 +22,7 @@ require (
 	golang.org/x/sys v0.30.0
 	google.golang.org/grpc v1.70.0
 	google.golang.org/protobuf v1.36.5
+	tinygo.org/x/bluetooth v0.11.0
 )
 
 require (
@@ -30,11 +32,9 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
 	github.com/dgottlieb/smarty-assertions v1.2.6 // indirect
-	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0 // indirect
 	github.com/edaniels/zeroconf v1.0.10 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
-	github.com/godbus/dbus v4.1.0+incompatible // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -102,5 +102,4 @@ require (
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	nhooyr.io/websocket v1.8.9 // indirect
-	tinygo.org/x/bluetooth v0.11.0 // indirect
 )

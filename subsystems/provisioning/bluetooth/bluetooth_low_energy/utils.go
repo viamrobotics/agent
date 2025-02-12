@@ -20,7 +20,7 @@ const (
 	BluezAgent        = "org.bluez.Agent1"
 )
 
-// checkOS verifies the system is running a Linux distribution
+// checkOS verifies the system is running a Linux distribution.
 func checkOS() error {
 	if runtime.GOOS != "linux" {
 		return fmt.Errorf("this program requires Linux, detected: %s", runtime.GOOS)
@@ -28,7 +28,7 @@ func checkOS() error {
 	return nil
 }
 
-// getBlueZVersion retrieves the installed BlueZ version and extracts the numeric value correctly
+// getBlueZVersion retrieves the installed BlueZ version and extracts the numeric value correctly.
 func getBlueZVersion() (float64, error) {
 	// Try to get version from bluetoothctl first, fallback to bluetoothd
 	versionCmds := []string{"bluetoothctl --version", "bluetoothd --version"}
@@ -39,7 +39,7 @@ func getBlueZVersion() (float64, error) {
 	for _, cmd := range versionCmds {
 		versionOutput.Reset() // Clear buffer
 		cmdParts := strings.Fields(cmd)
-		execCmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+		execCmd := exec.Command(cmdParts[0], cmdParts[1:]...) //nolint:gosec
 		execCmd.Stdout = &versionOutput
 		err = execCmd.Run()
 		if err == nil {
@@ -71,7 +71,7 @@ func getBlueZVersion() (float64, error) {
 	return versionFloat, nil
 }
 
-// validateSystem checks OS and BlueZ installation/version
+// validateSystem checks OS and BlueZ installation/version.
 func validateSystem(logger golog.Logger) error {
 	// 1. Validate OS
 	if err := checkOS(); err != nil {
@@ -182,7 +182,7 @@ func listenForPairing(logger golog.Logger) error {
 	return nil
 }
 
-// trustDevice sets the device as trusted and connects to it
+// trustDevice sets the device as trusted and connects to it.
 func trustDevice(logger golog.Logger, devicePath string) error {
 	conn, err := dbus.SystemBus()
 	if err != nil {
@@ -202,7 +202,7 @@ func trustDevice(logger golog.Logger, devicePath string) error {
 	return nil
 }
 
-// convertDBusPathToMAC converts a DBus object path to a Bluetooth MAC address
+// convertDBusPathToMAC converts a DBus object path to a Bluetooth MAC address.
 func convertDBusPathToMAC(path string) string {
 	parts := strings.Split(path, "/")
 	if len(parts) < 4 {

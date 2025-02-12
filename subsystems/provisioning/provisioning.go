@@ -11,13 +11,12 @@ import (
 	"sync"
 	"time"
 
-	btprov "github.com/viamrobotics/agent/subsystems/provisioning/bluetooth"
-
 	semver "github.com/Masterminds/semver/v3"
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
+	btprov "github.com/viamrobotics/agent/subsystems/provisioning/bluetooth"
 	"github.com/viamrobotics/agent/subsystems/registry"
 	agentpb "go.viam.com/api/app/agent/v1"
 	pb "go.viam.com/api/provisioning/v1"
@@ -61,13 +60,17 @@ type Provisioning struct {
 	dataMu sync.Mutex
 	cfg    *Config
 
-	// portal
-	webServer  *http.Server
-	grpcServer *grpc.Server
-	portalData *portalData
+	// Captive portal (via hotspot) provisioning state management
+	webServer                     *http.Server
+	grpcServer                    *grpc.Server
+	portalData                    *portalData
+	hotspotWiFiProvisioningMu     sync.Mutex
+	hotspotWiFiProvisioningActive bool
 
-	// Used for provisioning WiFi over bluetooth (BLE)
-	bluetoothWiFiProvisioning btprov.BluetoothWiFiProvisioner
+	// Bluetooth provisioning state management
+	bluetoothWiFiProvisioningMu     sync.Mutex
+	bluetoothWiFiProvisioningActive bool
+	bluetoothWiFiProvisioning       btprov.BluetoothWiFiProvisioner
 
 	pb.UnimplementedProvisioningServiceServer
 }

@@ -176,10 +176,9 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 	w.logger.Info("Starting provisioning mode.")
 
 	wg := &sync.WaitGroup{}
-	provisioningErrorsLock := &sync.Mutex{}
-	var provisioningErrors error
 
-	// Spawn goroutine for spinning up hot spot and serving captive portal.
+	// Spawn a goroutine for spinning up hot spot and serving captive portal.
+	var hotspotError error
 	wg.Add(1)
 	utils.ManagedGo(func() {
 		_, err := w.addOrUpdateConnection(NetworkConfig{
@@ -188,44 +187,38 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 			SSID:      w.Config().hotspotSSID,
 		})
 		if err != nil {
-			provisioningErrorsLock.Lock()
-			defer provisioningErrorsLock.Unlock()
-			provisioningErrors = multierr.Combine(provisioningErrors, err)
+			hotspotError = err
 			return
 		}
 		if err := w.activateConnection(ctx, w.Config().HotspotInterface, w.Config().hotspotSSID); err != nil {
-			provisioningErrorsLock.Lock()
-			defer provisioningErrorsLock.Unlock()
-			provisioningErrors = multierr.Combine(provisioningErrors, errw.Wrap(err, "starting provisioning mode hotspot"))
+			hotspotError = errw.Wrap(err, "starting provisioning mode hotspot")
 			return
 		}
 
 		// start portal with ssid list and known connections
 		if err := w.startPortal(inputChan); err != nil {
 			err = errors.Join(err, w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID))
-			provisioningErrorsLock.Lock()
-			defer provisioningErrorsLock.Unlock()
-			provisioningErrors = multierr.Combine(provisioningErrors, errw.Wrap(err, "starting web/grpc portal"))
+			hotspotError = errw.Wrap(err, "starting web/grpc portal")
 			return
 		}
 	}, wg.Done)
 
-	// Spawn goroutine for starting advertising bluetooth service.
+	// Spawn a goroutine for starting to advertise a bluetooth service.
+	var bluetoothError error
 	wg.Add(1)
 	utils.ManagedGo(func() {
 		if w.bluetoothWiFiProvisioning != nil {
 			if err := w.bluetoothWiFiProvisioning.Start(ctx); err != nil {
-				provisioningErrorsLock.Lock()
-				defer provisioningErrorsLock.Unlock()
-				provisioningErrors = multierr.Combine(provisioningErrors, errw.Wrap(err, "failed to start bluetooth WiFi provisioning"))
+				bluetoothError = errw.Wrap(err, "failed to start bluetooth WiFi provisioning")
+				return
 			}
 
 			// This goroutine should outlive its surrounding goroutine and is meant to "listen" for credentials sent over bluetooth.
 			utils.ManagedGo(func() {
 				creds, err := w.bluetoothWiFiProvisioning.WaitForCredentials(ctx)
 				if err != nil {
-					// Not an issue if the captive portal provisioning flow works instead.
-					w.logger.Errorf("failed to get robot and WiFi credentials over bluetooth: %v", err)
+					// Not a real issue if the captive portal provisioning flow works instead.
+					bluetoothError = errw.Errorf("failed to get robot and WiFi credentials over bluetooth: %v", err)
 					return
 				}
 				inputChan <- userInput{
@@ -240,8 +233,24 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 		}
 	}, wg.Done)
 
-	// Return after both the captive portal (served at WiFi hotspot) and bluetooth services are initialized.
+	// Return after both the captive portal (served at WiFi hotspot) and bluetooth service are initialized.
 	wg.Wait()
+
+	// Set in/active for both hotspot and bluetooth provisioning fields.
+	w.hotspotWiFiProvisioningMu.Lock()
+	if hotspotError == nil {
+		w.hotspotWiFiProvisioningActive = true
+	} else {
+		w.hotspotWiFiProvisioningActive = false
+	}
+	w.hotspotWiFiProvisioningMu.Unlock()
+	w.bluetoothWiFiProvisioningMu.Lock()
+	if bluetoothError == nil {
+		w.bluetoothWiFiProvisioningActive = true
+	} else {
+		w.bluetoothWiFiProvisioningActive = false
+	}
+	w.bluetoothWiFiProvisioningMu.Unlock()
 
 	w.connState.setProvisioning(true)
 	return nil
@@ -258,36 +267,41 @@ func (w *Provisioning) stopProvisioning() error {
 	w.connState.setProvisioning(false)
 
 	wg := &sync.WaitGroup{}
-	var provisioningErrors error
-	provisioningErrorsLock := &sync.Mutex{}
 
-	// Spawn goroutine to tear down the captive portal and WiFi hotspot.
-	wg.Add(1)
-	utils.ManagedGo(func() {
-		err := w.stopPortal()
-		err2 := w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID)
-		provisioningErrorsLock.Lock()
-		defer provisioningErrorsLock.Unlock()
-		if errors.Is(err2, ErrNoActiveConnectionFound) {
-			provisioningErrors = multierr.Combine(provisioningErrors, err)
-			return
-		}
-		provisioningErrors = multierr.Combine(provisioningErrors, errors.Join(err, err2))
-	}, wg.Done)
+	// If hotspot provisioning is active, spawn a goroutine to tear down the captive portal and WiFi hotspot.
+	var hotspotError error
+	w.hotspotWiFiProvisioningMu.Lock()
+	if w.hotspotWiFiProvisioningActive {
+		wg.Add(1)
+		utils.ManagedGo(func() {
+			err := w.stopPortal()
+			err2 := w.deactivateConnection(w.Config().HotspotInterface, w.Config().hotspotSSID)
+			if errors.Is(err2, ErrNoActiveConnectionFound) {
+				hotspotError = err
+				return
+			}
+			hotspotError = errors.Join(err, err2)
+		}, wg.Done)
+	}
+	w.hotspotWiFiProvisioningMu.Unlock()
 
-	// Spawn goroutine to stop advertising the provisioning bluetooth service.
-	wg.Add(1)
-	utils.ManagedGo(func() {
-		if err := w.bluetoothWiFiProvisioning.Stop(context.Background()); err != nil {
-			provisioningErrorsLock.Lock()
-			defer provisioningErrorsLock.Unlock()
-			provisioningErrors = multierr.Combine(provisioningErrors, err)
-		}
-	}, wg.Done)
+	// If the bluetooth provisioning is active, spawn a goroutine to stop advertising the provisioning bluetooth service.
+	var bluetoothError error
+	w.bluetoothWiFiProvisioningMu.Lock()
+	if w.bluetoothWiFiProvisioningActive {
+		wg.Add(1)
+
+		utils.ManagedGo(func() {
+			if err := w.bluetoothWiFiProvisioning.Stop(context.Background()); err != nil {
+				bluetoothError = err
+			}
+		}, wg.Done)
+	}
+	w.bluetoothWiFiProvisioningMu.Unlock()
 
 	wg.Wait()
 
-	return provisioningErrors
+	return multierr.Append(hotspotError, bluetoothError)
 }
 
 func (w *Provisioning) ActivateConnection(ctx context.Context, ifName, ssid string) error {
