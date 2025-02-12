@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	btprov "github.com/viamrobotics/agent/subsystems/provisioning/bluetooth"
+
 	semver "github.com/Masterminds/semver/v3"
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
-	btprov "github.com/maxhorowitz/btprov/ble/manager"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/subsystems"
