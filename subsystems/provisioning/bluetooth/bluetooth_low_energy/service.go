@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edaniels/golog"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
 	"tinygo.org/x/bluetooth"
 )
@@ -46,7 +46,7 @@ type linuxBLECharacteristic[T any] struct {
 }
 
 type linuxBLEService struct {
-	logger golog.Logger
+	logger logging.Logger
 	mu     *sync.Mutex
 
 	adv       *bluetooth.Advertisement
@@ -63,7 +63,7 @@ type linuxBLEService struct {
 
 // NewLinuxBLEService returns a bluetooth-low-energy service that advertises writeable characteristics for WiFi and robot part credentials,
 // and a separate readable characteristic for the most recently available WiFi networks near the unprovisioned device.
-func NewLinuxBLEService(ctx context.Context, logger golog.Logger, name string) (BLEService, error) {
+func NewLinuxBLEService(ctx context.Context, logger logging.Logger, name string) (BLEService, error) {
 	if err := validateSystem(logger); err != nil {
 		return nil, errors.WithMessage(err, "cannot initialize bluetooth peripheral, system requisites not met")
 	}
@@ -296,7 +296,7 @@ type EmptyBluetoothCharacteristicError struct {
 }
 
 func (e *EmptyBluetoothCharacteristicError) Error() string {
-	return fmt.Sprintf("No value has been written to BLE characteristic for %s", e.missingValue)
+	return fmt.Sprintf("no value has been written to BLE characteristic for %s", e.missingValue)
 }
 
 func newEmptyBluetoothCharacteristicError(missingValue string) error {

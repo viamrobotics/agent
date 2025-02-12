@@ -83,7 +83,7 @@ func NewProvisioning(ctx context.Context, logger logging.Logger, updateConf *age
 	logger.Debugf("Provisioning Config: %+v", cfg)
 
 	btIdentifier := fmt.Sprintf("%s.%s.%s", cfg.Manufacturer, cfg.Model, cfg.FragmentID)
-	bluetoothWiFiProvisioner, err := btprov.NewBluetoothWiFiProvisioner(ctx, logger.AsZap(), btIdentifier)
+	bluetoothWiFiProvisioner, err := btprov.NewBluetoothWiFiProvisioner(ctx, logger, btIdentifier)
 	if err != nil {
 		logger.Error(errw.Wrap(err, "failed to initialize bluetooth provisioning"))
 	}

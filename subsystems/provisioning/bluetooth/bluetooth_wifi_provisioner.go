@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edaniels/golog"
 	"github.com/pkg/errors"
 	ble "github.com/viamrobotics/agent/subsystems/provisioning/bluetooth/bluetooth_low_energy"
 	"go.uber.org/multierr"
+	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
 )
 
@@ -84,7 +84,7 @@ func (bm *bluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context) (*cr
 }
 
 // NewBluetoothWiFiProvisioner returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
-func NewBluetoothWiFiProvisioner(ctx context.Context, logger golog.Logger, name string) (BluetoothWiFiProvisioner, error) {
+func NewBluetoothWiFiProvisioner(ctx context.Context, logger logging.Logger, name string) (BluetoothWiFiProvisioner, error) {
 	bleService, err := ble.NewLinuxBLEService(ctx, logger, name)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to set up bluetooth-low-energy peripheral (Linux)")

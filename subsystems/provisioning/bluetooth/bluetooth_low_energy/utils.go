@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edaniels/golog"
 	"github.com/godbus/dbus"
 	"github.com/pkg/errors"
+	"go.viam.com/rdk/logging"
 )
 
 const (
@@ -72,7 +72,7 @@ func getBlueZVersion() (float64, error) {
 }
 
 // validateSystem checks OS and BlueZ installation/version.
-func validateSystem(logger golog.Logger) error {
+func validateSystem(logger logging.Logger) error {
 	// 1. Validate OS
 	if err := checkOS(); err != nil {
 		return err
@@ -96,7 +96,7 @@ func validateSystem(logger golog.Logger) error {
 }
 
 // listenForPairing waits for an incoming BLE pairing request and automatically trusts the device.
-func listenForPairing(logger golog.Logger) error {
+func listenForPairing(logger logging.Logger) error {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return errors.WithMessage(err, "failed to connect to system DBus")
@@ -183,7 +183,7 @@ func listenForPairing(logger golog.Logger) error {
 }
 
 // trustDevice sets the device as trusted and connects to it.
-func trustDevice(logger golog.Logger, devicePath string) error {
+func trustDevice(logger logging.Logger, devicePath string) error {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return fmt.Errorf("failed to connect to DBus: %w", err)
