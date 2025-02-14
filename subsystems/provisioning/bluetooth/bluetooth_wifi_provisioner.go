@@ -43,7 +43,7 @@ type BluetoothWiFiProvisioner interface {
 	WaitForCredentials(ctx context.Context, requiresCloudCredentials bool, requiresWiFiCredentials bool) (*Credentials, error)
 }
 
-// linuxBluetoothWiFiProvisioner provides an interface for managing BLE (bluetooth-low-energy) peripheral advertisement on Linux.
+// bluetoothWiFiProvisioner provides an interface for managing BLE (bluetooth-low-energy) peripheral advertisement on Linux.
 type bluetoothWiFiProvisioner[T bluetoothService] struct {
 	svc T
 }
@@ -70,7 +70,7 @@ func (bwp *bluetoothWiFiProvisioner[T]) RefreshAvailableNetworks(ctx context.Con
 	return bwp.svc.writeAvailableNetworks(awns)
 }
 
-// WaitForCredentials returns credentials which represent the information required to provision a robot part and its WiFi.
+// WaitForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
 func (bwp *bluetoothWiFiProvisioner[T]) WaitForCredentials(ctx context.Context, requiresCloudCredentials bool, requiresWiFiCredentials bool) (*Credentials, error) {
 	if !requiresWiFiCredentials && !requiresCloudCredentials {
 		return nil, errors.New("should be waiting for either cloud credentials or WiFi credentials")

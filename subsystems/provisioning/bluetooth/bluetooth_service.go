@@ -11,10 +11,10 @@ type bluetoothService interface {
 	stopAdvertisingBLE() error
 	enableAutoAcceptPairRequest()
 
-	// Networks need to be written to (and thus readble from) a bluetooth service.
+	// Networks need to be written to a bluetooth service. Clients can then read this data.
 	writeAvailableNetworks(networks *AvailableWiFiNetworks) error
 
-	// Credentials need to be extracted from a bluetooth service (inputted by a client).
+	// Credentials that ae written by a client need to be extracted from a bluetooth service.
 	readSsid() (string, error)
 	readPsk() (string, error)
 	readRobotPartKeyID() (string, error)
