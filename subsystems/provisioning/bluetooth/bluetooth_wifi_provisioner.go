@@ -50,7 +50,11 @@ type bluetoothWiFiProvisioner[T bluetoothService] struct {
 
 // Start begins advertising a bluetooth service that acccepts WiFi and Viam cloud config credentials.
 func (bwp *bluetoothWiFiProvisioner[T]) Start(ctx context.Context) error {
-	return bwp.svc.startAdvertisingBLE(ctx)
+	if err := bwp.svc.startAdvertisingBLE(ctx); err != nil {
+		return err
+	}
+	bwp.svc.listenForPairingRequests()
+	return nil
 }
 
 // Stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.

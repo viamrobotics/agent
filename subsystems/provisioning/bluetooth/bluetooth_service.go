@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/godbus/dbus"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"go.viam.com/rdk/logging"
@@ -14,6 +15,7 @@ import (
 
 type bluetoothService interface {
 	startAdvertisingBLE(ctx context.Context) error
+	listenForPairingRequests()
 	stopAdvertisingBLE() error
 	writeAvailableNetworks(networks *AvailableWiFiNetworks) error
 	readSsid() (string, error)
@@ -158,6 +160,7 @@ func newLinuxBLEService(ctx context.Context, logger logging.Logger, name string)
 	// Read only channel used to listen for updates to the availableWiFiNetworks.
 	var availableWiFiNetworksChannelReadOnly <-chan *AvailableWiFiNetworks = availableWiFiNetworksChannel
 	utils.ManagedGo(func() {
+		defer close(availableWiFiNetworksChannel)
 		for {
 			if err := ctx.Err(); err != nil {
 				return
@@ -238,16 +241,109 @@ func (s *linuxBLEService) startAdvertisingBLE(ctx context.Context) error {
 	if err := s.adv.Start(); err != nil {
 		return errors.WithMessage(err, "failed to start advertising")
 	}
-	utils.ManagedGo(func() {
-		if err := listenForPairing(s.logger); err != nil {
-			s.logger.Errorw(
-				"failed to listen for pairing request (will have to manually accept pairing request on device)",
-				"err", err)
-		}
-	}, nil)
 	s.advActive = true
 	s.logger.Info("started advertising a BLE connection...")
 	return nil
+}
+
+// listenForPairing spins off an asynch goroutine which waits for an incoming BLE pairing request and automatically trusts the device.
+func (s *linuxBLEService) listenForPairingRequests() {
+	var err error
+	utils.ManagedGo(func() {
+		conn, err := dbus.SystemBus()
+		if err != nil {
+			err = errors.WithMessage(err, "failed to connect to system DBus")
+			return
+		}
+
+		// Export agent methods
+		reply := conn.Export(nil, BluezAgentPath, BluezAgent)
+		if reply != nil {
+			err = errors.WithMessage(reply, "failed to export Bluez agent")
+			return
+		}
+
+		// Register the agent
+		obj := conn.Object(BluezDBusService, "/org/bluez")
+		call := obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "NoInputNoOutput")
+		if err := call.Err; err != nil {
+			err = errors.WithMessage(err, "failed to register Bluez agent")
+			return
+		}
+
+		// Set as the default agent
+		call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
+		if err := call.Err; err != nil {
+			err = errors.WithMessage(err, "failed to set default Bluez agent")
+			return
+		}
+
+		s.logger.Info("Bluez agent registered!")
+
+		// Listen for properties changed events
+		signalChan := make(chan *dbus.Signal, 10)
+		conn.Signal(signalChan)
+
+		// Add a match rule to listen for DBus property changes
+		matchRule := "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'"
+		err = conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, matchRule).Err
+		if err != nil {
+			err = errors.WithMessage(err, "failed to add DBus match rule")
+			return
+		}
+
+		s.logger.Info("waiting for a BLE pairing request...")
+
+		for signal := range signalChan {
+			// Check if the signal is from a BlueZ device
+			if len(signal.Body) < 3 {
+				continue
+			}
+
+			iface, ok := signal.Body[0].(string)
+			if !ok || iface != "org.bluez.Device1" {
+				continue
+			}
+
+			// Check if the "Paired" property is in the event
+			changedProps, ok := signal.Body[1].(map[string]dbus.Variant)
+			if !ok {
+				continue
+			}
+
+			// TODO [APP-7613]: Pairing attempts from an iPhone connect first
+			// before pairing, so listen for a "Connected" event on the system
+			// D-Bus. This should be tested against Android.
+			connected, exists := changedProps["Connected"]
+			if !exists || connected.Value() != true {
+				continue
+			}
+
+			// Extract device path from the signal sender
+			devicePath := string(signal.Path)
+
+			// Convert DBus object path to MAC address
+			deviceMAC := convertDBusPathToMAC(devicePath)
+			if deviceMAC == "" {
+				continue
+			}
+
+			s.logger.Infof("device %s initiated pairing!", deviceMAC)
+
+			// Mark device as trusted
+			if err = trustDevice(s.logger, devicePath); err != nil {
+				err = errors.WithMessage(err, "failed to trust device")
+				return
+			} else {
+				s.logger.Info("device successfully trusted!")
+			}
+		}
+	}, nil)
+	if err != nil {
+		s.logger.Errorw(
+			"failed to listen for pairing request (will have to manually accept pairing request on device)",
+			"err", err)
+	}
 }
 
 // StopAdvertising stops advertising a BLE service.
