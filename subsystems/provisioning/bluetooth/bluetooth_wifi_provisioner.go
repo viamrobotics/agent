@@ -3,7 +3,6 @@ package bluetooth
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -18,7 +17,7 @@ import (
 type BluetoothWiFiProvisioner interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	RefreshAvailableWiFi(ctx context.Context, awns *AvailableWiFiNetworks) error
+	RefreshAvailableWiFi(ctx context.Context, awns *ble.AvailableWiFiNetworks) error
 	WaitForCloudCredentials(ctx context.Context) (*CloudCredentials, error)
 	WaitForWiFiCredentials(ctx context.Context) (*WiFiCredentials, error)
 }
@@ -33,20 +32,6 @@ type CloudCredentials struct {
 type WiFiCredentials struct {
 	Ssid string
 	Psk  string
-}
-
-// AvailableWiFiNetworks represent the information needed by the client to display WiFi networks that are accessible by the device.
-type AvailableWiFiNetworks struct {
-	Networks []*struct {
-		Ssid        string  `json:"ssid"`
-		Strength    float64 `json:"strength"` // Inclusive range [0.0, 1.0], represents the percentage strength of a WiFi network.
-		RequiresPsk bool    `json:"requires_psk"`
-	} `json:"networks"`
-}
-
-// ToBytes represents a list of available WiFi networks as bytes, which is essential for transmitting the information over bluetooth.
-func (awns *AvailableWiFiNetworks) ToBytes() ([]byte, error) {
-	return json.Marshal(awns)
 }
 
 // bluetoothWiFiProvisioner provides an interface for managing a BLE (bluetooth-low-energy) peripheral advertisement on Linux.

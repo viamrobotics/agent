@@ -11,6 +11,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sergeymakinen/go-systemdconf/v2 v2.0.2
 	github.com/ulikunitz/xz v0.5.12
+	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.357
 	go.viam.com/rdk v0.51.0
@@ -79,7 +80,6 @@ require (
 	go.mongodb.org/mongo-driver v1.17.1 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.28.0 // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/net v0.30.0 // indirect
