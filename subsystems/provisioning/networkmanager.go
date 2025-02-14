@@ -227,17 +227,17 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 
 			// This goroutine should outlive its surrounding goroutine and is meant to "listen" for credentials sent over bluetooth.
 			utils.ManagedGo(func() {
-				creds, err := w.bluetoothWiFiProvisioning.WaitForCredentials(ctx)
+				creds, err := w.bluetoothWiFiProvisioning.WaitForCredentials(ctx, true, true)
 				if err != nil {
 					// Not a real issue if the captive portal provisioning flow works instead.
 					bluetoothError = errw.Errorf("failed to get robot and WiFi credentials over bluetooth: %v", err)
 					return
 				}
 				inputChan <- userInput{
-					SSID:      creds.GetSSID(),
-					PSK:       creds.GetPsk(),
-					PartID:    creds.GetRobotPartKeyID(),
-					Secret:    creds.GetRobotPartKey(),
+					SSID:      creds.Ssid,
+					PSK:       creds.Psk,
+					PartID:    creds.RobotPartKeyID,
+					Secret:    creds.RobotPartKey,
 					AppAddr:   "https://app.viam.com:443",
 					RawConfig: "",
 				}
@@ -302,9 +302,8 @@ func (w *Provisioning) stopProvisioning() error {
 	w.bluetoothWiFiProvisioningMu.Lock()
 	if w.bluetoothWiFiProvisioningActive {
 		wg.Add(1)
-
 		utils.ManagedGo(func() {
-			if err := w.bluetoothWiFiProvisioning.Stop(context.Background()); err != nil {
+			if err := w.bluetoothWiFiProvisioning.Stop(); err != nil {
 				bluetoothError = err
 			}
 		}, wg.Done)
