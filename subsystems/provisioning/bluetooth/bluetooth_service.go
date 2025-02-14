@@ -9,9 +9,9 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-// BLEService represents an interface for managing a bluetooth-low-energy peripheral for reading WiFi and robot part credentials.
+// BluetoothService represents an interface for managing a bluetooth-low-energy peripheral for reading WiFi and robot part credentials.
 // It is the lowest-level interface, and its purpose is to abstract away operating-system and firmware specific differences on machines.
-type BLEService interface {
+type BluetoothService interface {
 	StartAdvertising(ctx context.Context) error
 	StopAdvertising() error
 	UpdateAvailableWiFiNetworks(awns *AvailableWiFiNetworks) error
@@ -29,45 +29,45 @@ type AvailableWiFiNetworks struct {
 	} `json:"networks"`
 }
 
-type linuxBLEService struct{}
+type linux struct{}
 
-func NewLinuxBLEService(ctx context.Context, logger logging.Logger, name string) (*linuxBLEService, error) {
+func NewLinuxBluetooth(ctx context.Context, logger logging.Logger, name string) (*linux, error) {
 	return nil, errors.New("TODO [APP-7644]")
 }
 
 // StartAdvertising begins advertising a BLE service.
-func (s *linuxBLEService) StartAdvertising(ctx context.Context) error {
+func (s *linux) StartAdvertising(ctx context.Context) error {
 	return errors.New("TODO [APP-7644]")
 }
 
 // StopAdvertising stops advertising a BLE service.
-func (s *linuxBLEService) StopAdvertising() error {
+func (s *linux) StopAdvertising() error {
 	return errors.New("TODO [APP-7644]")
 }
 
 // UpdateAvailableWiFiNetworks passes the (assumed) most recently available WiFi networks through a channel so that
 // they can be written to the BLE characteristic (and thus updated on paired devices which are "provisioning").
-func (s *linuxBLEService) UpdateAvailableWiFiNetworks(awns *AvailableWiFiNetworks) error {
+func (s *linux) UpdateAvailableWiFiNetworks(awns *AvailableWiFiNetworks) error {
 	return errors.New("TODO [APP-7644]")
 }
 
 // ReadSsid returns the written ssid value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) ReadSsid() (string, error) {
+func (s *linux) ReadSsid() (string, error) {
 	return "", errors.New("TODO [APP-7644]")
 }
 
 // ReadPsk returns the written psk value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) ReadPsk() (string, error) {
+func (s *linux) ReadPsk() (string, error) {
 	return "", errors.New("TODO [APP-7644]")
 }
 
 // ReadRobotPartKeyID returns the written robot part key ID value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) ReadRobotPartKeyID() (string, error) {
+func (s *linux) ReadRobotPartKeyID() (string, error) {
 	return "", errors.New("TODO [APP-7644]")
 }
 
 // ReadRobotPartKey returns the written robot part key value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) ReadRobotPartKey() (string, error) {
+func (s *linux) ReadRobotPartKey() (string, error) {
 	return "", errors.New("TODO [APP-7644]")
 }
 

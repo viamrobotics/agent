@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	ble "github.com/viamrobotics/agent/subsystems/provisioning/bluetooth/bluetooth_low_energy"
+	ble "github.com/viamrobotics/agent/subsystems/provisioning/bluetooth/bluetoothlowenergy"
 	"go.uber.org/multierr"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
@@ -36,17 +36,17 @@ type WiFiCredentials struct {
 
 // bluetoothWiFiProvisioner provides an interface for managing a BLE (bluetooth-low-energy) peripheral advertisement on Linux.
 type bluetoothWiFiProvisioner struct {
-	bleService ble.BLEService
+	bluetoothService ble.bluetoothService
 }
 
 // Start begins advertising a bluetooth service that acccepts WiFi and Viam cloud config credentials.
 func (bm *bluetoothWiFiProvisioner) Start(ctx context.Context) error {
-	return bm.bleService.StartAdvertising(ctx)
+	return bm.bluetoothService.StartAdvertising(ctx)
 }
 
 // Stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.
 func (bm *bluetoothWiFiProvisioner) Stop(ctx context.Context) error {
-	return bm.bleService.StopAdvertising()
+	return bm.bluetoothService.StopAdvertising()
 }
 
 // RefreshAvailableWiFi updates the list of networks that are advertised via bluetooth as available for connection.
@@ -63,13 +63,13 @@ func (bm *bluetoothWiFiProvisioner) WaitForCloudCredentials(ctx context.Context)
 	wg.Add(2)
 	utils.ManagedGo(
 		func() {
-			robotPartKeyID, robotPartKeyIDErr = waitForBLEValue(ctx, bm.bleService.ReadRobotPartKeyID, "robot part key ID")
+			robotPartKeyID, robotPartKeyIDErr = waitForBLEValue(ctx, bm.bluetoothService.ReadRobotPartKeyID, "robot part key ID")
 		},
 		wg.Done,
 	)
 	utils.ManagedGo(
 		func() {
-			robotPartKey, robotPartKeyErr = waitForBLEValue(ctx, bm.bleService.ReadRobotPartKey, "robot part key")
+			robotPartKey, robotPartKeyErr = waitForBLEValue(ctx, bm.bluetoothService.ReadRobotPartKey, "robot part key")
 		},
 		wg.Done,
 	)
@@ -87,13 +87,13 @@ func (bm *bluetoothWiFiProvisioner) WaitForWiFiCredentials(ctx context.Context) 
 	wg.Add(2)
 	utils.ManagedGo(
 		func() {
-			ssid, ssidErr = waitForBLEValue(ctx, bm.bleService.ReadSsid, "ssid")
+			ssid, ssidErr = waitForBLEValue(ctx, bm.bluetoothService.ReadSsid, "ssid")
 		},
 		wg.Done,
 	)
 	utils.ManagedGo(
 		func() {
-			psk, pskErr = waitForBLEValue(ctx, bm.bleService.ReadPsk, "psk")
+			psk, pskErr = waitForBLEValue(ctx, bm.bluetoothService.ReadPsk, "psk")
 		},
 		wg.Done,
 	)
@@ -129,10 +129,6 @@ func waitForBLEValue(
 }
 
 // NewBluetoothWiFiProvisioner returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
-func NewBluetoothWiFiProvisioner(ctx context.Context, logger logging.Logger, name string) (BluetoothWiFiProvisioner, error) {
-	bleService, err := ble.NewLinuxBLEService(ctx, logger, name)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to set up bluetooth-low-energy peripheral (Linux)")
-	}
-	return &bluetoothWiFiProvisioner{bleService: bleService}, nil
+func NewBluetoothWiFiProvisioner[T ble.bluetoothService](ctx context.Context, logger logging.Logger, name string, bluetoothService T) (BluetoothWiFiProvisioner, error) {
+	return &bluetoothWiFiProvisioner{bluetoothService: bluetoothService}, nil
 }
