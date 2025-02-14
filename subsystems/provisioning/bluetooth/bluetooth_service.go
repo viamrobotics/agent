@@ -14,7 +14,7 @@ type bluetoothService interface {
 	// Available WiFi networks need to be written to a bluetooth service. Clients read from this inputted data.
 	writeAvailableNetworks(networks *AvailableWiFiNetworks) error
 
-	// Credentials that ae written by a client need to be extracted from a bluetooth service.
+	// Credentials that are written by a client need to be extracted from a bluetooth service.
 	readSsid() (string, error)
 	readPsk() (string, error)
 	readRobotPartKeyID() (string, error)
