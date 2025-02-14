@@ -15,16 +15,21 @@ import (
 
 type bluetoothService interface {
 	startAdvertisingBLE(ctx context.Context) error
-	listenForPairingRequests()
 	stopAdvertisingBLE() error
+	enableAutoAcceptPairRequest()
+
+	// Networks need to be written to (and thus readble from) a bluetooth service.
 	writeAvailableNetworks(networks *AvailableWiFiNetworks) error
+
+	// Credentials need to be extracted from a bluetooth service (inputted by a client).
 	readSsid() (string, error)
 	readPsk() (string, error)
 	readRobotPartKeyID() (string, error)
 	readRobotPartKey() (string, error)
 }
 
-type linuxBLECharacteristic[T any] struct {
+// linuxBluetoothCharacteristic is used to read and write values to a bluetooh peripheral.
+type linuxBluetoothCharacteristic[T any] struct {
 	UUID   bluetooth.UUID
 	mu     *sync.Mutex
 	active bool // Currently non-functional, but should be used to make characteristics optional.
@@ -32,7 +37,8 @@ type linuxBLECharacteristic[T any] struct {
 	currentValue T
 }
 
-type linuxBLEService struct {
+// linuxBluetoothService represents the linux implementation of a bluetooth service for provisioning.
+type linuxBluetoothService struct {
 	logger logging.Logger
 	mu     *sync.Mutex
 
@@ -42,15 +48,15 @@ type linuxBLEService struct {
 
 	availableWiFiNetworksChannelWriteOnly chan<- *AvailableWiFiNetworks
 
-	characteristicSsid           *linuxBLECharacteristic[*string]
-	characteristicPsk            *linuxBLECharacteristic[*string]
-	characteristicRobotPartKeyID *linuxBLECharacteristic[*string]
-	characteristicRobotPartKey   *linuxBLECharacteristic[*string]
+	characteristicSsid           *linuxBluetoothCharacteristic[*string]
+	characteristicPsk            *linuxBluetoothCharacteristic[*string]
+	characteristicRobotPartKeyID *linuxBluetoothCharacteristic[*string]
+	characteristicRobotPartKey   *linuxBluetoothCharacteristic[*string]
 }
 
-// NewLinuxBLEService returns a bluetooth-low-energy service that advertises writeable characteristics for WiFi and robot part credentials,
+// NewlinuxBluetoothService returns a bluetooth-low-energy service that advertises writeable characteristics for WiFi and robot part credentials,
 // and a separate readable characteristic for the most recently available WiFi networks near the unprovisioned device.
-func newLinuxBLEService(ctx context.Context, logger logging.Logger, name string) (bluetoothService, error) {
+func newlinuxBluetoothService(ctx context.Context, logger logging.Logger, name string) (bluetoothService, error) {
 	if err := validateSystem(logger); err != nil {
 		return nil, errors.WithMessage(err, "cannot initialize bluetooth peripheral, system requisites not met")
 	}
@@ -74,25 +80,25 @@ func newLinuxBLEService(ctx context.Context, logger logging.Logger, name string)
 	logger.Infof("charAvailableWiFiNetworksUUID: %s", charAvailableWiFiNetworksUUID.String())
 
 	// Create abstracted characteristics which act as a buffer for reading data from bluetooth.
-	charSsid := &linuxBLECharacteristic[*string]{
+	charSsid := &linuxBluetoothCharacteristic[*string]{
 		UUID:         charSsidUUID,
 		mu:           &sync.Mutex{},
 		active:       true,
 		currentValue: nil,
 	}
-	charPsk := &linuxBLECharacteristic[*string]{
+	charPsk := &linuxBluetoothCharacteristic[*string]{
 		UUID:         charPskUUID,
 		mu:           &sync.Mutex{},
 		active:       true,
 		currentValue: nil,
 	}
-	charRobotPartKeyID := &linuxBLECharacteristic[*string]{
+	charRobotPartKeyID := &linuxBluetoothCharacteristic[*string]{
 		UUID:         charRobotPartKeyIDUUID,
 		mu:           &sync.Mutex{},
 		active:       true,
 		currentValue: nil,
 	}
-	charRobotPartKey := &linuxBLECharacteristic[*string]{
+	charRobotPartKey := &linuxBluetoothCharacteristic[*string]{
 		UUID:         charRobotPartKeyUUID,
 		mu:           &sync.Mutex{},
 		active:       true,
@@ -210,7 +216,7 @@ func newLinuxBLEService(ctx context.Context, logger logging.Logger, name string)
 	); err != nil {
 		return nil, errors.WithMessage(err, "failed to configure default advertisement")
 	}
-	return &linuxBLEService{
+	return &linuxBluetoothService{
 		logger: logger,
 		mu:     &sync.Mutex{},
 
@@ -228,7 +234,7 @@ func newLinuxBLEService(ctx context.Context, logger logging.Logger, name string)
 }
 
 // StartAdvertising begins advertising a BLE service.
-func (s *linuxBLEService) startAdvertisingBLE(ctx context.Context) error {
+func (s *linuxBluetoothService) startAdvertisingBLE(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -247,7 +253,7 @@ func (s *linuxBLEService) startAdvertisingBLE(ctx context.Context) error {
 }
 
 // listenForPairing spins off an asynch goroutine which waits for an incoming BLE pairing request and automatically trusts the device.
-func (s *linuxBLEService) listenForPairingRequests() {
+func (s *linuxBluetoothService) enableAutoAcceptPairRequest() {
 	var err error
 	utils.ManagedGo(func() {
 		conn, err := dbus.SystemBus()
@@ -347,7 +353,7 @@ func (s *linuxBLEService) listenForPairingRequests() {
 }
 
 // StopAdvertising stops advertising a BLE service.
-func (s *linuxBLEService) stopAdvertisingBLE() error {
+func (s *linuxBluetoothService) stopAdvertisingBLE() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -366,13 +372,13 @@ func (s *linuxBLEService) stopAdvertisingBLE() error {
 }
 
 // writeAvailableWiFiNetworks passes WiFi networks which are accessible to the device over bluetooth.
-func (s *linuxBLEService) writeAvailableNetworks(awns *AvailableWiFiNetworks) error {
+func (s *linuxBluetoothService) writeAvailableNetworks(awns *AvailableWiFiNetworks) error {
 	s.availableWiFiNetworksChannelWriteOnly <- awns
 	return nil
 }
 
 // readSsid returns the written ssid value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) readSsid() (string, error) {
+func (s *linuxBluetoothService) readSsid() (string, error) {
 	if s.characteristicSsid == nil {
 		return "", errors.New("characteristic ssid is nil")
 	}
@@ -390,7 +396,7 @@ func (s *linuxBLEService) readSsid() (string, error) {
 }
 
 // readPsk returns the written psk value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) readPsk() (string, error) {
+func (s *linuxBluetoothService) readPsk() (string, error) {
 	if s.characteristicPsk == nil {
 		return "", errors.New("characteristic psk is nil")
 	}
@@ -408,7 +414,7 @@ func (s *linuxBLEService) readPsk() (string, error) {
 }
 
 // readRobotPartKeyID returns the written robot part key ID value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) readRobotPartKeyID() (string, error) {
+func (s *linuxBluetoothService) readRobotPartKeyID() (string, error) {
 	if s.characteristicRobotPartKeyID == nil {
 		return "", errors.New("characteristic robot part key ID is nil")
 	}
@@ -426,7 +432,7 @@ func (s *linuxBLEService) readRobotPartKeyID() (string, error) {
 }
 
 // readRobotPartKey returns the written robot part key value or raises an EmptyBluetoothCharacteristicError error.
-func (s *linuxBLEService) readRobotPartKey() (string, error) {
+func (s *linuxBluetoothService) readRobotPartKey() (string, error) {
 	if s.characteristicRobotPartKey == nil {
 		return "", errors.New("characteristic robot part key is nil")
 	}

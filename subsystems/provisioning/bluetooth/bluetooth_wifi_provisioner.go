@@ -53,7 +53,7 @@ func (bwp *bluetoothWiFiProvisioner[T]) Start(ctx context.Context) error {
 	if err := bwp.svc.startAdvertisingBLE(ctx); err != nil {
 		return err
 	}
-	bwp.svc.listenForPairingRequests()
+	bwp.svc.enableAutoAcceptPairRequest() // Enables auto-accept of pair request on this device.
 	return nil
 }
 
