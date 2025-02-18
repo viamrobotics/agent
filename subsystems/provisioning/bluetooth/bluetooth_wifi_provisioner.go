@@ -7,7 +7,9 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/pkg/errors"
+	"errors"
+
+	errw "github.com/pkg/errors"
 	"go.uber.org/multierr"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
@@ -42,7 +44,7 @@ func (bwp *BluetoothWiFiProvisioner) Start(ctx context.Context) error {
 	if err := bwp.startAdvertisingBLE(ctx); err != nil {
 		return err
 	}
-	bwp.enableAutoAcceptPairRequest() // Enables auto-accept of pair request on this device.
+	bwp.enableAutoAcceptPairRequest() // Async goroutine (hence no error check) which auto-accepts pair requests on this device.
 	return nil
 }
 
@@ -145,6 +147,6 @@ func NewBluetoothWiFiProvisioner(ctx context.Context, logger logging.Logger, nam
 	case "darwin":
 		fallthrough
 	default:
-		return nil, errors.Errorf("failed to set up bluetooth-low-energy peripheral, %s is not yet supported", os)
+		return nil, errw.Errorf("failed to set up bluetooth-low-energy peripheral, %s is not yet supported", os)
 	}
 }
