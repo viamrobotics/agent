@@ -36,7 +36,7 @@ func (awns *AvailableWiFiNetworks) ToBytes() ([]byte, error) {
 	return json.Marshal(awns)
 }
 
-// bluetoothWiFiProvisioner provides an interface for managing BLE (bluetooth-low-energy) peripheral advertisement on Linux.
+// BluetoothWiFiProvisioner provides an interface for managing BLE (bluetooth-low-energy) peripheral advertisement on Linux.
 type BluetoothWiFiProvisioner struct{}
 
 // Start begins advertising a bluetooth service that acccepts WiFi and Viam cloud config credentials.
