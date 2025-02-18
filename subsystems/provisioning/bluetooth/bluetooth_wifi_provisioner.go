@@ -173,19 +173,71 @@ func (bwp *BluetoothWiFiProvisioner) writeAvailableNetworks(ctx context.Context,
 }
 
 func (bwp *BluetoothWiFiProvisioner) readSsid() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	if bwp.characteristicSsid == nil {
+		return "", errors.New("characteristic ssid is nil")
+	}
+
+	bwp.characteristicSsid.mu.Lock()
+	defer bwp.characteristicSsid.mu.Unlock()
+
+	if !bwp.characteristicSsid.active {
+		return "", errors.New("characteristic ssid is inactive")
+	}
+	if bwp.characteristicSsid.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("ssid")
+	}
+	return *bwp.characteristicSsid.currentValue, nil
 }
 
 func (bwp *BluetoothWiFiProvisioner) readPsk() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	if bwp.characteristicPsk == nil {
+		return "", errors.New("characteristic psk is nil")
+	}
+
+	bwp.characteristicPsk.mu.Lock()
+	defer bwp.characteristicPsk.mu.Unlock()
+
+	if !bwp.characteristicPsk.active {
+		return "", errors.New("characteristic psk is inactive")
+	}
+	if bwp.characteristicPsk.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("psk")
+	}
+	return *bwp.characteristicPsk.currentValue, nil
 }
 
 func (bwp *BluetoothWiFiProvisioner) readRobotPartKeyID() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	if bwp.characteristicRobotPartKeyID == nil {
+		return "", errors.New("characteristic robot part key ID is nil")
+	}
+
+	bwp.characteristicRobotPartKeyID.mu.Lock()
+	defer bwp.characteristicRobotPartKeyID.mu.Unlock()
+
+	if !bwp.characteristicRobotPartKeyID.active {
+		return "", errors.New("characteristic robot part key ID is inactive")
+	}
+	if bwp.characteristicRobotPartKeyID.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("robot part key ID")
+	}
+	return *bwp.characteristicRobotPartKeyID.currentValue, nil
 }
 
 func (bwp *BluetoothWiFiProvisioner) readRobotPartKey() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	if bwp.characteristicRobotPartKey == nil {
+		return "", errors.New("characteristic robot part key is nil")
+	}
+
+	bwp.characteristicRobotPartKey.mu.Lock()
+	defer bwp.characteristicRobotPartKey.mu.Unlock()
+
+	if !bwp.characteristicRobotPartKey.active {
+		return "", errors.New("characteristic robot part key is inactive")
+	}
+	if bwp.characteristicRobotPartKey.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("robot part key")
+	}
+	return *bwp.characteristicRobotPartKey.currentValue, nil
 }
 
 // NewBluetoothWiFiProvisioner returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
