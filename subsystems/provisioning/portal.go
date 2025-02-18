@@ -29,10 +29,10 @@ type templateData struct {
 //go:embed templates/*
 var templates embed.FS
 
-func (w *Provisioning) startPortal(inputChan chan<- userInput) error {
+func (w *Provisioning) startPortal(inputChan chan<- UserInput) error {
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
-	w.portalData = &portalData{input: &userInput{}, inputChan: inputChan}
+	w.portalData = &portalData{input: &UserInput{}, inputChan: inputChan}
 
 	if err := w.startGRPC(); err != nil {
 		return errw.Wrap(err, "starting GRPC service")
@@ -87,7 +87,7 @@ func (w *Provisioning) stopPortal() error {
 		w.portalData.cancel()
 	}
 	w.portalData.workers.Wait()
-	w.portalData = &portalData{input: &userInput{}}
+	w.portalData = &portalData{input: &UserInput{}}
 
 	return err
 }

@@ -161,7 +161,7 @@ func (w *Provisioning) checkConnections() error {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- UserInput) error {
 	if w.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
@@ -575,7 +575,7 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 	defer w.monitorWorkers.Done()
 
 	scanChan := make(chan bool, 16)
-	inputChan := make(chan userInput, 1)
+	inputChan := make(chan UserInput, 1)
 
 	w.monitorWorkers.Add(1)
 	go w.backgroundLoop(ctx, scanChan)
@@ -586,10 +586,10 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case userInput := <-inputChan:
-			if userInput.RawConfig != "" || userInput.PartID != "" {
+		case UserInput := <-inputChan:
+			if UserInput.RawConfig != "" || UserInput.PartID != "" {
 				w.logger.Info("Device config received")
-				err := WriteDeviceConfig(w.AppCfgPath, userInput)
+				err := WriteDeviceConfig(w.AppCfgPath, UserInput)
 				if err != nil {
 					w.errors.Add(err)
 					w.logger.Error(err)
@@ -601,16 +601,16 @@ func (w *Provisioning) mainLoop(ctx context.Context) {
 
 			var newSSID string
 			var changesMade bool
-			if userInput.SSID != "" {
-				w.logger.Infof("Wifi settings received for %s", userInput.SSID)
+			if UserInput.SSID != "" {
+				w.logger.Infof("Wifi settings received for %s", UserInput.SSID)
 				priority := int32(999)
 				if w.cfg.RoamingMode {
 					priority = 100
 				}
 				cfg := NetworkConfig{
 					Type:     NetworkTypeWifi,
-					SSID:     userInput.SSID,
-					PSK:      userInput.PSK,
+					SSID:     UserInput.SSID,
+					PSK:      UserInput.PSK,
 					Priority: priority,
 				}
 				var err error

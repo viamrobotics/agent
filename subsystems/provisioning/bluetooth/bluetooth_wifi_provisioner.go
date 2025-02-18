@@ -4,13 +4,12 @@ package ble
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"runtime"
 	"sync"
 
 	"errors"
 
-	errw "github.com/pkg/errors"
-	"go.uber.org/multierr"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
 )
@@ -66,7 +65,7 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(
 	defer cancel()
 
 	if !requiresWiFiCredentials && !requiresCloudCredentials {
-		return nil, errors.New("should be waiting for either cloud credentials or WiFi credentials")
+		return nil, errors.New("should be waiting for cloud credentials or WiFi credentials, or both")
 	}
 	var ssid, psk, robotPartKeyID, robotPartKey string
 	var ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr error
@@ -121,51 +120,59 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(
 	wg.Wait()
 	return &Credentials{
 		Ssid: ssid, Psk: psk, RobotPartKeyID: robotPartKeyID, RobotPartKey: robotPartKey,
-	}, multierr.Combine(ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr)
+	}, errors.Join(ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr)
 }
 
 /** Unexported helper methods for low-level system calls and read/write requests to/from bluetooth characteristics **/
 
 func (bwp *BluetoothWiFiProvisioner) startAdvertisingBLE(ctx context.Context) error {
-	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	return errors.New("TODO APP-7651: Implement helper methods to start/stop advertising BLE connection")
 }
 
 func (bwp *BluetoothWiFiProvisioner) stopAdvertisingBLE() error {
-	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	return errors.New("TODO APP-7651: Implement helper methods to start/stop advertising BLE connection")
 }
 
-func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {}
+func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {
+	// TODO APP-7655: Implement method to auto-accept pairing requests to the BLE peripheral.
+}
 
 func (bwp *BluetoothWiFiProvisioner) writeAvailableNetworks(ctx context.Context, networks *AvailableWiFiNetworks) error {
-	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	return errors.New("TODO APP-7652: Implement helper method to write update WiFi networks to BLE peripheral characteristic")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readSsid() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
+		" values from BLE peripheral characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readPsk() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
+		" values from BLE peripheral characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readRobotPartKeyID() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
+		" values from BLE peripheral characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readRobotPartKey() (string, error) {
-	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
+		" values from BLE peripheral characteristics")
 }
 
 // NewBluetoothWiFiProvisioner returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
 func NewBluetoothWiFiProvisioner(ctx context.Context, logger logging.Logger, name string) (*BluetoothWiFiProvisioner, error) {
 	switch os := runtime.GOOS; os {
 	case "linux":
+		// TODO APP-7654: Implement initializer function for creating a BLE peripheral with the required set of characteristics for BLE
+		// to WiFi provisioning.
 		fallthrough
 	case "windows":
 		fallthrough
 	case "darwin":
 		fallthrough
 	default:
-		return nil, errw.Errorf("failed to set up bluetooth-low-energy peripheral, %s is not yet supported", os)
+		return nil, fmt.Errorf("failed to set up bluetooth-low-energy peripheral, %s is not yet supported", os)
 	}
 }
