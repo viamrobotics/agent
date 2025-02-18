@@ -59,7 +59,9 @@ func (bwp *BluetoothWiFiProvisioner) RefreshAvailableNetworks(ctx context.Contex
 }
 
 // WaitForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
-func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, requiresCloudCredentials bool, requiresWiFiCredentials bool) (*Credentials, error) {
+func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(
+	ctx context.Context, requiresCloudCredentials bool, requiresWiFiCredentials bool,
+) (*Credentials, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -73,8 +75,8 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 		wg.Add(2)
 		utils.ManagedGo(
 			func() {
-				if ssid, ssidErr = retryCallbackOnEmptyCharacteristicError(
-					ctx, bwp.readSsid, "ssid",
+				if ssid, ssidErr = retryCallbackOnExpectedError(
+					ctx, bwp.readSsid, &emptyBluetoothCharacteristicError{}, "failed to read ssid",
 				); ssidErr != nil {
 					cancel()
 				}
@@ -83,8 +85,8 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 		)
 		utils.ManagedGo(
 			func() {
-				if psk, pskErr = retryCallbackOnEmptyCharacteristicError(
-					ctx, bwp.readPsk, "psk",
+				if psk, pskErr = retryCallbackOnExpectedError(
+					ctx, bwp.readPsk, &emptyBluetoothCharacteristicError{}, "failed to read psk",
 				); pskErr != nil {
 					cancel()
 				}
@@ -97,8 +99,8 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 		wg.Add(2)
 		utils.ManagedGo(
 			func() {
-				if robotPartKeyID, robotPartKeyIDErr = retryCallbackOnEmptyCharacteristicError(
-					ctx, bwp.readRobotPartKeyID, "robot part key ID",
+				if robotPartKeyID, robotPartKeyIDErr = retryCallbackOnExpectedError(
+					ctx, bwp.readRobotPartKeyID, &emptyBluetoothCharacteristicError{}, "failed to read robot part key ID",
 				); robotPartKeyIDErr != nil {
 					cancel()
 				}
@@ -107,8 +109,8 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 		)
 		utils.ManagedGo(
 			func() {
-				if robotPartKey, robotPartKeyErr = retryCallbackOnEmptyCharacteristicError(
-					ctx, bwp.readRobotPartKey, "robot part key",
+				if robotPartKey, robotPartKeyErr = retryCallbackOnExpectedError(
+					ctx, bwp.readRobotPartKey, &emptyBluetoothCharacteristicError{}, "failed to read robot part key",
 				); robotPartKeyErr != nil {
 					cancel()
 				}

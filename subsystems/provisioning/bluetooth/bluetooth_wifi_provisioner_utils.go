@@ -17,9 +17,9 @@ func (e *emptyBluetoothCharacteristicError) Error() string {
 	return fmt.Sprintf("no value has been written to BLE characteristic for %s", e.missingValue)
 }
 
-// retryCallbackOnEmptyCharacteristicError retries the provided callback to at one second intervals as long as an expected error is thrown.
-func retryCallbackOnEmptyCharacteristicError(
-	ctx context.Context, fn func() (string, error), description string,
+// retryCallbackOnExpectedError retries the provided callback to at one second intervals as long as an expected error is thrown.
+func retryCallbackOnExpectedError(
+	ctx context.Context, fn func() (string, error), expectedErr error, description string,
 ) (string, error) {
 	for {
 		if ctx.Err() != nil {
@@ -33,11 +33,10 @@ func retryCallbackOnEmptyCharacteristicError(
 		}
 		v, err := fn()
 		if err != nil {
-			var errBLECharNoValue *emptyBluetoothCharacteristicError
-			if errors.As(err, &errBLECharNoValue) {
+			if errors.As(err, &expectedErr) {
 				continue
 			}
-			return "", errors.WithMessagef(err, "failed to read %s", description)
+			return "", errors.WithMessagef(err, "%s", description)
 		}
 		return v, nil
 	}
