@@ -75,32 +75,32 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 	}
 }
 
-func (w *Networking) getNM() (gnm.NetworkManager, error) {
+func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
-		w.noNM = true
-		w.logger.Error(err)
+		n.noNM = true
+		n.logger.Error(err)
 		return nil, ErrNM
 	}
 
 	ver, err := nm.GetPropertyVersion()
 	if err != nil {
-		w.noNM = true
-		w.logger.Error(err)
+		n.noNM = true
+		n.logger.Error(err)
 		return nil, ErrNM
 	}
 
-	w.logger.Infof("Found NetworkManager version: %s", ver)
+	n.logger.Infof("Found NetworkManager version: %s", ver)
 
 	sv, err := semver.NewVersion(ver)
 	if err != nil {
-		w.noNM = true
-		w.logger.Error(err)
+		n.noNM = true
+		n.logger.Error(err)
 		return nil, ErrNM
 	}
 
 	if !sv.GreaterThanEqual(semver.MustParse("1.30.0")) {
-		w.noNM = true
+		n.noNM = true
 		return nil, ErrNM
 	}
 
@@ -109,13 +109,13 @@ func (w *Networking) getNM() (gnm.NetworkManager, error) {
 	if sv.GreaterThanEqual(semver.MustParse("1.38.0")) {
 		flags, err := nm.GetPropertyRadioFlags()
 		if err != nil {
-			w.noNM = true
-			w.logger.Error(err)
+			n.noNM = true
+			n.logger.Error(err)
 			return nil, ErrNoWifi
 		}
 
 		if flags&gnm.NmRadioFlagsWlanAvailable != gnm.NmRadioFlagsWlanAvailable {
-			w.noNM = true
+			n.noNM = true
 			return nil, ErrNoWifi
 		}
 	}
@@ -123,11 +123,11 @@ func (w *Networking) getNM() (gnm.NetworkManager, error) {
 	return nm, nil
 }
 
-func (w *Networking) init(ctx context.Context) error {
-	w.mainLoopHealth.MarkGood()
-	w.bgLoopHealth.MarkGood()
+func (n *Networking) init(ctx context.Context) error {
+	n.mainLoopHealth.MarkGood()
+	n.bgLoopHealth.MarkGood()
 
-	nm, err := w.getNM()
+	nm, err := n.getNM()
 	if err != nil {
 		return err
 	}
@@ -137,60 +137,60 @@ func (w *Networking) init(ctx context.Context) error {
 		return err
 	}
 
-	w.nm = nm
-	w.settings = settings
+	n.nm = nm
+	n.settings = settings
 
-	w.netState.SetHotspotInterface(w.cfg.HotspotInterface)
+	n.netState.SetHotspotInterface(n.cfg.HotspotInterface)
 
-	if err := w.writeDNSMasq(); err != nil {
+	if err := n.writeDNSMasq(); err != nil {
 		return errw.Wrap(err, "writing dnsmasq configuration")
 	}
 
-	if err := w.testConnCheck(); err != nil {
+	if err := n.testConnCheck(); err != nil {
 		return err
 	}
 
-	if err := w.enableWifi(ctx); err != nil {
+	if err := n.enableWifi(ctx); err != nil {
 		return err
 	}
 
-	if err := w.initDevices(); err != nil {
+	if err := n.initDevices(); err != nil {
 		if errors.Is(err, ErrNoWifi) {
-			w.noNM = true
+			n.noNM = true
 		}
 		return err
 	}
 
-	w.checkConfigured()
-	if err := w.networkScan(ctx); err != nil {
-		w.logger.Error(err)
+	n.checkConfigured()
+	if err := n.networkScan(ctx); err != nil {
+		n.logger.Error(err)
 	}
-	if err := w.updateKnownConnections(ctx); err != nil {
-		w.logger.Error(err)
+	if err := n.updateKnownConnections(ctx); err != nil {
+		n.logger.Error(err)
 	}
 
-	w.warnIfMultiplePrimaryNetworks()
+	n.warnIfMultiplePrimaryNetworks()
 
-	if w.cfg.TurnOnHotspotIfWifiHasNoInternet {
-		w.logger.Info("Wifi internet checking enabled. Will try all connections for global internet connectivity.")
+	if n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+		n.logger.Info("Wifi internet checking enabled. Will try all connections for global internet connectivity.")
 	} else {
-		primarySSID := w.netState.PrimarySSID(w.Config().HotspotInterface)
-		w.logger.Infof("Internet checks disabled. Will directly connect to primary network: %s", primarySSID)
+		primarySSID := n.netState.PrimarySSID(n.Config().HotspotInterface)
+		n.logger.Infof("Internet checks disabled. Will directly connect to primary network: %s", primarySSID)
 		if primarySSID == "" {
-			w.logger.Warnf("cannot find primary SSID for %s", w.Config().HotspotInterface)
+			n.logger.Warnf("cannot find primary SSID for %s", n.Config().HotspotInterface)
 		}
 	}
 
-	if err := w.checkConnections(); err != nil {
-		w.logger.Error(err)
+	if err := n.checkConnections(); err != nil {
+		n.logger.Error(err)
 	}
 
 	// Is there a configured wifi network? If so, set last times to now so we use normal timeouts.
 	// Otherwise, hotspot will start immediately if not connected, while wifi network might still be booting.
-	for _, nw := range w.netState.Networks() {
-		if nw.conn != nil && nw.netType == NetworkTypeWifi && (nw.interfaceName == "" || nw.interfaceName == w.Config().HotspotInterface) {
-			w.connState.lastConnected = time.Now()
-			w.connState.lastOnline = time.Now()
+	for _, nw := range n.netState.Networks() {
+		if nw.conn != nil && nw.netType == NetworkTypeWifi && (nw.interfaceName == "" || nw.interfaceName == n.Config().HotspotInterface) {
+			n.connState.lastConnected = time.Now()
+			n.connState.lastOnline = time.Now()
 			break
 		}
 	}
@@ -198,149 +198,149 @@ func (w *Networking) init(ctx context.Context) error {
 	return nil
 }
 
-func (w *Networking) Start(ctx context.Context) error {
-	w.opMu.Lock()
-	defer w.opMu.Unlock()
-	if w.running {
+func (n *Networking) Start(ctx context.Context) error {
+	n.opMu.Lock()
+	defer n.opMu.Unlock()
+	if n.running {
 		return nil
 	}
-	w.logger.Debugf("Starting networking")
+	n.logger.Debugf("Starting networking")
 
-	if w.nm == nil || w.settings == nil {
-		if err := w.init(ctx); err != nil {
+	if n.nm == nil || n.settings == nil {
+		if err := n.init(ctx); err != nil {
 			return err
 		}
 	}
 
-	if err := w.writeWifiPowerSave(ctx); err != nil {
-		w.logger.Error(errw.Wrap(err, "applying wifi power save configuration"))
+	if err := n.writeWifiPowerSave(ctx); err != nil {
+		n.logger.Error(errw.Wrap(err, "applying wifi power save configuration"))
 	}
 
-	w.processAdditionalnetworks(ctx)
+	n.processAdditionalnetworks(ctx)
 
-	if err := w.checkOnline(true); err != nil {
-		w.logger.Error(err)
+	if err := n.checkOnline(true); err != nil {
+		n.logger.Error(err)
 	}
 
 	cancelCtx, cancel := context.WithCancel(ctx)
-	w.cancel = cancel
+	n.cancel = cancel
 
 	// This will loop indefinitely until context cancellation or serious error
-	w.monitorWorkers.Add(1)
-	go w.mainLoop(cancelCtx)
+	n.monitorWorkers.Add(1)
+	go n.mainLoop(cancelCtx)
 
-	w.logger.Info("networking startup complete")
-	w.running = true
+	n.logger.Info("networking startup complete")
+	n.running = true
 	return nil
 }
 
-func (w *Networking) Stop(ctx context.Context) error {
-	w.opMu.Lock()
-	defer w.opMu.Unlock()
-	if !w.running {
+func (n *Networking) Stop(ctx context.Context) error {
+	n.opMu.Lock()
+	defer n.opMu.Unlock()
+	if !n.running {
 		return nil
 	}
 
-	w.logger.Infof("%s subsystem exiting", SubsysName)
-	if w.connState.getProvisioning() {
-		err := w.stopProvisioning()
+	n.logger.Infof("%s subsystem exiting", SubsysName)
+	if n.connState.getProvisioning() {
+		err := n.stopProvisioning()
 		if err != nil {
-			w.logger.Error(err)
+			n.logger.Error(err)
 		}
 	}
-	if w.cancel != nil {
-		w.cancel()
+	if n.cancel != nil {
+		n.cancel()
 	}
-	w.monitorWorkers.Wait()
-	w.running = false
+	n.monitorWorkers.Wait()
+	n.running = false
 	return nil
 }
 
 // Update validates and/or updates a subsystem, returns true if subsystem should be restarted.
-func (w *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
-	w.opMu.Lock()
-	defer w.opMu.Unlock()
+func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
+	n.opMu.Lock()
+	defer n.opMu.Unlock()
 
-	if w.noNM {
+	if n.noNM {
 		return needRestart
 	}
 
-	if w.nm == nil || w.settings == nil {
-		if err := w.init(ctx); err != nil {
-			w.logger.Error(err)
+	if n.nm == nil || n.settings == nil {
+		if err := n.init(ctx); err != nil {
+			n.logger.Error(err)
 			return needRestart
 		}
 	}
 
 	if cfg.NetworkConfiguration.HotspotInterface == "" {
-		cfg.NetworkConfiguration.HotspotInterface = w.Config().HotspotInterface
+		cfg.NetworkConfiguration.HotspotInterface = n.Config().HotspotInterface
 	}
-	w.netState.SetHotspotInterface(cfg.NetworkConfiguration.HotspotInterface)
+	n.netState.SetHotspotInterface(cfg.NetworkConfiguration.HotspotInterface)
 
-	if reflect.DeepEqual(cfg.NetworkConfiguration, w.cfg) && reflect.DeepEqual(cfg.AdditionalNetworks, w.nets) {
+	if reflect.DeepEqual(cfg.NetworkConfiguration, n.cfg) && reflect.DeepEqual(cfg.AdditionalNetworks, n.nets) {
 		return needRestart
 	}
 
 	needRestart = true
-	w.logger.Debugf("Updated config differs from previous. Previous: %+v New: %+v", w.cfg, cfg)
+	n.logger.Debugf("Updated config differs from previous. Previous: %+v New: %+v", n.cfg, cfg)
 
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
-	w.cfg = cfg.NetworkConfiguration
-	w.nets = cfg.AdditionalNetworks
+	n.dataMu.Lock()
+	defer n.dataMu.Unlock()
+	n.cfg = cfg.NetworkConfiguration
+	n.nets = cfg.AdditionalNetworks
 
-	if err := w.writeDNSMasq(); err != nil {
-		w.logger.Error(errw.Wrap(err, "writing dnsmasq configuration"))
+	if err := n.writeDNSMasq(); err != nil {
+		n.logger.Error(errw.Wrap(err, "writing dnsmasq configuration"))
 	}
 
 	return needRestart
 }
 
 // HealthCheck reports if a subsystem is running correctly (it is restarted if not).
-func (w *Networking) HealthCheck(ctx context.Context) error {
-	w.opMu.Lock()
-	defer w.opMu.Unlock()
-	if w.noNM {
+func (n *Networking) HealthCheck(ctx context.Context) error {
+	n.opMu.Lock()
+	defer n.opMu.Unlock()
+	if n.noNM {
 		return nil
 	}
 
-	if w.bgLoopHealth.IsHealthy() && w.mainLoopHealth.IsHealthy() {
+	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() {
 		return nil
 	}
 
 	return errw.New("provisioning not responsive")
 }
 
-func (w *Networking) Config() utils.NetworkConfiguration {
-	w.dataMu.Lock()
-	defer w.dataMu.Unlock()
-	return w.cfg
+func (n *Networking) Config() utils.NetworkConfiguration {
+	n.dataMu.Lock()
+	defer n.dataMu.Unlock()
+	return n.cfg
 }
 
-func (w *Networking) processAdditionalnetworks(ctx context.Context) {
-	if !w.cfg.TurnOnHotspotIfWifiHasNoInternet && len(w.nets) > 0 {
-		w.logger.Warn("Additional networks configured, but internet checking is not enabled. Additional networks may be unused.")
+func (n *Networking) processAdditionalnetworks(ctx context.Context) {
+	if !n.cfg.TurnOnHotspotIfWifiHasNoInternet && len(n.nets) > 0 {
+		n.logger.Warn("Additional networks configured, but internet checking is not enabled. Additional networks may be unused.")
 	}
 
-	for _, network := range w.nets {
-		_, err := w.addOrUpdateConnection(network)
+	for _, network := range n.nets {
+		_, err := n.addOrUpdateConnection(network)
 		if err != nil {
-			w.logger.Error(errw.Wrapf(err, "adding network %s", network.SSID))
+			n.logger.Error(errw.Wrapf(err, "adding network %s", network.SSID))
 			continue
 		}
 		if network.Interface != "" {
-			if err := w.activateConnection(ctx, network.Interface, network.SSID); err != nil {
-				w.logger.Error(err)
+			if err := n.activateConnection(ctx, network.Interface, network.SSID); err != nil {
+				n.logger.Error(err)
 			}
 		}
 	}
 }
 
 // must be run inside dataMu lock.
-func (w *Networking) writeWifiPowerSave(ctx context.Context) error {
+func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 	contents := wifiPowerSaveContentsDefault
-	if w.cfg.WifiPowerSave != nil {
-		if *w.cfg.WifiPowerSave {
+	if n.cfg.WifiPowerSave != nil {
+		if *n.cfg.WifiPowerSave {
 			contents = wifiPowerSaveContentsEnable
 		} else {
 			contents = wifiPowerSaveContentsDisable
@@ -353,15 +353,15 @@ func (w *Networking) writeWifiPowerSave(ctx context.Context) error {
 	}
 
 	if isNew {
-		w.logger.Infof("Updated %s to: %q", wifiPowerSaveFilepath, contents)
+		n.logger.Infof("Updated %s to: %q", wifiPowerSaveFilepath, contents)
 		// Reload NetworkManager to apply changes
-		if err := w.nm.Reload(0); err != nil {
+		if err := n.nm.Reload(0); err != nil {
 			return errw.Wrap(err, "reloading NetworkManager after wifi-powersave.conf update")
 		}
 
-		ssid := w.netState.ActiveSSID(w.cfg.HotspotInterface)
-		if w.connState.getConnected() && ssid != "" {
-			if err := w.activateConnection(ctx, w.cfg.HotspotInterface, ssid); err != nil {
+		ssid := n.netState.ActiveSSID(n.cfg.HotspotInterface)
+		if n.connState.getConnected() && ssid != "" {
+			if err := n.activateConnection(ctx, n.cfg.HotspotInterface, ssid); err != nil {
 				return errw.Wrapf(err, "reactivating %s to enforce powersave setting", ssid)
 			}
 		}

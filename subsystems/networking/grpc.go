@@ -12,111 +12,111 @@ import (
 	"google.golang.org/grpc"
 )
 
-func (w *Networking) startGRPC() error {
+func (n *Networking) startGRPC() error {
 	bind := PortalBindAddr + ":4772"
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)
 	}
 
-	w.grpcServer = grpc.NewServer(grpc.WaitForHandlers(true))
-	pb.RegisterProvisioningServiceServer(w.grpcServer, w)
+	n.grpcServer = grpc.NewServer(grpc.WaitForHandlers(true))
+	pb.RegisterProvisioningServiceServer(n.grpcServer, n)
 
-	w.portalData.workers.Add(1)
+	n.portalData.workers.Add(1)
 	go func() {
-		defer w.portalData.workers.Done()
-		if err := w.grpcServer.Serve(lis); err != nil {
-			w.logger.Error(err)
+		defer n.portalData.workers.Done()
+		if err := n.grpcServer.Serve(lis); err != nil {
+			n.logger.Error(err)
 		}
 	}()
 	return nil
 }
 
-func (w *Networking) GetSmartMachineStatus(ctx context.Context,
+func (n *Networking) GetSmartMachineStatus(ctx context.Context,
 	req *pb.GetSmartMachineStatusRequest,
 ) (*pb.GetSmartMachineStatusResponse, error) {
-	w.connState.setLastInteraction()
+	n.connState.setLastInteraction()
 
 	ret := &pb.GetSmartMachineStatusResponse{
 		ProvisioningInfo: &pb.ProvisioningInfo{
-			FragmentId:   w.cfg.FragmentID,
-			Model:        w.cfg.Model,
-			Manufacturer: w.cfg.Manufacturer,
+			FragmentId:   n.cfg.FragmentID,
+			Model:        n.cfg.Model,
+			Manufacturer: n.cfg.Manufacturer,
 		},
-		HasSmartMachineCredentials: w.connState.getConfigured(),
-		IsOnline:                   w.connState.getOnline(),
-		Errors:                     w.errListAsStrings(),
+		HasSmartMachineCredentials: n.connState.getConfigured(),
+		IsOnline:                   n.connState.getOnline(),
+		Errors:                     n.errListAsStrings(),
 	}
 
-	lastSSID := w.netState.LastSSID(w.Config().HotspotInterface)
+	lastSSID := n.netState.LastSSID(n.Config().HotspotInterface)
 	if lastSSID != "" {
-		lastNetwork := w.netState.Network(w.Config().HotspotInterface, lastSSID)
+		lastNetwork := n.netState.Network(n.Config().HotspotInterface, lastSSID)
 		lastNetworkInfo := lastNetwork.getInfo()
 		ret.LatestConnectionAttempt = NetworkInfoToProto(&lastNetworkInfo)
 	}
 
 	// reset the errors, as they were now just displayed
-	w.errors.Clear()
+	n.errors.Clear()
 
 	return ret, nil
 }
 
-func (w *Networking) SetNetworkCredentials(ctx context.Context,
+func (n *Networking) SetNetworkCredentials(ctx context.Context,
 	req *pb.SetNetworkCredentialsRequest,
 ) (*pb.SetNetworkCredentialsResponse, error) {
-	w.connState.setLastInteraction()
+	n.connState.setLastInteraction()
 
 	if req.GetType() != NetworkTypeWifi {
 		return nil, errw.Errorf("unknown network type: %s, only %s currently supported", req.GetType(), NetworkTypeWifi)
 	}
 
-	w.portalData.mu.Lock()
-	defer w.portalData.mu.Unlock()
+	n.portalData.mu.Lock()
+	defer n.portalData.mu.Unlock()
 
-	w.portalData.Updated = time.Now()
-	w.portalData.input.SSID = req.GetSsid()
-	w.portalData.input.PSK = req.GetPsk()
+	n.portalData.Updated = time.Now()
+	n.portalData.input.SSID = req.GetSsid()
+	n.portalData.input.PSK = req.GetPsk()
 
-	lastSSID := w.netState.LastSSID(w.Config().HotspotInterface)
+	lastSSID := n.netState.LastSSID(n.Config().HotspotInterface)
 	if req.GetSsid() == lastSSID && lastSSID != "" {
-		lastNetwork := w.netState.LockingNetwork(w.Config().HotspotInterface, lastSSID)
+		lastNetwork := n.netState.LockingNetwork(n.Config().HotspotInterface, lastSSID)
 		lastNetwork.mu.Lock()
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()
 	}
 
-	w.portalData.sendInput(w.connState)
+	n.portalData.sendInput(n.connState)
 
 	return &pb.SetNetworkCredentialsResponse{}, nil
 }
 
-func (w *Networking) SetSmartMachineCredentials(ctx context.Context,
+func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
 	req *pb.SetSmartMachineCredentialsRequest,
 ) (*pb.SetSmartMachineCredentialsResponse, error) {
-	w.connState.setLastInteraction()
+	n.connState.setLastInteraction()
 
 	cloud := req.GetCloud()
 	if cloud == nil {
 		return nil, errors.New("request must include a Cloud config section")
 	}
-	w.portalData.mu.Lock()
-	defer w.portalData.mu.Unlock()
-	w.portalData.Updated = time.Now()
-	w.portalData.input.PartID = cloud.GetId()
-	w.portalData.input.Secret = cloud.GetSecret()
-	w.portalData.input.AppAddr = cloud.GetAppAddress()
+	n.portalData.mu.Lock()
+	defer n.portalData.mu.Unlock()
+	n.portalData.Updated = time.Now()
+	n.portalData.input.PartID = cloud.GetId()
+	n.portalData.input.Secret = cloud.GetSecret()
+	n.portalData.input.AppAddr = cloud.GetAppAddress()
 
-	w.portalData.sendInput(w.connState)
+	n.portalData.sendInput(n.connState)
 
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }
 
-func (w *Networking) GetNetworkList(ctx context.Context,
+func (n *Networking) GetNetworkList(ctx context.Context,
 	req *pb.GetNetworkListRequest,
 ) (*pb.GetNetworkListResponse, error) {
-	w.connState.setLastInteraction()
+	n.connState.setLastInteraction()
 
-	visibleNetworks := w.getVisibleNetworks()
+	visibleNetworks := n.getVisibleNetworks()
 
 	networks := make([]*pb.NetworkInfo, len(visibleNetworks))
 	for i, net := range visibleNetworks {
@@ -126,16 +126,16 @@ func (w *Networking) GetNetworkList(ctx context.Context,
 	return &pb.GetNetworkListResponse{Networks: networks}, nil
 }
 
-func (w *Networking) errListAsStrings() []string {
+func (n *Networking) errListAsStrings() []string {
 	errList := []string{}
 
-	lastNetwork := w.netState.Network(w.Config().HotspotInterface, w.netState.LastSSID(w.Config().HotspotInterface))
+	lastNetwork := n.netState.Network(n.Config().HotspotInterface, n.netState.LastSSID(n.Config().HotspotInterface))
 
 	if lastNetwork.lastError != nil {
 		errList = append(errList, fmt.Sprintf("SSID: %s: %s", lastNetwork.ssid, lastNetwork.lastError))
 	}
 
-	for _, err := range w.errors.Errors() {
+	for _, err := range n.errors.Errors() {
 		errList = append(errList, err.Error())
 	}
 	return errList
