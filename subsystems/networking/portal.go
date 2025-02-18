@@ -29,7 +29,7 @@ type templateData struct {
 //go:embed templates/*
 var templates embed.FS
 
-func (w *Provisioning) startPortal(inputChan chan<- userInput) error {
+func (w *Networking) startPortal(inputChan chan<- userInput) error {
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
 	w.portalData = &portalData{input: &userInput{}, inputChan: inputChan}
@@ -45,7 +45,7 @@ func (w *Provisioning) startPortal(inputChan chan<- userInput) error {
 	return nil
 }
 
-func (w *Provisioning) startWeb() error {
+func (w *Networking) startWeb() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", w.portalIndex)
 	mux.HandleFunc("/save", w.portalSave)
@@ -70,7 +70,7 @@ func (w *Provisioning) startWeb() error {
 	return nil
 }
 
-func (w *Provisioning) stopPortal() error {
+func (w *Networking) stopPortal() error {
 	if w.grpcServer != nil {
 		w.grpcServer.Stop()
 		w.grpcServer = nil
@@ -92,7 +92,7 @@ func (w *Provisioning) stopPortal() error {
 	return err
 }
 
-func (w *Provisioning) portalIndex(resp http.ResponseWriter, req *http.Request) {
+func (w *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := req.Body.Close(); err != nil {
 			w.logger.Error(err)
@@ -139,7 +139,7 @@ func (w *Provisioning) portalIndex(resp http.ResponseWriter, req *http.Request) 
 	w.errors.Clear()
 }
 
-func (w *Provisioning) portalSave(resp http.ResponseWriter, req *http.Request) {
+func (w *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := req.Body.Close(); err != nil {
 			w.logger.Error(err)

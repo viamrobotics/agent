@@ -15,7 +15,7 @@ import (
 // This file contains type, const, and var definitions.
 
 const (
-	SubsysName = "agent-provisioning"
+	SubsysName = "networking"
 
 	DNSMasqFilepath          = "/etc/NetworkManager/dnsmasq-shared.d/80-viam.conf"
 	DNSMasqContentsRedirect  = "address=/#/10.42.0.1\n"

@@ -30,8 +30,6 @@ var (
 	GitRevision = ""
 
 	ViamDirs = map[string]string{"viam": "/opt/viam"}
-
-	ErrSubsystemDisabled = errors.New("subsystem disabled")
 )
 
 // GetVersion returns the version embedded at build time.

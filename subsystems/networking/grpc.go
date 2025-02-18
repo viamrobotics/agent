@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func (w *Provisioning) startGRPC() error {
+func (w *Networking) startGRPC() error {
 	bind := PortalBindAddr + ":4772"
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
@@ -32,7 +32,7 @@ func (w *Provisioning) startGRPC() error {
 	return nil
 }
 
-func (w *Provisioning) GetSmartMachineStatus(ctx context.Context,
+func (w *Networking) GetSmartMachineStatus(ctx context.Context,
 	req *pb.GetSmartMachineStatusRequest,
 ) (*pb.GetSmartMachineStatusResponse, error) {
 	w.connState.setLastInteraction()
@@ -61,7 +61,7 @@ func (w *Provisioning) GetSmartMachineStatus(ctx context.Context,
 	return ret, nil
 }
 
-func (w *Provisioning) SetNetworkCredentials(ctx context.Context,
+func (w *Networking) SetNetworkCredentials(ctx context.Context,
 	req *pb.SetNetworkCredentialsRequest,
 ) (*pb.SetNetworkCredentialsResponse, error) {
 	w.connState.setLastInteraction()
@@ -90,7 +90,7 @@ func (w *Provisioning) SetNetworkCredentials(ctx context.Context,
 	return &pb.SetNetworkCredentialsResponse{}, nil
 }
 
-func (w *Provisioning) SetSmartMachineCredentials(ctx context.Context,
+func (w *Networking) SetSmartMachineCredentials(ctx context.Context,
 	req *pb.SetSmartMachineCredentialsRequest,
 ) (*pb.SetSmartMachineCredentialsResponse, error) {
 	w.connState.setLastInteraction()
@@ -111,7 +111,7 @@ func (w *Provisioning) SetSmartMachineCredentials(ctx context.Context,
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }
 
-func (w *Provisioning) GetNetworkList(ctx context.Context,
+func (w *Networking) GetNetworkList(ctx context.Context,
 	req *pb.GetNetworkListRequest,
 ) (*pb.GetNetworkListResponse, error) {
 	w.connState.setLastInteraction()
@@ -126,7 +126,7 @@ func (w *Provisioning) GetNetworkList(ctx context.Context,
 	return &pb.GetNetworkListResponse{Networks: networks}, nil
 }
 
-func (w *Provisioning) errListAsStrings() []string {
+func (w *Networking) errListAsStrings() []string {
 	errList := []string{}
 
 	lastNetwork := w.netState.Network(w.Config().HotspotInterface, w.netState.LastSSID(w.Config().HotspotInterface))

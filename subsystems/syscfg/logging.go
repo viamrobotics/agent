@@ -20,9 +20,8 @@ var (
 	defaultLogLimit  = "512M"
 )
 
+// runs inside s.mu.Lock().
 func (s *syscfg) EnforceLogging() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if s.cfg.LoggingJournaldRuntimeMaxUseMegabytes < 0 && s.cfg.LoggingJournaldSystemMaxUseMegabytes < 0 {
 		if err := os.Remove(journaldConfPath); err != nil {
 			if errw.Is(err, fs.ErrNotExist) {
@@ -33,7 +32,7 @@ func (s *syscfg) EnforceLogging() error {
 
 		// if journald is NOT enabled, simply return
 		if err := checkJournaldEnabled(); err != nil {
-			return nil
+			return nil //nolint:nilerr
 		}
 
 		if err := restartJournald(); err != nil {

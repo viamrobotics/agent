@@ -14,17 +14,15 @@ import (
 )
 
 const (
-	SubsysName = "agent-syscfg"
+	SubsysName = "syscfg"
 )
 
 type syscfg struct {
 	mu      sync.RWMutex
-	healthy bool
 	cfg     utils.SystemConfiguration
 	logger  logging.Logger
-	running bool
-	cancel  context.CancelFunc
-	workers sync.WaitGroup
+	healthy bool
+	started bool
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
@@ -54,57 +52,47 @@ func (s *syscfg) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// prevent double-starts
-	if s.running {
-		return errors.New("already running")
+	// prevent pointless runs if it already ran to completion
+	if s.started {
+		return nil
 	}
 
-	cancelCtx, cancelFunc := context.WithCancel(ctx)
-	s.cancel = cancelFunc
-	s.running = true
-	s.workers.Add(1)
-	go func() {
-		var healthyLog, healthyUpgrades bool
-		defer func() {
-			// if something panicked, log it and allow things to continue
-			r := recover()
-			if r != nil {
-				s.logger.Error("syscfg subsystem encountered a panic")
-				s.logger.Error(r)
-			}
+	s.logger.Debugf("Starting syscfg")
 
-			s.mu.Lock()
-			s.healthy = healthyLog && healthyUpgrades
-			s.running = false
-			s.workers.Done()
-			s.mu.Unlock()
-		}()
-
-		// set journald max size limits
-		err := s.EnforceLogging()
-		if err != nil {
-			s.logger.Error(errw.Wrap(err, "configuring journald logging"))
+	s.started = true
+	var healthyLog, healthyUpgrades bool
+	defer func() {
+		// if something panicked, log it and allow things to continue
+		r := recover()
+		if r != nil {
+			s.logger.Error("syscfg subsystem encountered a panic")
+			s.logger.Error(r)
 		}
-		healthyLog = true
 
-		// set unattended upgrades
-		err = s.EnforceUpgrades(cancelCtx)
-		if err != nil {
-			s.logger.Error(errw.Wrap(err, "configuring unattended upgrades"))
-		}
-		healthyUpgrades = true
+		s.healthy = healthyLog && healthyUpgrades
 	}()
+
+	// set journald max size limits
+	err := s.EnforceLogging()
+	if err != nil {
+		s.logger.Error(errw.Wrap(err, "configuring journald logging"))
+	}
+	healthyLog = true
+
+	// set unattended upgrades
+	err = s.EnforceUpgrades(ctx)
+	if err != nil {
+		s.logger.Error(errw.Wrap(err, "configuring unattended upgrades"))
+	}
+	healthyUpgrades = true
 
 	return nil
 }
 
 func (s *syscfg) Stop(ctx context.Context) error {
-	s.mu.RLock()
-	if s.cancel != nil {
-		s.cancel()
-	}
-	s.mu.RUnlock()
-	s.workers.Wait()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.started = false
 	return nil
 }
 

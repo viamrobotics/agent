@@ -22,11 +22,9 @@ const (
 	unattendedUpgradesPath = "/etc/apt/apt.conf.d/50unattended-upgrades"
 )
 
+// runs inside s.mu.Lock().
 func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
-	s.mu.RLock()
 	cfg := s.cfg.OSAutoUpgradeType
-	s.mu.RUnlock()
-
 	if cfg == "" {
 		return nil
 	}

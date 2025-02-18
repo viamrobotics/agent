@@ -294,7 +294,9 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	}
 	if cfg.SystemConfiguration.OSAutoUpgradeType != "" &&
 		cfg.SystemConfiguration.OSAutoUpgradeType != "security" &&
-		cfg.SystemConfiguration.OSAutoUpgradeType != "all" {
+		cfg.SystemConfiguration.OSAutoUpgradeType != "all" &&
+		cfg.SystemConfiguration.OSAutoUpgradeType != "disabled" &&
+		cfg.SystemConfiguration.OSAutoUpgradeType != "disable" {
 		errOut = errors.Join(errOut, errw.Errorf(
 			"agent.system_configuration.os_auto_upgrade_type can only be 'security' or 'all' (was: %s)",
 			cfg.SystemConfiguration.OSAutoUpgradeType))

@@ -18,7 +18,7 @@ var (
 	VisibleNetworkTimeout = time.Minute
 )
 
-func (w *Provisioning) networkScan(ctx context.Context) error {
+func (w *Networking) networkScan(ctx context.Context) error {
 	if w.connState.getProvisioning() && w.netState.NoScanInHotspot() {
 		return nil
 	}
@@ -171,7 +171,7 @@ func parseWPAFlags(apFlags, wpaFlags, rsnFlags uint32) string {
 }
 
 // updates connections/settings from those known to NetworkManager.
-func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
+func (w *Networking) updateKnownConnections(ctx context.Context) error {
 	conns, err := w.settings.ListConnections()
 	if err != nil {
 		return err

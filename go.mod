@@ -14,7 +14,7 @@ require (
 	github.com/tidwall/jsonc v0.3.2
 	github.com/ulikunitz/xz v0.5.12
 	go.uber.org/zap v1.27.0
-	go.viam.com/api v0.1.357
+	go.viam.com/api v0.1.395
 	go.viam.com/rdk v0.51.0
 	go.viam.com/test v1.2.3
 	go.viam.com/utils v0.1.112
@@ -95,5 +95,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	nhooyr.io/websocket v1.8.9 // indirect
 )
-
-replace go.viam.com/api => ../api/

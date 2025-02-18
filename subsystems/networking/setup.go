@@ -14,11 +14,11 @@ import (
 
 var (
 	ErrNM = errw.New("NetworkManager does not appear to be responding as expected. " +
-		"Please ensure NetworkManger >= v1.30 is installed and enabled. Disabling agent-provisioning until next restart.")
-	ErrNoWifi = errw.New("No WiFi devices available. Disabling agent-provisioning until next restart.")
+		"Please ensure NetworkManger >= v1.30 is installed and enabled. Disabling networking until next restart.")
+	ErrNoWifi = errw.New("No WiFi devices available. Disabling networking until next restart.")
 )
 
-func (w *Provisioning) writeDNSMasq() error {
+func (w *Networking) writeDNSMasq() error {
 	DNSMasqContents := DNSMasqContentsRedirect
 	if w.cfg.DisableCaptivePortalRedirect {
 		DNSMasqContents = DNSMasqContentsSetupOnly
@@ -28,7 +28,7 @@ func (w *Provisioning) writeDNSMasq() error {
 	return err
 }
 
-func (w *Provisioning) testConnCheck() error {
+func (w *Networking) testConnCheck() error {
 	connCheckEnabled, err := w.nm.GetPropertyConnectivityCheckEnabled()
 	if err != nil {
 		return errw.Wrap(err, "getting NetworkManager connectivity check state")
@@ -69,13 +69,13 @@ func (w *Provisioning) testConnCheck() error {
 	return nil
 }
 
-func (w *Provisioning) writeConnCheck() error {
+func (w *Networking) writeConnCheck() error {
 	_, err := utils.WriteFileIfNew(ConnCheckFilepath, []byte(ConnCheckContents))
 	return err
 }
 
 // must be run inside dataMu lock.
-func (w *Provisioning) initDevices() error {
+func (w *Networking) initDevices() error {
 	devices, err := w.nm.GetDevices()
 	if err != nil {
 		return err
@@ -131,7 +131,7 @@ func (w *Provisioning) initDevices() error {
 	return nil
 }
 
-func (w *Provisioning) enableWifi(ctx context.Context) error {
+func (w *Networking) enableWifi(ctx context.Context) error {
 	if err := w.nm.SetPropertyWirelessEnabled(true); err != nil {
 		return err
 	}

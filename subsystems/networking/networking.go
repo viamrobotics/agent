@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Provisioning struct {
+type Networking struct {
 	monitorWorkers sync.WaitGroup
 
 	// blocks start/stop/etc operations
@@ -58,7 +58,7 @@ type Provisioning struct {
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
-	return &Provisioning{
+	return &Networking{
 		cfg:    cfg.NetworkConfiguration,
 		nets:   cfg.AdditionalNetworks,
 		logger: logger,
@@ -75,7 +75,7 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 	}
 }
 
-func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
+func (w *Networking) getNM() (gnm.NetworkManager, error) {
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
 		w.noNM = true
@@ -123,7 +123,7 @@ func (w *Provisioning) getNM() (gnm.NetworkManager, error) {
 	return nm, nil
 }
 
-func (w *Provisioning) init(ctx context.Context) error {
+func (w *Networking) init(ctx context.Context) error {
 	w.mainLoopHealth.MarkGood()
 	w.bgLoopHealth.MarkGood()
 
@@ -198,12 +198,13 @@ func (w *Provisioning) init(ctx context.Context) error {
 	return nil
 }
 
-func (w *Provisioning) Start(ctx context.Context) error {
+func (w *Networking) Start(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 	if w.running {
 		return nil
 	}
+	w.logger.Debugf("Starting networking")
 
 	if w.nm == nil || w.settings == nil {
 		if err := w.init(ctx); err != nil {
@@ -228,12 +229,12 @@ func (w *Provisioning) Start(ctx context.Context) error {
 	w.monitorWorkers.Add(1)
 	go w.mainLoop(cancelCtx)
 
-	w.logger.Info("agent-provisioning startup complete")
+	w.logger.Info("networking startup complete")
 	w.running = true
 	return nil
 }
 
-func (w *Provisioning) Stop(ctx context.Context) error {
+func (w *Networking) Stop(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 	if !w.running {
@@ -256,7 +257,7 @@ func (w *Provisioning) Stop(ctx context.Context) error {
 }
 
 // Update validates and/or updates a subsystem, returns true if subsystem should be restarted.
-func (w *Provisioning) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
+func (w *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 
@@ -296,7 +297,7 @@ func (w *Provisioning) Update(ctx context.Context, cfg utils.AgentConfig) (needR
 }
 
 // HealthCheck reports if a subsystem is running correctly (it is restarted if not).
-func (w *Provisioning) HealthCheck(ctx context.Context) error {
+func (w *Networking) HealthCheck(ctx context.Context) error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 	if w.noNM {
@@ -310,13 +311,13 @@ func (w *Provisioning) HealthCheck(ctx context.Context) error {
 	return errw.New("provisioning not responsive")
 }
 
-func (w *Provisioning) Config() utils.NetworkConfiguration {
+func (w *Networking) Config() utils.NetworkConfiguration {
 	w.dataMu.Lock()
 	defer w.dataMu.Unlock()
 	return w.cfg
 }
 
-func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
+func (w *Networking) processAdditionalnetworks(ctx context.Context) {
 	if !w.cfg.TurnOnHotspotIfWifiHasNoInternet && len(w.nets) > 0 {
 		w.logger.Warn("Additional networks configured, but internet checking is not enabled. Additional networks may be unused.")
 	}
@@ -336,7 +337,7 @@ func (w *Provisioning) processAdditionalnetworks(ctx context.Context) {
 }
 
 // must be run inside dataMu lock.
-func (w *Provisioning) writeWifiPowerSave(ctx context.Context) error {
+func (w *Networking) writeWifiPowerSave(ctx context.Context) error {
 	contents := wifiPowerSaveContentsDefault
 	if w.cfg.WifiPowerSave != nil {
 		if *w.cfg.WifiPowerSave {

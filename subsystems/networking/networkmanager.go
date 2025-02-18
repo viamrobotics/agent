@@ -14,7 +14,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 )
 
-func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
+func (w *Networking) warnIfMultiplePrimaryNetworks() {
 	if w.cfg.TurnOnHotspotIfWifiHasNoInternet {
 		return
 	}
@@ -42,7 +42,7 @@ func (w *Provisioning) warnIfMultiplePrimaryNetworks() {
 	}
 }
 
-func (w *Provisioning) getVisibleNetworks() []NetworkInfo {
+func (w *Networking) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
 	for _, nw := range w.netState.Networks() {
 		// note this does NOT use VisibleNetworkTimeout (like getCandidates does)
@@ -62,12 +62,12 @@ func (w *Provisioning) getVisibleNetworks() []NetworkInfo {
 	return visible
 }
 
-func (w *Provisioning) getLastNetworkTried() NetworkInfo {
+func (w *Networking) getLastNetworkTried() NetworkInfo {
 	lastNetwork := w.netState.LastNetwork(w.Config().HotspotInterface)
 	return lastNetwork.getInfo()
 }
 
-func (w *Provisioning) checkOnline(force bool) error {
+func (w *Networking) checkOnline(force bool) error {
 	if force {
 		if err := w.nm.CheckConnectivity(); err != nil {
 			w.logger.Error(err)
@@ -99,7 +99,7 @@ func (w *Provisioning) checkOnline(force bool) error {
 	return err
 }
 
-func (w *Provisioning) checkConnections() error {
+func (w *Networking) checkConnections() error {
 	var connected bool
 	defer func() {
 		w.connState.setConnected(connected)
@@ -164,7 +164,7 @@ func (w *Provisioning) checkConnections() error {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (w *Networking) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
 	if w.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
@@ -195,13 +195,13 @@ func (w *Provisioning) StartProvisioning(ctx context.Context, inputChan chan<- u
 	return nil
 }
 
-func (w *Provisioning) StopProvisioning() error {
+func (w *Networking) StopProvisioning() error {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 	return w.stopProvisioning()
 }
 
-func (w *Provisioning) stopProvisioning() error {
+func (w *Networking) stopProvisioning() error {
 	w.logger.Info("Stopping provisioning mode.")
 	w.connState.setProvisioning(false)
 	err := w.stopPortal()
@@ -212,7 +212,7 @@ func (w *Provisioning) stopProvisioning() error {
 	return errors.Join(err, err2)
 }
 
-func (w *Provisioning) ActivateConnection(ctx context.Context, ifName, ssid string) error {
+func (w *Networking) ActivateConnection(ctx context.Context, ifName, ssid string) error {
 	if w.connState.getProvisioning() && ifName == w.Config().HotspotInterface {
 		return errors.New("cannot activate another connection while in provisioning mode")
 	}
@@ -222,7 +222,7 @@ func (w *Provisioning) ActivateConnection(ctx context.Context, ifName, ssid stri
 	return w.activateConnection(ctx, ifName, ssid)
 }
 
-func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid string) error {
+func (w *Networking) activateConnection(ctx context.Context, ifName, ssid string) error {
 	now := time.Now()
 	nw := w.netState.LockingNetwork(ifName, ssid)
 	nw.mu.Lock()
@@ -282,7 +282,7 @@ func (w *Provisioning) activateConnection(ctx context.Context, ifName, ssid stri
 	return nil
 }
 
-func (w *Provisioning) DeactivateConnection(ifName, ssid string) error {
+func (w *Networking) DeactivateConnection(ifName, ssid string) error {
 	if w.connState.getProvisioning() && ifName == w.Config().HotspotInterface {
 		return errors.New("cannot deactivate another connection while in provisioning mode")
 	}
@@ -292,7 +292,7 @@ func (w *Provisioning) DeactivateConnection(ifName, ssid string) error {
 	return w.deactivateConnection(ifName, ssid)
 }
 
-func (w *Provisioning) deactivateConnection(ifName, ssid string) error {
+func (w *Networking) deactivateConnection(ifName, ssid string) error {
 	activeConn := w.netState.ActiveConn(ifName)
 	if activeConn == nil {
 		return errw.Wrapf(ErrNoActiveConnectionFound, "interface: %s", ifName)
@@ -322,7 +322,7 @@ func (w *Provisioning) deactivateConnection(ifName, ssid string) error {
 	return nil
 }
 
-func (w *Provisioning) waitForConnect(ctx context.Context, device gnm.Device) error {
+func (w *Networking) waitForConnect(ctx context.Context, device gnm.Device) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 
@@ -358,14 +358,14 @@ func (w *Provisioning) waitForConnect(ctx context.Context, device gnm.Device) er
 	}
 }
 
-func (w *Provisioning) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
+func (w *Networking) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
 	w.opMu.Lock()
 	defer w.opMu.Unlock()
 	return w.addOrUpdateConnection(cfg)
 }
 
 // returns true if network was new (added) and not updated.
-func (w *Provisioning) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
+func (w *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
 	var changesMade bool
 
 	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired {
@@ -442,7 +442,7 @@ func (w *Provisioning) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool,
 }
 
 // this doesn't error as it's not technically fatal if it fails.
-func (w *Provisioning) lowerMaxNetPriorities(skip string) {
+func (w *Networking) lowerMaxNetPriorities(skip string) {
 	for _, nw := range w.netState.LockingNetworks() {
 		netKey := w.netState.GenNetKey(nw.interfaceName, nw.ssid)
 		if netKey == skip || netKey == w.netState.GenNetKey(w.Config().HotspotInterface, w.Config().HotspotSSID) || nw.priority < 999 ||
@@ -480,13 +480,13 @@ func (w *Provisioning) lowerMaxNetPriorities(skip string) {
 	}
 }
 
-func (w *Provisioning) checkConfigured() {
+func (w *Networking) checkConfigured() {
 	_, err := os.ReadFile(utils.AppConfigFilePath)
 	w.connState.setConfigured(err == nil)
 }
 
 // tryCandidates returns true if a network activated.
-func (w *Provisioning) tryCandidates(ctx context.Context) bool {
+func (w *Networking) tryCandidates(ctx context.Context) bool {
 	for _, ssid := range w.getCandidates(w.Config().HotspotInterface) {
 		err := w.ActivateConnection(ctx, w.Config().HotspotInterface, ssid)
 		if err != nil {
@@ -509,7 +509,7 @@ func (w *Provisioning) tryCandidates(ctx context.Context) bool {
 	return false
 }
 
-func (w *Provisioning) getCandidates(ifName string) []string {
+func (w *Networking) getCandidates(ifName string) []string {
 	var candidates []network
 	for _, nw := range w.netState.Networks() {
 		if nw.netType != NetworkTypeWifi || (nw.interfaceName != "" && nw.interfaceName != ifName) {
@@ -549,7 +549,7 @@ func (w *Provisioning) getCandidates(ifName string) []string {
 	return out
 }
 
-func (w *Provisioning) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
+func (w *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	defer w.monitorWorkers.Done()
 	w.logger.Info("Background state monitors started")
 	defer w.logger.Info("Background state monitors stopped")
@@ -575,7 +575,7 @@ func (w *Provisioning) backgroundLoop(ctx context.Context, scanChan chan<- bool)
 	}
 }
 
-func (w *Provisioning) mainLoop(ctx context.Context) {
+func (w *Networking) mainLoop(ctx context.Context) {
 	defer w.monitorWorkers.Done()
 
 	scanChan := make(chan bool, 16)

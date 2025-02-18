@@ -292,52 +292,62 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 	m.cfgMu.RLock()
 	defer m.cfgMu.RUnlock()
 
-	for subsystemName, sub := range map[string]subsystems.Subsystem{
-		"viam-server": m.viamServer,
-		"sysconfig":   m.sysConfig,
-		"networking":  m.networking,
+	// simpler map wouldn't preserve ordering
+	for _, entry := range []struct {
+		name string
+		sub  subsystems.Subsystem
+	}{
+		{"viam-server", m.viamServer},
+		{"sysconfig", m.sysConfig},
+		{"networking", m.networking},
 	} {
 		if ctx.Err() != nil {
 			return
 		}
 
-		switch subsystemName {
+		switch entry.name {
 		case "viam-server":
 			if m.cfg.AdvancedSettings.DisableViamServer {
-				return
+				continue
 			}
 		case "sysconfig":
 			if m.cfg.AdvancedSettings.DisableSystemConfiguration {
-				return
+				continue
 			}
 		case "networking":
 			if m.cfg.AdvancedSettings.DisableNetworkConfiguration {
-				return
+				continue
 			}
 		}
 
 		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
 		defer cancelFunc()
-		if err := sub.HealthCheck(ctxTimeout); err != nil {
+
+		// Start should return near-instantly if already started.
+		if err := entry.sub.Start(ctx); err != nil {
+			m.logger.Error(err)
+		}
+
+		if err := entry.sub.HealthCheck(ctxTimeout); err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", subsystemName))
-			if err := sub.Stop(ctx); err != nil {
-				m.logger.Error(errw.Wrapf(err, "stopping subsystem %s", subsystemName))
+			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", entry.name))
+			if err := entry.sub.Stop(ctx); err != nil {
+				m.logger.Error(errw.Wrapf(err, "stopping subsystem %s", entry.name))
 			}
 			if ctx.Err() != nil {
 				return
 			}
 
-			if subsystemName == "viam-server" {
+			if entry.name == "viam-server" {
 				m.cache.MarkViamServerRunningVersion()
 			}
-			if err := sub.Start(ctx); err != nil && !errors.Is(err, utils.ErrSubsystemDisabled) {
-				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
+			if err := entry.sub.Start(ctx); err != nil {
+				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", entry.name))
 			}
 		} else {
-			m.logger.Debugf("Subsystem healthcheck succeeded for %s", subsystemName)
+			m.logger.Debugf("Subsystem healthcheck succeeded for %s", entry.name)
 		}
 	}
 }
@@ -389,6 +399,9 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 		m.cfgMu.RUnlock()
 		if wait {
 			checkInterval = m.CheckUpdates(ctx)
+		} else {
+			// premptively start things before we go into the regular update/check/restart
+			m.SubsystemHealthChecks(ctx)
 		}
 
 		timer := time.NewTimer(checkInterval)
@@ -484,8 +497,6 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		return minimalCheckInterval, err
 	}
 
-	m.logger.Infof("SMURF CONFIG RESP: %+v", resp)
-
 	// Store update data in cache, actual binaries are updated later
 	err = m.cache.Update(resp.GetAgentUpdateInfo(), SubsystemName)
 	if err != nil {
@@ -501,8 +512,6 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	if err != nil {
 		m.logger.Error(errw.Wrap(err, "processing config"))
 	}
-
-	m.logger.Infof("SMURF STACKED CONFIG: %+v", cfg)
 
 	if err := utils.SaveConfigToCache(cfg); err != nil {
 		m.logger.Error(err)
