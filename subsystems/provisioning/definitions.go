@@ -182,7 +182,7 @@ type CloudConfig struct {
 	Secret     string `json:"secret"`
 }
 
-func WriteDeviceConfig(file string, input UserInput) error {
+func WriteDeviceConfig(file string, input userInput) error {
 	if input.RawConfig != "" {
 		return os.WriteFile(file, []byte(input.RawConfig), 0o600)
 	}
@@ -206,9 +206,9 @@ type portalData struct {
 	mu      sync.Mutex
 	Updated time.Time
 
-	inputChan chan<- UserInput
+	inputChan chan<- userInput
 
-	input   *UserInput
+	input   *userInput
 	workers sync.WaitGroup
 
 	// used to cancel background threads
@@ -224,7 +224,7 @@ func (p *portalData) sendInput(connState *connectionState) {
 	if (input.SSID != "" && input.PartID != "") ||
 		(input.SSID != "" && connState.getConfigured()) ||
 		(input.PartID != "" && connState.getOnline()) {
-		p.input = &UserInput{}
+		p.input = &userInput{}
 		p.inputChan <- input
 		if p.cancel != nil {
 			p.cancel()
@@ -249,12 +249,12 @@ func (p *portalData) sendInput(connState *connectionState) {
 			return
 		case <-time.After(time.Second * 10):
 		}
-		p.input = &UserInput{}
+		p.input = &userInput{}
 		p.inputChan <- input
 	}()
 }
 
-type UserInput struct {
+type userInput struct {
 	// network
 	SSID string
 	PSK  string
