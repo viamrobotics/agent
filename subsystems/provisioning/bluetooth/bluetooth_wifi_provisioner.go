@@ -129,34 +129,33 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 /** Unexported helper methods for low-level system calls and read/write requests to/from bluetooth characteristics **/
 
 func (bwp *BluetoothWiFiProvisioner) startAdvertisingBLE(ctx context.Context) error {
-	return nil
+	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) stopAdvertisingBLE() error {
-	return nil
+	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
-func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {
-}
+func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {}
 
 func (bwp *BluetoothWiFiProvisioner) writeAvailableNetworks(ctx context.Context, networks *AvailableWiFiNetworks) error {
-	return nil
+	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readSsid() (string, error) {
-	return "", nil
+	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readPsk() (string, error) {
-	return "", nil
+	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readRobotPartKeyID() (string, error) {
-	return "", nil
+	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readRobotPartKey() (string, error) {
-	return "", nil
+	return "", errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
 // NewBluetoothWiFiProvisioner returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
