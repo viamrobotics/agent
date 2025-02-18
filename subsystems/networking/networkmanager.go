@@ -712,7 +712,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			// exit/retry every FallbackTimeout (10 minute default), unless user is active
 			fallbackHit := pModeChange.Before(now.Add(time.Duration(n.cfg.RetryConnectionTimeoutMinutes)*-1)) && inactivePortal
 
-			shouldExit := allGood || haveCandidates || fallbackHit
+			shouldReboot := n.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
+				lastConnectivity.Before(now.Add(time.Duration(n.cfg.DeviceRebootAfterOfflineMinutes)*-1))
+
+			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t", inactivePortal, haveCandidates, fallbackHit)
 
@@ -723,6 +726,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					pMode = n.connState.getProvisioning()
 					pModeChange = n.connState.getProvisioningChange()
 				}
+			}
+
+			if shouldReboot && n.doReboot(ctx) {
+				return
 			}
 		}
 
@@ -748,19 +755,11 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			}
 		}
 
-		offlineRebootTimeout := n.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
+		shouldReboot := n.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
 			lastConnectivity.Before(now.Add(time.Duration(n.cfg.DeviceRebootAfterOfflineMinutes)*-1))
-		if offlineRebootTimeout {
-			n.logger.Infof("device has been offline for more than %s, rebooting", time.Duration(n.cfg.DeviceRebootAfterOfflineMinutes))
-			cmd := exec.Command("systemctl", "reboot")
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				n.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
-			}
-			if !n.mainLoopHealth.Sleep(ctx, time.Minute*5) {
-				return
-			}
-			n.logger.Errorf("failed to reboot after %s time", time.Minute*5)
+
+		if shouldReboot && n.doReboot(ctx) {
+			return
 		}
 
 		hitOfflineTimeout := lastConnectivity.Before(now.Add(time.Duration(n.cfg.OfflineBeforeStartingHotspotMinutes)*-1)) &&
@@ -773,4 +772,18 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (n *Networking) doReboot(ctx context.Context) bool {
+	n.logger.Infof("device has been offline for more than %s, rebooting", time.Duration(n.cfg.DeviceRebootAfterOfflineMinutes))
+	cmd := exec.Command("systemctl", "reboot")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		n.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
+	}
+	if !n.mainLoopHealth.Sleep(ctx, time.Minute*5) {
+		return true
+	}
+	n.logger.Errorf("failed to reboot after %s time", time.Minute*5)
+	return false
 }
