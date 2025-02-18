@@ -113,9 +113,7 @@ func (bwp *BluetoothWiFiProvisioner) stopAdvertisingBLE() error {
 	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
-func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() error {
-	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
-}
+func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {}
 
 func (bwp *BluetoothWiFiProvisioner) writeAvailableNetworks(networks *AvailableWiFiNetworks) error {
 	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
