@@ -129,11 +129,39 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 /** Unexported helper methods for low-level system calls and read/write requests to/from bluetooth characteristics **/
 
 func (bwp *BluetoothWiFiProvisioner) startAdvertisingBLE(ctx context.Context) error {
-	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	bwp.mu.Lock()
+	defer bwp.mu.Unlock()
+
+	if bwp.adv == nil {
+		return errors.New("advertisement is nil")
+	}
+	if bwp.advActive {
+		return errors.New("invalid request, advertising already active")
+	}
+	if err := bwp.adv.Start(); err != nil {
+		return errw.WithMessage(err, "failed to start advertising")
+	}
+	bwp.advActive = true
+	bwp.logger.Info("started advertising a BLE connection...")
+	return nil
 }
 
 func (bwp *BluetoothWiFiProvisioner) stopAdvertisingBLE() error {
-	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	bwp.mu.Lock()
+	defer bwp.mu.Unlock()
+
+	if bwp.adv == nil {
+		return errors.New("advertisement is nil")
+	}
+	if !bwp.advActive {
+		return errors.New("invalid request, advertising already inactive")
+	}
+	if err := bwp.adv.Stop(); err != nil {
+		return errw.WithMessage(err, "failed to stop advertising")
+	}
+	bwp.advActive = false
+	bwp.logger.Info("stopped advertising a BLE connection")
+	return nil
 }
 
 func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {}
