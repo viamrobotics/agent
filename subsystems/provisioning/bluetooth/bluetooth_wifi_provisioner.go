@@ -4,15 +4,16 @@ package ble
 import (
 	"context"
 	"encoding/json"
-	"runtime"
 	"sync"
 
 	"errors"
 
+	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
 	"go.uber.org/multierr"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
+	"tinygo.org/x/bluetooth"
 )
 
 // Credentials represent the minimum required information needed to provision a Viam Agent.
@@ -36,8 +37,31 @@ func (awns *AvailableWiFiNetworks) ToBytes() ([]byte, error) {
 	return json.Marshal(awns)
 }
 
+// linuxBluetoothCharacteristic is used to read and write values to a bluetooh peripheral.
+type linuxBluetoothCharacteristic[T any] struct {
+	UUID   bluetooth.UUID
+	mu     sync.Mutex
+	active bool // Currently non-functional, but should be used to make characteristics optional.
+
+	currentValue T
+}
+
 // bluetoothWiFiProvisioner provides an interface for managing BLE (bluetooth-low-energy) peripheral advertisement on Linux.
-type BluetoothWiFiProvisioner struct{}
+type BluetoothWiFiProvisioner struct {
+	logger logging.Logger
+	mu     sync.Mutex
+
+	adv       *bluetooth.Advertisement
+	advActive bool
+	UUID      bluetooth.UUID
+
+	availableWiFiNetworksChannelWriteOnly chan<- *AvailableWiFiNetworks
+
+	characteristicSsid           *linuxBluetoothCharacteristic[*string]
+	characteristicPsk            *linuxBluetoothCharacteristic[*string]
+	characteristicRobotPartKeyID *linuxBluetoothCharacteristic[*string]
+	characteristicRobotPartKey   *linuxBluetoothCharacteristic[*string]
+}
 
 // Start begins advertising a bluetooth service that acccepts WiFi and Viam cloud config credentials.
 func (bwp *BluetoothWiFiProvisioner) Start(ctx context.Context) error {
@@ -158,14 +182,146 @@ func (bwp *BluetoothWiFiProvisioner) readRobotPartKey() (string, error) {
 
 // NewBluetoothWiFiProvisioner returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
 func NewBluetoothWiFiProvisioner(ctx context.Context, logger logging.Logger, name string) (*BluetoothWiFiProvisioner, error) {
-	switch os := runtime.GOOS; os {
-	case "linux":
-		fallthrough
-	case "windows":
-		fallthrough
-	case "darwin":
-		fallthrough
-	default:
-		return nil, errw.Errorf("failed to set up bluetooth-low-energy peripheral, %s is not yet supported", os)
+	adapter := bluetooth.DefaultAdapter
+	if err := adapter.Enable(); err != nil {
+		return nil, errw.WithMessage(err, "failed to enable bluetooth adapter")
 	}
+
+	serviceUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x1111)
+	logger.Infof("serviceUUID: %s", serviceUUID.String())
+	charSsidUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x2222)
+	logger.Infof("charSsidUUID: %s", charSsidUUID.String())
+	charPskUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x3333)
+	logger.Infof("charPskUUID: %s", charPskUUID.String())
+	charRobotPartKeyIDUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x4444)
+	logger.Infof("charRobotPartKeyIDUUID: %s", charRobotPartKeyIDUUID.String())
+	charRobotPartKeyUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x5555)
+	logger.Infof("charRobotPartKeyUUID: %s", charRobotPartKeyUUID.String())
+	charAvailableWiFiNetworksUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x6666)
+	logger.Infof("charAvailableWiFiNetworksUUID: %s", charAvailableWiFiNetworksUUID.String())
+
+	// Create abstracted characteristics which act as a buffer for reading data from bluetooth.
+	charSsid := &linuxBluetoothCharacteristic[*string]{
+		UUID:         charSsidUUID,
+		mu:           sync.Mutex{},
+		active:       true,
+		currentValue: nil,
+	}
+	charPsk := &linuxBluetoothCharacteristic[*string]{
+		UUID:         charPskUUID,
+		mu:           sync.Mutex{},
+		active:       true,
+		currentValue: nil,
+	}
+	charRobotPartKeyID := &linuxBluetoothCharacteristic[*string]{
+		UUID:         charRobotPartKeyIDUUID,
+		mu:           sync.Mutex{},
+		active:       true,
+		currentValue: nil,
+	}
+	charRobotPartKey := &linuxBluetoothCharacteristic[*string]{
+		UUID:         charRobotPartKeyUUID,
+		mu:           sync.Mutex{},
+		active:       true,
+		currentValue: nil,
+	}
+
+	// Create write-only, locking characteristics (one per credential) for fields that are written to.
+	charConfigSsid := bluetooth.CharacteristicConfig{
+		UUID:  charSsidUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received SSID: %s", v)
+			charSsid.mu.Lock()
+			defer charSsid.mu.Unlock()
+			charSsid.currentValue = &v
+		},
+	}
+	charConfigPsk := bluetooth.CharacteristicConfig{
+		UUID:  charPskUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received Passkey: %s", v)
+			charPsk.mu.Lock()
+			defer charPsk.mu.Unlock()
+			charPsk.currentValue = &v
+		},
+	}
+	charConfigRobotPartKeyID := bluetooth.CharacteristicConfig{
+		UUID:  charRobotPartKeyIDUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received Robot Part Key ID: %s", v)
+			charRobotPartKeyID.mu.Lock()
+			defer charRobotPartKeyID.mu.Unlock()
+			charRobotPartKeyID.currentValue = &v
+		},
+	}
+	charConfigRobotPartKey := bluetooth.CharacteristicConfig{
+		UUID:  charRobotPartKeyUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received Robot Part Key: %s", v)
+			charRobotPartKey.mu.Lock()
+			defer charRobotPartKey.mu.Unlock()
+			charRobotPartKey.currentValue = &v
+		},
+	}
+
+	// Create a read-only characteristic for broadcasting nearby, available WiFi networks.
+	charConfigAvailableWiFiNetworks := bluetooth.CharacteristicConfig{
+		UUID:       charAvailableWiFiNetworksUUID,
+		Flags:      bluetooth.CharacteristicReadPermission,
+		Value:      nil, // This will get filled in via calls to UpdateAvailableWiFiNetworks.
+		WriteEvent: nil, // This characteristic is read-only.
+	}
+
+	// Create service which will advertise each of the above characteristics.
+	s := &bluetooth.Service{
+		UUID: serviceUUID,
+		Characteristics: []bluetooth.CharacteristicConfig{
+			charConfigSsid,
+			charConfigPsk,
+			charConfigRobotPartKeyID,
+			charConfigRobotPartKey,
+			charConfigAvailableWiFiNetworks,
+		},
+	}
+	if err := adapter.AddService(s); err != nil {
+		return nil, errw.WithMessage(err, "unable to add bluetooth service to default adapter")
+	}
+	if err := adapter.Enable(); err != nil {
+		return nil, errw.WithMessage(err, "failed to enable bluetooth adapter")
+	}
+	defaultAdvertisement := adapter.DefaultAdvertisement()
+	if defaultAdvertisement == nil {
+		return nil, errors.New("default advertisement is nil")
+	}
+	if err := defaultAdvertisement.Configure(
+		bluetooth.AdvertisementOptions{
+			LocalName:    name,
+			ServiceUUIDs: []bluetooth.UUID{serviceUUID},
+		},
+	); err != nil {
+		return nil, errw.WithMessage(err, "failed to configure default advertisement")
+	}
+	return &BluetoothWiFiProvisioner{
+		logger: logger,
+		mu:     sync.Mutex{},
+
+		adv:       defaultAdvertisement,
+		advActive: false,
+		UUID:      serviceUUID,
+
+		availableWiFiNetworksChannelWriteOnly: nil,
+
+		characteristicSsid:           charSsid,
+		characteristicPsk:            charPsk,
+		characteristicRobotPartKeyID: charRobotPartKeyID,
+		characteristicRobotPartKey:   charRobotPartKey,
+	}, nil
 }
