@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 
 	"errors"
 
@@ -167,7 +168,8 @@ func (bwp *BluetoothWiFiProvisioner) stopAdvertisingBLE() error {
 func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {}
 
 func (bwp *BluetoothWiFiProvisioner) writeAvailableNetworks(ctx context.Context, networks *AvailableWiFiNetworks) error {
-	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
+	bwp.availableWiFiNetworksChannelWriteOnly <- networks
+	return nil
 }
 
 func (bwp *BluetoothWiFiProvisioner) readSsid() (string, error) {
@@ -286,6 +288,34 @@ func NewBluetoothWiFiProvisioner(ctx context.Context, logger logging.Logger, nam
 		WriteEvent: nil, // This characteristic is read-only.
 	}
 
+	// Channel will be written to by interface method UpdateAvailableWiFiNetworks and will be read by
+	// the following background goroutine
+	availableWiFiNetworksChannel := make(chan *AvailableWiFiNetworks, 1)
+
+	// Read only channel used to listen for updates to the availableWiFiNetworks.
+	var availableWiFiNetworksChannelReadOnly <-chan *AvailableWiFiNetworks = availableWiFiNetworksChannel
+	utils.ManagedGo(func() {
+		defer close(availableWiFiNetworksChannel)
+		for {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case awns := <-availableWiFiNetworksChannelReadOnly:
+				bs, err := awns.ToBytes()
+				if err != nil {
+					logger.Errorw("failed to cast available WiFi networks to bytes before writing to bluetooth characteristic")
+				}
+				charConfigAvailableWiFiNetworks.Value = bs
+				logger.Infow("successfully updated available WiFi networks on bluetooth characteristic")
+			default:
+				time.Sleep(time.Second)
+			}
+		}
+	}, nil)
+
 	// Create service which will advertise each of the above characteristics.
 	s := &bluetooth.Service{
 		UUID: serviceUUID,
@@ -323,7 +353,7 @@ func NewBluetoothWiFiProvisioner(ctx context.Context, logger logging.Logger, nam
 		advActive: false,
 		UUID:      serviceUUID,
 
-		availableWiFiNetworksChannelWriteOnly: nil,
+		availableWiFiNetworksChannelWriteOnly: availableWiFiNetworksChannel,
 
 		characteristicSsid:           charSsid,
 		characteristicPsk:            charPsk,
