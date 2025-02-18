@@ -70,7 +70,7 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(
 	}
 	var ssid, psk, robotPartKeyID, robotPartKey string
 	var ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr error
-	wg := &sync.WaitGroup{}
+	wg := sync.WaitGroup{}
 	if requiresWiFiCredentials {
 		wg.Add(2)
 		utils.ManagedGo(
