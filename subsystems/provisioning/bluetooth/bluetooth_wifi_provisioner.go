@@ -70,7 +70,7 @@ func (bwp *BluetoothWiFiProvisioner) Start(ctx context.Context) error {
 	if err := bwp.startAdvertisingBLE(ctx); err != nil {
 		return err
 	}
-	bwp.enableAutoAcceptPairRequest() // Enables auto-accept of pair request on this device.
+	bwp.enableAutoAcceptPairRequest() // Async goroutine (hence no error check) which auto-accepts pair requests on this device.
 	return nil
 }
 
@@ -81,10 +81,7 @@ func (bwp *BluetoothWiFiProvisioner) Stop() error {
 
 // Update updates the list of networks that are advertised via bluetooth as available.
 func (bwp *BluetoothWiFiProvisioner) RefreshAvailableNetworks(ctx context.Context, awns *AvailableWiFiNetworks) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return bwp.writeAvailableNetworks(awns)
+	return bwp.writeAvailableNetworks(ctx, awns)
 }
 
 // WaitForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
@@ -268,9 +265,8 @@ func (bwp *BluetoothWiFiProvisioner) enableAutoAcceptPairRequest() {
 	}
 }
 
-func (bwp *BluetoothWiFiProvisioner) writeAvailableNetworks(networks *AvailableWiFiNetworks) error {
-	bwp.availableWiFiNetworksChannelWriteOnly <- networks
-	return nil
+func (bwp *BluetoothWiFiProvisioner) writeAvailableNetworks(ctx context.Context, networks *AvailableWiFiNetworks) error {
+	return errors.New("TODO APP-7644: Add Linux-specific bluetooth calls for automatic pairing and read/write to BLE characteristics")
 }
 
 func (bwp *BluetoothWiFiProvisioner) readSsid() (string, error) {
