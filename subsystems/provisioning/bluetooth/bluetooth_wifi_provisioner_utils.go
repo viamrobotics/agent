@@ -18,7 +18,7 @@ func (e *emptyBluetoothCharacteristicError) Error() string {
 }
 
 // waitForBLE is used to check for the existence of a new value in a BLE characteristic.
-func waitForBLEValue(
+func retryCallbackOnEmptyCharacteristicError(
 	ctx context.Context, fn func() (string, error), description string,
 ) (string, error) {
 	for {

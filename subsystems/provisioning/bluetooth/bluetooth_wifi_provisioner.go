@@ -60,6 +60,9 @@ func (bwp *BluetoothWiFiProvisioner) RefreshAvailableNetworks(ctx context.Contex
 
 // WaitForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
 func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, requiresCloudCredentials bool, requiresWiFiCredentials bool) (*Credentials, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if !requiresWiFiCredentials && !requiresCloudCredentials {
 		return nil, errors.New("should be waiting for either cloud credentials or WiFi credentials")
 	}
@@ -70,13 +73,22 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 		wg.Add(2)
 		utils.ManagedGo(
 			func() {
-				ssid, ssidErr = waitForBLEValue(ctx, bwp.readSsid, "ssid")
+				if ssid, ssidErr = retryCallbackOnEmptyCharacteristicError(
+					ctx, bwp.readSsid, "ssid",
+				); ssidErr != nil {
+					cancel()
+				}
 			},
 			wg.Done,
 		)
 		utils.ManagedGo(
 			func() {
-				psk, pskErr = waitForBLEValue(ctx, bwp.readPsk, "psk")
+				if psk, pskErr = retryCallbackOnEmptyCharacteristicError(
+					ctx, bwp.readPsk, "psk",
+				); pskErr != nil {
+					cancel()
+				}
+
 			},
 			wg.Done,
 		)
@@ -85,13 +97,21 @@ func (bwp *BluetoothWiFiProvisioner) WaitForCredentials(ctx context.Context, req
 		wg.Add(2)
 		utils.ManagedGo(
 			func() {
-				robotPartKeyID, robotPartKeyIDErr = waitForBLEValue(ctx, bwp.readRobotPartKeyID, "robot part key ID")
+				if robotPartKeyID, robotPartKeyIDErr = retryCallbackOnEmptyCharacteristicError(
+					ctx, bwp.readRobotPartKeyID, "robot part key ID",
+				); robotPartKeyIDErr != nil {
+					cancel()
+				}
 			},
 			wg.Done,
 		)
 		utils.ManagedGo(
 			func() {
-				robotPartKey, robotPartKeyErr = waitForBLEValue(ctx, bwp.readRobotPartKey, "robot part key")
+				if robotPartKey, robotPartKeyErr = retryCallbackOnEmptyCharacteristicError(
+					ctx, bwp.readRobotPartKey, "robot part key",
+				); robotPartKeyErr != nil {
+					cancel()
+				}
 			},
 			wg.Done,
 		)
