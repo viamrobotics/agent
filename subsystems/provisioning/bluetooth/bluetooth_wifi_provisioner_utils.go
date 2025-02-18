@@ -20,12 +20,6 @@ func (e *emptyBluetoothCharacteristicError) Error() string {
 	return fmt.Sprintf("no value has been written to BLE characteristic for %s", e.missingValue)
 }
 
-func newEmptyBluetoothCharacteristicError(missingValue string) error {
-	return &emptyBluetoothCharacteristicError{
-		missingValue: missingValue,
-	}
-}
-
 // waitForBLE is used to check for the existence of a new value in a BLE characteristic.
 func waitForBLEValue(
 	ctx context.Context, fn func() (string, error), description string,
