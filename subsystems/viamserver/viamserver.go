@@ -318,8 +318,6 @@ func (s *viamServer) SafeToRestart(ctx context.Context) bool {
 		return true
 	}
 
-	s.shouldRun = false
-
 	// viam-server can be safely restarted even while running if the process
 	// has reported it is safe to do so through its `restart_status` HTTP
 	// endpoint.

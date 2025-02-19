@@ -44,14 +44,14 @@ func main() {
 
 	//nolint:lll
 	var opts struct {
-		Config         string `default:"/etc/viam.json"                        description:"Path to connectcion config file"           long:"config"   short:"c"`
-		DefaultsConfig string `default:"/etc/viam-defaults.json"               description:"Path to device/manufacturer defaults file" long:"defaults"`
-		Debug          bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                                  long:"debug"    short:"d"`
-		UpdateFirst    bool   `description:"Update versions before starting"   env:"VIAM_AGENT_WAIT_FOR_UPDATE"                        long:"wait"     short:"w"`
-		Help           bool   `description:"Show this help message"            long:"help"                                             short:"h"`
-		Version        bool   `description:"Show version"                      long:"version"                                          short:"v"`
+		Config         string `default:"/etc/viam.json"                        description:"Path to machine credentials file"   long:"config"   short:"c"`
+		DefaultsConfig string `default:"/etc/viam-defaults.json"               description:"Path to manufacturer defaults file" long:"defaults"`
+		Debug          bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
+		UpdateFirst    bool   `description:"Update versions before starting"   env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
+		Help           bool   `description:"Show this help message"            long:"help"                                      short:"h"`
+		Version        bool   `description:"Show version"                      long:"version"                                   short:"v"`
 		Install        bool   `description:"Install systemd service"           long:"install"`
-		DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                                long:"dev-mode"`
+		DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                         long:"dev-mode"`
 	}
 
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
@@ -127,7 +127,7 @@ func main() {
 
 	utils.AppConfigFilePath, err = filepath.Abs(opts.Config)
 	exitIfError(err)
-	globalLogger.Infof("connection config file path: %s", utils.AppConfigFilePath)
+	globalLogger.Infof("machine credentials file path: %s", utils.AppConfigFilePath)
 
 	cfg, err := utils.LoadConfigFromCache()
 	exitIfError(err)
@@ -141,7 +141,7 @@ func main() {
 	//nolint:nestif
 	if err != nil {
 		if cfg.AdvancedSettings.DisableNetworkConfiguration {
-			globalLogger.Errorf("Cannot read %s and network configuration is diabled. Please correct and restart viam-agent.",
+			globalLogger.Errorf("Cannot read %s and network configuration is disabled. Please correct and restart viam-agent.",
 				utils.AppConfigFilePath)
 			manager.CloseAll()
 			return
@@ -163,10 +163,10 @@ func main() {
 
 		// We manually start the provisioning service to allow the user to update it and wait.
 		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
-		globalLogger.Infof("main config file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
+		globalLogger.Infof("machine credentials file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
 
 		if err := manager.StartSubsystem(ctx, networking.SubsysName); err != nil {
-			globalLogger.Error(errors.Wrapf(err, "could not start provisioning subsystem, "+
+			globalLogger.Error(errors.Wrapf(err, "could not start networking subsystem, "+
 				"please manually update /etc/viam.json and connect to internet"))
 			manager.CloseAll()
 			return
