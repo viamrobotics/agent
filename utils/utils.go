@@ -1,12 +1,11 @@
-// Package agent contains the public interfaces, functions, consts, and vars for the viam-server agent.
-package agent
+// Package utils contains helper functions shared between the main agent and subsystems
+package utils
 
 import (
 	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -23,7 +22,6 @@ import (
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
 	"golang.org/x/sys/unix"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var (
@@ -138,16 +136,20 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
-		return "", errw.Wrap(err, "checking viam-server status")
+		return "", errw.Wrap(err, "downloading file")
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", errw.Wrap(err, "checking viam-server status")
+		return "", errw.Wrap(err, "downloading file")
 	}
 	defer func() {
 		errRet = errors.Join(errRet, resp.Body.Close())
 	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return "", errw.Errorf("got response '%s' while downloading %s", resp.Status, parsedURL)
+	}
 
 	//nolint:gosec
 	if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {
@@ -227,7 +229,7 @@ func GetFileSum(filepath string) (outSum []byte, errRet error) {
 	return h.Sum(nil), errRet
 }
 
-func fuzzTime(duration time.Duration, pct float64) time.Duration {
+func FuzzTime(duration time.Duration, pct float64) time.Duration {
 	// pct is fuzz factor percentage 0.0 - 1.0
 	// example +/- 5% is 0.05
 	//nolint:gosec
@@ -295,6 +297,7 @@ func SyncFS(syncPath string) (errRet error) {
 	return errors.Join(errRet, file.Close())
 }
 
+// WriteFileIfNew returns true if contents changed and a write happened.
 func WriteFileIfNew(outPath string, data []byte) (bool, error) {
 	//nolint:gosec
 	curFileBytes, err := os.ReadFile(outPath)
@@ -316,19 +319,5 @@ func WriteFileIfNew(outPath string, data []byte) (bool, error) {
 		return true, errw.Wrapf(err, "writing %s", outPath)
 	}
 
-	return true, nil
-}
-
-func ConvertAttributes[T any](attributes *structpb.Struct) (*T, error) {
-	jsonBytes, err := attributes.MarshalJSON()
-	if err != nil {
-		return new(T), err
-	}
-
-	newConfig := new(T)
-	if err = json.Unmarshal(jsonBytes, newConfig); err != nil {
-		return new(T), err
-	}
-
-	return newConfig, nil
+	return true, SyncFS(outPath)
 }

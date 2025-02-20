@@ -1,4 +1,4 @@
-package provisioning
+package networking
 
 import (
 	"sync"
@@ -87,7 +87,7 @@ func (c *connectionState) setConfigured(configured bool) {
 	defer c.mu.Unlock()
 
 	if c.configured != configured {
-		c.logger.Infof("Viam Server Configured: %t", configured)
+		c.logger.Infof("Machine credentials present: %t", configured)
 	}
 
 	c.configured = configured

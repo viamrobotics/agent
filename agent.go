@@ -1,11 +1,10 @@
-// Package viamagent is the subsystem for the viam-agent itself. It contains code to install/update the systemd service as well.
-package viamagent
+// Package agent is the viam-agent itself. It contains code to install/update the systemd service as well.
+package agent
 
 import (
 	"context"
 	_ "embed"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -13,76 +12,36 @@ import (
 	"strings"
 
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent"
-	"github.com/viamrobotics/agent/subsystems"
-	"github.com/viamrobotics/agent/subsystems/registry"
-	pb "go.viam.com/api/app/agent/v1"
+	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 )
 
-func init() {
-	registry.Register(subsysName, NewSubsystem)
-}
-
 const (
-	subsysName      = "viam-agent"
 	serviceFileDir  = "/usr/local/lib/systemd/system"
 	fallbackFileDir = "/etc/systemd/system"
 	serviceFileName = "viam-agent.service"
 )
 
-var (
-	// versions embedded at build time.
-	Version     = ""
-	GitRevision = ""
+//go:embed viam-agent.service
+var serviceFileContents []byte
 
-	//go:embed viam-agent.service
-	serviceFileContents []byte
-)
-
-type agentSubsystem struct{}
-
-func NewSubsystem(ctx context.Context, logger logging.Logger, updateConf *pb.DeviceSubsystemConfig) (subsystems.Subsystem, error) {
-	return agent.NewAgentSubsystem(ctx, subsysName, logger, &agentSubsystem{})
-}
-
-// Start does nothing (we're already running as we ARE the agent.)
-func (a *agentSubsystem) Start(ctx context.Context) error {
-	return nil
-}
-
-// Stop does nothing (special logic elsewhere handles self-restart.)
-func (a *agentSubsystem) Stop(ctx context.Context) error {
-	return nil
-}
-
-// HealthCheck does nothing (we're obviously runnning as we are the agent.)
-func (a *agentSubsystem) HealthCheck(ctx context.Context) error {
-	return nil
-}
-
-// Update here handles the post-update installation of systemd files and the like.
-// The actual update check and download is done in the wrapper (agent.AgentSubsystem).
-func (a *agentSubsystem) Update(ctx context.Context, cfg *pb.DeviceSubsystemConfig, newVersion bool) (bool, error) {
-	if !newVersion {
-		return false, nil
-	}
-
-	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
+// InstallNewVersion runs the newly downloaded binary's Install() for installation of systemd files and the like.
+func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error) {
+	expectedPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
 
 	// Run the newly updated version to install systemd and other service files.
 	//nolint:gosec
 	cmd := exec.Command(expectedPath, "--install")
 	output, err := cmd.CombinedOutput()
+	logger.Info("running viam-agent --install for new version")
+	logger.Info(string(output))
 	if err != nil {
 		return false, errw.Wrapf(err, "running post install step %s", output)
 	}
-	//nolint:forbidigo
-	fmt.Print(string(output))
-
 	return true, nil
 }
 
+// Install is directly executed from main() when --install is passed.
 func Install(logger logging.Logger) error {
 	// Check for systemd
 	cmd := exec.Command("systemctl", "--version")
@@ -92,18 +51,18 @@ func Install(logger logging.Logger) error {
 	}
 
 	// Create/check required folder structure exists.
-	if err := agent.InitPaths(); err != nil {
+	if err := utils.InitPaths(); err != nil {
 		return err
 	}
 
 	// If this is a brand new install, we want to symlink ourselves into place temporarily.
-	expectedPath := filepath.Join(agent.ViamDirs["bin"], subsysName)
+	expectedPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
 	curPath, err := os.Executable()
 	if err != nil {
 		return errw.Wrap(err, "getting path to self")
 	}
 
-	isSelf, err := agent.CheckIfSame(curPath, expectedPath)
+	isSelf, err := utils.CheckIfSame(curPath, expectedPath)
 	if err != nil {
 		return errw.Wrap(err, "checking if installed viam-agent is myself")
 	}
@@ -129,7 +88,7 @@ func Install(logger logging.Logger) error {
 
 	logger.Infof("writing systemd service file to %s", serviceFilePath)
 
-	newFile, err := agent.WriteFileIfNew(serviceFilePath, serviceFileContents)
+	newFile, err := utils.WriteFileIfNew(serviceFilePath, serviceFileContents)
 	if err != nil {
 		return errw.Wrapf(err, "writing systemd service file %s", serviceFilePath)
 	}
@@ -171,7 +130,7 @@ func Install(logger logging.Logger) error {
 
 	logger.Info("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
 
-	return errors.Join(agent.SyncFS("/etc"), agent.SyncFS(serviceFilePath), agent.SyncFS(agent.ViamDirs["viam"]))
+	return errors.Join(utils.SyncFS("/etc"), utils.SyncFS(serviceFilePath), utils.SyncFS(utils.ViamDirs["viam"]))
 }
 
 func inSystemdPath(path string, logger logging.Logger) bool {
