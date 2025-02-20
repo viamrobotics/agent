@@ -2,48 +2,39 @@ package networking
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
 	"time"
 
-	"errors"
-
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
 )
 
-// bluetoothService provides an interface for retrieving cloud config and WiFi credentials for a robot over bluetooth.
-type bluetoothService interface {
-	start(ctx context.Context) error
-	stop() error
-	refreshAvailableNetworks(ctx context.Context, availableNetworks []*NetworkInfo) error
-	waitForCredentials(ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool) (*userInput, error)
-}
-
-// bluetoothServiceLinux provides methods to retrieve cloud config and WiFi credentials for a robot over bluetooth.
-type bluetoothServiceLinux struct{}
+// bluetoothService provides methods to retrieve cloud config and/or WiFi credentials for a robot over bluetooth.
+type bluetoothService struct{}
 
 // Start begins advertising a bluetooth service that acccepts WiFi and Viam cloud config credentials.
-func (bwp *bluetoothServiceLinux) start(ctx context.Context) error {
+func (bwp *bluetoothService) start(ctx context.Context) error { //nolint:unused
 	// TODO APP-7651: Implement helper methods to start/stop advertising BLE connection
 	bwp.enableAutoAcceptPairRequest() // Async goroutine (hence no error check) which auto-accepts pair requests on this device.
 	return errors.New("TODO APP-7651: Implement helper methods to start/stop advertising BLE connection")
 }
 
 // Stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.
-func (bwp *bluetoothServiceLinux) stop() error {
+func (bwp *bluetoothService) stop() error { //nolint:unused
 	return errors.New("TODO APP-7651: Implement helper methods to start/stop advertising BLE connection")
 }
 
 // Update updates the list of networks that are advertised via bluetooth as available.
-func (bwp *bluetoothServiceLinux) refreshAvailableNetworks(ctx context.Context, awns []*NetworkInfo) error {
+func (bwp *bluetoothService) refreshAvailableNetworks(ctx context.Context, awns []*NetworkInfo) error { //nolint:unused
 	return errors.New("TODO APP-7652: Implement helper method to write update WiFi networks to BLE peripheral characteristic")
 }
 
 // WaitForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
-func (bwp *bluetoothServiceLinux) waitForCredentials(
-	ctx context.Context, requiresCloudCredentials bool, requiresWiFiCredentials bool,
+func (bwp *bluetoothService) waitForCredentials( //nolint:unused
+	ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool,
 ) (*userInput, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -69,33 +60,37 @@ func (bwp *bluetoothServiceLinux) waitForCredentials(
 			default:
 				if requiresWiFiCredentials {
 					if ssid == "" {
+						var e *emptyBluetoothCharacteristicError
 						ssid, ssidErr = bwp.readSsid()
-						if ssidErr != nil && !errors.As(ssidErr, emptyBluetoothCharacteristicError{}) {
+						if ssidErr != nil && !errors.As(ssidErr, &e) {
 							return
 						}
 					}
 					if psk == "" {
+						var e *emptyBluetoothCharacteristicError
 						psk, pskErr = bwp.readPsk()
-						if pskErr != nil && !errors.As(pskErr, emptyBluetoothCharacteristicError{}) {
+						if pskErr != nil && !errors.As(pskErr, &e) {
 							return
 						}
 					}
 				}
 				if requiresCloudCredentials {
 					if robotPartKeyID == "" {
+						var e *emptyBluetoothCharacteristicError
 						robotPartKeyID, robotPartKeyIDErr = bwp.readRobotPartKeyID()
-						if robotPartKeyIDErr != nil && !errors.As(robotPartKeyIDErr, emptyBluetoothCharacteristicError{}) {
+						if robotPartKeyIDErr != nil && !errors.As(robotPartKeyIDErr, &e) {
 							return
 						}
 					}
 					if robotPartKey == "" {
+						var e *emptyBluetoothCharacteristicError
 						robotPartKey, robotPartKeyErr = bwp.readRobotPartKey()
-						if robotPartKeyErr != nil && !errors.As(robotPartKeyErr, emptyBluetoothCharacteristicError{}) {
+						if robotPartKeyErr != nil && !errors.As(robotPartKeyErr, &e) {
 							return
 						}
 					}
 				}
-				if requiresWiFiCredentials && requiresCloudCredentials &&
+				if requiresWiFiCredentials && requiresCloudCredentials && //nolint:gocritic
 					ssid != "" && psk != "" && robotPartKeyID != "" && robotPartKey != "" {
 					return
 				} else if requiresWiFiCredentials && ssid != "" && psk != "" {
@@ -108,7 +103,6 @@ func (bwp *bluetoothServiceLinux) waitForCredentials(
 				time.Sleep(time.Second)
 			}
 		}
-
 	}, wg.Done)
 
 	wg.Wait()
@@ -120,32 +114,32 @@ func (bwp *bluetoothServiceLinux) waitForCredentials(
 
 /** Helper methods for low-level system calls and read/write requests to/from bluetooth characteristics **/
 
-func (bwp *bluetoothServiceLinux) enableAutoAcceptPairRequest() {
+func (bwp *bluetoothService) enableAutoAcceptPairRequest() { //nolint:unused
 	// TODO APP-7655: Implement method to auto-accept pairing requests to the BLE peripheral.
 }
 
-func (bwp *bluetoothServiceLinux) readSsid() (string, error) {
+func (bwp *bluetoothService) readSsid() (string, error) { //nolint:unused
 	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
 		" values from BLE peripheral characteristics")
 }
 
-func (bwp *bluetoothServiceLinux) readPsk() (string, error) {
+func (bwp *bluetoothService) readPsk() (string, error) { //nolint:unused
 	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
 		" values from BLE peripheral characteristics")
 }
 
-func (bwp *bluetoothServiceLinux) readRobotPartKeyID() (string, error) {
+func (bwp *bluetoothService) readRobotPartKeyID() (string, error) { //nolint:unused
 	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
 		" values from BLE peripheral characteristics")
 }
 
-func (bwp *bluetoothServiceLinux) readRobotPartKey() (string, error) {
+func (bwp *bluetoothService) readRobotPartKey() (string, error) { //nolint:unused
 	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
 		" values from BLE peripheral characteristics")
 }
 
-// NewBluetoothWiFiProvisioningServiceLinux returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
-func NewBluetoothWiFiProvisioningService(ctx context.Context, logger logging.Logger, name string) (*bluetoothServiceLinux, error) {
+// NewBluetoothService returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
+func NewBluetoothService(ctx context.Context, logger logging.Logger, name string) (*bluetoothService, error) {
 	switch os := runtime.GOOS; os {
 	case "linux":
 		// TODO APP-7654: Implement initializer function for creating a BLE peripheral with the required set of characteristics for BLE
@@ -163,10 +157,10 @@ func NewBluetoothWiFiProvisioningService(ctx context.Context, logger logging.Log
 /** Custom error type and miscellaneous utils that are helpful for managing low-level bluetooth on Linux **/
 
 // emptyBluetoothCharacteristicError represents the error which is raised when we attempt to read from an empty BLE characteristic.
-type emptyBluetoothCharacteristicError struct {
+type emptyBluetoothCharacteristicError struct { //nolint:unused
 	missingValue string
 }
 
-func (e *emptyBluetoothCharacteristicError) Error() string {
+func (e *emptyBluetoothCharacteristicError) Error() string { //nolint:unused
 	return fmt.Sprintf("no value has been written to BLE characteristic for %s", e.missingValue)
 }
