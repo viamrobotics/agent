@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/viamrobotics/agent/utils"
 	"golang.org/x/sys/windows/svc"
@@ -60,4 +61,8 @@ func main() {
 	}
 	// todo(windows): gracefully stop. without this, RDK stays running in the background.
 	elog.Info(1, fmt.Sprintf("%s service stopped", serviceName))
+}
+
+func ignoredSignal(sig os.Signal) bool {
+	return false
 }
