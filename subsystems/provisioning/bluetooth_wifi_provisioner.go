@@ -46,59 +46,70 @@ func (bwp *bluetoothWiFiProvisioner) WaitForCredentials(
 		return nil, errors.New("should be waiting for cloud credentials or WiFi credentials, or both")
 	}
 	var ssid, psk, robotPartKeyID, robotPartKey string
-	var ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr error
+	var ctxErr, ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr error
+
 	wg := sync.WaitGroup{}
-	if requiresWiFiCredentials {
-		wg.Add(2)
-		utils.ManagedGo(
-			func() {
-				if ssid, ssidErr = retryCallbackOnExpectedError(
-					ctx, bwp.readSsid, &emptyBluetoothCharacteristicError{}, "failed to read ssid",
-				); ssidErr != nil {
-					cancel()
+	wg.Add(1)
+
+	utils.ManagedGo(func() {
+		for {
+			if ctxErr = ctx.Err(); ctxErr != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				ctxErr = ctx.Err()
+				return
+			default:
+				if requiresWiFiCredentials {
+					if ssid == "" {
+						ssid, ssidErr = bwp.readSsid()
+						if ssidErr != nil && !errors.As(ssidErr, emptyBluetoothCharacteristicError{}) {
+							return
+						}
+					}
+					if psk == "" {
+						psk, pskErr = bwp.readPsk()
+						if pskErr != nil && !errors.As(pskErr, emptyBluetoothCharacteristicError{}) {
+							return
+						}
+					}
 				}
-			},
-			wg.Done,
-		)
-		utils.ManagedGo(
-			func() {
-				if psk, pskErr = retryCallbackOnExpectedError(
-					ctx, bwp.readPsk, &emptyBluetoothCharacteristicError{}, "failed to read psk",
-				); pskErr != nil {
-					cancel()
+				if requiresCloudCredentials {
+					if robotPartKeyID == "" {
+						robotPartKeyID, robotPartKeyIDErr = bwp.readRobotPartKeyID()
+						if robotPartKeyIDErr != nil && !errors.As(robotPartKeyIDErr, emptyBluetoothCharacteristicError{}) {
+							return
+						}
+					}
+					if robotPartKey == "" {
+						robotPartKey, robotPartKeyErr = bwp.readRobotPartKey()
+						if robotPartKeyErr != nil && !errors.As(robotPartKeyErr, emptyBluetoothCharacteristicError{}) {
+							return
+						}
+					}
+				}
+				if requiresWiFiCredentials && requiresCloudCredentials &&
+					ssid != "" && psk != "" && robotPartKeyID != "" && robotPartKey != "" {
+					return
+				} else if requiresWiFiCredentials && ssid != "" && psk != "" {
+					return
+				} else if requiresCloudCredentials && robotPartKeyID != "" && robotPartKey != "" {
+					return
 				}
 
-			},
-			wg.Done,
-		)
-	}
-	if requiresCloudCredentials {
-		wg.Add(2)
-		utils.ManagedGo(
-			func() {
-				if robotPartKeyID, robotPartKeyIDErr = retryCallbackOnExpectedError(
-					ctx, bwp.readRobotPartKeyID, &emptyBluetoothCharacteristicError{}, "failed to read robot part key ID",
-				); robotPartKeyIDErr != nil {
-					cancel()
-				}
-			},
-			wg.Done,
-		)
-		utils.ManagedGo(
-			func() {
-				if robotPartKey, robotPartKeyErr = retryCallbackOnExpectedError(
-					ctx, bwp.readRobotPartKey, &emptyBluetoothCharacteristicError{}, "failed to read robot part key",
-				); robotPartKeyErr != nil {
-					cancel()
-				}
-			},
-			wg.Done,
-		)
-	}
+				// Not ready to return (do not have the minimum required set of credentials), so sleep and try again.
+				time.Sleep(time.Second)
+			}
+		}
+
+	}, wg.Done)
+
 	wg.Wait()
+
 	return &userInput{
 		SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey,
-	}, errors.Join(ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr)
+	}, errors.Join(ctxErr, ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr)
 }
 
 /** Helper methods for low-level system calls and read/write requests to/from bluetooth characteristics **/
@@ -164,29 +175,4 @@ type emptyBluetoothCharacteristicError struct {
 
 func (e *emptyBluetoothCharacteristicError) Error() string {
 	return fmt.Sprintf("no value has been written to BLE characteristic for %s", e.missingValue)
-}
-
-// retryCallbackOnExpectedError retries the provided callback to at one second intervals as long as an expected error is thrown.
-func retryCallbackOnExpectedError(
-	ctx context.Context, fn func() (string, error), expectedErr error, description string,
-) (string, error) {
-	for {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		default:
-			time.Sleep(time.Second)
-		}
-		v, err := fn()
-		if err != nil {
-			if errors.As(err, &expectedErr) {
-				continue
-			}
-			return "", fmt.Errorf("%w: %s", err, description)
-		}
-		return v, nil
-	}
 }
