@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+    xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+    xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall">
+    <Package Name="viam-agent" Manufacturer="viam" Version="$(var.MSIProductVersion)" UpgradeCode="d3b5bca3-4bec-46cb-a063-ca6315de7de4" Language="1033" Scope="perMachine">
+        <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" />
+
+        <StandardDirectory Id="TARGETDIR">
+            <Directory Id="CustomInstallPath" Name="opt">
+                <Directory Id="ViamFolder" Name="viam">
+                    <Directory Id="INSTALLFOLDER" Name="bin">
+                        <Component Id="MainServiceComponent" Guid="d478ceba-537c-4e49-9262-bf24ccfe4909">
+                            <File Id="ViamExe" Source="$(var.GoBinDir)\viam-agent.exe" KeyPath="yes" />
+                            <ServiceInstall Id="InstallAgentervice" Name="viam-agent" DisplayName="viam-agent Service" Description="viam-agent Windows service" Start="auto" Type="ownProcess" ErrorControl="normal" Account="LocalSystem" Interactive="yes" />
+                            <ServiceControl Id="ControlAgentService" Name="viam-agent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+                            <fire:FirewallException Id="AllowAllTCP" Name="viam-agent" Profile="all" Protocol="tcp" Scope="any" />
+                            <fire:FirewallException Id="AllowAllUDP" Name="viam-agent" Profile="all" Protocol="tcp" Scope="any" />
+                        </Component>
+                    </Directory>
+                </Directory>
+            </Directory>
+        </StandardDirectory>
+
+        <Feature Id="MainFeature" Title="Main Feature" Level="1">
+            <ComponentRef Id="MainServiceComponent" />
+        </Feature>
+    </Package>
+</Wix>
