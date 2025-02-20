@@ -50,9 +50,14 @@ type Networking struct {
 	nets   utils.AdditionalNetworks
 
 	// portal
-	webServer  *http.Server
-	grpcServer *grpc.Server
-	portalData *portalData
+	webServer       *http.Server
+	grpcServer      *grpc.Server
+	portalData      *portalData
+	hotspotIsActive bool
+
+	// bluetooth
+	bluetoothService  bluetoothService
+	bluetoothIsActive bool
 
 	pb.UnimplementedProvisioningServiceServer
 }
