@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -100,11 +101,15 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		return "", err
 	}
 
-	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedURL.Path))
+	parsedPath := parsedURL.Path
+	if runtime.GOOS == "windows" && !strings.HasSuffix(parsedPath, ".exe") {
+		parsedPath += ".exe"
+	}
+	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedPath))
 
 	//nolint:nestif
 	if parsedURL.Scheme == "file" {
-		infd, err := os.Open(parsedURL.Path)
+		infd, err := os.Open(parsedPath)
 		if err != nil {
 			return "", err
 		}
@@ -166,8 +171,16 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 	if err != nil {
 		return "", err
 	}
+	// `closed` suppresses double-close
+	closed := false
 	defer func() {
-		errRet = errors.Join(errRet, out.Close(), SyncFS(out.Name()))
+		if !closed {
+			errRet = errors.Join(errRet, out.Close())
+		}
+		if runtime.GOOS != "windows" {
+			// todo(windows): doc why we don't do this / test adding it back
+			errRet = errors.Join(errRet, SyncFS(out.Name()))
+		}
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -177,8 +190,18 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 	if err != nil && !os.IsNotExist(err) {
 		errRet = errors.Join(errRet, err)
 	}
+	errRet = errors.Join(errRet, out.Close())
+	closed = true
 
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command(
+			"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
+			"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
+		)
+		cmd.Start()
+		errRet = errors.Join(errRet, cmd.Wait())
+	}
 	return outPath, errRet
 }
 
