@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
+	"tinygo.org/x/bluetooth"
 )
 
 // bluetoothService provides an interface for retrieving cloud config and/or WiFi credentials for a robot over bluetooth.
@@ -186,6 +187,7 @@ func newBluetoothService(ctx context.Context, logger logging.Logger, name string
 			charConfigPsk,
 			charConfigRobotPartKeyID,
 			charConfigRobotPartKey,
+			charConfigAppAddress,
 			charConfigAvailableWiFiNetworks,
 		},
 	}
