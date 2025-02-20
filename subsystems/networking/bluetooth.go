@@ -1,13 +1,20 @@
 package networking
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/godbus/dbus"
+	"github.com/google/uuid"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils"
 )
@@ -16,53 +23,283 @@ import (
 type bluetoothService interface {
 	start(ctx context.Context) error
 	stop() error
-	refreshAvailableNetworks(ctx context.Context, availableNetworks []NetworkInfo) error
+	refreshAvailableNetworks(ctx context.Context, availableNetworks []*NetworkInfo) error
 	waitForCredentials(ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool) (*userInput, error)
 }
 
 // newBluetoothService returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
 func newBluetoothService(ctx context.Context, logger logging.Logger, name string) (bluetoothService, error) {
-	switch os := runtime.GOOS; os {
-	case "linux":
-		// TODO APP-7654: Implement initializer function for creating a BLE peripheral with the required set of characteristics for BLE
-		// to WiFi provisioning.
-		fallthrough
-	case "windows":
-		fallthrough
-	case "darwin":
-		fallthrough
-	default:
-		return nil, fmt.Errorf("failed to set up bluetooth-low-energy peripheral, %s is not yet supported", os)
+	if err := validateSystem(logger); err != nil {
+		return nil, fmt.Errorf("cannot initialize bluetooth peripheral, system requisites not met: %w", err)
 	}
+
+	adapter := bluetooth.DefaultAdapter
+	if err := adapter.Enable(); err != nil {
+		return nil, fmt.Errorf("failed to enable bluetooth adapter: %w", err)
+	}
+
+	serviceUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x1111)
+	logger.Infof("serviceUUID: %s", serviceUUID.String())
+	charSsidUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x2222)
+	logger.Infof("charSsidUUID: %s", charSsidUUID.String())
+	charPskUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x3333)
+	logger.Infof("charPskUUID: %s", charPskUUID.String())
+	charRobotPartKeyIDUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x4444)
+	logger.Infof("charRobotPartKeyIDUUID: %s", charRobotPartKeyIDUUID.String())
+	charRobotPartKeyUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x5555)
+	logger.Infof("charRobotPartKeyUUID: %s", charRobotPartKeyUUID.String())
+	charAppAddressUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x6666)
+	logger.Infof("charAppAddress: %s", charAppAddressUUID.String())
+	charAvailableWiFiNetworksUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x7777)
+	logger.Infof("charAvailableWiFiNetworksUUID: %s", charAvailableWiFiNetworksUUID.String())
+
+	// Create abstracted characteristics which act as a buffer for reading data from bluetooth.
+	charSsid := &bluetoothCharacteristicLinux[*string]{
+		UUID:         charSsidUUID,
+		mu:           &sync.Mutex{},
+		currentValue: nil,
+	}
+	charPsk := &bluetoothCharacteristicLinux[*string]{
+		UUID:         charPskUUID,
+		mu:           &sync.Mutex{},
+		currentValue: nil,
+	}
+	charRobotPartKeyID := &bluetoothCharacteristicLinux[*string]{
+		UUID:         charRobotPartKeyIDUUID,
+		mu:           &sync.Mutex{},
+		currentValue: nil,
+	}
+	charRobotPartKey := &bluetoothCharacteristicLinux[*string]{
+		UUID:         charRobotPartKeyUUID,
+		mu:           &sync.Mutex{},
+		currentValue: nil,
+	}
+	charAppAddress := &bluetoothCharacteristicLinux[*string]{
+		UUID:         charAppAddressUUID,
+		mu:           &sync.Mutex{},
+		currentValue: nil,
+	}
+
+	// Create write-only, locking characteristics (one per credential) for fields that are written to.
+	charConfigSsid := bluetooth.CharacteristicConfig{
+		UUID:  charSsidUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received SSID: %s", v)
+			charSsid.mu.Lock()
+			defer charSsid.mu.Unlock()
+			charSsid.currentValue = &v
+		},
+	}
+	charConfigPsk := bluetooth.CharacteristicConfig{
+		UUID:  charPskUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received Passkey: %s", v)
+			charPsk.mu.Lock()
+			defer charPsk.mu.Unlock()
+			charPsk.currentValue = &v
+		},
+	}
+	charConfigRobotPartKeyID := bluetooth.CharacteristicConfig{
+		UUID:  charRobotPartKeyIDUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received Robot Part Key ID: %s", v)
+			charRobotPartKeyID.mu.Lock()
+			defer charRobotPartKeyID.mu.Unlock()
+			charRobotPartKeyID.currentValue = &v
+		},
+	}
+	charConfigRobotPartKey := bluetooth.CharacteristicConfig{
+		UUID:  charRobotPartKeyUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received Robot Part Key: %s", v)
+			charRobotPartKey.mu.Lock()
+			defer charRobotPartKey.mu.Unlock()
+			charRobotPartKey.currentValue = &v
+		},
+	}
+	charConfigAppAddress := bluetooth.CharacteristicConfig{
+		UUID:  charAppAddressUUID,
+		Flags: bluetooth.CharacteristicWritePermission,
+		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			v := string(value)
+			logger.Infof("Received App Address: %s", v)
+			charAppAddress.mu.Lock()
+			defer charAppAddress.mu.Unlock()
+			charAppAddress.currentValue = &v
+		},
+	}
+
+	// Create a read-only characteristic for broadcasting nearby, available WiFi networks.
+	charConfigAvailableWiFiNetworks := bluetooth.CharacteristicConfig{
+		UUID:       charAvailableWiFiNetworksUUID,
+		Flags:      bluetooth.CharacteristicReadPermission,
+		Value:      nil, // This will get filled in via calls to UpdateAvailableWiFiNetworks.
+		WriteEvent: nil, // This characteristic is read-only.
+	}
+
+	// Channel will be written to by interface method UpdateAvailableWiFiNetworks and will be read by
+	// the following background goroutine
+	availableWiFiNetworksChannel := make(chan []*NetworkInfo, 1)
+
+	// Read only channel used to listen for updates to the availableWiFiNetworks.
+	var availableWiFiNetworksChannelReadOnly <-chan []*NetworkInfo = availableWiFiNetworksChannel
+	utils.ManagedGo(func() {
+		defer close(availableWiFiNetworksChannel)
+		for {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case availableNetworks := <-availableWiFiNetworksChannelReadOnly:
+				var all [][]byte
+				for _, availableNetwork := range availableNetworks {
+					single, err := json.Marshal(availableNetwork)
+					if err != nil {
+						logger.Errorw("failed to convert available WiFi network to bytes", "err", err)
+						continue
+					}
+					all = append(all, single)
+				}
+				charConfigAvailableWiFiNetworks.Value = bytes.Join(all, []byte(","))
+				logger.Infow("successfully updated available WiFi networks on bluetooth characteristic")
+			default:
+				time.Sleep(time.Second)
+			}
+		}
+	}, nil)
+
+	// Create service which will advertise each of the above characteristics.
+	s := &bluetooth.Service{
+		UUID: serviceUUID,
+		Characteristics: []bluetooth.CharacteristicConfig{
+			charConfigSsid,
+			charConfigPsk,
+			charConfigRobotPartKeyID,
+			charConfigRobotPartKey,
+			charConfigAvailableWiFiNetworks,
+		},
+	}
+	if err := adapter.AddService(s); err != nil {
+		return nil, fmt.Errorf("unable to add bluetooth service to default adapter: %w", err)
+	}
+	if err := adapter.Enable(); err != nil {
+		return nil, fmt.Errorf("failed to enable bluetooth adapter: %w", err)
+	}
+	defaultAdvertisement := adapter.DefaultAdvertisement()
+	if defaultAdvertisement == nil {
+		return nil, errors.New("default advertisement is nil")
+	}
+	if err := defaultAdvertisement.Configure(
+		bluetooth.AdvertisementOptions{
+			LocalName:    name,
+			ServiceUUIDs: []bluetooth.UUID{serviceUUID},
+		},
+	); err != nil {
+		return nil, fmt.Errorf("failed to configure default advertisement: %w", err)
+	}
+	return &bluetoothServiceLinux{
+		logger: logger,
+		mu:     &sync.Mutex{},
+
+		adv:       defaultAdvertisement,
+		advActive: false,
+		UUID:      serviceUUID,
+
+		availableWiFiNetworksChannelWriteOnly: availableWiFiNetworksChannel,
+
+		characteristicSsid:           charSsid,
+		characteristicPsk:            charPsk,
+		characteristicRobotPartKeyID: charRobotPartKeyID,
+		characteristicRobotPartKey:   charRobotPartKey,
+		characteristicAppAddress:     charAppAddress,
+	}, nil
+}
+
+// bluetoothCharacteristicLinux is used to read and write values to a bluetooh peripheral.
+type bluetoothCharacteristicLinux[T any] struct {
+	UUID bluetooth.UUID
+	mu   *sync.Mutex
+
+	currentValue T
 }
 
 // bluetoothServiceLinux provides methods to retrieve cloud config and/or WiFi credentials for a robot over bluetooth.
-type bluetoothServiceLinux struct{}
+type bluetoothServiceLinux struct {
+	logger logging.Logger
+	mu     *sync.Mutex
+
+	adv       *bluetooth.Advertisement
+	advActive bool
+	UUID      bluetooth.UUID
+
+	availableWiFiNetworksChannelWriteOnly chan<- []*NetworkInfo
+
+	characteristicSsid           *bluetoothCharacteristicLinux[*string]
+	characteristicPsk            *bluetoothCharacteristicLinux[*string]
+	characteristicRobotPartKeyID *bluetoothCharacteristicLinux[*string]
+	characteristicRobotPartKey   *bluetoothCharacteristicLinux[*string]
+	characteristicAppAddress     *bluetoothCharacteristicLinux[*string]
+}
 
 // Start begins advertising a bluetooth service that acccepts WiFi and Viam cloud config credentials.
-func (bwp *bluetoothServiceLinux) start(ctx context.Context) error { //nolint:unused
-	// TODO APP-7651: Implement helper methods to start/stop advertising BLE connection
-	bwp.enableAutoAcceptPairRequest() // Async goroutine (hence no error check) which auto-accepts pair requests on this device.
-	return errors.New("TODO APP-7651: Implement helper methods to start/stop advertising BLE connection")
+func (bsl *bluetoothServiceLinux) start(ctx context.Context) error {
+	bsl.mu.Lock()
+	defer bsl.mu.Unlock()
+	defer enableAutoAcceptPairRequest(bsl.logger) // Async (logs instead of error checks) to auto-accept pair requests on this device.
+
+	if bsl.adv == nil {
+		return errors.New("advertisement is nil")
+	}
+	if bsl.advActive {
+		return errors.New("invalid request, advertising already active")
+	}
+	if err := bsl.adv.Start(); err != nil {
+		return fmt.Errorf("failed to start advertising: %w", err)
+	}
+	bsl.advActive = true
+	bsl.logger.Info("started advertising a BLE connection...")
+	return nil
 }
 
 // Stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.
-func (bwp *bluetoothServiceLinux) stop() error { //nolint:unused
-	return errors.New("TODO APP-7651: Implement helper methods to start/stop advertising BLE connection")
+func (bsl *bluetoothServiceLinux) stop() error {
+	bsl.mu.Lock()
+	defer bsl.mu.Unlock()
+
+	if bsl.adv == nil {
+		return errors.New("advertisement is nil")
+	}
+	if !bsl.advActive {
+		return errors.New("invalid request, advertising already inactive")
+	}
+	if err := bsl.adv.Stop(); err != nil {
+		return fmt.Errorf("failed to stop advertising: %w", err)
+	}
+	bsl.advActive = false
+	bsl.logger.Info("stopped advertising a BLE connection")
+	return nil
 }
 
 // Update updates the list of networks that are advertised via bluetooth as available.
-func (bwp *bluetoothServiceLinux) refreshAvailableNetworks(ctx context.Context, awns []*NetworkInfo) error { //nolint:unused
-	return errors.New("TODO APP-7652: Implement helper method to write update WiFi networks to BLE peripheral characteristic")
+func (bsl *bluetoothServiceLinux) refreshAvailableNetworks(ctx context.Context, availableNetworks []*NetworkInfo) error {
+	bsl.availableWiFiNetworksChannelWriteOnly <- availableNetworks
+	return nil
 }
 
 // WaitForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
-func (bwp *bluetoothServiceLinux) waitForCredentials( //nolint:unused
+func (bsl *bluetoothServiceLinux) waitForCredentials(
 	ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool,
 ) (*userInput, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	if !requiresWiFiCredentials && !requiresCloudCredentials {
 		return nil, errors.New("should be waiting for cloud credentials or WiFi credentials, or both")
 	}
@@ -85,14 +322,14 @@ func (bwp *bluetoothServiceLinux) waitForCredentials( //nolint:unused
 				if requiresWiFiCredentials {
 					if ssid == "" {
 						var e *emptyBluetoothCharacteristicError
-						ssid, ssidErr = bwp.readSsid()
+						ssid, ssidErr = bsl.readSsid()
 						if ssidErr != nil && !errors.As(ssidErr, &e) {
 							return
 						}
 					}
 					if psk == "" {
 						var e *emptyBluetoothCharacteristicError
-						psk, pskErr = bwp.readPsk()
+						psk, pskErr = bsl.readPsk()
 						if pskErr != nil && !errors.As(pskErr, &e) {
 							return
 						}
@@ -101,14 +338,14 @@ func (bwp *bluetoothServiceLinux) waitForCredentials( //nolint:unused
 				if requiresCloudCredentials {
 					if robotPartKeyID == "" {
 						var e *emptyBluetoothCharacteristicError
-						robotPartKeyID, robotPartKeyIDErr = bwp.readRobotPartKeyID()
+						robotPartKeyID, robotPartKeyIDErr = bsl.readRobotPartKeyID()
 						if robotPartKeyIDErr != nil && !errors.As(robotPartKeyIDErr, &e) {
 							return
 						}
 					}
 					if robotPartKey == "" {
 						var e *emptyBluetoothCharacteristicError
-						robotPartKey, robotPartKeyErr = bwp.readRobotPartKey()
+						robotPartKey, robotPartKeyErr = bsl.readRobotPartKey()
 						if robotPartKeyErr != nil && !errors.As(robotPartKeyErr, &e) {
 							return
 						}
@@ -138,37 +375,289 @@ func (bwp *bluetoothServiceLinux) waitForCredentials( //nolint:unused
 
 /** Helper methods for low-level system calls and read/write requests to/from bluetooth characteristics **/
 
-func (bwp *bluetoothServiceLinux) enableAutoAcceptPairRequest() { //nolint:unused
-	// TODO APP-7655: Implement method to auto-accept pairing requests to the BLE peripheral.
+func (bsl *bluetoothServiceLinux) readSsid() (string, error) {
+	if bsl.characteristicSsid == nil {
+		return "", errors.New("characteristic ssid is nil")
+	}
+
+	bsl.characteristicSsid.mu.Lock()
+	defer bsl.characteristicSsid.mu.Unlock()
+
+	if bsl.characteristicSsid.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("ssid")
+	}
+	return *bsl.characteristicSsid.currentValue, nil
 }
 
-func (bwp *bluetoothServiceLinux) readSsid() (string, error) { //nolint:unused
-	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
-		" values from BLE peripheral characteristics")
+func (bsl *bluetoothServiceLinux) readPsk() (string, error) {
+	if bsl.characteristicPsk == nil {
+		return "", errors.New("characteristic psk is nil")
+	}
+
+	bsl.characteristicPsk.mu.Lock()
+	defer bsl.characteristicPsk.mu.Unlock()
+
+	if bsl.characteristicPsk.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("psk")
+	}
+	return *bsl.characteristicPsk.currentValue, nil
 }
 
-func (bwp *bluetoothServiceLinux) readPsk() (string, error) { //nolint:unused
-	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
-		" values from BLE peripheral characteristics")
+func (bsl *bluetoothServiceLinux) readRobotPartKeyID() (string, error) {
+	if bsl.characteristicRobotPartKeyID == nil {
+		return "", errors.New("characteristic robot part key ID is nil")
+	}
+
+	bsl.characteristicRobotPartKeyID.mu.Lock()
+	defer bsl.characteristicRobotPartKeyID.mu.Unlock()
+
+	if bsl.characteristicRobotPartKeyID.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("robot part key ID")
+	}
+	return *bsl.characteristicRobotPartKeyID.currentValue, nil
 }
 
-func (bwp *bluetoothServiceLinux) readRobotPartKeyID() (string, error) { //nolint:unused
-	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
-		" values from BLE peripheral characteristics")
-}
+func (bsl *bluetoothServiceLinux) readRobotPartKey() (string, error) {
+	if bsl.characteristicRobotPartKey == nil {
+		return "", errors.New("characteristic robot part key is nil")
+	}
 
-func (bwp *bluetoothServiceLinux) readRobotPartKey() (string, error) { //nolint:unused
-	return "", errors.New("TODO APP-7653: Implement helper methods to read SSID, passkey, robot part key ID, and robot part key" +
-		" values from BLE peripheral characteristics")
+	bsl.characteristicRobotPartKey.mu.Lock()
+	defer bsl.characteristicRobotPartKey.mu.Unlock()
+
+	if bsl.characteristicRobotPartKey.currentValue == nil {
+		return "", newEmptyBluetoothCharacteristicError("robot part key")
+	}
+	return *bsl.characteristicRobotPartKey.currentValue, nil
 }
 
 /** Custom error type and miscellaneous utils that are helpful for managing low-level bluetooth on Linux **/
 
 // emptyBluetoothCharacteristicError represents the error which is raised when we attempt to read from an empty BLE characteristic.
-type emptyBluetoothCharacteristicError struct { //nolint:unused
+type emptyBluetoothCharacteristicError struct {
 	missingValue string
 }
 
-func (e *emptyBluetoothCharacteristicError) Error() string { //nolint:unused
+func (e *emptyBluetoothCharacteristicError) Error() string {
 	return fmt.Sprintf("no value has been written to BLE characteristic for %s", e.missingValue)
+}
+
+func newEmptyBluetoothCharacteristicError(missingValue string) error {
+	return &emptyBluetoothCharacteristicError{
+		missingValue: missingValue,
+	}
+}
+
+const (
+	BluezDBusService  = "org.bluez"
+	BluezAgentPath    = "/custom/agent"
+	BluezAgentManager = "org.bluez.AgentManager1"
+	BluezAgent        = "org.bluez.Agent1"
+)
+
+// checkOS verifies the system is running a Linux distribution.
+func checkOS() error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("this program requires Linux, detected: %s", runtime.GOOS)
+	}
+	return nil
+}
+
+// getBlueZVersion retrieves the installed BlueZ version and extracts the numeric value correctly.
+func getBlueZVersion() (float64, error) {
+	// Try to get version from bluetoothctl first, fallback to bluetoothd
+	versionCmds := []string{"bluetoothctl --version", "bluetoothd --version"}
+
+	var versionOutput bytes.Buffer
+	var err error
+
+	for _, cmd := range versionCmds {
+		versionOutput.Reset() // Clear buffer
+		cmdParts := strings.Fields(cmd)
+		execCmd := exec.Command(cmdParts[0], cmdParts[1:]...) //nolint:gosec
+		execCmd.Stdout = &versionOutput
+		err = execCmd.Run()
+		if err == nil {
+			break // Found a valid command
+		}
+	}
+
+	if err != nil {
+		return 0, fmt.Errorf("BlueZ is not installed or not accessible")
+	}
+
+	// Extract only the numeric version
+	versionStr := strings.TrimSpace(versionOutput.String())
+	parts := strings.Fields(versionStr)
+
+	// Ensure we have at least one part before accessing it
+	if len(parts) == 0 {
+		return 0, fmt.Errorf("failed to parse BlueZ version: empty output")
+	}
+
+	versionNum := parts[len(parts)-1] // Get the last word, which should be the version number
+
+	// Convert to float
+	versionFloat, err := strconv.ParseFloat(versionNum, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse BlueZ version: %s", versionStr)
+	}
+
+	return versionFloat, nil
+}
+
+// validateSystem checks OS and BlueZ installation/version.
+func validateSystem(logger logging.Logger) error {
+	// 1. Validate OS
+	if err := checkOS(); err != nil {
+		return err
+	}
+	logger.Info("✅ Running on a Linux system.")
+
+	// 2. Check BlueZ version
+	blueZVersion, err := getBlueZVersion()
+	if err != nil {
+		return err
+	}
+	logger.Infof("✅ BlueZ detected, version: %.2f", blueZVersion)
+
+	// 3. Validate BlueZ version is 5.66 or higher
+	if blueZVersion < 5.66 {
+		return fmt.Errorf("❌ BlueZ version is %.2f, but 5.66 or later is required", blueZVersion)
+	}
+
+	logger.Info("✅ BlueZ version meets the requirement (5.66 or later).")
+	return nil
+}
+
+// trustDevice sets the device as trusted and connects to it.
+func trustDevice(logger logging.Logger, devicePath string) error {
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		return fmt.Errorf("failed to connect to DBus: %w", err)
+	}
+
+	obj := conn.Object(BluezDBusService, dbus.ObjectPath(devicePath))
+
+	// Set Trusted = true
+	call := obj.Call("org.freedesktop.DBus.Properties.Set", 0,
+		"org.bluez.Device1", "Trusted", dbus.MakeVariant(true))
+	if call.Err != nil {
+		return fmt.Errorf("failed to set Trusted property: %w", call.Err)
+	}
+	logger.Info("device marked as trusted.")
+
+	return nil
+}
+
+// convertDBusPathToMAC converts a DBus object path to a Bluetooth MAC address.
+func convertDBusPathToMAC(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 {
+		return ""
+	}
+
+	// Extract last part and convert underscores to colons
+	macPart := parts[len(parts)-1]
+	mac := strings.ReplaceAll(macPart, "_", ":")
+	return mac
+}
+
+func enableAutoAcceptPairRequest(logger logging.Logger) {
+	var err error
+	utils.ManagedGo(func() {
+		conn, err := dbus.SystemBus()
+		if err != nil {
+			err = fmt.Errorf("failed to connect to system DBus: %w", err)
+			return
+		}
+
+		// Export agent methods
+		reply := conn.Export(nil, BluezAgentPath, BluezAgent)
+		if reply != nil {
+			err = fmt.Errorf("failed to export Bluez agent: %w", reply)
+			return
+		}
+
+		// Register the agent
+		obj := conn.Object(BluezDBusService, "/org/bluez")
+		call := obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "NoInputNoOutput")
+		if err := call.Err; err != nil {
+			err = fmt.Errorf("failed to register Bluez agent: %w", err)
+			return
+		}
+
+		// Set as the default agent
+		call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
+		if err := call.Err; err != nil {
+			err = fmt.Errorf("failed to set default Bluez agent: %w", err)
+			return
+		}
+
+		logger.Info("Bluez agent registered!")
+
+		// Listen for properties changed events
+		signalChan := make(chan *dbus.Signal, 10)
+		conn.Signal(signalChan)
+
+		// Add a match rule to listen for DBus property changes
+		matchRule := "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'"
+		err = conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, matchRule).Err
+		if err != nil {
+			err = fmt.Errorf("failed to add DBus match rule: %w", err)
+			return
+		}
+
+		logger.Info("waiting for a BLE pairing request...")
+
+		for signal := range signalChan {
+			// Check if the signal is from a BlueZ device
+			if len(signal.Body) < 3 {
+				continue
+			}
+
+			iface, ok := signal.Body[0].(string)
+			if !ok || iface != "org.bluez.Device1" {
+				continue
+			}
+
+			// Check if the "Paired" property is in the event
+			changedProps, ok := signal.Body[1].(map[string]dbus.Variant)
+			if !ok {
+				continue
+			}
+
+			// TODO [APP-7613]: Pairing attempts from an iPhone connect first
+			// before pairing, so listen for a "Connected" event on the system
+			// D-Bus. This should be tested against Android.
+			connected, exists := changedProps["Connected"]
+			if !exists || connected.Value() != true {
+				continue
+			}
+
+			// Extract device path from the signal sender
+			devicePath := string(signal.Path)
+
+			// Convert DBus object path to MAC address
+			deviceMAC := convertDBusPathToMAC(devicePath)
+			if deviceMAC == "" {
+				continue
+			}
+
+			logger.Infof("device %s initiated pairing!", deviceMAC)
+
+			// Mark device as trusted
+			if err = trustDevice(logger, devicePath); err != nil {
+				err = fmt.Errorf("failed to trust device: %w", err)
+				return
+			} else {
+				logger.Info("device successfully trusted!")
+			}
+		}
+	}, nil)
+	if err != nil {
+		logger.Errorw(
+			"failed to listen for pairing request (will have to manually accept pairing request on device)",
+			"err", err)
+	}
 }
