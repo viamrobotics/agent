@@ -76,7 +76,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	//nolint:gosec
 	s.cmd = exec.Command(path.Join(utils.ViamDirs["bin"], SubsysName), "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs["viam"]
-	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
 
@@ -170,10 +170,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
-	err = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-	if err != nil {
-		s.logger.Error(err)
-	}
+	utils.PlatformKill(s.logger, s.cmd)
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
