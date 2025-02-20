@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/viamrobotics/agent/subsystems/provisioning"
+	"github.com/viamrobotics/agent/subsystems/networking"
 	pb "go.viam.com/api/provisioning/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -134,7 +134,7 @@ func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id
 
 func SetWifiCreds(ctx context.Context, client pb.ProvisioningServiceClient, ssid, psk string) {
 	req := &pb.SetNetworkCredentialsRequest{
-		Type: provisioning.NetworkTypeWifi,
+		Type: networking.NetworkTypeWifi,
 		Ssid: ssid,
 		Psk:  psk,
 	}

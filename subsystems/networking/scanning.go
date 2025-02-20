@@ -1,4 +1,4 @@
-package provisioning
+package networking
 
 // This file includes functions used for wifi scans.
 
@@ -18,14 +18,14 @@ var (
 	VisibleNetworkTimeout = time.Minute
 )
 
-func (w *Provisioning) networkScan(ctx context.Context) error {
-	if w.connState.getProvisioning() && w.netState.NoScanInHotspot() {
+func (n *Networking) networkScan(ctx context.Context) error {
+	if n.connState.getProvisioning() && n.netState.NoScanInHotspot() {
 		return nil
 	}
 
-	wifiDev := w.netState.WifiDevice(w.Config().HotspotInterface)
+	wifiDev := n.netState.WifiDevice(n.Config().HotspotInterface)
 	if wifiDev == nil {
-		return errw.Errorf("cannot find hotspot interface: %s", w.Config().HotspotInterface)
+		return errw.Errorf("cannot find hotspot interface: %s", n.Config().HotspotInterface)
 	}
 
 	prevScan, err := wifiDev.GetPropertyLastScan()
@@ -45,17 +45,17 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 			return errw.Wrap(err, "scanning wifi")
 		}
 		if lastScan > prevScan {
-			if w.connState.getProvisioning() {
-				w.netState.ResetFailScan()
+			if n.connState.getProvisioning() {
+				n.netState.ResetFailScan()
 			}
 			break
 		}
-		if !w.bgLoopHealth.Sleep(ctx, time.Second) {
+		if !n.bgLoopHealth.Sleep(ctx, time.Second) {
 			return nil
 		}
 		if time.Now().After(scanDeadline) {
-			if w.connState.getProvisioning() {
-				w.netState.IncrementFailScan()
+			if n.connState.getProvisioning() {
+				n.netState.IncrementFailScan()
 			}
 			return ErrScanTimeout
 		}
@@ -74,40 +74,40 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 		}
 		ssid, err := ap.GetPropertySSID()
 		if err != nil {
-			w.logger.Warn(errw.Wrap(err, "scanning wifi"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
 		if ssid == "" {
-			w.logger.Debug("wifi network with blank ssid, ignoring")
+			n.logger.Debug("wifi network with blank ssid, ignoring")
 			continue
 		}
 
 		signal, err := ap.GetPropertyStrength()
 		if err != nil {
-			w.logger.Warn(errw.Wrap(err, "scanning wifi"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
 		apFlags, err := ap.GetPropertyFlags()
 		if err != nil {
-			w.logger.Warn(errw.Wrap(err, "scanning wifi"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
 		wpaFlags, err := ap.GetPropertyWPAFlags()
 		if err != nil {
-			w.logger.Warn(errw.Wrap(err, "scanning wifi"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
 		rsnFlags, err := ap.GetPropertyRSNFlags()
 		if err != nil {
-			w.logger.Warn(errw.Wrap(err, "scanning wifi"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
-		nw := w.netState.LockingNetwork(w.Config().HotspotInterface, ssid)
+		nw := n.netState.LockingNetwork(n.Config().HotspotInterface, ssid)
 		nw.mu.Lock()
 
 		nw.netType = NetworkTypeWifi
@@ -123,7 +123,7 @@ func (w *Provisioning) networkScan(ctx context.Context) error {
 		nw.mu.Unlock()
 	}
 
-	for _, nw := range w.netState.LockingNetworks() {
+	for _, nw := range n.netState.LockingNetworks() {
 		if ctx.Err() != nil {
 			return nil //nolint:nilerr
 		}
@@ -171,8 +171,8 @@ func parseWPAFlags(apFlags, wpaFlags, rsnFlags uint32) string {
 }
 
 // updates connections/settings from those known to NetworkManager.
-func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
-	conns, err := w.settings.ListConnections()
+func (n *Networking) updateKnownConnections(ctx context.Context) error {
+	conns, err := n.settings.ListConnections()
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 		}
 
 		if ifName == "" && netType == NetworkTypeWifi {
-			ifName = w.Config().HotspotInterface
+			ifName = n.Config().HotspotInterface
 		}
 
 		_, ok := highestPriority[ifName]
@@ -204,23 +204,23 @@ func (w *Provisioning) updateKnownConnections(ctx context.Context) error {
 		}
 
 		if netType != NetworkTypeWired && ssid == "" {
-			w.logger.Warn("wifi network with no ssid detected, skipping")
+			n.logger.Warn("wifi network with no ssid detected, skipping")
 			continue
 		}
 
 		// actually record the network
-		nw := w.netState.LockingNetwork(ifName, ssid)
+		nw := n.netState.LockingNetwork(ifName, ssid)
 		nw.mu.Lock()
 		nw.netType = netType
 		nw.conn = conn
 		nw.priority = getPriorityFromSettings(settings)
 
-		if nw.ssid == w.Config().hotspotSSID {
+		if nw.ssid == n.Config().HotspotSSID {
 			nw.netType = NetworkTypeHotspot
 			nw.isHotspot = true
 		} else if nw.priority > highestPriority[ifName] {
 			highestPriority[ifName] = nw.priority
-			w.netState.SetPrimarySSID(ifName, nw.ssid)
+			n.netState.SetPrimarySSID(ifName, nw.ssid)
 		}
 		nw.mu.Unlock()
 	}

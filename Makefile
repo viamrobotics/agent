@@ -16,7 +16,7 @@ else
 PATH_VERSION = v$(TAG_VERSION)
 endif
 
-LDFLAGS = "-s -w -X 'github.com/viamrobotics/agent.Version=${TAG_VERSION}' -X 'github.com/viamrobotics/agent.GitRevision=${GIT_REVISION}'"
+LDFLAGS = "-s -w -X 'github.com/viamrobotics/agent/utils.Version=${TAG_VERSION}' -X 'github.com/viamrobotics/agent/utils.GitRevision=${GIT_REVISION}'"
 TAGS = osusergo,netgo
 
 
@@ -33,7 +33,7 @@ arm64:
 amd64:
 	make GOARCH=amd64
 
-bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go subsystems/viamagent/*.service Makefile
+bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.service Makefile
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
 	test "$(PATH_VERSION)" != "custom" && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
 
@@ -42,7 +42,7 @@ clean:
 	rm -rf bin/
 
 bin/golangci-lint: Makefile
-	GOBIN=`pwd`/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.60.3
+	GOBIN=`pwd`/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
 
 .PHONY: lint
 lint: bin/golangci-lint

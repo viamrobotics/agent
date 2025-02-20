@@ -1,4 +1,4 @@
-package provisioning
+package networking
 
 import (
 	"encoding/binary"
@@ -10,6 +10,7 @@ import (
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 )
 
 // This file contains the wifi/hotspot setting generation functions.
@@ -48,7 +49,7 @@ func generateHotspotSettings(id, ssid, psk, ifName string) gnm.ConnectionSetting
 	return settings
 }
 
-func generateNetworkSettings(id string, cfg NetworkConfig) (gnm.ConnectionSettings, error) {
+func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.ConnectionSettings, error) {
 	settings := gnm.ConnectionSettings{}
 	if id == "" {
 		return nil, errw.New("id cannot be empty")
@@ -97,7 +98,7 @@ func generateNetworkSettings(id string, cfg NetworkConfig) (gnm.ConnectionSettin
 	return settings, nil
 }
 
-func generateIPv4Settings(cfg NetworkConfig) (map[string]any, error) {
+func generateIPv4Settings(cfg utils.NetworkDefinition) (map[string]any, error) {
 	// -1 is special for "automatic"
 	if cfg.IPv4RouteMetric == 0 {
 		cfg.IPv4RouteMetric = -1
@@ -134,7 +135,7 @@ func generateIPv4Settings(cfg NetworkConfig) (map[string]any, error) {
 
 	ip4 := map[string]any{
 		"method":       "manual",
-		"addresses":    [][]uint32{{ip, uint32(mask), gateway}}, //nolint:gosec
+		"addresses":    [][]uint32{{ip, uint32(mask), gateway}},
 		"route-metric": cfg.IPv4RouteMetric,
 	}
 

@@ -1,64 +1,54 @@
-package provisioning
+package networking
 
 // This file includes functions used only once during startup in NewNMWrapper()
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io/fs"
-	"os"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 )
 
 var (
 	ErrNM = errw.New("NetworkManager does not appear to be responding as expected. " +
-		"Please ensure NetworkManger >= v1.30 is installed and enabled. Disabling agent-provisioning until next restart.")
-	ErrNoWifi = errw.New("No WiFi devices available. Disabling agent-provisioning until next restart.")
+		"Please ensure NetworkManger >= v1.30 is installed and enabled. Disabling networking until next restart.")
+	ErrNoWifi = errw.New("No WiFi devices available. Disabling networking until next restart.")
 )
 
-func (w *Provisioning) writeDNSMasq() error {
+func (n *Networking) writeDNSMasq() error {
 	DNSMasqContents := DNSMasqContentsRedirect
-	if w.cfg.DisableDNSRedirect {
+	if n.cfg.DisableCaptivePortalRedirect {
 		DNSMasqContents = DNSMasqContentsSetupOnly
 	}
 
-	fileBytes, err := os.ReadFile(DNSMasqFilepath)
-	if err == nil && bytes.Equal(fileBytes, []byte(DNSMasqContents)) {
-		return nil
-	}
-
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	//nolint:gosec
-	return os.WriteFile(DNSMasqFilepath, []byte(DNSMasqContents), 0o644)
+	_, err := utils.WriteFileIfNew(DNSMasqFilepath, []byte(DNSMasqContents))
+	return err
 }
 
-func (w *Provisioning) testConnCheck() error {
-	connCheckEnabled, err := w.nm.GetPropertyConnectivityCheckEnabled()
+func (n *Networking) testConnCheck() error {
+	connCheckEnabled, err := n.nm.GetPropertyConnectivityCheckEnabled()
 	if err != nil {
 		return errw.Wrap(err, "getting NetworkManager connectivity check state")
 	}
 
 	if !connCheckEnabled {
-		hasConnCheck, err := w.nm.GetPropertyConnectivityCheckAvailable()
+		hasConnCheck, err := n.nm.GetPropertyConnectivityCheckAvailable()
 		if err != nil {
 			return errw.Wrap(err, "getting NetworkManager connectivity check configuration")
 		}
 
 		if !hasConnCheck {
-			if err := w.writeConnCheck(); err != nil {
+			if err := n.writeConnCheck(); err != nil {
 				return (errw.Wrap(err, "writing NetworkManager connectivity check configuration"))
 			}
-			if err := w.nm.Reload(0); err != nil {
+			if err := n.nm.Reload(0); err != nil {
 				return (errw.Wrap(err, "reloading NetworkManager"))
 			}
 
-			hasConnCheck, err = w.nm.GetPropertyConnectivityCheckAvailable()
+			hasConnCheck, err = n.nm.GetPropertyConnectivityCheckAvailable()
 			if err != nil {
 				return errw.Wrap(err, "getting NetworkManager connectivity check configuration")
 			}
@@ -67,7 +57,7 @@ func (w *Provisioning) testConnCheck() error {
 			}
 		}
 
-		connCheckEnabled, err = w.nm.GetPropertyConnectivityCheckEnabled()
+		connCheckEnabled, err = n.nm.GetPropertyConnectivityCheckEnabled()
 		if err != nil {
 			return errw.Wrap(err, "getting NetworkManager connectivity check state")
 		}
@@ -79,22 +69,14 @@ func (w *Provisioning) testConnCheck() error {
 	return nil
 }
 
-func (w *Provisioning) writeConnCheck() error {
-	fileBytes, err := os.ReadFile(ConnCheckFilepath)
-	if err == nil && bytes.Equal(fileBytes, []byte(ConnCheckContents)) {
-		return nil
-	}
-
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	//nolint:gosec
-	return os.WriteFile(ConnCheckFilepath, []byte(ConnCheckContents), 0o644)
+func (n *Networking) writeConnCheck() error {
+	_, err := utils.WriteFileIfNew(ConnCheckFilepath, []byte(ConnCheckContents))
+	return err
 }
 
 // must be run inside dataMu lock.
-func (w *Provisioning) initDevices() error {
-	devices, err := w.nm.GetDevices()
+func (n *Networking) initDevices() error {
+	devices, err := n.nm.GetDevices()
 	if err != nil {
 		return err
 	}
@@ -116,7 +98,7 @@ func (w *Provisioning) initDevices() error {
 			if err != nil {
 				return err
 			}
-			w.netState.SetEthDevice(ifName, ethDev)
+			n.netState.SetEthDevice(ifName, ethDev)
 		case gnm.NmDeviceTypeWifi:
 			wifiDev, ok := device.(gnm.DeviceWireless)
 			if !ok {
@@ -126,12 +108,12 @@ func (w *Provisioning) initDevices() error {
 			if err != nil {
 				return err
 			}
-			w.netState.SetWifiDevice(ifName, wifiDev)
+			n.netState.SetWifiDevice(ifName, wifiDev)
 
-			if w.cfg.HotspotInterface == "" || ifName == w.cfg.HotspotInterface {
-				w.cfg.HotspotInterface = ifName
-				w.netState.SetHotspotInterface(ifName)
-				w.logger.Infof("Using %s for hotspot/provisioning, will actively manage wifi only on this device.", ifName)
+			if n.cfg.HotspotInterface == "" || ifName == n.cfg.HotspotInterface {
+				n.cfg.HotspotInterface = ifName
+				n.netState.SetHotspotInterface(ifName)
+				n.logger.Infof("Using %s for hotspot/provisioning, will actively manage wifi only on this device.", ifName)
 			}
 		default:
 			continue
@@ -142,25 +124,25 @@ func (w *Provisioning) initDevices() error {
 		}
 	}
 
-	if w.cfg.HotspotInterface == "" {
+	if n.cfg.HotspotInterface == "" {
 		return ErrNoWifi
 	}
 
 	return nil
 }
 
-func (w *Provisioning) enableWifi(ctx context.Context) error {
-	if err := w.nm.SetPropertyWirelessEnabled(true); err != nil {
+func (n *Networking) enableWifi(ctx context.Context) error {
+	if err := n.nm.SetPropertyWirelessEnabled(true); err != nil {
 		return err
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 	for {
-		if !w.mainLoopHealth.Sleep(timeoutCtx, time.Second) {
+		if !n.mainLoopHealth.Sleep(timeoutCtx, time.Second) {
 			return errw.Wrap(timeoutCtx.Err(), "enabling wifi")
 		}
-		enabled, err := w.nm.GetPropertyWirelessEnabled()
+		enabled, err := n.nm.GetPropertyWirelessEnabled()
 		if err != nil {
 			return err
 		}

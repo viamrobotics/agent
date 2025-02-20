@@ -1,13 +1,12 @@
+// Package agent contains the public interfaces, functions, consts, and vars for the viam-server agent.
 package agent
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -16,8 +15,12 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	"github.com/tidwall/jsonc"
 	"github.com/viamrobotics/agent/subsystems"
-	"github.com/viamrobotics/agent/subsystems/registry"
+	"github.com/viamrobotics/agent/subsystems/networking"
+	"github.com/viamrobotics/agent/subsystems/syscfg"
+	"github.com/viamrobotics/agent/subsystems/viamserver"
+	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
@@ -45,33 +48,47 @@ type Manager struct {
 	logger      logging.Logger
 	netAppender *logging.NetAppender
 
-	subsystemsMu     sync.Mutex
-	loadedSubsystems map[string]subsystems.Subsystem
+	cfgMu sync.RWMutex
+	cfg   utils.AgentConfig
+
+	// also guarded by cfgMu
+	viamServerNeedsRestart bool
+
+	viamServer subsystems.Subsystem
+	networking subsystems.Subsystem
+	sysConfig  subsystems.Subsystem
+
+	cache *VersionCache
 }
 
 // NewManager returns a new Manager.
-func NewManager(ctx context.Context, logger logging.Logger) (*Manager, error) {
+func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) *Manager {
 	manager := &Manager{
-		logger:           logger,
-		loadedSubsystems: make(map[string]subsystems.Subsystem),
+		logger: logger,
+		cfg:    cfg,
+
+		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
+		networking: networking.NewSubsystem(ctx, logger, cfg),
+		sysConfig:  syscfg.NewSubsystem(ctx, logger, cfg),
+		cache:      NewVersionCache(logger),
 	}
 
-	return manager, manager.LoadSubsystems(ctx)
+	return manager
 }
 
-func (m *Manager) LoadConfig(cfgPath string) error {
+func (m *Manager) LoadAppConfig() error {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
-	m.logger.Debugf("loading config: %s", cfgPath)
-	//nolint:gosec
-	b, err := os.ReadFile(cfgPath)
+	m.logger.Debugf("loading config: %s", utils.AppConfigFilePath)
+
+	b, err := os.ReadFile(utils.AppConfigFilePath)
 	if err != nil {
 		return errw.Wrap(err, "reading config file")
 	}
 
 	cfg := make(map[string]map[string]string)
-	err = json.Unmarshal(b, &cfg)
+	err = json.Unmarshal(jsonc.ToJSON(b), &cfg)
 	if err != nil {
 		return errw.Wrap(err, "parsing config file")
 	}
@@ -113,15 +130,18 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
 func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
 	defer m.handlePanic()
-	m.subsystemsMu.Lock()
-	defer m.subsystemsMu.Unlock()
 
-	subsys, ok := m.loadedSubsystems[name]
-	if !ok {
-		return errw.Errorf("unable to find subsystem %s", name)
+	switch name {
+	case viamserver.SubsysName:
+		m.cache.MarkViamServerRunningVersion()
+		return m.viamServer.Start(ctx)
+	case networking.SubsysName:
+		return m.networking.Start(ctx)
+	case syscfg.SubsysName:
+		return m.sysConfig.Start(ctx)
+	default:
+		return errw.Errorf("unknown subsystem: %s", name)
 	}
-
-	return subsys.Start(ctx)
 }
 
 // SelfUpdate is called early in startup to update the viam-agent subsystem before any other work is started.
@@ -129,51 +149,101 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	}
-	m.subsystemsMu.Lock()
-	subsys, ok := m.loadedSubsystems[SubsystemName]
-	m.subsystemsMu.Unlock()
-	if !ok {
-		m.logger.Warnf("cannot load %s subsystem", SubsystemName)
-	}
-	cfgMap, _, err := m.GetConfig(ctx)
+
+	_, err := m.GetConfig(ctx)
 	if err != nil {
 		return false, err
 	}
-	cfg, ok := cfgMap[SubsystemName]
-	if !ok {
-		return false, errw.Errorf("no %s section found in config", SubsystemName)
+
+	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
+	if err != nil {
+		return false, err
 	}
-	return subsys.Update(ctx, cfg)
+
+	if needRestart {
+		return InstallNewVersion(ctx, m.logger)
+	}
+	return false, err
 }
 
 // SubsystemUpdates checks for updates to configured subsystems and restarts them as needed.
-func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.DeviceSubsystemConfig) {
+func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	defer m.handlePanic()
 	if ctx.Err() != nil {
 		return
 	}
-	m.subsystemsMu.Lock()
-	defer m.subsystemsMu.Unlock()
 
-	// check updates and (re)start
-	for name, sub := range m.loadedSubsystems {
-		if ctx.Err() != nil {
-			return
+	m.cfgMu.Lock()
+	defer m.cfgMu.Unlock()
+
+	// Agent
+	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
+	if err != nil {
+		m.logger.Error(err)
+	}
+	if needRestart {
+		m.logger.Info("viam-agent update complete, please restart using 'systemctl restart viam-agent'")
+	}
+
+	// Viam Server
+	if m.cfg.AdvancedSettings.DisableViamServer {
+		if err := m.viamServer.Stop(ctx); err != nil {
+			m.logger.Error(err)
 		}
-		cancelCtx, cancel := context.WithTimeout(ctx, time.Minute*5)
-		defer cancel()
-		restart, err := sub.Update(cancelCtx, cfg[name])
+	} else {
+		needRestart, err := m.cache.UpdateBinary(ctx, viamserver.SubsysName)
 		if err != nil {
 			m.logger.Error(err)
-			continue
 		}
-		if restart {
-			if err := sub.Stop(ctx); err != nil {
-				m.logger.Error(err)
-				continue
+		m.viamServer.Update(ctx, m.cfg)
+
+		if needRestart || m.viamServerNeedsRestart {
+			if m.viamServer.(viamserver.RestartCheck).SafeToRestart(ctx) {
+				if err := m.viamServer.Stop(ctx); err != nil {
+					m.logger.Error(err)
+				} else {
+					m.viamServerNeedsRestart = false
+				}
+			} else {
+				m.viamServerNeedsRestart = true
 			}
 		}
-		if err := sub.Start(ctx); err != nil && !errors.Is(err, ErrSubsystemDisabled) {
+		m.cache.MarkViamServerRunningVersion()
+		if err := m.viamServer.Start(ctx); err != nil {
+			m.logger.Error(err)
+		}
+	}
+
+	// System Configuration
+	if m.cfg.AdvancedSettings.DisableSystemConfiguration {
+		if err := m.sysConfig.Stop(ctx); err != nil {
+			m.logger.Error(err)
+		}
+	} else {
+		needRestart = m.sysConfig.Update(ctx, m.cfg)
+		if needRestart {
+			if err := m.sysConfig.Stop(ctx); err != nil {
+				m.logger.Error(err)
+			}
+		}
+		if err := m.sysConfig.Start(ctx); err != nil {
+			m.logger.Error(err)
+		}
+	}
+
+	// Network
+	if m.cfg.AdvancedSettings.DisableNetworkConfiguration {
+		if err := m.networking.Stop(ctx); err != nil {
+			m.logger.Error(err)
+		}
+	} else {
+		needRestart = m.networking.Update(ctx, m.cfg)
+		if needRestart {
+			if err := m.networking.Stop(ctx); err != nil {
+				m.logger.Error(err)
+			}
+		}
+		if err := m.networking.Start(ctx); err != nil {
 			m.logger.Error(err)
 		}
 	}
@@ -183,10 +253,22 @@ func (m *Manager) SubsystemUpdates(ctx context.Context, cfg map[string]*pb.Devic
 func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 	defer m.handlePanic()
 	m.logger.Debug("Checking cloud for update")
-	cfg, interval, err := m.GetConfig(ctx)
+	interval, err := m.GetConfig(ctx)
+
+	if interval < minimalCheckInterval {
+		interval = minimalCheckInterval
+	}
+
+	m.cfgMu.RLock()
+	if m.cfg.AdvancedSettings.Debug {
+		m.logger.SetLevel(logging.DEBUG)
+	} else {
+		m.logger.SetLevel(logging.INFO)
+	}
+	m.cfgMu.RUnlock()
 
 	// randomly fuzz the interval by +/- 5%
-	interval = fuzzTime(interval, 0.05)
+	interval = utils.FuzzTime(interval, 0.05)
 
 	if err != nil {
 		m.logger.Error(err)
@@ -194,7 +276,7 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 	}
 
 	// update and (re)start subsystems
-	m.SubsystemUpdates(ctx, cfg)
+	m.SubsystemUpdates(ctx)
 
 	return interval
 }
@@ -206,31 +288,66 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 		return
 	}
 	m.logger.Debug("Starting health checks for all subsystems")
-	m.subsystemsMu.Lock()
-	defer m.subsystemsMu.Unlock()
 
-	for subsystemName, sub := range m.loadedSubsystems {
+	m.cfgMu.RLock()
+	defer m.cfgMu.RUnlock()
+
+	// simpler map wouldn't preserve ordering
+	for _, entry := range []struct {
+		name string
+		sub  subsystems.Subsystem
+	}{
+		{"viam-server", m.viamServer},
+		{"sysconfig", m.sysConfig},
+		{"networking", m.networking},
+	} {
 		if ctx.Err() != nil {
 			return
 		}
+
+		switch entry.name {
+		case "viam-server":
+			if m.cfg.AdvancedSettings.DisableViamServer {
+				continue
+			}
+		case "sysconfig":
+			if m.cfg.AdvancedSettings.DisableSystemConfiguration {
+				continue
+			}
+		case "networking":
+			if m.cfg.AdvancedSettings.DisableNetworkConfiguration {
+				continue
+			}
+		}
+
 		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
 		defer cancelFunc()
-		if err := sub.HealthCheck(ctxTimeout); err != nil {
+
+		// Start should return near-instantly if already started.
+		if err := entry.sub.Start(ctx); err != nil {
+			m.logger.Error(err)
+		}
+
+		if err := entry.sub.HealthCheck(ctxTimeout); err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", subsystemName))
-			if err := sub.Stop(ctx); err != nil {
-				m.logger.Error(errw.Wrapf(err, "stopping subsystem %s", subsystemName))
+			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", entry.name))
+			if err := entry.sub.Stop(ctx); err != nil {
+				m.logger.Error(errw.Wrapf(err, "stopping subsystem %s", entry.name))
 			}
 			if ctx.Err() != nil {
 				return
 			}
-			if err := sub.Start(ctx); err != nil && !errors.Is(err, ErrSubsystemDisabled) {
-				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", subsystemName))
+
+			if entry.name == "viam-server" {
+				m.cache.MarkViamServerRunningVersion()
+			}
+			if err := entry.sub.Start(ctx); err != nil {
+				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", entry.name))
 			}
 		} else {
-			m.logger.Debugf("Subsystem healthcheck succeeded for %s", subsystemName)
+			m.logger.Debugf("Subsystem healthcheck succeeded for %s", entry.name)
 		}
 	}
 }
@@ -240,10 +357,8 @@ func (m *Manager) CloseAll() {
 	ctx, cancelFunc := context.WithTimeout(context.Background(), stopAllTimeout)
 	defer cancelFunc()
 
-	m.subsystemsMu.Lock()
-	defer m.subsystemsMu.Unlock()
 	// close all subsystems
-	for _, sub := range m.loadedSubsystems {
+	for _, sub := range []subsystems.Subsystem{m.viamServer, m.sysConfig, m.networking} {
 		if err := sub.Stop(ctx); err != nil {
 			m.logger.Error(err)
 		}
@@ -274,10 +389,21 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+
 	m.logger.Debug("starting background checks")
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
-		checkInterval := m.CheckUpdates(ctx)
+		checkInterval := minimalCheckInterval
+		m.cfgMu.RLock()
+		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck
+		m.cfgMu.RUnlock()
+		if wait {
+			checkInterval = m.CheckUpdates(ctx)
+		} else {
+			// premptively start things before we go into the regular update/check/restart
+			m.SubsystemHealthChecks(ctx)
+		}
+
 		timer := time.NewTimer(checkInterval)
 		defer timer.Stop()
 		defer m.activeBackgroundWorkers.Done()
@@ -295,82 +421,6 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 			}
 		}
 	}()
-}
-
-// LoadSubsystems runs at startup, before getting online.
-func (m *Manager) LoadSubsystems(ctx context.Context) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	m.subsystemsMu.Lock()
-	defer m.subsystemsMu.Unlock()
-
-	cachedConfig, err := m.getCachedConfig()
-	if err != nil {
-		m.logger.Error(errw.Wrap(err, "getting cached config"))
-	}
-	m.processConfig(cachedConfig)
-
-	for _, name := range registry.List() {
-		cfg, ok := cachedConfig[name]
-		if !ok {
-			cfg = &pb.DeviceSubsystemConfig{}
-		}
-		err := m.loadSubsystem(ctx, name, cfg)
-		if err != nil {
-			m.logger.Warnw("couldn't load subsystem", "name", name, "error", err)
-		}
-	}
-
-	return nil
-}
-
-// loadSubsystem needs to be called inside a lock.
-func (m *Manager) loadSubsystem(ctx context.Context, name string, subCfg *pb.DeviceSubsystemConfig) error {
-	creator := registry.GetCreator(name)
-	if creator != nil {
-		sub, err := creator(ctx, m.logger, subCfg)
-		if err != nil {
-			return err
-		}
-		m.loadedSubsystems[name] = sub
-		return nil
-	}
-	return errw.Errorf("unknown subsystem name %s", name)
-}
-
-// getCachedConfig returns a cached config, for when the cloud is not reachable.
-func (m *Manager) getCachedConfig() (map[string]*pb.DeviceSubsystemConfig, error) {
-	// return a bare-minimum for self-update on new installs or for fallback
-	cachedConfig := map[string]*pb.DeviceSubsystemConfig{SubsystemName: {}}
-
-	cacheFilePath := filepath.Join(ViamDirs["cache"], agentCachePath)
-
-	cacheBytes, err := os.ReadFile(cacheFilePath) //nolint:gosec
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return cachedConfig, nil
-		}
-		return nil, errw.Wrap(err, "reading cached config")
-	}
-
-	err = json.Unmarshal(cacheBytes, &cachedConfig)
-	if err != nil {
-		return nil, errw.Wrapf(err, "parsing cached config")
-	}
-	return cachedConfig, nil
-}
-
-// saveCachedConfig saves a local copy of the config normally fetched from the cloud.
-func (m *Manager) saveCachedConfig(cfg map[string]*pb.DeviceSubsystemConfig) error {
-	cacheFilePath := filepath.Join(ViamDirs["cache"], agentCachePath)
-
-	cacheData, err := json.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	//nolint:gosec
-	return errors.Join(os.WriteFile(cacheFilePath, cacheData, 0o644), SyncFS(cacheFilePath))
 }
 
 // dial establishes a connection to the cloud for grpc communication.
@@ -423,66 +473,57 @@ func (m *Manager) dial(ctx context.Context) error {
 	return nil
 }
 
-// process non-subsystem effects of a config (i.e. agent-specific stuff that needs to happen when loading cache and when updating).
-func (m *Manager) processConfig(cfg map[string]*pb.DeviceSubsystemConfig) {
-	if agent, ok := cfg["viam-agent"]; ok {
-		if debugRaw, ok := agent.GetAttributes().AsMap()["debug"]; ok {
-			if debug, ok := debugRaw.(bool); !ok {
-				m.logger.Error("viam-agent debug attribute is present but is not a bool")
-			} else {
-				// note: if this is present (true or false, rather than missing) it overrides the CLI debug switch.
-				// if the user removes the `debug` attribute, we don't revert to the CLI debug switch state. (we ideally should).
-				// note: this assumes m.logger is the global logger shared by the other subsystems.
-				if debug {
-					m.logger.SetLevel(logging.DEBUG)
-				} else {
-					m.logger.SetLevel(logging.INFO)
-				}
-			}
-		}
-	}
-}
-
-// GetConfig retrieves the configuration from the cloud, or returns a cached version if unable to communicate.
-func (m *Manager) GetConfig(ctx context.Context) (map[string]*pb.DeviceSubsystemConfig, time.Duration, error) {
+// GetConfig retrieves the configuration from the cloud.
+func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	if m.cloudConfig == nil {
-		return nil, 0, errors.New("can't GetConfig until successful LoadConfig")
+		return minimalCheckInterval, errors.New("can't GetConfig until successful LoadConfig")
 	}
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, defaultNetworkTimeout)
 	defer cancelFunc()
 
 	if err := m.dial(timeoutCtx); err != nil {
 		m.logger.Error(errw.Wrapf(err, "fetching %s config", SubsystemName))
-		conf, err := m.getCachedConfig()
-		return conf, minimalCheckInterval, err
+		return minimalCheckInterval, err
 	}
 
 	req := &pb.DeviceAgentConfigRequest{
-		Id:                m.cloudConfig.ID,
-		HostInfo:          m.getHostInfo(),
-		SubsystemVersions: m.getSubsystemVersions(),
+		Id:          m.cloudConfig.ID,
+		HostInfo:    m.getHostInfo(),
+		VersionInfo: m.getVersions(),
 	}
 	resp, err := m.client.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
 		m.logger.Error(errw.Wrapf(err, "fetching %s config", SubsystemName))
-		conf, err := m.getCachedConfig()
-		return conf, minimalCheckInterval, err
+		return minimalCheckInterval, err
 	}
 
-	err = m.saveCachedConfig(resp.GetSubsystemConfigs())
+	// Store update data in cache, actual binaries are updated later
+	err = m.cache.Update(resp.GetAgentUpdateInfo(), SubsystemName)
 	if err != nil {
-		m.logger.Error(errw.Wrap(err, "saving agent config to cache"))
+		m.logger.Error(errw.Wrapf(err, "processing update data for %s", SubsystemName))
 	}
 
-	m.processConfig(resp.GetSubsystemConfigs())
-
-	interval := resp.GetCheckInterval().AsDuration()
-
-	if interval < minimalCheckInterval {
-		interval = minimalCheckInterval
+	err = m.cache.Update(resp.GetViamServerUpdateInfo(), viamserver.SubsysName)
+	if err != nil {
+		m.logger.Error(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
 	}
 
-	return resp.GetSubsystemConfigs(), interval, nil
+	cfg, err := utils.StackConfigs(resp)
+	if err != nil {
+		m.logger.Error(errw.Wrap(err, "processing config"))
+	}
+
+	if err := utils.SaveConfigToCache(cfg); err != nil {
+		m.logger.Error(err)
+	}
+
+	cfg = utils.ApplyCLIArgs(cfg)
+
+	m.cfgMu.Lock()
+	defer m.cfgMu.Unlock()
+	m.cfg = cfg
+
+	return resp.GetCheckInterval().AsDuration(), nil
 }
 
 func (m *Manager) getHostInfo() *pb.HostInfo {
@@ -527,13 +568,16 @@ func (m *Manager) getHostInfo() *pb.HostInfo {
 	return pbInfo
 }
 
-func (m *Manager) getSubsystemVersions() map[string]string {
-	m.subsystemsMu.Lock()
-	defer m.subsystemsMu.Unlock()
-	vers := make(map[string]string)
-	for name, sys := range m.loadedSubsystems {
-		vers[name] = sys.Version()
+func (m *Manager) getVersions() *pb.VersionInfo {
+	m.cfgMu.RLock()
+	defer m.cfgMu.RUnlock()
+	vers := &pb.VersionInfo{
+		AgentRunning:        utils.GetVersion(),
+		AgentInstalled:      m.cache.AgentVersion(),
+		ViamServerRunning:   m.cache.ViamServerRunningVersion(),
+		ViamServerInstalled: m.cache.ViamServerVersion(),
 	}
+
 	return vers
 }
 

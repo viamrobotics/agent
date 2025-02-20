@@ -19,12 +19,11 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-	"github.com/viamrobotics/agent/subsystems/provisioning"
+	"github.com/viamrobotics/agent/subsystems/networking"
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
-	"github.com/viamrobotics/agent/subsystems/viamagent"
-	"github.com/viamrobotics/agent/subsystems/viamserver"
+	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
-	"go.viam.com/utils"
+	goutils "go.viam.com/utils"
 )
 
 var (
@@ -45,14 +44,14 @@ func main() {
 
 	//nolint:lll
 	var opts struct {
-		Config             string `default:"/etc/viam.json"                        description:"Path to config file"                              long:"config"       short:"c"`
-		ProvisioningConfig string `default:"/etc/viam-provisioning.json"           description:"Path to provisioning (customization) config file" long:"provisioning" short:"p"`
-		Debug              bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                                         long:"debug"        short:"d"`
-		Fast               bool   `description:"Enable fast start mode"            env:"VIAM_AGENT_FAST_START"                                    long:"fast"         short:"f"`
-		Help               bool   `description:"Show this help message"            long:"help"                                                    short:"h"`
-		Version            bool   `description:"Show version"                      long:"version"                                                 short:"v"`
-		Install            bool   `description:"Install systemd service"           long:"install"`
-		DevMode            bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                                       long:"dev-mode"`
+		Config         string `default:"/etc/viam.json"                        description:"Path to machine credentials file"   long:"config"   short:"c"`
+		DefaultsConfig string `default:"/etc/viam-defaults.json"               description:"Path to manufacturer defaults file" long:"defaults"`
+		Debug          bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
+		UpdateFirst    bool   `description:"Update versions before starting"   env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
+		Help           bool   `description:"Show this help message"            long:"help"                                      short:"h"`
+		Version        bool   `description:"Show version"                      long:"version"                                   short:"v"`
+		Install        bool   `description:"Install systemd service"           long:"install"`
+		DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                         long:"dev-mode"`
 	}
 
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
@@ -71,12 +70,17 @@ func main() {
 
 	if opts.Version {
 		//nolint:forbidigo
-		fmt.Printf("Version: %s\nGit Revision: %s\n", agent.GetVersion(), agent.GetRevision())
+		fmt.Printf("Version: %s\nGit Revision: %s\n", utils.GetVersion(), utils.GetRevision())
 		return
 	}
 
 	if opts.Debug {
+		utils.CLIDebug = true
 		globalLogger.SetLevel(logging.DEBUG)
+	}
+
+	if opts.UpdateFirst {
+		utils.CLIWaitForUpdateCheck = true
 	}
 
 	// need to be root to go any further than this
@@ -89,24 +93,24 @@ func main() {
 	}
 
 	if opts.Install {
-		exitIfError(viamagent.Install(globalLogger))
+		exitIfError(agent.Install(globalLogger))
 		return
 	}
 
 	if !opts.DevMode {
 		// confirm that we're running from a proper install
-		if !strings.HasPrefix(os.Args[0], agent.ViamDirs["viam"]) {
+		if !strings.HasPrefix(os.Args[0], utils.ViamDirs["viam"]) {
 			//nolint:forbidigo
 			fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n"+
 				"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n"+
 				"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
-				agent.ViamDirs["viam"], os.Args[0])
+				utils.ViamDirs["viam"], os.Args[0])
 			return
 		}
 	}
 
 	// set up folder structure
-	exitIfError(agent.InitPaths())
+	exitIfError(utils.InitPaths())
 
 	// use a lockfile to prevent running two agents on the same machine
 	pidFile, err := getLock()
@@ -117,34 +121,40 @@ func main() {
 		}
 	}()
 
-	// pass the provisioning path arg to the subsystem
-	absProvConfigPath, err := filepath.Abs(opts.ProvisioningConfig)
+	utils.DefaultsFilePath, err = filepath.Abs(opts.DefaultsConfig)
 	exitIfError(err)
-	provisioning.ProvisioningConfigFilePath = absProvConfigPath
-	globalLogger.Infof("provisioning config file path: %s", absProvConfigPath)
+	globalLogger.Infof("manufacturer defaults file path: %s", utils.DefaultsFilePath)
 
-	// tie the manager config to the viam-server config
-	absConfigPath, err := filepath.Abs(opts.Config)
+	utils.AppConfigFilePath, err = filepath.Abs(opts.Config)
 	exitIfError(err)
-	viamserver.ConfigFilePath = absConfigPath
-	provisioning.AppConfigFilePath = absConfigPath
-	globalLogger.Infof("config file path: %s", absConfigPath)
+	globalLogger.Infof("machine credentials file path: %s", utils.AppConfigFilePath)
+
+	cfg, err := utils.LoadConfigFromCache()
+	exitIfError(err)
+
+	cfg = utils.ApplyCLIArgs(cfg)
 
 	// main manager structure
-	manager, err := agent.NewManager(ctx, globalLogger)
-	exitIfError(err)
+	manager := agent.NewManager(ctx, globalLogger, cfg)
 
-	err = manager.LoadConfig(absConfigPath)
+	err = manager.LoadAppConfig()
 	//nolint:nestif
 	if err != nil {
+		if cfg.AdvancedSettings.DisableNetworkConfiguration {
+			globalLogger.Errorf("Cannot read %s and network configuration is disabled. Please correct and restart viam-agent.",
+				utils.AppConfigFilePath)
+			manager.CloseAll()
+			return
+		}
+
 		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
 		// Rename the file (if it exists) and wait to provision a new one.
 		if !errors.Is(err, fs.ErrNotExist) {
-			globalLogger.Error(errors.Wrapf(err, "reading %s", absConfigPath))
-			globalLogger.Warn("renaming %s to %s.old", absConfigPath, absConfigPath)
-			if err := os.Rename(absConfigPath, absConfigPath+".old"); err != nil {
+			globalLogger.Error(errors.Wrapf(err, "reading %s", utils.AppConfigFilePath))
+			globalLogger.Warn("renaming %s to %s.old", utils.AppConfigFilePath, utils.AppConfigFilePath)
+			if err := os.Rename(utils.AppConfigFilePath, utils.AppConfigFilePath+".old"); err != nil {
 				// if we can't rename the file, we're up a creek, and it's fatal
-				globalLogger.Error(errors.Wrapf(err, "removing invalid config file %s", absConfigPath))
+				globalLogger.Error(errors.Wrapf(err, "removing invalid config file %s", utils.AppConfigFilePath))
 				globalLogger.Error("unable to continue with provisioning, exiting")
 				manager.CloseAll()
 				return
@@ -153,30 +163,28 @@ func main() {
 
 		// We manually start the provisioning service to allow the user to update it and wait.
 		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
-		globalLogger.Infof("main config file %s missing or corrupt, entering provisioning mode", absConfigPath)
+		globalLogger.Infof("machine credentials file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
 
-		if err := manager.StartSubsystem(ctx, provisioning.SubsysName); err != nil {
-			if errors.Is(err, agent.ErrSubsystemDisabled) {
-				globalLogger.Warn("provisioning subsystem disabled, please manually update /etc/viam.json and connect to internet")
-			} else {
-				globalLogger.Error(errors.Wrapf(err,
-					"could not start provisioning subsystem, please manually update /etc/viam.json and connect to internet"))
-				manager.CloseAll()
-				return
-			}
+		if err := manager.StartSubsystem(ctx, networking.SubsysName); err != nil {
+			globalLogger.Error(errors.Wrapf(err, "could not start networking subsystem, "+
+				"please manually update /etc/viam.json and connect to internet"))
+			manager.CloseAll()
+			return
 		}
 
 		for {
 			globalLogger.Warn("waiting for user provisioning")
-			if !utils.SelectContextOrWait(ctx, time.Second*10) {
+			if !goutils.SelectContextOrWait(ctx, time.Second*10) {
 				manager.CloseAll()
 				return
 			}
-			if err := manager.LoadConfig(absConfigPath); err == nil {
+			if err := manager.LoadAppConfig(); err == nil {
 				break
 			}
 		}
 	}
+
+	// valid viam.json from this point forward
 	netAppender, err := manager.CreateNetAppender()
 	if err != nil {
 		globalLogger.Errorf("error creating NetAppender: %s", err)
@@ -185,19 +193,9 @@ func main() {
 	}
 
 	// wait until now when we (potentially) have a network logger to record this
-	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", agent.GetVersion(), agent.GetRevision())
+	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
 
-	// if FastStart is set, skip updates and start viam-server immediately, then proceed as normal
-	var fastSuccess bool
-	if opts.Fast || viamserver.FastStart.Load() {
-		if err := manager.StartSubsystem(ctx, viamserver.SubsysName); err != nil {
-			globalLogger.Error(err)
-		} else {
-			fastSuccess = true
-		}
-	}
-
-	if !fastSuccess {
+	if cfg.AdvancedSettings.WaitForUpdateCheck {
 		// wait to be online
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
@@ -214,7 +212,7 @@ func main() {
 				globalLogger.Error(errors.Wrap(err, "running 'systemctl is-active network-online.target'"))
 				break
 			}
-			if !utils.SelectContextOrWait(timeoutCtx, time.Second) {
+			if !goutils.SelectContextOrWait(timeoutCtx, time.Second) {
 				break
 			}
 		}
@@ -291,7 +289,7 @@ func exitIfError(err error) {
 }
 
 func getLock() (lockfile.Lockfile, error) {
-	pidFile, err := lockfile.New(filepath.Join(agent.ViamDirs["tmp"], "viam-agent.pid"))
+	pidFile, err := lockfile.New(filepath.Join(utils.ViamDirs["tmp"], "viam-agent.pid"))
 	if err != nil {
 		return "", errors.Wrap(err, "init lockfile")
 	}
