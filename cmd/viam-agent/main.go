@@ -22,6 +22,7 @@ import (
 	"github.com/viamrobotics/agent/subsystems/networking"
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap"
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
 )
@@ -284,7 +285,7 @@ func setupExitSignalHandling() (context.Context, func()) {
 
 func exitIfError(err error) {
 	if err != nil {
-		globalLogger.Fatal(err)
+		globalLogger.WithOptions(zap.AddCallerSkip(1)).Fatal(err)
 	}
 }
 
