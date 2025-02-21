@@ -389,7 +389,12 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 			return changesMade, errw.Errorf("only the builtin provisioning hotspot may use the %s network type", NetworkTypeHotspot)
 		}
 		nw.isHotspot = true
-		settings = generateHotspotSettings(n.Config().HotspotPrefix, n.Config().HotspotSSID, n.Config().HotspotPassword, n.Config().HotspotInterface)
+		settings = generateHotspotSettings(
+			n.Config().HotspotPrefix,
+			n.Config().HotspotSSID,
+			n.Config().HotspotPassword,
+			n.Config().HotspotInterface,
+		)
 	} else {
 		id := n.Config().Manufacturer + "-" + netKey
 		settings, err = generateNetworkSettings(id, cfg)
