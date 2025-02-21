@@ -15,7 +15,7 @@ ifeq ($(shell git status -s),)
 		ifeq ($(COMMITS_SINCE_TAG),0)
 			TAG_VERSION ?= $(BASE_VERSION)
 		else
-			TAG_VERSION ?= $(NEXT_VERSION)-pre.$(COMMITS_SINCE_TAG)
+			TAG_VERSION ?= $(NEXT_VERSION)-dev.$(COMMITS_SINCE_TAG)
 		endif
 	endif
 	GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
