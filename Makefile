@@ -46,9 +46,6 @@ amd64:
 bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.service Makefile
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
-	git branch --show-current
-	
-
 
 .PHONY: clean
 clean:
