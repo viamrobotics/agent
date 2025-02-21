@@ -43,10 +43,10 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
-      uses: google-github-actions/auth@v2
+    - uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-      uses: google-github-actions/setup-gcloud@v2
+    - uses: google-github-actions/setup-gcloud@v2
     - name: Build
       run: make all
     - name: Upload to GCS
