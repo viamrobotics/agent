@@ -6,12 +6,12 @@ else ifeq ($(GOARCH),arm64)
 LINUX_ARCH = aarch64
 endif
 
-ifeq ($(shell git status -s),)
+#ifeq ($(shell git status -s),)
 	ifeq ($(shell git branch --show-current),prereleases) #SMURF use main before merge
 		LAST_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
 		COMMITS_SINCE_TAG := $(shell git rev-list $(LAST_TAG)..HEAD --count 2>/dev/null)
 		BASE_VERSION := $(shell echo $(LAST_TAG) | cut -c2-)
-		NEXT_VERSION := $(shell echo $(BASE_VERSION) | awk -F. '{$$2+=1; $$3=0;}1' OFS=.)
+		NEXT_VERSION := $(shell echo $(BASE_VERSION) | awk -F. '{$$3+=1}1' OFS=.)
 		ifeq ($(COMMITS_SINCE_TAG),0)
 			TAG_VERSION ?= $(BASE_VERSION)
 		else
@@ -19,7 +19,7 @@ ifeq ($(shell git status -s),)
 		endif
 	endif
 	GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
-endif
+#endif
 ifeq ($(TAG_VERSION),)
 PATH_VERSION = custom
 else
@@ -46,6 +46,9 @@ amd64:
 bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.service Makefile
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
+	git branch --show-current
+	
+
 
 .PHONY: clean
 clean:
