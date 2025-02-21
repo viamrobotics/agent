@@ -7,7 +7,7 @@ LINUX_ARCH = aarch64
 endif
 
 ifeq ($(shell git status -s),)
-	ifeq ($(shell git branch --show-current),main)
+	ifeq ($(shell git branch --show-current),prereleases) #SMURF use main before merge
 		LAST_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
 		COMMITS_SINCE_TAG := $(shell git rev-list $(LAST_TAG)..HEAD --count 2>/dev/null)
 		BASE_VERSION := $(shell echo $(LAST_TAG) | cut -c2-)
