@@ -7,7 +7,17 @@ LINUX_ARCH = aarch64
 endif
 
 ifeq ($(shell git status -s),)
-	TAG_VERSION ?= $(shell git tag --points-at | sort -Vr | head -n1 | cut -c2-)
+	ifeq ($(shell git branch --show-current),"main")
+		LAST_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
+		COMMITS_SINCE_TAG := $(shell git rev-list $(LAST_TAG)..HEAD --count 2>/dev/null)
+		BASE_VERSION := $(shell echo $(LAST_TAG) | cut -c2-)
+		NEXT_VERSION := $(shell echo $(BASE_VERSION) | awk -F. '{$$2+=1; $$3=0;}1' OFS=.)
+		ifeq ($(COMMITS_SINCE_TAG),0)
+			TAG_VERSION ?= $(BASE_VERSION)
+		else
+			TAG_VERSION ?= $(NEXT_VERSION)-pre.$(COMMITS_SINCE_TAG)
+		endif
+	endif
 	GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
 endif
 ifeq ($(TAG_VERSION),)
@@ -35,7 +45,7 @@ amd64:
 
 bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.service Makefile
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
-	test "$(PATH_VERSION)" != "custom" && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
 
 .PHONY: clean
 clean:
@@ -51,7 +61,7 @@ lint: bin/golangci-lint
 
 .PHONY: upload-stable
 upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64
-	test "$(PATH_VERSION)" != "custom"
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 gs://packages.viam.com/apps/viam-agent/
 
 .PHONY: upload-installer
