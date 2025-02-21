@@ -515,6 +515,6 @@ func (t *Timeout) UnmarshalJSON(b []byte) error {
 		*t = Timeout(tmp)
 		return nil
 	default:
-		return errw.Errorf("invalid duration: %+v", v)
+		return errw.Errorf("invalid duration: %#v", v)
 	}
 }

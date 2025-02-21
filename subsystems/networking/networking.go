@@ -282,7 +282,7 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	}
 
 	needRestart = true
-	n.logger.Debugf("Updated config differs from previous. Previous: %+v New: %+v", n.Config(), cfg)
+	n.logger.Debugf("Updated config differs from previous. Previous: %#v New: %#v", n.Config(), cfg)
 
 	n.dataMu.Lock()
 	defer n.dataMu.Unlock()
