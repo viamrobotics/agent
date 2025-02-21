@@ -131,7 +131,9 @@ func main() {
 	globalLogger.Infof("machine credentials file path: %s", utils.AppConfigFilePath)
 
 	cfg, err := utils.LoadConfigFromCache()
-	exitIfError(err)
+	if err != nil {
+		globalLogger.Errorf("error loading config from cache: %w", err)
+	}
 
 	cfg = utils.ApplyCLIArgs(cfg)
 
