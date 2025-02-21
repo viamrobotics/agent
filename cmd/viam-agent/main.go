@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/signal"
 	"os/user"
@@ -19,12 +18,10 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-	"github.com/viamrobotics/agent/subsystems/networking"
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/utils"
 	"go.uber.org/zap"
 	"go.viam.com/rdk/logging"
-	goutils "go.viam.com/utils"
 )
 
 var (
@@ -142,47 +139,9 @@ func commonMain() {
 	err = manager.LoadAppConfig()
 	//nolint:nestif
 	if err != nil {
-		if cfg.AdvancedSettings.DisableNetworkConfiguration {
-			globalLogger.Errorf("Cannot read %s and network configuration is disabled. Please correct and restart viam-agent.",
-				utils.AppConfigFilePath)
+		if !runPlatformProvisioning(ctx, cfg, manager, err) {
 			manager.CloseAll()
 			return
-		}
-
-		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
-		// Rename the file (if it exists) and wait to provision a new one.
-		if !errors.Is(err, fs.ErrNotExist) {
-			globalLogger.Error(errors.Wrapf(err, "reading %s", utils.AppConfigFilePath))
-			globalLogger.Warn("renaming %s to %s.old", utils.AppConfigFilePath, utils.AppConfigFilePath)
-			if err := os.Rename(utils.AppConfigFilePath, utils.AppConfigFilePath+".old"); err != nil {
-				// if we can't rename the file, we're up a creek, and it's fatal
-				globalLogger.Error(errors.Wrapf(err, "removing invalid config file %s", utils.AppConfigFilePath))
-				globalLogger.Error("unable to continue with provisioning, exiting")
-				manager.CloseAll()
-				return
-			}
-		}
-
-		// We manually start the provisioning service to allow the user to update it and wait.
-		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
-		globalLogger.Infof("machine credentials file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
-
-		if err := manager.StartSubsystem(ctx, networking.SubsysName); err != nil {
-			globalLogger.Error(errors.Wrapf(err, "could not start networking subsystem, "+
-				"please manually update /etc/viam.json and connect to internet"))
-			manager.CloseAll()
-			return
-		}
-
-		for {
-			globalLogger.Warn("waiting for user provisioning")
-			if !goutils.SelectContextOrWait(ctx, time.Second*10) {
-				manager.CloseAll()
-				return
-			}
-			if err := manager.LoadAppConfig(); err == nil {
-				break
-			}
 		}
 	}
 

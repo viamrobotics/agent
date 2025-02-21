@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	"golang.org/x/sys/windows/svc"
@@ -71,4 +72,8 @@ func ignoredSignal(sig os.Signal) bool {
 
 func waitOnline(logger logging.Logger, timeoutCtx context.Context) {
 	logger.Warn("WaitOnline not available on windows yet")
+}
+
+func runPlatformProvisioning(ctx context.Context, cfg utils.AgentConfig, manager *agent.Manager, err error) bool {
+	return false
 }
