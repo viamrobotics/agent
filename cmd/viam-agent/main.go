@@ -201,7 +201,7 @@ func commonMain() {
 		// wait to be online
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
-		waitOnline(timeoutCtx)
+		waitOnline(globalLogger, timeoutCtx)
 
 		// Check for self-update and restart if needed.
 		needRestart, err := manager.SelfUpdate(ctx)

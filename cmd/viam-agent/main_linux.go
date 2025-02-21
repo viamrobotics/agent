@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
 )
 
@@ -15,7 +16,7 @@ func main() {
 	commonMain()
 }
 
-func waitOnline(timeoutCtx context.Context) {
+func waitOnline(logger logging.Logger, timeoutCtx context.Context) {
 	for {
 		cmd := exec.CommandContext(timeoutCtx, "systemctl", "is-active", "network-online.target")
 		_, err := cmd.CombinedOutput()

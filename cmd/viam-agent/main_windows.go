@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/viamrobotics/agent/utils"
+	"go.viam.com/rdk/logging"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
@@ -65,4 +67,8 @@ func main() {
 
 func ignoredSignal(sig os.Signal) bool {
 	return false
+}
+
+func waitOnline(logger logging.Logger, timeoutCtx context.Context) {
+	logger.Warn("WaitOnline not available on windows yet")
 }

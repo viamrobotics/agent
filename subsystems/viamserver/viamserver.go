@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -54,6 +56,11 @@ type viamServer struct {
 	logger logging.Logger
 }
 
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func (s *viamServer) Start(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
@@ -61,6 +68,16 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.mu.Lock()
 
 	if s.running {
+		s.mu.Unlock()
+		return nil
+	}
+	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
+	if runtime.GOOS == "windows" {
+		binPath += ".exe"
+	}
+	if !pathExists(binPath) {
+		s.logger.Warnf("viam-server binary missing at %s, not starting", binPath)
+		// todo: nested func so unlock is deferable
 		s.mu.Unlock()
 		return nil
 	}
@@ -74,7 +91,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stdio := utils.NewMatchingLogger(s.logger, false, false)
 	stderr := utils.NewMatchingLogger(s.logger, true, false)
 	//nolint:gosec
-	s.cmd = exec.Command(path.Join(utils.ViamDirs["bin"], SubsysName), "-config", utils.AppConfigFilePath)
+	s.cmd = exec.Command(binPath, "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs["viam"]
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
@@ -159,9 +176,18 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	s.logger.Infof("Stopping %s", SubsysName)
 
+	if runtime.GOOS == "windows" {
+		// note: Signal(SIGTERM) returns 'not supported on windows' error on windows
+		// note: this kills all subproces, not just RDK
+		if err := utils.KillTree(-1); err != nil {
+			return errw.Wrap(err, "stopping viam-server process tree")
+		}
+		return nil
+	}
+
 	err := s.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
-		s.logger.Error(err)
+		s.logger.Error(errw.Wrap(err, "terminating"))
 	}
 
 	if s.waitForExit(ctx, stopTermTimeout) {
@@ -209,6 +235,10 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("%s not running", SubsysName)
 	}
 	if s.checkURL == "" {
+		if runtime.GOOS == "windows" {
+			// todo(windows): we hit this case on windows; debug why. note: it also can't signal the subprocess to stop.
+			return nil
+		}
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
@@ -252,6 +282,10 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
 // both accessed.
 func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
+	if runtime.GOOS == "windows" {
+		// todo(windows): this function throws 'unsupported protocol scheme', needs debugging
+		return true, nil
+	}
 	for _, url := range []string{s.checkURL, s.checkURLAlt} {
 		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
 
