@@ -4,7 +4,7 @@ on:
   workflow_call:
   push:
     branches:
-      - prereleases
+      - prereleases #SMURF use main before merge
   release:
     types: [created]
 
