@@ -7,7 +7,7 @@ LINUX_ARCH = aarch64
 endif
 
 ifeq ($(shell git status -s),)
-	ifeq ($(shell git branch --show-current),"main")
+	ifeq ($(shell git branch --show-current),main)
 		LAST_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
 		COMMITS_SINCE_TAG := $(shell git rev-list $(LAST_TAG)..HEAD --count 2>/dev/null)
 		BASE_VERSION := $(shell echo $(LAST_TAG) | cut -c2-)
@@ -59,6 +59,10 @@ lint: bin/golangci-lint
 	go mod tidy
 	bin/golangci-lint run -v --fix
 
+.PHONY: test
+test:
+	go test -race ./...
+
 .PHONY: upload-stable
 upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
@@ -66,4 +70,5 @@ upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSI
 
 .PHONY: upload-installer
 upload-installer:
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp preinstall.sh install.sh uninstall.sh gs://packages.viam.com/apps/viam-agent/
