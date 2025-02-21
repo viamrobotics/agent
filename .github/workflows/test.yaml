@@ -51,4 +51,4 @@ jobs:
       run: make all
     - name: Upload to GCS
         run: |
-          gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* preinstall.sh install.sh uninstall.sh gs://packages.viam.com/temp/
+          gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* preinstall.sh install.sh uninstall.sh gs://packages.viam.com/temp/prerelease/ #SMURF use real before merge
