@@ -6,8 +6,8 @@ else ifeq ($(GOARCH),arm64)
 LINUX_ARCH = aarch64
 endif
 
-#ifeq ($(shell git status -s),)
-	ifeq ($(shell git branch --show-current),prereleases) #SMURF use main before merge
+ifeq ($(shell git status -s),)
+	ifeq ($(shell git branch --show-current),main)
 		LAST_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
 		COMMITS_SINCE_TAG := $(shell git rev-list $(LAST_TAG)..HEAD --count 2>/dev/null)
 		BASE_VERSION := $(shell echo $(LAST_TAG) | cut -c2-)
@@ -19,7 +19,7 @@ endif
 		endif
 	endif
 	GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
-#endif
+endif
 ifeq ($(TAG_VERSION),)
 PATH_VERSION = custom
 else
