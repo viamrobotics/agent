@@ -7,7 +7,7 @@ LINUX_ARCH = aarch64
 endif
 
 GITHUB_REF_NAME ?= $(shell git branch --show-current)
-SHOULD_PUBLISH = $(shell echo $(GITHUB_REF_NAME) | grep -qE '^(fix-emptyconfg|v[0-9]+\.[0-9]+\.[0-9]+)$$' && echo true)
+SHOULD_PUBLISH = $(shell echo $(GITHUB_REF_NAME) | grep -qE '^(main|v[0-9]+\.[0-9]+\.[0-9]+)$$' && echo true)
 
 ifeq ($(shell git status -s),)
 	ifeq ($(SHOULD_PUBLISH),true)
