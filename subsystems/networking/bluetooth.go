@@ -24,12 +24,12 @@ import (
 type bluetoothService interface {
 	start(ctx context.Context) error
 	stop() error
-	refreshAvailableNetworks(ctx context.Context, availableNetworks []*NetworkInfo) error
 	waitForCredentials(ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool) (*userInput, error)
 }
 
 // newBluetoothService returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
-func newBluetoothService(ctx context.Context, logger logging.Logger, name string) (bluetoothService, error) {
+func newBluetoothService(logger logging.Logger, name string, availableNetworks []NetworkInfo,
+) (bluetoothService, error) {
 	if err := validateSystem(logger); err != nil {
 		return nil, fmt.Errorf("cannot initialize bluetooth peripheral, system requisites not met: %w", err)
 	}
@@ -40,19 +40,19 @@ func newBluetoothService(ctx context.Context, logger logging.Logger, name string
 	}
 
 	serviceUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x1111)
-	logger.Infof("serviceUUID: %s", serviceUUID.String())
+	logger.Debugf("serviceUUID: %s", serviceUUID.String())
 	charSsidUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x2222)
-	logger.Infof("charSsidUUID: %s", charSsidUUID.String())
+	logger.Debugf("charSsidUUID: %s", charSsidUUID.String())
 	charPskUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x3333)
-	logger.Infof("charPskUUID: %s", charPskUUID.String())
+	logger.Debugf("charPskUUID: %s", charPskUUID.String())
 	charRobotPartKeyIDUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x4444)
-	logger.Infof("charRobotPartKeyIDUUID: %s", charRobotPartKeyIDUUID.String())
+	logger.Debugf("charRobotPartKeyIDUUID: %s", charRobotPartKeyIDUUID.String())
 	charRobotPartKeyUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x5555)
-	logger.Infof("charRobotPartKeyUUID: %s", charRobotPartKeyUUID.String())
+	logger.Debugf("charRobotPartKeyUUID: %s", charRobotPartKeyUUID.String())
 	charAppAddressUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x6666)
-	logger.Infof("charAppAddress: %s", charAppAddressUUID.String())
+	logger.Debugf("charAppAddress: %s", charAppAddressUUID.String())
 	charAvailableWiFiNetworksUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x7777)
-	logger.Infof("charAvailableWiFiNetworksUUID: %s", charAvailableWiFiNetworksUUID.String())
+	logger.Debugf("charAvailableWiFiNetworksUUID: %s", charAvailableWiFiNetworksUUID.String())
 
 	// Create abstracted characteristics which act as a buffer for reading data from bluetooth.
 	charSsid := &bluetoothCharacteristicLinux[*string]{
@@ -139,45 +139,26 @@ func newBluetoothService(ctx context.Context, logger logging.Logger, name string
 	}
 
 	// Create a read-only characteristic for broadcasting nearby, available WiFi networks.
-	charConfigAvailableWiFiNetworks := bluetooth.CharacteristicConfig{
-		UUID:       charAvailableWiFiNetworksUUID,
-		Flags:      bluetooth.CharacteristicReadPermission,
-		Value:      nil, // This will get filled in via calls to UpdateAvailableWiFiNetworks.
-		WriteEvent: nil, // This characteristic is read-only.
-	}
-
-	// Channel will be written to by interface method UpdateAvailableWiFiNetworks and will be read by
-	// the following background goroutine
-	availableWiFiNetworksChannel := make(chan []*NetworkInfo, 1)
-
-	// Read only channel used to listen for updates to the availableWiFiNetworks.
-	var availableWiFiNetworksChannelReadOnly <-chan []*NetworkInfo = availableWiFiNetworksChannel
-	utils.ManagedGo(func() {
-		defer close(availableWiFiNetworksChannel)
-		for {
-			if err := ctx.Err(); err != nil {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case availableNetworks := <-availableWiFiNetworksChannelReadOnly:
-				var all [][]byte
-				for _, availableNetwork := range availableNetworks {
-					single, err := json.Marshal(availableNetwork)
-					if err != nil {
-						logger.Errorw("failed to convert available WiFi network to bytes", "err", err)
-						continue
-					}
-					all = append(all, single)
-				}
-				charConfigAvailableWiFiNetworks.Value = bytes.Join(all, []byte(","))
-				logger.Infow("successfully updated available WiFi networks on bluetooth characteristic")
-			default:
-				time.Sleep(time.Second)
-			}
+	var availableNetworksBytes [][]byte
+	for _, availableNetwork := range availableNetworks {
+		an := NetworkInfo{ // Compress each network by taking only relevant fields.
+			SSID:     availableNetwork.SSID,
+			Security: availableNetwork.Security,
+			Signal:   availableNetwork.Signal,
 		}
-	}, nil)
+		bs, err := json.Marshal(an)
+		if err != nil {
+			logger.Warnf("failed to parse network info: %+v", err)
+		}
+		availableNetworksBytes = append(availableNetworksBytes, bs)
+	}
+	charConfigAvailableWiFiNetworks := bluetooth.CharacteristicConfig{
+		UUID:  charAvailableWiFiNetworksUUID,
+		Flags: bluetooth.CharacteristicReadPermission,
+		Value: bytes.Join(availableNetworksBytes, []byte(",")), // Only 20 bytes maximum size,
+		// and anything over that gets cut off. This is a BLE characteristic default standard,
+		// so we pass in available networks sorted in descending order of signal strength.
+	}
 
 	// Create service which will advertise each of the above characteristics.
 	s := &bluetooth.Service{
@@ -217,8 +198,6 @@ func newBluetoothService(ctx context.Context, logger logging.Logger, name string
 		advActive: false,
 		UUID:      serviceUUID,
 
-		availableWiFiNetworksChannelWriteOnly: availableWiFiNetworksChannel,
-
 		characteristicSsid:           charSsid,
 		characteristicPsk:            charPsk,
 		characteristicRobotPartKeyID: charRobotPartKeyID,
@@ -243,8 +222,6 @@ type bluetoothServiceLinux struct {
 	adv       *bluetooth.Advertisement
 	advActive bool
 	UUID      bluetooth.UUID
-
-	availableWiFiNetworksChannelWriteOnly chan<- []*NetworkInfo
 
 	characteristicSsid           *bluetoothCharacteristicLinux[*string]
 	characteristicPsk            *bluetoothCharacteristicLinux[*string]
@@ -289,12 +266,6 @@ func (bsl *bluetoothServiceLinux) stop() error {
 	}
 	bsl.advActive = false
 	bsl.logger.Info("stopped advertising a BLE connection")
-	return nil
-}
-
-// Update updates the list of networks that are advertised via bluetooth as available.
-func (bsl *bluetoothServiceLinux) refreshAvailableNetworks(ctx context.Context, availableNetworks []*NetworkInfo) error {
-	bsl.availableWiFiNetworksChannelWriteOnly <- availableNetworks
 	return nil
 }
 
@@ -514,21 +485,21 @@ func validateSystem(logger logging.Logger) error {
 	if err := checkOS(); err != nil {
 		return err
 	}
-	logger.Info("✅ Running on a Linux system.")
+	logger.Debug("✅ Running on a Linux system.")
 
 	// 2. Check BlueZ version
 	blueZVersion, err := getBlueZVersion()
 	if err != nil {
 		return err
 	}
-	logger.Infof("✅ BlueZ detected, version: %.2f", blueZVersion)
+	logger.Debugf("✅ BlueZ detected, version: %.2f", blueZVersion)
 
 	// 3. Validate BlueZ version is 5.66 or higher
 	if blueZVersion < 5.66 {
 		return fmt.Errorf("❌ BlueZ version is %.2f, but 5.66 or later is required", blueZVersion)
 	}
 
-	logger.Info("✅ BlueZ version meets the requirement (5.66 or later).")
+	logger.Debug("✅ BlueZ version meets the requirement (5.66 or later).")
 	return nil
 }
 
@@ -547,7 +518,7 @@ func trustDevice(logger logging.Logger, devicePath string) error {
 	if call.Err != nil {
 		return fmt.Errorf("failed to set Trusted property: %w", call.Err)
 	}
-	logger.Info("device marked as trusted.")
+	logger.Debug("device marked as trusted.")
 
 	return nil
 }
@@ -566,18 +537,17 @@ func convertDBusPathToMAC(path string) string {
 }
 
 func enableAutoAcceptPairRequest(logger logging.Logger) {
-	var err error
 	utils.ManagedGo(func() {
 		conn, err := dbus.SystemBus()
 		if err != nil {
-			err = fmt.Errorf("failed to connect to system DBus: %w", err)
+			logger.Error(fmt.Errorf("failed to connect to system DBus: %w", err))
 			return
 		}
 
 		// Export agent methods
 		reply := conn.Export(nil, BluezAgentPath, BluezAgent)
 		if reply != nil {
-			err = fmt.Errorf("failed to export Bluez agent: %w", reply)
+			logger.Error(fmt.Errorf("failed to export Bluez agent: %w", reply))
 			return
 		}
 
@@ -585,18 +555,18 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 		obj := conn.Object(BluezDBusService, "/org/bluez")
 		call := obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "NoInputNoOutput")
 		if err := call.Err; err != nil {
-			err = fmt.Errorf("failed to register Bluez agent: %w", err)
+			logger.Error(fmt.Errorf("failed to register Bluez agent: %w", err))
 			return
 		}
 
 		// Set as the default agent
 		call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
 		if err := call.Err; err != nil {
-			err = fmt.Errorf("failed to set default Bluez agent: %w", err)
+			logger.Error(fmt.Errorf("failed to set default Bluez agent: %w", err))
 			return
 		}
 
-		logger.Info("Bluez agent registered!")
+		logger.Debug("Bluez agent registered!")
 
 		// Listen for properties changed events
 		signalChan := make(chan *dbus.Signal, 10)
@@ -606,11 +576,11 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 		matchRule := "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'"
 		err = conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, matchRule).Err
 		if err != nil {
-			err = fmt.Errorf("failed to add DBus match rule: %w", err)
+			logger.Error(fmt.Errorf("failed to add DBus match rule: %w", err))
 			return
 		}
 
-		logger.Info("waiting for a BLE pairing request...")
+		logger.Debug("waiting for a BLE pairing request...")
 
 		for signal := range signalChan {
 			// Check if the signal is from a BlueZ device
@@ -645,21 +615,12 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 			if deviceMAC == "" {
 				continue
 			}
-
-			logger.Infof("device %s initiated pairing!", deviceMAC)
-
-			// Mark device as trusted
 			if err = trustDevice(logger, devicePath); err != nil {
-				err = fmt.Errorf("failed to trust device: %w", err)
+				logger.Error(fmt.Errorf("failed to trust device: %w", err))
 				return
 			} else {
-				logger.Info("device successfully trusted!")
+				logger.Debug("device successfully trusted!")
 			}
 		}
 	}, nil)
-	if err != nil {
-		logger.Errorw(
-			"failed to listen for pairing request (will have to manually accept pairing request on device)",
-			"err", err)
-	}
 }

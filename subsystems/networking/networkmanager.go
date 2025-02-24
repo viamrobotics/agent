@@ -210,7 +210,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	var bluetoothErr error
 	goutils.ManagedGo(func() {
 		if n.bluetoothService == nil {
-			bt, err := newBluetoothService(ctx, n.logger, fmt.Sprintf("%s.%s.%s", n.cfg.Manufacturer, n.cfg.Model, n.cfg.FragmentID))
+			bt, err := newBluetoothService(n.logger, fmt.Sprintf("%s.%s.%s", n.cfg.Manufacturer, n.cfg.Model, n.cfg.FragmentID), n.getVisibleNetworks())
 			if err != nil {
 				bluetoothErr = err
 				return
@@ -224,7 +224,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		goutils.ManagedGo(func() {
 			userInput, err := n.bluetoothService.waitForCredentials(ctx, true, true) // Background goroutine ultimately cancelled by context.
 			if err != nil {
-				bluetoothErr = err
+				n.logger.Errorw("failed to wait for user input of credentials", "err", err)
 				return
 			}
 			inputChan <- *userInput
@@ -237,9 +237,9 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	case !n.hotspotIsActive && !n.bluetoothIsActive:
 		return fmt.Errorf("failed to set up provisioning: %w", errors.Join(hotspotErr, bluetoothErr))
 	case !n.hotspotIsActive && n.bluetoothIsActive:
-		n.logger.Infof("started bluetooth provisioning, but failed to set up hotspot provisioning: %w", hotspotErr)
+		n.logger.Infof("started bluetooth provisioning, but failed to set up hotspot provisioning: %+v", hotspotErr)
 	case n.hotspotIsActive && !n.bluetoothIsActive:
-		n.logger.Infof("started hotspot provisioning, but failed to set up bluetooth provisioning: %w", bluetoothErr)
+		n.logger.Infof("started hotspot provisioning, but failed to set up bluetooth provisioning: %+v", bluetoothErr)
 	default:
 	}
 
