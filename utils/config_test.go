@@ -65,16 +65,21 @@ func TestConvertJson(t *testing.T) {
 	err := json.Unmarshal([]byte(jsonBytes), newConfig)
 
 	testConfig := DefaultConfig()
-	testConfig.AdditionalNetworks["network1"] = NetworkDefinition{
-		Type:        "wifi",
-		Interface:   "wlan0",
-		SSID:        "foo",
-		PSK:         "bar",
-		IPv4Address: "192.168.0.1/24",
-		IPv4Gateway: "192.168.0.255",
-		IPv4DNS:     []string{"192.168.0.255"},
+	testConfig.AdditionalNetworks = map[string]NetworkDefinition{
+		"network1": {
+			Type:        "wifi",
+			Interface:   "wlan0",
+			SSID:        "foo",
+			PSK:         "bar",
+			IPv4Address: "192.168.0.1/24",
+			IPv4Gateway: "192.168.0.255",
+			IPv4DNS:     []string{"192.168.0.255"},
+		},
+		"network2": {
+			SSID: "moo",
+			PSK:  "cow",
+		},
 	}
-	testConfig.AdditionalNetworks["network2"] = NetworkDefinition{SSID: "moo", PSK: "cow"}
 
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)

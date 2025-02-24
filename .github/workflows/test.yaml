@@ -2,10 +2,15 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+  push:
+    branches:
+      - main
+  release:
+    types: [created]
 
 jobs:
   test:
-    name: Test lint and build
+    name: Lint, Test, Build
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -23,5 +28,31 @@ jobs:
             git status
             exit 1
         fi
+    - name: Test
+      run: make test
     - name: Build
       run: make all
+
+  build:
+    name: Build and Upload
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    needs: test
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 #required to be able to generate prerelease tags
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+    - uses: google-github-actions/setup-gcloud@v2
+    - name: Build
+      run: make all
+    - name: Upload binaries to GCS
+      run: gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/temp/prerelease/ #TODO use real target after live testing
+    - name: "Upload install scripts to GCS"
+      if: github.event_name == 'release'
+      run: gsutil -h "Cache-Control:no-cache" cp preinstall.sh install.sh uninstall.sh gs://packages.viam.com/temp/prerelease/ #TODO use real target after live testing
