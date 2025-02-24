@@ -14,7 +14,6 @@ import (
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
-	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
 )
 
@@ -173,8 +172,6 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		return errors.New("provisioning mode already started")
 	}
 
-	logging.NewLogger("maxhorowitz").Infof("Networking: %+v", n)
-
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
 
@@ -182,6 +179,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 
 	// Simultaneously start both the hotspot captive portal and the bluetooth service provisioning methods.
 	wg := sync.WaitGroup{}
+
 	wg.Add(1)
 	var hotspotErr error
 	goutils.ManagedGo(func() {
@@ -208,40 +206,40 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		n.hotspotIsActive = true
 	}, wg.Done)
 
-	// wg.Add(1)
+	wg.Add(1)
 	var bluetoothErr error
-	// goutils.ManagedGo(func() {
-	// 	if n.bluetoothService == nil {
-	// 		bt, err := newBluetoothService(ctx, n.logger, fmt.Sprintf("%s.%s.%s", n.cfg.Manufacturer, n.cfg.Model, n.cfg.FragmentID))
-	// 		if err != nil {
-	// 			bluetoothErr = err
-	// 			return
-	// 		}
-	// 		n.bluetoothService = bt
-	// 	}
-	// 	if err := n.bluetoothService.start(ctx); err != nil {
-	// 		bluetoothErr = err
-	// 		return
-	// 	}
-	// 	goutils.ManagedGo(func() {
-	// 		userInput, err := n.bluetoothService.waitForCredentials(ctx, true, true) // Background goroutine ultimately cancelled by context.
-	// 		if err != nil {
-	// 			bluetoothErr = err
-	// 			return
-	// 		}
-	// 		inputChan <- *userInput
-	// 	}, nil)
-	// 	n.bluetoothIsActive = true
-	// }, wg.Done)
+	goutils.ManagedGo(func() {
+		if n.bluetoothService == nil {
+			bt, err := newBluetoothService(ctx, n.logger, fmt.Sprintf("%s.%s.%s", n.cfg.Manufacturer, n.cfg.Model, n.cfg.FragmentID))
+			if err != nil {
+				bluetoothErr = err
+				return
+			}
+			n.bluetoothService = bt
+		}
+		if err := n.bluetoothService.start(ctx); err != nil {
+			bluetoothErr = err
+			return
+		}
+		goutils.ManagedGo(func() {
+			userInput, err := n.bluetoothService.waitForCredentials(ctx, true, true) // Background goroutine ultimately cancelled by context.
+			if err != nil {
+				bluetoothErr = err
+				return
+			}
+			inputChan <- *userInput
+		}, nil)
+		n.bluetoothIsActive = true
+	}, wg.Done)
 	wg.Wait()
 
 	switch {
 	case !n.hotspotIsActive && !n.bluetoothIsActive:
-		return fmt.Errorf("failed to set up provisioning: %v", errors.Join(hotspotErr, bluetoothErr))
+		return fmt.Errorf("failed to set up provisioning: %w", errors.Join(hotspotErr, bluetoothErr))
 	case !n.hotspotIsActive && n.bluetoothIsActive:
-		n.logger.Infof("started bluetooth provisioning, but failed to set up hotspot provisioning: %v", hotspotErr)
+		n.logger.Infof("started bluetooth provisioning, but failed to set up hotspot provisioning: %w", hotspotErr)
 	case n.hotspotIsActive && !n.bluetoothIsActive:
-		n.logger.Infof("started hotspot provisioning, but failed to set up bluetooth provisioning: %v", bluetoothErr)
+		n.logger.Infof("started hotspot provisioning, but failed to set up bluetooth provisioning: %w", bluetoothErr)
 	default:
 	}
 
@@ -326,16 +324,12 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 		if nw.netType != NetworkTypeHotspot {
 			nw.lastTried = now
 			n.netState.SetLastSSID(ifName, ssid)
-			n.logger.Infof("net type is WiFi, ifname: %s, ssid: %s", ifName, ssid)
-		} else {
-			n.logger.Infof("net type is hotspot, ifname: %s, ssid: %s", ifName, ssid)
 		}
 		netDev = n.netState.WifiDevice(ifName)
 	} else {
 		// wired
 		nw.lastTried = now
 		netDev = n.netState.EthDevice(ifName)
-		n.logger.Infof("net type is wired, ifname: %s", ifName)
 	}
 
 	if netDev == nil {
@@ -456,7 +450,6 @@ func (n *Networking) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 
 // returns true if network was new (added) and not updated.
 func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
-	logging.NewLogger("maxhorowitz").Infof("cfg: %+v", cfg)
 	var changesMade bool
 
 	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired {

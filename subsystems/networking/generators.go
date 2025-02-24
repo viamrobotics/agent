@@ -11,13 +11,11 @@ import (
 	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
-	"go.viam.com/rdk/logging"
 )
 
 // This file contains the wifi/hotspot setting generation functions.
 
 func generateHotspotSettings(id, ssid, psk, ifName string) gnm.ConnectionSettings {
-	logging.NewLogger("maxhorowitz").Infof("generateHotspotSettings(id=%s, ssid=%s, psk=%s, idName=%s)", id, ssid, psk, ifName)
 	IPAsUint32, err := generateAddress(PortalBindAddr)
 	if err != nil {
 		// BindAddr is a const, so should only ever fail if code itself is changed/broken

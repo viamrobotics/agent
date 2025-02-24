@@ -257,7 +257,7 @@ type bluetoothServiceLinux struct {
 func (bsl *bluetoothServiceLinux) start(ctx context.Context) error {
 	bsl.mu.Lock()
 	defer bsl.mu.Unlock()
-	// defer enableAutoAcceptPairRequest(bsl.logger) // Async (logs instead of error checks) to auto-accept pair requests on this device.
+	defer enableAutoAcceptPairRequest(bsl.logger) // Async (logs instead of error checks) to auto-accept pair requests on this device.
 
 	if bsl.adv == nil {
 		return errors.New("advertisement is nil")
