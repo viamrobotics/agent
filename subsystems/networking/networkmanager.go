@@ -210,7 +210,8 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	var bluetoothErr error
 	goutils.ManagedGo(func() {
 		if n.bluetoothService == nil {
-			bt, err := newBluetoothService(n.logger, fmt.Sprintf("%s.%s.%s", n.cfg.Manufacturer, n.cfg.Model, n.cfg.FragmentID), n.getVisibleNetworks())
+			bt, err := newBluetoothService(
+				n.logger, fmt.Sprintf("%s.%s.%s", n.cfg.Manufacturer, n.cfg.Model, n.cfg.FragmentID), n.getVisibleNetworks())
 			if err != nil {
 				bluetoothErr = err
 				return

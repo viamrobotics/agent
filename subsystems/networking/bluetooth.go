@@ -206,7 +206,7 @@ func newBluetoothService(logger logging.Logger, name string, availableNetworks [
 	}, nil
 }
 
-// bluetoothCharacteristicLinux is used to read and write values to a bluetooh peripheral.
+// bluetoothCharacteristicLinux is used to read and write values to a bluetooth peripheral.
 type bluetoothCharacteristicLinux[T any] struct {
 	UUID bluetooth.UUID
 	mu   *sync.Mutex
