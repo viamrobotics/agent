@@ -4,7 +4,7 @@ go 1.23.1
 
 require (
 	github.com/Masterminds/semver/v3 v3.3.0
-	github.com/Otterverse/gonetworkmanager/v2 v2.2.1
+	github.com/Otterverse/gonetworkmanager/v2 v2.2.2
 	github.com/gabriel-vasile/mimetype v1.4.8
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
@@ -33,7 +33,7 @@ require (
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0 // indirect
 	github.com/edaniels/zeroconf v1.0.10 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
-	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/godbus/dbus/v5 v5.1.1-0.20241109141230-b9236d654833 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
