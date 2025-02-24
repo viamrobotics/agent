@@ -15,7 +15,7 @@ import (
 )
 
 func (n *Networking) warnIfMultiplePrimaryNetworks() {
-	if n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+	if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 		return
 	}
 	var primaryCandidates []string
@@ -149,12 +149,12 @@ func (n *Networking) checkConnections() error {
 		}
 
 		// in roaming mode, we don't care WHAT network is connected
-		if n.cfg.TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated && ssid != n.Config().HotspotSSID {
+		if n.Config().TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated && ssid != n.Config().HotspotSSID {
 			connected = true
 		}
 
 		// in normal (single) mode, we need to be connected to the primary (highest priority) network
-		if !n.cfg.TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated &&
+		if !n.Config().TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated &&
 			ssid == n.netState.PrimarySSID(n.Config().HotspotInterface) {
 			connected = true
 		}
@@ -273,7 +273,7 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 
 	if nw.netType != NetworkTypeHotspot {
 		n.netState.SetActiveSSID(ifName, ssid)
-		if ifName == n.Config().HotspotInterface && (n.cfg.TurnOnHotspotIfWifiHasNoInternet || n.netState.PrimarySSID(ifName) == ssid) {
+		if ifName == n.Config().HotspotInterface && (n.Config().TurnOnHotspotIfWifiHasNoInternet || n.netState.PrimarySSID(ifName) == ssid) {
 			n.connState.setConnected(true)
 		}
 		return n.checkOnline(true)
@@ -389,17 +389,22 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 			return changesMade, errw.Errorf("only the builtin provisioning hotspot may use the %s network type", NetworkTypeHotspot)
 		}
 		nw.isHotspot = true
-		settings = generateHotspotSettings(n.cfg.HotspotPrefix, n.Config().HotspotSSID, n.cfg.HotspotPassword, n.Config().HotspotInterface)
+		settings = generateHotspotSettings(
+			n.Config().HotspotPrefix,
+			n.Config().HotspotSSID,
+			n.Config().HotspotPassword,
+			n.Config().HotspotInterface,
+		)
 	} else {
-		id := n.cfg.Manufacturer + "-" + netKey
+		id := n.Config().Manufacturer + "-" + netKey
 		settings, err = generateNetworkSettings(id, cfg)
-		n.logger.Debugf("Network settings: ", settings)
+		n.logger.Debugf("Network settings: %#v", settings)
 		if err != nil {
 			return changesMade, errw.Errorf("error generating network settings for %s: %v", id, err)
 		}
 	}
 
-	if cfg.Type == NetworkTypeWifi && !n.cfg.TurnOnHotspotIfWifiHasNoInternet && cfg.Priority == 999 {
+	if cfg.Type == NetworkTypeWifi && !n.Config().TurnOnHotspotIfWifiHasNoInternet && cfg.Priority == 999 {
 		// lower the priority of any existing/prior primary network
 		n.lowerMaxNetPriorities(cfg.SSID)
 		n.netState.SetPrimarySSID(n.Config().HotspotInterface, cfg.SSID)
@@ -495,7 +500,7 @@ func (n *Networking) tryCandidates(ctx context.Context) bool {
 		}
 
 		// in single mode we just need a connection
-		if !n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+		if !n.Config().TurnOnHotspotIfWifiHasNoInternet {
 			return true
 		}
 
@@ -523,14 +528,14 @@ func (n *Networking) getCandidates(ifName string) []string {
 
 		// firstSeen/lastTried are reset if a network disappears for more than a minute, so retry if it comes back (or 10 mins)
 		recentlyTried := nw.lastTried.After(nw.firstSeen) &&
-			nw.lastTried.After(time.Now().Add(time.Duration(n.cfg.RetryConnectionTimeoutMinutes)*-1))
+			nw.lastTried.After(time.Now().Add(time.Duration(n.Config().RetryConnectionTimeoutMinutes)*-1))
 
 		if !nw.isHotspot && visible && configured && !recentlyTried {
 			candidates = append(candidates, nw)
 		}
 	}
 
-	if !n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+	if !n.Config().TurnOnHotspotIfWifiHasNoInternet {
 		for _, nw := range candidates {
 			if nw.ssid == n.netState.PrimarySSID(n.Config().HotspotInterface) {
 				return []string{nw.ssid}
@@ -608,7 +613,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			if userInput.SSID != "" {
 				n.logger.Infof("Wifi settings received for %s", userInput.SSID)
 				priority := int32(999)
-				if n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 					priority = 100
 				}
 				cfg := utils.NetworkDefinition{
@@ -684,7 +689,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		}
 		isConfigured := n.connState.getConfigured()
 		allGood := isConfigured && (isConnected || isOnline)
-		if n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+		if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 			allGood = isOnline && isConfigured
 			hasConnectivity = isOnline
 			lastConnectivity = lastOnline
@@ -704,16 +709,16 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			// complex logic, so wasting some variables for readability
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
-			inactivePortal := n.connState.getLastInteraction().Before(now.Add(time.Duration(n.cfg.UserIdleMinutes)*-1)) || userInputReceived
+			inactivePortal := n.connState.getLastInteraction().Before(now.Add(time.Duration(n.Config().UserIdleMinutes)*-1)) || userInputReceived
 
 			// exit/retry to test networks only if there's no recent user interaction AND configuration is present
 			haveCandidates := len(n.getCandidates(n.Config().HotspotInterface)) > 0 && inactivePortal && isConfigured
 
 			// exit/retry every FallbackTimeout (10 minute default), unless user is active
-			fallbackHit := pModeChange.Before(now.Add(time.Duration(n.cfg.RetryConnectionTimeoutMinutes)*-1)) && inactivePortal
+			fallbackHit := pModeChange.Before(now.Add(time.Duration(n.Config().RetryConnectionTimeoutMinutes)*-1)) && inactivePortal
 
-			shouldReboot := n.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
-				lastConnectivity.Before(now.Add(time.Duration(n.cfg.DeviceRebootAfterOfflineMinutes)*-1))
+			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
+				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
 			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot
 
@@ -742,28 +747,28 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			if n.tryCandidates(ctx) {
 				hasConnectivity = n.connState.getConnected() || n.connState.getOnline()
 				// if we're roaming or this network was JUST added, it must have internet
-				if n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 					hasConnectivity = n.connState.getOnline()
 				}
 				if hasConnectivity {
 					continue
 				}
 				lastConnectivity = n.connState.getLastConnected()
-				if n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 					lastConnectivity = n.connState.getLastOnline()
 				}
 			}
 		}
 
-		shouldReboot := n.cfg.DeviceRebootAfterOfflineMinutes > 0 &&
-			lastConnectivity.Before(now.Add(time.Duration(n.cfg.DeviceRebootAfterOfflineMinutes)*-1))
+		shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
+			lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
 		if shouldReboot && n.doReboot(ctx) {
 			return
 		}
 
-		hitOfflineTimeout := lastConnectivity.Before(now.Add(time.Duration(n.cfg.OfflineBeforeStartingHotspotMinutes)*-1)) &&
-			pModeChange.Before(now.Add(time.Duration(n.cfg.OfflineBeforeStartingHotspotMinutes)*-1))
+		hitOfflineTimeout := lastConnectivity.Before(now.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)*-1)) &&
+			pModeChange.Before(now.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)*-1))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
 		if !isConfigured || hitOfflineTimeout {
@@ -775,7 +780,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 }
 
 func (n *Networking) doReboot(ctx context.Context) bool {
-	n.logger.Infof("device has been offline for more than %s, rebooting", time.Duration(n.cfg.DeviceRebootAfterOfflineMinutes))
+	n.logger.Infof("device has been offline for more than %s, rebooting", time.Duration(n.Config().DeviceRebootAfterOfflineMinutes))
 	cmd := exec.Command("systemctl", "reboot")
 	output, err := cmd.CombinedOutput()
 	if err != nil {

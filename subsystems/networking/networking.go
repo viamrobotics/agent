@@ -140,7 +140,7 @@ func (n *Networking) init(ctx context.Context) error {
 	n.nm = nm
 	n.settings = settings
 
-	n.netState.SetHotspotInterface(n.cfg.HotspotInterface)
+	n.netState.SetHotspotInterface(n.Config().HotspotInterface)
 
 	if err := n.writeDNSMasq(); err != nil {
 		return errw.Wrap(err, "writing dnsmasq configuration")
@@ -171,7 +171,7 @@ func (n *Networking) init(ctx context.Context) error {
 
 	n.warnIfMultiplePrimaryNetworks()
 
-	if n.cfg.TurnOnHotspotIfWifiHasNoInternet {
+	if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 		n.logger.Info("Wifi internet checking enabled. Will try all connections for global internet connectivity.")
 	} else {
 		primarySSID := n.netState.PrimarySSID(n.Config().HotspotInterface)
@@ -277,12 +277,12 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	}
 	n.netState.SetHotspotInterface(cfg.NetworkConfiguration.HotspotInterface)
 
-	if reflect.DeepEqual(cfg.NetworkConfiguration, n.cfg) && reflect.DeepEqual(cfg.AdditionalNetworks, n.nets) {
+	if reflect.DeepEqual(cfg.NetworkConfiguration, n.Config()) && reflect.DeepEqual(cfg.AdditionalNetworks, n.nets) {
 		return needRestart
 	}
 
 	needRestart = true
-	n.logger.Debugf("Updated config differs from previous. Previous: %+v New: %+v", n.cfg, cfg)
+	n.logger.Debugf("Updated config differs from previous. Previous: %#v New: %#v", n.Config(), cfg)
 
 	n.dataMu.Lock()
 	defer n.dataMu.Unlock()
@@ -317,12 +317,18 @@ func (n *Networking) Config() utils.NetworkConfiguration {
 	return n.cfg
 }
 
+func (n *Networking) Nets() utils.AdditionalNetworks {
+	n.dataMu.Lock()
+	defer n.dataMu.Unlock()
+	return n.nets
+}
+
 func (n *Networking) processAdditionalnetworks(ctx context.Context) {
-	if !n.cfg.TurnOnHotspotIfWifiHasNoInternet && len(n.nets) > 0 {
+	if !n.Config().TurnOnHotspotIfWifiHasNoInternet && len(n.Nets()) > 0 {
 		n.logger.Warn("Additional networks configured, but internet checking is not enabled. Additional networks may be unused.")
 	}
 
-	for _, network := range n.nets {
+	for _, network := range n.Nets() {
 		_, err := n.addOrUpdateConnection(network)
 		if err != nil {
 			n.logger.Error(errw.Wrapf(err, "adding network %s", network.SSID))
@@ -339,8 +345,8 @@ func (n *Networking) processAdditionalnetworks(ctx context.Context) {
 // must be run inside dataMu lock.
 func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 	contents := wifiPowerSaveContentsDefault
-	if n.cfg.WifiPowerSave != nil {
-		if *n.cfg.WifiPowerSave {
+	if n.Config().WifiPowerSave != nil {
+		if *n.Config().WifiPowerSave {
 			contents = wifiPowerSaveContentsEnable
 		} else {
 			contents = wifiPowerSaveContentsDisable
@@ -359,9 +365,9 @@ func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 			return errw.Wrap(err, "reloading NetworkManager after wifi-powersave.conf update")
 		}
 
-		ssid := n.netState.ActiveSSID(n.cfg.HotspotInterface)
+		ssid := n.netState.ActiveSSID(n.Config().HotspotInterface)
 		if n.connState.getConnected() && ssid != "" {
-			if err := n.activateConnection(ctx, n.cfg.HotspotInterface, ssid); err != nil {
+			if err := n.activateConnection(ctx, n.Config().HotspotInterface, ssid); err != nil {
 				return errw.Wrapf(err, "reactivating %s to enforce powersave setting", ssid)
 			}
 		}

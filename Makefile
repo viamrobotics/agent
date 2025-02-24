@@ -6,8 +6,11 @@ else ifeq ($(GOARCH),arm64)
 LINUX_ARCH = aarch64
 endif
 
+GITHUB_REF_NAME ?= $(shell git branch --show-current)
+SHOULD_PUBLISH = $(shell echo $(GITHUB_REF_NAME) | grep -qE '^(main|v[0-9]+\.[0-9]+\.[0-9]+)$$' && echo true)
+
 ifeq ($(shell git status -s),)
-	ifeq ($(shell git branch --show-current),main)
+	ifeq ($(SHOULD_PUBLISH),true)
 		LAST_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
 		COMMITS_SINCE_TAG := $(shell git rev-list $(LAST_TAG)..HEAD --count 2>/dev/null)
 		BASE_VERSION := $(shell echo $(LAST_TAG) | cut -c2-)
