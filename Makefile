@@ -59,11 +59,6 @@ bin/golangci-lint: Makefile
 
 .PHONY: lint
 lint: bin/golangci-lint
-	git status -s || true
-	git branch --show-current || true
-	git symbolic-ref --short HEAD || true
-	git describe --tags --abbrev=0 || true
-	# SMURF DEBUGGING
 	go mod tidy
 	bin/golangci-lint run -v --fix
 

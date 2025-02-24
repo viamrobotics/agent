@@ -4,7 +4,7 @@ on:
   workflow_call:
   push:
     branches:
-      - main
+      - fix-emptyconfg
   release:
     types: [created]
 
