@@ -34,6 +34,10 @@ TAGS = osusergo,netgo
 
 .PHONY: all
 all: amd64 arm64
+	git status -s || true
+	git branch --show-current || true
+	git describe --tags --abbrev=0 || true
+	# SMURF DEBUGGING
 
 .PHONY: arm64
 arm64:
