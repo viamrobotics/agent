@@ -28,31 +28,21 @@ func (n *Networking) networkScan(ctx context.Context) error {
 		return errw.Errorf("cannot find hotspot interface: %s", n.Config().HotspotInterface)
 	}
 
-	state, reason, err := wifiDev.GetPropertyStateReason()
-	if err != nil {
-		return errw.Wrap(err, "getting wifi state and reason")
-	}
-
-	if state != gnm.NmDeviceStateDisconnected && state != gnm.NmDeviceStateActivated {
-		n.logger.Debugf("wifi device state: %s, reason: %s, skipping scan", state, reason)
-		return nil
-	}
-
 	prevScan, err := wifiDev.GetPropertyLastScan()
 	if err != nil {
-		return errw.Wrap(err, "getting last wifi scan")
+		return errw.Wrap(err, "scanning wifi")
 	}
 
 	err = wifiDev.RequestScan()
 	if err != nil {
-		return errw.Wrap(err, "requesting wifi scan")
+		return errw.Wrap(err, "scanning wifi")
 	}
 
 	scanDeadline := time.Now().Add(scanTimeout)
 	for {
 		lastScan, err := wifiDev.GetPropertyLastScan()
 		if err != nil {
-			return errw.Wrap(err, "getting last wifi scan")
+			return errw.Wrap(err, "scanning wifi")
 		}
 		if lastScan > prevScan {
 			if n.connState.getProvisioning() {
@@ -84,7 +74,7 @@ func (n *Networking) networkScan(ctx context.Context) error {
 		}
 		ssid, err := ap.GetPropertySSID()
 		if err != nil {
-			n.logger.Warn(errw.Wrap(err, "getting ssid of discovered wifi network"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
@@ -95,25 +85,25 @@ func (n *Networking) networkScan(ctx context.Context) error {
 
 		signal, err := ap.GetPropertyStrength()
 		if err != nil {
-			n.logger.Warn(errw.Wrap(err, "getting signal strength of discovered wifi network"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
 		apFlags, err := ap.GetPropertyFlags()
 		if err != nil {
-			n.logger.Warn(errw.Wrap(err, "getting flags of discovered wifi network"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
 		wpaFlags, err := ap.GetPropertyWPAFlags()
 		if err != nil {
-			n.logger.Warn(errw.Wrap(err, "getting wpa flags of discovered wifi network"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
 		rsnFlags, err := ap.GetPropertyRSNFlags()
 		if err != nil {
-			n.logger.Warn(errw.Wrap(err, "getting rsn flags of discovered wifi network"))
+			n.logger.Warn(errw.Wrap(err, "scanning wifi"))
 			continue
 		}
 
