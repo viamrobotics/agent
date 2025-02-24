@@ -33,7 +33,7 @@ systemctl daemon-reload
 rm -v /usr/local/bin/viam-server
 
 # configs
-rm -v /etc/viam.json /etc/viam-provisioning.json
+rm -v /etc/viam.json /etc/viam-provisioning.json /etc/viam-defaults.json
 
 # root/viamdir
 rm -vr /root/.viam/
