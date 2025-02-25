@@ -442,7 +442,7 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 		return changesMade, errw.Wrapf(err, "getting new settings for %s", netKey)
 	}
 
-	changesMade = !reflect.DeepEqual(oldSettings, newSettings) || changesMade
+	changesMade = changesMade || !reflect.DeepEqual(oldSettings, newSettings)
 
 	return changesMade, nil
 }
