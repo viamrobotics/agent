@@ -1,3 +1,5 @@
+name: Test and Build
+
 on:
   pull_request:
   workflow_dispatch:

@@ -379,8 +379,10 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 
 	netKey := n.netState.GenNetKey(cfg.Interface, cfg.SSID)
 	nw := n.netState.LockingNetwork(cfg.Interface, cfg.SSID)
+	nw.mu.Lock()
 	nw.lastTried = time.Time{}
 	nw.priority = cfg.Priority
+	nw.mu.Unlock()
 
 	var settings gnm.ConnectionSettings
 	var err error
@@ -388,7 +390,9 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 		if cfg.SSID != n.Config().HotspotSSID {
 			return changesMade, errw.Errorf("only the builtin provisioning hotspot may use the %s network type", NetworkTypeHotspot)
 		}
+		nw.mu.Lock()
 		nw.isHotspot = true
+		nw.mu.Unlock()
 		settings = generateHotspotSettings(
 			n.Config().HotspotPrefix,
 			n.Config().HotspotSSID,
@@ -413,13 +417,14 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 	n.logger.Infof("Adding/updating settings for network %s", netKey)
 
 	var oldSettings gnm.ConnectionSettings
+	nw.mu.Lock()
+	defer nw.mu.Unlock()
 	if nw.conn != nil {
 		oldSettings, err = nw.conn.GetSettings()
 		if err != nil {
-			return changesMade, errw.Wrapf(err, "getting current settings for %s", netKey)
-		}
-
-		if err := nw.conn.Update(settings); err != nil {
+			nw.conn = nil
+			n.logger.Warn(errw.Wrapf(err, "getting current settings for %s, attempting to add as new network", netKey))
+		} else if err := nw.conn.Update(settings); err != nil {
 			// we may be out of sync with NetworkManager
 			nw.conn = nil
 			n.logger.Warn(errw.Wrapf(err, "updating settings for %s, attempting to add as new network", netKey))
@@ -441,7 +446,7 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 		return changesMade, errw.Wrapf(err, "getting new settings for %s", netKey)
 	}
 
-	changesMade = !reflect.DeepEqual(oldSettings, newSettings) || changesMade
+	changesMade = changesMade || !reflect.DeepEqual(oldSettings, newSettings)
 
 	return changesMade, nil
 }
