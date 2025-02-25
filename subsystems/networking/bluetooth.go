@@ -52,7 +52,8 @@ func newBluetoothService(logger logging.Logger, name string, availableNetworks [
 	charAppAddressUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x6666)
 	logger.Debugf("Viam app address can be written to the following bluetooth characteristic: %s", charAppAddressUUID.String())
 	charAvailableWiFiNetworksUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x7777)
-	logger.Debugf("Available WiFi networks can be read from the following bluetooth characteristic: %s", charAvailableWiFiNetworksUUID.String())
+	logger.Debugf("Available WiFi networks can be read from the following bluetooth characteristic: %s",
+		charAvailableWiFiNetworksUUID.String())
 
 	// Create abstracted characteristics which act as a buffer for reading data from bluetooth.
 	charSsid := &bluetoothCharacteristicLinux[*string]{
