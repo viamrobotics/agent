@@ -39,9 +39,9 @@ func (n *Networking) GetSmartMachineStatus(ctx context.Context,
 
 	ret := &pb.GetSmartMachineStatusResponse{
 		ProvisioningInfo: &pb.ProvisioningInfo{
-			FragmentId:   n.cfg.FragmentID,
-			Model:        n.cfg.Model,
-			Manufacturer: n.cfg.Manufacturer,
+			FragmentId:   n.Config().FragmentID,
+			Model:        n.Config().Model,
+			Manufacturer: n.Config().Manufacturer,
 		},
 		HasSmartMachineCredentials: n.connState.getConfigured(),
 		IsOnline:                   n.connState.getOnline(),
