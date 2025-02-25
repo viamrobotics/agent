@@ -22,12 +22,25 @@ func TestStartProvisioning(t *testing.T) {
 	*/
 
 	// Validate networking state from before provisioning flow.
-	test.That(t, n.connState.provisioningMode, test.ShouldEqual, false)
+	test.That(t, n.connState.provisioningMode, test.ShouldBeFalse)
 	test.That(t, len(n.nets), test.ShouldEqual, 0)
-	test.That(t, n.portalData, test.ShouldBeNil)
+	test.That(t, n.portalData, test.ShouldResemble, &portalData{})
+	test.That(t, n.hotspotIsActive, test.ShouldBeFalse)
+	test.That(t, n.bluetoothIsActive, test.ShouldBeFalse)
 
 	err := n.StartProvisioning(ctx, inputChan)
 	test.That(t, err, test.ShouldBeNil)
+
+	// Validate networking state from after provisioning flow.
+	test.That(t, n.connState.provisioningMode, test.ShouldBeTrue)
+	test.That(t, len(n.nets), test.ShouldEqual, 0)
+	var ui *userInput
+	test.That(t, n.portalData.input, test.ShouldResemble, ui)
+	test.That(t, n.hotspotIsActive, test.ShouldBeTrue)
+	test.That(t, n.bluetoothIsActive, test.ShouldBeTrue)
+
+	// Validate passing user inputs works.
+
 }
 
 func TestStopProvisioning(t *testing.T) {
@@ -39,6 +52,7 @@ func newNetworkingMock(t *testing.T, ctx context.Context, logger logging.Logger)
 	networking, ok := subsystem.(*Networking)
 	test.That(t, ok, test.ShouldBeTrue)
 	networking.bluetoothService = &bluetoothServiceMock{}
+	test.That(t, networking.init(ctx), test.ShouldBeNil)
 	return networking
 }
 
