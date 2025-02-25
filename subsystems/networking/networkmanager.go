@@ -379,6 +379,8 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 
 	netKey := n.netState.GenNetKey(cfg.Interface, cfg.SSID)
 	nw := n.netState.LockingNetwork(cfg.Interface, cfg.SSID)
+	nw.mu.Lock()
+	defer nw.mu.Unlock()
 	nw.lastTried = time.Time{}
 	nw.priority = cfg.Priority
 
@@ -416,10 +418,9 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 	if nw.conn != nil {
 		oldSettings, err = nw.conn.GetSettings()
 		if err != nil {
-			return changesMade, errw.Wrapf(err, "getting current settings for %s", netKey)
-		}
-
-		if err := nw.conn.Update(settings); err != nil {
+			nw.conn = nil
+			n.logger.Error(errw.Wrapf(err, "getting current settings for %s", netKey))
+		} else if err := nw.conn.Update(settings); err != nil {
 			// we may be out of sync with NetworkManager
 			nw.conn = nil
 			n.logger.Warn(errw.Wrapf(err, "updating settings for %s, attempting to add as new network", netKey))
