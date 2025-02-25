@@ -24,7 +24,7 @@ import (
 type bluetoothService interface {
 	start(ctx context.Context) error
 	stop() error
-	waitForCredentials(ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool) (*userInput, error)
+	waitForCredentials(ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool, inputChan chan<- userInput) error
 }
 
 // newBluetoothService returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
@@ -40,19 +40,19 @@ func newBluetoothService(logger logging.Logger, name string, availableNetworks [
 	}
 
 	serviceUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x1111)
-	logger.Debugf("serviceUUID: %s", serviceUUID.String())
+	logger.Debugf("Bluetooth peripheral service UUID: %s", serviceUUID.String())
 	charSsidUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x2222)
-	logger.Debugf("charSsidUUID: %s", charSsidUUID.String())
+	logger.Debugf("WiFi SSID can be written to the following bluetooth characteristic: %s", charSsidUUID.String())
 	charPskUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x3333)
-	logger.Debugf("charPskUUID: %s", charPskUUID.String())
+	logger.Debugf("WiFi passkey can be written to the following bluetooth characteristic: %s", charPskUUID.String())
 	charRobotPartKeyIDUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x4444)
-	logger.Debugf("charRobotPartKeyIDUUID: %s", charRobotPartKeyIDUUID.String())
+	logger.Debugf("Robot part key ID can be written to the following bluetooth characteristic: %s", charRobotPartKeyIDUUID.String())
 	charRobotPartKeyUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x5555)
-	logger.Debugf("charRobotPartKeyUUID: %s", charRobotPartKeyUUID.String())
+	logger.Debugf("Robot part key can be written to the following bluetooth characteristic: %s", charRobotPartKeyUUID.String())
 	charAppAddressUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x6666)
-	logger.Debugf("charAppAddress: %s", charAppAddressUUID.String())
+	logger.Debugf("Viam app address can be written to the following bluetooth characteristic: %s", charAppAddressUUID.String())
 	charAvailableWiFiNetworksUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(0x7777)
-	logger.Debugf("charAvailableWiFiNetworksUUID: %s", charAvailableWiFiNetworksUUID.String())
+	logger.Debugf("Available WiFi networks can be read from the following bluetooth characteristic: %s", charAvailableWiFiNetworksUUID.String())
 
 	// Create abstracted characteristics which act as a buffer for reading data from bluetooth.
 	charSsid := &bluetoothCharacteristicLinux[*string]{
@@ -246,7 +246,7 @@ func (bsl *bluetoothServiceLinux) start(ctx context.Context) error {
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
 	bsl.advActive = true
-	bsl.logger.Info("started advertising a BLE connection...")
+	bsl.logger.Debug("Started advertising a BLE connection")
 	return nil
 }
 
@@ -265,85 +265,90 @@ func (bsl *bluetoothServiceLinux) stop() error {
 		return fmt.Errorf("failed to stop advertising: %w", err)
 	}
 	bsl.advActive = false
-	bsl.logger.Info("stopped advertising a BLE connection")
+	bsl.logger.Debug("Stopped advertising a BLE connection")
 	return nil
 }
 
 // WaitForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
 func (bsl *bluetoothServiceLinux) waitForCredentials(
-	ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool,
-) (*userInput, error) {
+	ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool, inputChan chan<- userInput,
+) error {
 	if !requiresWiFiCredentials && !requiresCloudCredentials {
-		return nil, errors.New("should be waiting for cloud credentials or WiFi credentials, or both")
+		return errors.New("should be waiting for cloud credentials or WiFi credentials, or both")
 	}
 	var ssid, psk, robotPartKeyID, robotPartKey string
-	var ctxErr, ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr error
-
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	utils.ManagedGo(func() {
-		for {
-			if ctxErr = ctx.Err(); ctxErr != nil {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				ctxErr = ctx.Err()
-				return
-			default:
-				if requiresWiFiCredentials {
-					if ssid == "" {
-						var e *emptyBluetoothCharacteristicError
-						ssid, ssidErr = bsl.readSsid()
-						if ssidErr != nil && !errors.As(ssidErr, &e) {
-							return
-						}
-					}
-					if psk == "" {
-						var e *emptyBluetoothCharacteristicError
-						psk, pskErr = bsl.readPsk()
-						if pskErr != nil && !errors.As(pskErr, &e) {
-							return
-						}
-					}
-				}
-				if requiresCloudCredentials {
-					if robotPartKeyID == "" {
-						var e *emptyBluetoothCharacteristicError
-						robotPartKeyID, robotPartKeyIDErr = bsl.readRobotPartKeyID()
-						if robotPartKeyIDErr != nil && !errors.As(robotPartKeyIDErr, &e) {
-							return
-						}
-					}
-					if robotPartKey == "" {
-						var e *emptyBluetoothCharacteristicError
-						robotPartKey, robotPartKeyErr = bsl.readRobotPartKey()
-						if robotPartKeyErr != nil && !errors.As(robotPartKeyErr, &e) {
-							return
-						}
-					}
-				}
-				if requiresWiFiCredentials && requiresCloudCredentials && //nolint:gocritic
-					ssid != "" && psk != "" && robotPartKeyID != "" && robotPartKey != "" {
-					return
-				} else if requiresWiFiCredentials && ssid != "" && psk != "" {
-					return
-				} else if requiresCloudCredentials && robotPartKeyID != "" && robotPartKey != "" {
-					return
-				}
-
-				// Not ready to return (do not have the minimum required set of credentials), so sleep and try again.
-				time.Sleep(time.Second)
-			}
+	var ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr error
+	for {
+		var shouldBreakOuterLoop bool
+		if ctx.Err() != nil {
+			break
 		}
-	}, wg.Done)
+		select {
+		case <-ctx.Done():
+			shouldBreakOuterLoop = true
+		default:
+			if requiresWiFiCredentials {
+				if ssid == "" {
+					var e *emptyBluetoothCharacteristicError
+					ssid, ssidErr = bsl.readSsid()
+					if ssidErr != nil && !errors.As(ssidErr, &e) {
+						shouldBreakOuterLoop = true
+						break
+					}
+				}
+				if psk == "" {
+					var e *emptyBluetoothCharacteristicError
+					psk, pskErr = bsl.readPsk()
+					if pskErr != nil && !errors.As(pskErr, &e) {
+						shouldBreakOuterLoop = true
+						break
+					}
+				}
+			}
+			if requiresCloudCredentials {
+				if robotPartKeyID == "" {
+					var e *emptyBluetoothCharacteristicError
+					robotPartKeyID, robotPartKeyIDErr = bsl.readRobotPartKeyID()
+					if robotPartKeyIDErr != nil && !errors.As(robotPartKeyIDErr, &e) {
+						shouldBreakOuterLoop = true
+						break
+					}
+				}
+				if robotPartKey == "" {
+					var e *emptyBluetoothCharacteristicError
+					robotPartKey, robotPartKeyErr = bsl.readRobotPartKey()
+					if robotPartKeyErr != nil && !errors.As(robotPartKeyErr, &e) {
+						shouldBreakOuterLoop = true
+						break
+					}
+				}
+			}
+			if requiresWiFiCredentials && requiresCloudCredentials && //nolint:gocritic
+				ssid != "" && psk != "" && robotPartKeyID != "" && robotPartKey != "" {
+				shouldBreakOuterLoop = true
+				break
+			} else if requiresWiFiCredentials && ssid != "" && psk != "" {
+				shouldBreakOuterLoop = true
+				break
+			} else if requiresCloudCredentials && robotPartKeyID != "" && robotPartKey != "" {
+				shouldBreakOuterLoop = true
+				break
+			}
 
-	wg.Wait()
-
-	return &userInput{
+			// Not ready to return (do not have the minimum required set of credentials), so sleep and try again.
+			time.Sleep(time.Second)
+		}
+		if shouldBreakOuterLoop {
+			break
+		}
+	}
+	if err := errors.Join(ctx.Err(), ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr); err != nil {
+		return err
+	}
+	inputChan <- userInput{
 		SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey,
-	}, errors.Join(ctxErr, ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr)
+	}
+	return nil
 }
 
 /** Helper methods for low-level system calls and read/write requests to/from bluetooth characteristics **/
@@ -485,21 +490,19 @@ func validateSystem(logger logging.Logger) error {
 	if err := checkOS(); err != nil {
 		return err
 	}
-	logger.Debug("✅ Running on a Linux system.")
 
 	// 2. Check BlueZ version
 	blueZVersion, err := getBlueZVersion()
 	if err != nil {
 		return err
 	}
-	logger.Debugf("✅ BlueZ detected, version: %.2f", blueZVersion)
 
 	// 3. Validate BlueZ version is 5.66 or higher
 	if blueZVersion < 5.66 {
-		return fmt.Errorf("❌ BlueZ version is %.2f, but 5.66 or later is required", blueZVersion)
+		return fmt.Errorf("BlueZ version is %.2f, but 5.66 or later is required", blueZVersion)
 	}
 
-	logger.Debug("✅ BlueZ version meets the requirement (5.66 or later).")
+	logger.Debugf("BlueZ version (%.2f) meets the requirement (5.66 or later)", blueZVersion)
 	return nil
 }
 
@@ -518,7 +521,7 @@ func trustDevice(logger logging.Logger, devicePath string) error {
 	if call.Err != nil {
 		return fmt.Errorf("failed to set Trusted property: %w", call.Err)
 	}
-	logger.Debug("device marked as trusted.")
+	logger.Debug("Device marked as trusted.")
 
 	return nil
 }
@@ -540,29 +543,36 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 	utils.ManagedGo(func() {
 		conn, err := dbus.SystemBus()
 		if err != nil {
-			logger.Error(fmt.Errorf("failed to connect to system DBus: %w", err))
+			logger.Errorf("Failed to connect to system DBus: %w", err)
 			return
 		}
 
 		// Export agent methods
 		reply := conn.Export(nil, BluezAgentPath, BluezAgent)
 		if reply != nil {
-			logger.Error(fmt.Errorf("failed to export Bluez agent: %w", reply))
+			logger.Errorf("Failed to export Bluez agent: %w", reply)
 			return
 		}
 
-		// Register the agent
+		// Register the agent (and defer call to unregister agent).
 		obj := conn.Object(BluezDBusService, "/org/bluez")
 		call := obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "NoInputNoOutput")
 		if err := call.Err; err != nil {
-			logger.Error(fmt.Errorf("failed to register Bluez agent: %w", err))
+			logger.Errorf("Failed to register Bluez agent: %w", err)
 			return
 		}
+		defer func() {
+			call := obj.Call("org.bluez.AgentManager1.UnregisterAgent", 0, dbus.ObjectPath(BluezAgentPath))
+			if err := call.Err; err != nil {
+				logger.Errorf("Failed to unregister Bluez agent: %w", err)
+				return
+			}
+		}()
 
 		// Set as the default agent
 		call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
 		if err := call.Err; err != nil {
-			logger.Error(fmt.Errorf("failed to set default Bluez agent: %w", err))
+			logger.Errorf("Failed to set default Bluez agent: %w", err)
 			return
 		}
 
@@ -576,11 +586,11 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 		matchRule := "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'"
 		err = conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, matchRule).Err
 		if err != nil {
-			logger.Error(fmt.Errorf("failed to add DBus match rule: %w", err))
+			logger.Errorf("Failed to add DBus match rule: %w", err)
 			return
 		}
 
-		logger.Debug("waiting for a BLE pairing request...")
+		logger.Debug("Waiting for a BLE pairing request...")
 
 		for signal := range signalChan {
 			// Check if the signal is from a BlueZ device
@@ -589,7 +599,7 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 			}
 
 			iface, ok := signal.Body[0].(string)
-			if !ok || iface != "org.bluez.Device1" {
+			if !ok || iface != "org.bleuez.Device1" {
 				continue
 			}
 
@@ -616,10 +626,10 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 				continue
 			}
 			if err = trustDevice(logger, devicePath); err != nil {
-				logger.Error(fmt.Errorf("failed to trust device: %w", err))
+				logger.Errorf("Failed to trust device: %w", err)
 				return
 			} else {
-				logger.Debug("device successfully trusted!")
+				logger.Debug("Device successfully trusted!")
 			}
 		}
 	}, nil)

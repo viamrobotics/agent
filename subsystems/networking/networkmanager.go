@@ -222,14 +222,10 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 			bluetoothErr = err
 			return
 		}
-		goutils.ManagedGo(func() {
-			userInput, err := n.bluetoothService.waitForCredentials(ctx, true, true) // Background goroutine ultimately cancelled by context.
-			if err != nil {
-				n.logger.Errorw("failed to wait for user input of credentials", "err", err)
-				return
-			}
-			inputChan <- *userInput
-		}, nil)
+		if err := n.bluetoothService.waitForCredentials(ctx, true, true, inputChan); err != nil {
+			bluetoothErr = err
+			return
+		}
 		n.bluetoothIsActive = true
 	}, wg.Done)
 	wg.Wait()
