@@ -419,7 +419,7 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 		oldSettings, err = nw.conn.GetSettings()
 		if err != nil {
 			nw.conn = nil
-			n.logger.Error(errw.Wrapf(err, "getting current settings for %s", netKey))
+			n.logger.Warn(errw.Wrapf(err, "getting current settings for %s, attempting to add as new network", netKey))
 		} else if err := nw.conn.Update(settings); err != nil {
 			// we may be out of sync with NetworkManager
 			nw.conn = nil
