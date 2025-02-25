@@ -282,7 +282,6 @@ func (bsl *bluetoothServiceLinux) waitForCredentials(
 	for {
 		var shouldBreakOuterLoop bool
 		if ctx.Err() != nil {
-			shouldBreakOuterLoop = true
 			break
 		}
 		select {
@@ -556,20 +555,13 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 			return
 		}
 
-		// Register the agent (and defer call to unregister agent).
+		// Register the agent.
 		obj := conn.Object(BluezDBusService, "/org/bluez")
 		call := obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "NoInputNoOutput")
 		if err := call.Err; err != nil {
 			logger.Errorf("Failed to register Bluez agent: %w", err)
 			return
 		}
-		defer func() {
-			call := obj.Call("org.bluez.AgentManager1.UnregisterAgent", 0, dbus.ObjectPath(BluezAgentPath))
-			if err := call.Err; err != nil {
-				logger.Errorf("Failed to unregister Bluez agent: %w", err)
-				return
-			}
-		}()
 
 		// Set as the default agent
 		call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
@@ -601,7 +593,7 @@ func enableAutoAcceptPairRequest(logger logging.Logger) {
 			}
 
 			iface, ok := signal.Body[0].(string)
-			if !ok || iface != "org.bleuez.Device1" {
+			if !ok || iface != "org.bluez.Device1" {
 				continue
 			}
 

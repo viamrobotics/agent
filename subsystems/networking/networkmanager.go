@@ -222,12 +222,11 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 			bluetoothErr = err
 			return
 		}
-		goutils.ManagedGo( // Listen for user input asynchronously.
+		goutils.ManagedGo( // Listen for user input asynchronously. How should we be handling errors here?
 			func() {
 				if err := n.bluetoothService.waitForCredentials(ctx, true, true, inputChan); err != nil {
 					n.logger.Errorf("Failed to wait for user input of credentials over bluetooth: %+v", err)
 				}
-
 			}, nil,
 		)
 		n.bluetoothIsActive = true
@@ -256,7 +255,6 @@ func (n *Networking) StopProvisioning() error {
 
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
-	n.connState.setProvisioning(false)
 
 	wg := sync.WaitGroup{}
 	var hotspotErr error
@@ -273,6 +271,7 @@ func (n *Networking) stopProvisioning() error {
 				hotspotErr = combinedErr
 				return
 			}
+			n.hotspotIsActive = false
 			n.logger.Info("Stopped hotspot and captive portal.")
 		}, wg.Done)
 	}
@@ -289,12 +288,17 @@ func (n *Networking) stopProvisioning() error {
 				bluetoothErr = err
 				return
 			}
+			n.bluetoothIsActive = false
 			n.logger.Info("Stopped bluetooth service.")
 		}, wg.Done)
 	}
 	wg.Wait()
 
-	return errors.Join(hotspotErr, bluetoothErr)
+	if err := errors.Join(hotspotErr, bluetoothErr); err != nil {
+		return err
+	}
+	n.connState.setProvisioning(false)
+	return nil
 }
 
 func (n *Networking) ActivateConnection(ctx context.Context, ifName, ssid string) error {
