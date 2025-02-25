@@ -35,6 +35,16 @@ TAGS = osusergo,netgo
 
 .DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH)
 
+.PHONY: debug-workflow
+debug-workflow:
+	echo GITHUB_REF_NAME $(GITHUB_REF_NAME)
+	echo SHOULD_PUBLISH $(SHOULD_PUBLISH)
+	echo TAG_VERSION $(TAG_VERSION)
+	echo PATH_VERSION $(PATH_VERSION)
+	echo GIT_REVISION $(GIT_REVISION)
+	echo LAST_TAG $(LAST_TAG)
+	echo COMMITS_SINCE_TAG $(COMMITS_SINCE_TAG)
+
 .PHONY: all
 all: amd64 arm64
 
