@@ -282,6 +282,7 @@ func (bsl *bluetoothServiceLinux) waitForCredentials(
 	for {
 		var shouldBreakOuterLoop bool
 		if ctx.Err() != nil {
+			shouldBreakOuterLoop = true
 			break
 		}
 		select {

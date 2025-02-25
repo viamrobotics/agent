@@ -222,10 +222,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 			bluetoothErr = err
 			return
 		}
-		if err := n.bluetoothService.waitForCredentials(ctx, true, true, inputChan); err != nil {
-			bluetoothErr = err
-			return
-		}
+		goutils.ManagedGo(func() { _ = n.bluetoothService.waitForCredentials(ctx, true, true, inputChan) }, nil)
 		n.bluetoothIsActive = true
 	}, wg.Done)
 	wg.Wait()
