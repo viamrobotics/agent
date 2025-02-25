@@ -238,9 +238,9 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	case !n.hotspotIsActive && !n.bluetoothIsActive:
 		return fmt.Errorf("failed to set up provisioning: %w", errors.Join(hotspotErr, bluetoothErr))
 	case !n.hotspotIsActive && n.bluetoothIsActive:
-		n.logger.Infof("started bluetooth provisioning, but failed to set up hotspot provisioning: %+v", hotspotErr)
+		n.logger.Infof("Started bluetooth provisioning, but failed to set up hotspot provisioning: %+v", hotspotErr)
 	case n.hotspotIsActive && !n.bluetoothIsActive:
-		n.logger.Infof("started hotspot provisioning, but failed to set up bluetooth provisioning: %+v", bluetoothErr)
+		n.logger.Infof("Started hotspot provisioning, but failed to set up bluetooth provisioning: %+v", bluetoothErr)
 	default:
 	}
 
