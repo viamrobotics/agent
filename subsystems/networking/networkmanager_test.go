@@ -16,6 +16,7 @@ func TestProvisioningOverBluetooth(t *testing.T) {
 	n, bsm := newNetworkingWithBluetoothServiceMock(t, ctx, logger)
 	test.That(t, n, test.ShouldNotBeNil)
 	inputChan := make(chan userInput, 1)
+	defer close(inputChan)
 
 	/*
 		There is no variability in inputs passed to either StartProvisioning or
