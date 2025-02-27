@@ -3,15 +3,18 @@ package networking
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"reflect"
 	"sort"
+	"sync"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	goutils "go.viam.com/utils"
 )
 
 func (n *Networking) warnIfMultiplePrimaryNetworks() {
@@ -172,23 +175,72 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
 
-	n.logger.Info("Starting provisioning mode.")
-	_, err := n.addOrUpdateConnection(utils.NetworkDefinition{
-		Type:      NetworkTypeHotspot,
-		Interface: n.Config().HotspotInterface,
-		SSID:      n.Config().HotspotSSID,
-	})
-	if err != nil {
-		return err
-	}
-	if err := n.activateConnection(ctx, n.Config().HotspotInterface, n.Config().HotspotSSID); err != nil {
-		return errw.Wrap(err, "starting provisioning mode hotspot")
-	}
+	n.logger.Info("Starting provisioning mode. Attempting to set up both hotspot and bluetooth provisioning methods...")
 
-	// start portal with ssid list and known connections
-	if err := n.startPortal(inputChan); err != nil {
-		err = errors.Join(err, n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID))
-		return errw.Wrap(err, "starting web/grpc portal")
+	// Simultaneously start both the hotspot captive portal and the bluetooth service provisioning methods.
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	var hotspotErr error
+	goutils.ManagedGo(func() {
+		_, err := n.addOrUpdateConnection(utils.NetworkDefinition{
+			Type:      NetworkTypeHotspot,
+			Interface: n.Config().HotspotInterface,
+			SSID:      n.Config().HotspotSSID,
+		})
+		if err != nil {
+			hotspotErr = err
+			return
+		}
+		if err := n.activateConnection(ctx, n.Config().HotspotInterface, n.Config().HotspotSSID); err != nil {
+			hotspotErr = errw.Wrap(err, "starting provisioning mode hotspot")
+			return
+		}
+
+		// start portal with ssid list and known connections
+		if err := n.startPortal(inputChan); err != nil {
+			err = errors.Join(err, n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID))
+			hotspotErr = errw.Wrap(err, "starting web/grpc portal")
+			return
+		}
+		n.hotspotIsActive = true
+	}, wg.Done)
+
+	wg.Add(1)
+	var bluetoothErr error
+	goutils.ManagedGo(func() {
+		if n.bluetoothService == nil {
+			bt, err := newBluetoothService(
+				n.logger, fmt.Sprintf("%s.%s.%s", n.cfg.Manufacturer, n.cfg.Model, n.cfg.FragmentID), n.getVisibleNetworks())
+			if err != nil {
+				bluetoothErr = err
+				return
+			}
+			n.bluetoothService = bt
+		}
+		if err := n.bluetoothService.start(ctx); err != nil {
+			bluetoothErr = err
+			return
+		}
+		goutils.ManagedGo( // Listen for user input asynchronously. How should we be handling errors here?
+			func() {
+				if err := n.bluetoothService.waitForCredentials(ctx, true, true, inputChan); err != nil {
+					n.logger.Errorf("Failed to wait for user input of credentials over bluetooth: %+v", err)
+				}
+			}, nil,
+		)
+		n.bluetoothIsActive = true
+	}, wg.Done)
+	wg.Wait()
+
+	switch {
+	case !n.hotspotIsActive && !n.bluetoothIsActive:
+		return fmt.Errorf("failed to set up provisioning: %w", errors.Join(hotspotErr, bluetoothErr))
+	case !n.hotspotIsActive && n.bluetoothIsActive:
+		n.logger.Infof("Started bluetooth provisioning, but failed to set up hotspot provisioning: %+v", hotspotErr)
+	case n.hotspotIsActive && !n.bluetoothIsActive:
+		n.logger.Infof("Started hotspot provisioning, but failed to set up bluetooth provisioning: %+v", bluetoothErr)
+	default:
 	}
 
 	n.connState.setProvisioning(true)
@@ -203,13 +255,50 @@ func (n *Networking) StopProvisioning() error {
 
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
-	n.connState.setProvisioning(false)
-	err := n.stopPortal()
-	err2 := n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID)
-	if errors.Is(err2, ErrNoActiveConnectionFound) {
+
+	wg := sync.WaitGroup{}
+	var hotspotErr error
+	if n.hotspotIsActive {
+		wg.Add(1)
+		goutils.ManagedGo(func() {
+			err := n.stopPortal()
+			err2 := n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID)
+			if errors.Is(err2, ErrNoActiveConnectionFound) {
+				hotspotErr = err
+				return
+			}
+			if combinedErr := errors.Join(err, err2); combinedErr != nil {
+				hotspotErr = combinedErr
+				return
+			}
+			n.hotspotIsActive = false
+			n.logger.Info("Stopped hotspot and captive portal.")
+		}, wg.Done)
+	}
+	var bluetoothErr error
+	if n.bluetoothIsActive {
+		wg.Add(1)
+		goutils.ManagedGo(func() {
+			if n.bluetoothService == nil {
+				bluetoothErr = errors.New("failure to stop bluetooth service " +
+					"expecting bluetooth service, but pointer is nil")
+				return
+			}
+			if err := n.bluetoothService.stop(); err != nil {
+				bluetoothErr = err
+				return
+			}
+			n.bluetoothIsActive = false
+			n.logger.Info("Stopped bluetooth service.")
+		}, wg.Done)
+	}
+	wg.Wait()
+
+	if err := errors.Join(hotspotErr, bluetoothErr); err != nil {
 		return err
 	}
-	return errors.Join(err, err2)
+	n.connState.setProvisioning(false)
+	return nil
 }
 
 func (n *Networking) ActivateConnection(ctx context.Context, ifName, ssid string) error {
