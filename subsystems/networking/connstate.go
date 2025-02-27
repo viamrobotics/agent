@@ -7,6 +7,14 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
+type provisioningMode int
+
+const (
+	hotspotMode  provisioningMode = iota
+	bluetoothMode
+	hotspotAndBluetoothMode
+)
+
 type connectionState struct {
 	mu sync.Mutex
 
@@ -18,7 +26,7 @@ type connectionState struct {
 	connected     bool
 	lastConnected time.Time
 
-	provisioningMode   bool
+	provisioningMode   provisioningMode
 	provisioningChange time.Time
 
 	lastInteraction time.Time
