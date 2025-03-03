@@ -90,10 +90,10 @@ func (n *network) getInfo() NetworkInfo {
 type NetworkInfo struct {
 	Type      string `json:"type,omitempty"`
 	SSID      string `json:"ssid"`
-	Security  string `json:"sec"`
-	Signal    int32  `json:"sig"`
-	Connected bool   `json:"conn,omitempty"`
-	LastError string `json:"lastErr,omitempty"`
+	Security  string `json:"security"`
+	Signal    int32  `json:"signal"`
+	Connected bool   `json:"connected,omitempty"`
+	LastError string `json:"last_error,omitempty"`
 }
 
 func NetworkInfoToProto(net *NetworkInfo) *pb.NetworkInfo {

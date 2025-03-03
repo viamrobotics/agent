@@ -20,7 +20,6 @@ import (
 )
 
 const (
-	numWriteableCharacteristics = 5
 	ssid                        = "ssid"
 	psk                         = "psk"
 	robotPartKeyID              = "robot_part_key_ID"
