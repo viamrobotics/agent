@@ -54,6 +54,10 @@ type Networking struct {
 	grpcServer *grpc.Server
 	portalData *portalData
 
+	// bluetooth
+	bluetoothService bluetoothService
+	bluetoothHealth  *health
+
 	pb.UnimplementedProvisioningServiceServer
 }
 
@@ -243,7 +247,7 @@ func (n *Networking) Stop(ctx context.Context) error {
 
 	n.logger.Infof("%s subsystem exiting", SubsysName)
 	if n.connState.getProvisioning() {
-		err := n.stopProvisioning()
+		err := n.StopProvisioning()
 		if err != nil {
 			n.logger.Error(err)
 		}
@@ -304,7 +308,8 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 		return nil
 	}
 
-	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() {
+	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
+		(n.bluetoothService == nil || n.bluetoothHealth.IsHealthy()) {
 		return nil
 	}
 
