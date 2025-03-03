@@ -7,6 +7,11 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
+type provisioningMode struct {
+	bluetoothActive bool
+	hotspotActive   bool
+}
+
 type connectionState struct {
 	mu sync.Mutex
 
@@ -18,7 +23,7 @@ type connectionState struct {
 	connected     bool
 	lastConnected time.Time
 
-	provisioningMode   bool
+	provisioningMode   provisioningMode
 	provisioningChange time.Time
 
 	lastInteraction time.Time
@@ -99,18 +104,39 @@ func (c *connectionState) getConfigured() bool {
 	return c.configured
 }
 
-func (c *connectionState) setProvisioning(mode bool) {
+func (c *connectionState) setProvisioningBluetooth(isActive bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.provisioningMode = mode
+	c.provisioningMode.bluetoothActive = isActive
 	c.provisioningChange = time.Now()
 }
 
-// getProvisioning returns true if in provisioning mode, and the time of the last state change.
+func (c *connectionState) setProvisioningHotspot(isActive bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.provisioningMode.hotspotActive = isActive
+	c.provisioningChange = time.Now()
+}
+
+// getProvisioning returns true if in provisioning mode.
 func (c *connectionState) getProvisioning() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.provisioningMode
+	return c.provisioningMode.hotspotActive || c.provisioningMode.bluetoothActive
+}
+
+// getProvisioningHotspot returns true if the hotspot provisioning is active.
+func (c *connectionState) getProvisioningHotspot() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.provisioningMode.hotspotActive
+}
+
+// getProvisioningBluetooth returns true if the bluetooth provisioning is active.
+func (c *connectionState) getProvisioningBluetooth() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.provisioningMode.bluetoothActive
 }
 
 func (c *connectionState) getProvisioningChange() time.Time {

@@ -88,12 +88,12 @@ func (n *network) getInfo() NetworkInfo {
 }
 
 type NetworkInfo struct {
-	Type      string
-	SSID      string
-	Security  string
-	Signal    int32
-	Connected bool
-	LastError string
+	Type      string `json:"type,omitempty"`
+	SSID      string `json:"ssid"`
+	Security  string `json:"sec"`
+	Signal    int32  `json:"sig"`
+	Connected bool   `json:"conn,omitempty"`
+	LastError string `json:"lastErr,omitempty"`
 }
 
 func NetworkInfoToProto(net *NetworkInfo) *pb.NetworkInfo {
