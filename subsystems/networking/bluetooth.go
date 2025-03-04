@@ -254,9 +254,6 @@ func (bsl *bluetoothServiceLinux) updateAvailableWiFiNetworks(ctx context.Contex
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			if !bsl.health.Sleep(ctx, time.Second*5) {
-				return ctx.Err()
-			}
 			networks := bsl.getVisibleNetworks()
 			bs, err := json.Marshal(networks)
 			if err != nil {
@@ -279,7 +276,9 @@ func (bsl *bluetoothServiceLinux) updateAvailableWiFiNetworks(ctx context.Contex
 				}
 
 			}
-			bsl.logger.Debug("SMURF: Successfully updated visible WiFi networks.")
+			if !bsl.health.Sleep(ctx, time.Second*5) {
+				return ctx.Err()
+			}
 		}
 	}
 }
@@ -351,7 +350,6 @@ func (bsl *bluetoothServiceLinux) listenForCredentials(
 			if !bsl.health.Sleep(ctx, time.Second) {
 				return ctx.Err()
 			}
-			bsl.logger.Debug("SMURF: Yet to receive all required provisioning credentials over bluetooth.")
 			continue
 		}
 		inputChan <- userInput{SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey, AppAddr: appAdress}
@@ -425,12 +423,7 @@ func (bsl *bluetoothServiceLinux) getReadOnlyCharacteristicConfig(cName string, 
 	c := &bluetooth.Characteristic{}
 	bsl.writeAvailableWiFiNetworksToCharacteristic = func(bs []byte) error {
 		_, err := c.Write(bs)
-		if err != nil {
-			bsl.logger.Debugf("SMURF: failed to write %s to %s read-only bluetooth characteristic", string(bs), cName)
-			return err
-		}
-		bsl.logger.Debugf("SMURF: wrote %s to %s read-only bluetooth characteristic", string(bs), cName)
-		return nil
+		return err
 	}
 	return bluetooth.CharacteristicConfig{
 		Handle: c,
