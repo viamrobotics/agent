@@ -53,7 +53,7 @@ test:
 
 .PHONY: manifest
 manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64
-	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+' || exit 1
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-x86_64
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-aarch64
 
