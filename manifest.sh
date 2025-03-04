@@ -32,7 +32,7 @@ fi
 # Calculate SHA256
 SHA256=$(sha256sum "$BINARY_PATH" | cut -d' ' -f1)
 
-# Generate meta.json with binary-specific name
+# Generate json manifest with binary-specific name
 mkdir -p etc
 cat > "etc/${BINARY_NAME}.json" << EOF
 {

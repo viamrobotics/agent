@@ -35,7 +35,7 @@ jobs:
     - name: Test
       run: make test
     - name: Build
-      run: make debug-workflow all
+      run: make all
 
   build:
     name: Build and Upload
@@ -50,7 +50,7 @@ jobs:
       with:
         go-version-file: go.mod
     - name: Build
-      run: make debug-workflow all manifest
+      run: make all manifest
     - uses: google-github-actions/auth@v2 # This BREAKS the git checkout/tags/history, so must run after builds!
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
