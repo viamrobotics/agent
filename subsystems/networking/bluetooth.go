@@ -116,6 +116,9 @@ func newBluetoothService(
 	return bsl, &health, nil
 }
 
+// ---------------------------------------------------------------------------------------
+// ----------------------------------- EXTERNAL METHODS ------------------------------------
+// ---------------------------------------------------------------------------------------
 
 // Start begins advertising a bluetooth service that advertises nearby networks and acccepts WiFi and/or Viam cloud config credentials.
 func (bsl *bluetoothServiceLinux) start(
@@ -297,8 +300,8 @@ func updateAvailableWiFiNetworks(ctx context.Context, bsl *bluetoothServiceLinux
 				return err
 			}
 
-			// Chunking writes to a maximum of 20 bytes because BLE characteristics can only accept 20 bytes per message.
-			chunkSize := 20
+			// Chunking writes to a maximum of 512 bytes because BLE characteristics can only accept 512 bytes per message.
+			chunkSize := 512
 			for {
 				if len(bs) <= chunkSize {
 					if err := bsl.refreshAvailableWiFiNetworks(bs); err != nil {
