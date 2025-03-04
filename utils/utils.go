@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -200,7 +201,16 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 			"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
 		)
 		cmd.Start()
-		errRet = errors.Join(errRet, cmd.Wait())
+		waitErr := cmd.Wait()
+		if waitErr != nil {
+			user, _ := user.Current()
+			if user.Name != "SYSTEM" {
+				// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
+				println("Ignoring netsh error on non-SYSTEM windows")
+			} else {
+				errRet = errors.Join(errRet, cmd.Wait())
+			}
+		}
 	}
 	return outPath, errRet
 }
@@ -308,6 +318,8 @@ func ForceSymlink(orig, symlink string) error {
 
 	err = os.Symlink(orig, symlink)
 	if err != nil {
+		// note: this will fail on windows if you are not privileged unless you enable developer mode
+		// https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
 		return errw.Wrap(err, "symlinking file")
 	}
 
