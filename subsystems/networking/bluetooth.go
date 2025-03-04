@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -128,7 +129,7 @@ type bluetoothServiceLinux struct {
 	advActive                                  bool
 	UUID                                       bluetooth.UUID
 	getVisibleNetworks                         func() []NetworkInfo
-	writeAvailableWiFiNetworksToCharacteristic func(p []byte) (n int, e error)
+	writeAvailableWiFiNetworksToCharacteristic func(p []byte) (e error)
 	characteristicsByName                      map[string]*bluetoothCharacteristicLinux[*string]
 }
 
@@ -141,7 +142,7 @@ func (bsl *bluetoothServiceLinux) start(
 	bsl.mu.Lock()
 	defer bsl.mu.Unlock()
 
-	// Store cancel func on struct for controlled shutdown of goroutines.
+	// Store cancel func on struct for controlled shutdown of bluetooth-related goroutines.
 	ctx, cancel := context.WithCancel(parentCtx)
 	bsl.cancel = cancel
 
@@ -266,18 +267,19 @@ func (bsl *bluetoothServiceLinux) updateAvailableWiFiNetworks(ctx context.Contex
 			chunkSize := 20
 			for {
 				if len(bs) <= chunkSize {
-					_, err = bsl.writeAvailableWiFiNetworksToCharacteristic(bs)
-					if err != nil {
+					if err := bsl.writeAvailableWiFiNetworksToCharacteristic(bs); err != nil {
 						return err
 					}
 					break
+				} else {
+					if err := bsl.writeAvailableWiFiNetworksToCharacteristic(bs[:chunkSize]); err != nil {
+						return err
+					}
+					bs = bs[chunkSize:]
 				}
-				if _, err = bsl.writeAvailableWiFiNetworksToCharacteristic(bs[:chunkSize]); err != nil {
-					return err
-				}
-				bs = bs[chunkSize:]
+
 			}
-			bsl.logger.Info("Successfully updated visible WiFi networks.")
+			bsl.logger.Debug("SMURF: Successfully updated visible WiFi networks.")
 		}
 	}
 }
@@ -349,6 +351,7 @@ func (bsl *bluetoothServiceLinux) listenForCredentials(
 			if !bsl.health.Sleep(ctx, time.Second) {
 				return ctx.Err()
 			}
+			bsl.logger.Debug("SMURF: Yet to receive all required provisioning credentials over bluetooth.")
 			continue
 		}
 		inputChan <- userInput{SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey, AppAddr: appAdress}
@@ -420,7 +423,15 @@ func (bsl *bluetoothServiceLinux) getReadOnlyCharacteristicConfig(cName string, 
 	cUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(encoding)
 	bsl.logger.Debugf("%s can be read from the following bluetooth characteristic: %s", cName, cUUID.String())
 	c := &bluetooth.Characteristic{}
-	bsl.writeAvailableWiFiNetworksToCharacteristic = c.Write
+	bsl.writeAvailableWiFiNetworksToCharacteristic = func(bs []byte) error {
+		_, err := c.Write(bs)
+		if err != nil {
+			bsl.logger.Debugf("SMURF: failed to write %s to %s read-only bluetooth characteristic", string(bs), cName)
+			return err
+		}
+		bsl.logger.Debugf("SMURF: wrote %s to %s read-only bluetooth characteristic", string(bs), cName)
+		return nil
+	}
 	return bluetooth.CharacteristicConfig{
 		Handle: c,
 		UUID:   cUUID,
@@ -653,11 +664,9 @@ func (bsl *bluetoothServiceLinux) trustDevice(devicePath string) error {
 	bsl.mu.Lock()
 	defer bsl.mu.Unlock()
 
-	for _, trustedDevice := range bsl.trustedDevices {
-		if trustedDevice == devicePath {
-			bsl.logger.Debugf("Device: %s is already trusted", devicePath)
-			return nil
-		}
+	if slices.Contains(bsl.trustedDevices, devicePath) {
+		bsl.logger.Debugf("Device: %s is already trusted", devicePath)
+		return nil
 	}
 
 	conn, err := dbus.SystemBus()
