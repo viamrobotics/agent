@@ -247,7 +247,7 @@ func (n *Networking) Stop(ctx context.Context) error {
 
 	n.logger.Infof("%s subsystem exiting", SubsysName)
 	if n.connState.getProvisioning() {
-		err := n.StopProvisioning()
+		err := n.stopProvisioning()
 		if err != nil {
 			n.logger.Error(err)
 		}
