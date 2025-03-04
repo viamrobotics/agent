@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -158,6 +159,9 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	info.Version = newVersion
 	info.URL = cfg.GetUrl()
 	info.SymlinkPath = path.Join(utils.ViamDirs["bin"], cfg.GetFilename())
+	if runtime.GOOS == "windows" {
+		info.SymlinkPath += ".exe"
+	}
 	info.UnpackedSHA = cfg.GetSha256()
 
 	return c.save()
