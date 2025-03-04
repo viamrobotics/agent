@@ -166,6 +166,10 @@ func (n *Networking) checkConnections() error {
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
 func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+	if n.connState.getProvisioning() {
+		return errors.New(("provisioning mode already started"))
+	}
+
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
 
@@ -176,9 +180,9 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		hotspotErr = err
 	}
 	var bluetoothErr error
-	// if err := n.startProvisioningBluetooth(ctx, inputChan); err != nil {
-	// 	bluetoothErr = err
-	// }
+	if err := n.startProvisioningBluetooth(ctx, inputChan); err != nil {
+		bluetoothErr = err
+	}
 
 	return errors.Join(hotspotErr, bluetoothErr)
 }
@@ -238,7 +242,10 @@ func (n *Networking) prepareBluetooth() error {
 func (n *Networking) StopProvisioning() error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
+	return n.stopProvisioning()
+}
 
+func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
 
 	var hotspotErr error
@@ -248,11 +255,11 @@ func (n *Networking) StopProvisioning() error {
 		fmt.Println("stopped hotspot")
 	}
 	var bluetoothErr error
-	// if n.connState.getProvisioningBluetooth() {
-	// 	fmt.Println("going to stop bluetooth")
-	// 	bluetoothErr = n.stopProvisioningBluetooth()
-	// 	fmt.Println("stopped bluetooth")
-	// }
+	if n.connState.getProvisioningBluetooth() {
+		fmt.Println("going to stop bluetooth")
+		bluetoothErr = n.stopProvisioningBluetooth()
+		fmt.Println("stopped bluetooth")
+	}
 
 	return errors.Join(hotspotErr, bluetoothErr)
 }
@@ -283,7 +290,7 @@ func (n *Networking) stopProvisioningBluetooth() error {
 }
 
 func (n *Networking) ActivateConnection(ctx context.Context, ifName, ssid string) error {
-	if (n.connState.getProvisioningHotspot() || n.connState.getProvisioningBluetooth()) && ifName == n.Config().HotspotInterface {
+	if n.connState.getProvisioning() && ifName == n.Config().HotspotInterface {
 		return errors.New("cannot activate another connection while in provisioning mode")
 	}
 
@@ -769,7 +776,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			hasConnectivity = isOnline
 			lastConnectivity = lastOnline
 		}
-		pMode := n.connState.getProvisioningHotspot() || n.connState.getProvisioningBluetooth()
+		pMode := n.connState.getProvisioning()
 		pModeChange := n.connState.getProvisioningChange()
 		now := time.Now()
 
@@ -803,7 +810,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				if err := n.StopProvisioning(); err != nil {
 					n.logger.Error(err)
 				} else {
-					pMode = n.connState.getProvisioningHotspot() || n.connState.getProvisioningBluetooth()
+					pMode = n.connState.getProvisioning()
 					pModeChange = n.connState.getProvisioningChange()
 				}
 			}
