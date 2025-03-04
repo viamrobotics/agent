@@ -1,2 +1,5 @@
 bin/
 etc/
+
+# GCP's auth action adds this in CI, dirtying the tree
+gha-creds-*.json
