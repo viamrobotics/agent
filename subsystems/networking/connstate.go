@@ -108,7 +108,7 @@ func (c *connectionState) getConfigured() bool {
 	return c.configured
 }
 
-// getProvisioning returns true if in an active provisioning mode.
+// getProvisioning returns true if in provisioning mode, and the time of the last state change.
 func (c *connectionState) getProvisioning() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -121,7 +121,7 @@ func (c *connectionState) getProvisioning() bool {
 	return false
 }
 
-// setProvisioningMode sets the provisioning mode
+// setProvisioningMode sets the provisioning mode.
 func (c *connectionState) setProvisioningMode(pm provisioningMode) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
