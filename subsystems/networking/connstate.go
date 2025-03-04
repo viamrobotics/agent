@@ -7,10 +7,14 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-type provisioningMode struct {
-	bluetoothActive bool
-	hotspotActive   bool
-}
+type provisioningMode int
+
+const (
+	none provisioningMode = iota
+	hotspotOnly
+	bluetoothOnly
+	hotspotAndBluetooth
+)
 
 type connectionState struct {
 	mu sync.Mutex
@@ -104,39 +108,32 @@ func (c *connectionState) getConfigured() bool {
 	return c.configured
 }
 
-func (c *connectionState) setProvisioningBluetooth(isActive bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.provisioningMode.bluetoothActive = isActive
-	c.provisioningChange = time.Now()
-}
-
-func (c *connectionState) setProvisioningHotspot(isActive bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.provisioningMode.hotspotActive = isActive
-	c.provisioningChange = time.Now()
-}
-
-// getProvisioning returns true if in provisioning mode.
+// getProvisioning returns true if in an active provisioning mode.
 func (c *connectionState) getProvisioning() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.provisioningMode.hotspotActive || c.provisioningMode.bluetoothActive
+	switch c.provisioningMode {
+	case none:
+		return false
+	case hotspotOnly, bluetoothOnly, hotspotAndBluetooth:
+		return true
+	}
+	return false
 }
 
-// getProvisioningHotspot returns true if the hotspot provisioning is active.
-func (c *connectionState) getProvisioningHotspot() bool {
+// setProvisioningMode sets the provisioning mode
+func (c *connectionState) setProvisioningMode(pm provisioningMode) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.provisioningMode.hotspotActive
+	c.provisioningMode = pm
+	c.provisioningChange = time.Now()
 }
 
-// getProvisioningBluetooth returns true if the bluetooth provisioning is active.
-func (c *connectionState) getProvisioningBluetooth() bool {
+// getProvisioningMode returns the provisioning mode.
+func (c *connectionState) getProvisioningMode() provisioningMode {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.provisioningMode.bluetoothActive
+	return c.provisioningMode
 }
 
 func (c *connectionState) getProvisioningChange() time.Time {

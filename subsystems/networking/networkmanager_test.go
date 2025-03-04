@@ -33,21 +33,22 @@ func TestProvisioningOverBluetooth(t *testing.T) {
 
 	// Validate networking state from before starting provisioning flow.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeFalse)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeFalse)
+	test.That(t, n.connState.getProvisioningMode(), test.ShouldEqual, none)
 
 	err := n.StartProvisioning(ctx, inputChan)
 	test.That(t, err, test.ShouldBeNil)
 
 	// Validate networking state from after starting provisioning flow.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeTrue)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeTrue)
+	test.That(t, n.connState.getProvisioningMode(),
+		test.ShouldBeIn, []provisioningMode{bluetoothOnly, hotspotAndBluetooth})
 
 	err = n.StopProvisioning()
 	test.That(t, err, test.ShouldBeNil)
 
 	// Validate networking state from after stopping provisioning flow.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeFalse)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeFalse)
+	test.That(t, n.connState.getProvisioningMode(), test.ShouldEqual, none)
 
 	/*
 		Case 2: Fail to start bluetooth provisioning.
@@ -59,7 +60,7 @@ func TestProvisioningOverBluetooth(t *testing.T) {
 
 	// Validate networking state from after failing to start the provisioning flow.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeFalse)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeFalse)
+	test.That(t, n.connState.getProvisioningMode(), test.ShouldEqual, none)
 
 	/*
 		Case 3: Fail to wait for credentials after starting bluetooth provisioning.
@@ -72,7 +73,8 @@ func TestProvisioningOverBluetooth(t *testing.T) {
 
 	// Validate networking state from after failing to wait for credentials.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeTrue)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeTrue)
+	test.That(t, n.connState.getProvisioningMode(),
+		test.ShouldBeIn, []provisioningMode{bluetoothOnly, hotspotAndBluetooth})
 
 	err = n.StopProvisioning() // Need to clean up because it is technically still active.
 	test.That(t, err, test.ShouldBeNil)
@@ -89,14 +91,16 @@ func TestProvisioningOverBluetooth(t *testing.T) {
 
 	// Validate networking state from after starting provisioning flow.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeTrue)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeTrue)
+	test.That(t, n.connState.getProvisioningMode(),
+		test.ShouldBeIn, []provisioningMode{bluetoothOnly, hotspotAndBluetooth})
 
 	err = n.StopProvisioning()
 	test.That(t, err, test.ShouldNotBeNil)
 
 	// Validate networking state from after failing to stop the provisioning flow.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeTrue)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeTrue)
+	test.That(t, n.connState.getProvisioningMode(),
+		test.ShouldBeIn, []provisioningMode{bluetoothOnly, hotspotAndBluetooth})
 
 	/*
 		Case 5: Successfully stop bluetooth provisioning.
@@ -108,7 +112,7 @@ func TestProvisioningOverBluetooth(t *testing.T) {
 
 	// Validate networking state from after failing to stop the provisioning flow.
 	test.That(t, n.connState.provisioningMode, test.ShouldBeFalse)
-	test.That(t, n.connState.getProvisioningBluetooth(), test.ShouldBeFalse)
+	test.That(t, n.connState.getProvisioningMode(), test.ShouldEqual, none)
 
 	// Need to add a way of restoring WiFi connection to existing before exiting from this test suite.
 }
