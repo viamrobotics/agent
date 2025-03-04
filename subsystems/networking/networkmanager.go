@@ -184,8 +184,8 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		bluetoothErr = err
 	}
 	if hotspotErr != nil && bluetoothErr != nil { //nolint:gocritic
-		n.connState.setProvisioningMode(hotspotAndBluetooth)
-		return nil
+		n.connState.setProvisioningMode(none)
+		return errors.Join(hotspotErr, bluetoothErr)
 	} else if hotspotErr == nil && bluetoothErr != nil {
 		n.connState.setProvisioningMode(hotspotOnly)
 		return bluetoothErr
@@ -193,8 +193,8 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		n.connState.setProvisioningMode(bluetoothOnly)
 		return hotspotErr
 	} else {
-		n.connState.setProvisioningMode(none)
-		return errors.Join(hotspotErr, bluetoothErr)
+		n.connState.setProvisioningMode(hotspotAndBluetooth)
+		return nil
 	}
 }
 
@@ -768,6 +768,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		}
 		isConfigured := n.connState.getConfigured()
 		allGood := isConfigured && (isConnected || isOnline)
+		fmt.Printf("\nSMURF: allGood: %s", allGood)
 		if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 			allGood = isOnline && isConfigured
 			hasConnectivity = isOnline
