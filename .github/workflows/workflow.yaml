@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - manifest
-      - main
   release:
     types: [created]
 
@@ -41,7 +40,7 @@ jobs:
   build:
     name: Build and Upload
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    if: github.ref == 'refs/heads/manifest' || github.event_name == 'release'
     needs: test
     steps:
     - uses: actions/checkout@v4
