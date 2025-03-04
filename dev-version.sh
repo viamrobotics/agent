@@ -17,7 +17,7 @@ if [ -z "$GITHUB_REF_NAME" ]; then
 fi
 
 # If we're not on main, we have no (automated) version to create
-if [ "$GITHUB_REF_NAME" != "main" ]; then
+if [ "$GITHUB_REF_NAME" != "manifest" ]; then
     exit 0
 fi
 

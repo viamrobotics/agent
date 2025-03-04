@@ -6,6 +6,7 @@ on:
   workflow_call:
   push:
     branches:
+      - manifest
       - main
   release:
     types: [created]
@@ -63,5 +64,5 @@ jobs:
     - name: Upload binaries to GCS (Prerelease)
       if: github.event_name != 'release'
       run: |
-        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
-        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/temp/apps/viam-agent/prerelease/
+        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/temp/apps/viam-subsystems/
