@@ -8,9 +8,9 @@ endif
 
 TAG_VERSION ?= $(shell dev-version.sh | sed 's/^v//')
 ifeq ($(TAG_VERSION),)
-	PATH_VERSION = custom
+PATH_VERSION = custom
 else
-	PATH_VERSION = v$(TAG_VERSION)
+PATH_VERSION = v$(TAG_VERSION)
 endif
 
 LDFLAGS = "-s -w -X 'github.com/viamrobotics/agent/utils.Version=${TAG_VERSION}' -X 'github.com/viamrobotics/agent/utils.GitRevision=${GIT_REVISION}'"
