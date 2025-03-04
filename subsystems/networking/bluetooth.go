@@ -20,12 +20,13 @@ import (
 )
 
 const (
-	ssid                        = "ssid"
-	psk                         = "psk"
-	robotPartKeyID              = "robot_part_key_ID"
-	robotPartKey                = "robot_part_key"
-	appAddress                  = "app_address"
-	availableWiFiNetworks       = "available_WiFi_networks"
+	ssidKey                     = "ssid"
+	pskKey                      = "psk"
+	robotPartKeyIDKey           = "robot_part_key_ID"
+	robotPartKeyKey             = "robot_part_key"
+	appAddresskey               = "app_address"
+	availableWiFiNetworksKey    = "available_WiFi_networks"
+	numWriteableCharacteristics = 5
 )
 
 // bluetoothService provides an interface for retrieving cloud config and/or WiFi credentials for a robot over bluetooth.
@@ -55,9 +56,6 @@ func newBluetoothService(
 	var adv *bluetooth.Advertisement
 	var advActive bool
 
-	// Used to store user input values written to this bluetooth service.
-	var characteristicsByName map[string]*bluetoothCharacteristicLinux[*string]
-
 	bsl := &bluetoothServiceLinux{
 		health: &health,
 
@@ -70,23 +68,30 @@ func newBluetoothService(
 		adv:       adv,
 		advActive: advActive,
 
-		characteristicsByName: characteristicsByName,
+		// Used to store user input values written to this bluetooth service.
+		characteristicsByName: map[string]*bluetoothCharacteristicLinux[*string]{},
 	}
 
 	// Create a bluetooth service which will advertise each of the following characteristics.
+	ssidCharacteristicConfig := bsl.getWriteOnlyCharacteristicConfig(ssidKey, 0x2222)
+	pskCharacteristicConfig := bsl.getWriteOnlyCharacteristicConfig(pskKey, 0x3333)
+	robotPartKeyIDCharacteristicConfig := bsl.getWriteOnlyCharacteristicConfig(robotPartKeyIDKey, 0x4444)
+	robotPartKeyCharacteristicConfig := bsl.getWriteOnlyCharacteristicConfig(robotPartKeyKey, 0x5555)
+	appAddressCharacteristicConfig := bsl.getWriteOnlyCharacteristicConfig(appAddresskey, 0x6666)
+	availableWiFiNetworksCharacteristicConfig := bsl.getReadOnlyCharacteristicConfig(availableWiFiNetworksKey, 0x7777)
 	serviceUUID, defaultAdvertisement, err := initializeBluetoothService(
 		name,
 		[]bluetooth.CharacteristicConfig{
-			bsl.getWriteOnlyCharacteristicConfig(ssid, 0x2222),
-			bsl.getWriteOnlyCharacteristicConfig(psk, 0x3333),
-			bsl.getWriteOnlyCharacteristicConfig(robotPartKeyID, 0x4444),
-			bsl.getWriteOnlyCharacteristicConfig(robotPartKey, 0x5555),
-			bsl.getWriteOnlyCharacteristicConfig(appAddress, 0x6666),
-			bsl.getReadOnlyCharacteristicConfig(availableWiFiNetworks, 0x7777),
+			ssidCharacteristicConfig,
+			pskCharacteristicConfig,
+			robotPartKeyIDCharacteristicConfig,
+			robotPartKeyCharacteristicConfig,
+			appAddressCharacteristicConfig,
+			availableWiFiNetworksCharacteristicConfig,
 		},
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to initailize bluetooth service: %w", err)
+		return nil, nil, fmt.Errorf("failed to initialize bluetooth service: %w", err)
 	}
 	logger.Debugf("Bluetooth peripheral service UUID: %s", serviceUUID.String())
 
@@ -134,26 +139,23 @@ func (bsl *bluetoothServiceLinux) start(
 	inputChan chan<- userInput,
 ) error {
 	bsl.mu.Lock()
+	defer bsl.mu.Unlock()
 
 	// Store cancel func on struct for controlled shutdown of goroutines.
 	ctx, cancel := context.WithCancel(parentCtx)
+	bsl.cancel = cancel
 
 	if bsl.adv == nil {
-		cancel()
 		return errors.New("advertisement is nil")
 	}
 	if bsl.advActive {
-		cancel()
 		return errors.New("invalid request, advertising already active")
 	}
 	if err := bsl.adv.Start(); err != nil {
-		cancel()
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
 	bsl.advActive = true
 	bsl.logger.Debug("Started advertising a BLE connection")
-
-	bsl.mu.Unlock()
 
 	// Start goroutine to listen for updates to list of available WiFi networks.
 	bsl.workers.Add(1)
@@ -173,9 +175,10 @@ func (bsl *bluetoothServiceLinux) start(
 		func() {
 			if err := bsl.listenForCredentials(ctx, requiresCloudCredentials, requiresWiFiCredentials, inputChan); err != nil {
 				bsl.logger.Errorw("failed to get credentials from user input", "error", err)
-				cancel()
 			}
-		}, bsl.workers.Done,
+			cancel()
+		},
+		bsl.workers.Done,
 	)
 
 	// Start goroutine to listen for bluetooth pairing requests.
@@ -198,6 +201,9 @@ func (bsl *bluetoothServiceLinux) stop() error {
 	bsl.mu.Lock()
 	defer bsl.mu.Unlock()
 
+	bsl.logger.Debug("Canceling bluetooth service context for clean shutdown.")
+	bsl.cancel()
+
 	if bsl.adv == nil {
 		return errors.New("advertisement is nil")
 	}
@@ -211,7 +217,6 @@ func (bsl *bluetoothServiceLinux) stop() error {
 	bsl.logger.Debug("Stopped advertising a BLE connection")
 
 	// Cleanly shut down all goroutines.
-	bsl.cancel()
 	bsl.workers.Wait()
 
 	return nil
@@ -238,7 +243,7 @@ func (bsl *bluetoothServiceLinux) getCharacteristic(c string) (string, error) {
 	return *ch.currentValue, nil
 }
 
-// updateAvailableWiFiNetworks writes currently-available WiFi networks to a read-only bluetootrh characteristic once per second.
+// updateAvailableWiFiNetworks writes currently-available WiFi networks to a read-only bluetooth characteristic once per second.
 func (bsl *bluetoothServiceLinux) updateAvailableWiFiNetworks(ctx context.Context) error {
 	for {
 		if ctx.Err() != nil {
@@ -284,9 +289,8 @@ func (bsl *bluetoothServiceLinux) listenForCredentials(
 	if !requiresWiFiCredentials && !requiresCloudCredentials {
 		return errors.New("should be waiting for cloud credentials or WiFi credentials, or both")
 	}
-	var e *emptyBluetoothCharacteristicError
-	var ssid, psk, robotPartKeyID, robotPartKey string
-	var ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr error
+	var ssid, psk, robotPartKeyID, robotPartKey, appAdress string
+	var ssidErr, pskErr, robotPartKeyIDErr, robotPartKeyErr, appAddressErr error
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -297,38 +301,49 @@ func (bsl *bluetoothServiceLinux) listenForCredentials(
 		default:
 			if requiresWiFiCredentials {
 				if ssid == "" {
-					ssid, ssidErr = bsl.getCharacteristic("ssid")
-					if ssidErr != nil && !errors.Is(ssidErr, e) {
+					var e *emptyBluetoothCharacteristicError
+					ssid, ssidErr = bsl.getCharacteristic(ssidKey)
+					if ssidErr != nil && !errors.As(ssidErr, &e) {
 						return ssidErr
 					}
 				}
 				if psk == "" {
-					psk, pskErr = bsl.getCharacteristic("psk")
-					if pskErr != nil && !errors.Is(pskErr, e) {
+					var e *emptyBluetoothCharacteristicError
+					psk, pskErr = bsl.getCharacteristic(pskKey)
+					if pskErr != nil && !errors.As(pskErr, &e) {
 						return pskErr
 					}
 				}
 			}
 			if requiresCloudCredentials {
 				if robotPartKeyID == "" {
-					robotPartKeyID, robotPartKeyIDErr = bsl.getCharacteristic("robotPartKeyID")
-					if robotPartKeyIDErr != nil && !errors.Is(robotPartKeyIDErr, e) {
+					var e *emptyBluetoothCharacteristicError
+					robotPartKeyID, robotPartKeyIDErr = bsl.getCharacteristic(robotPartKeyIDKey)
+					if robotPartKeyIDErr != nil && !errors.As(robotPartKeyIDErr, &e) {
 						return robotPartKeyIDErr
 					}
 				}
 				if robotPartKey == "" {
-					robotPartKey, robotPartKeyErr = bsl.getCharacteristic("robotPartKey")
-					if robotPartKeyErr != nil && !errors.Is(robotPartKeyErr, e) {
+					var e *emptyBluetoothCharacteristicError
+					robotPartKey, robotPartKeyErr = bsl.getCharacteristic(robotPartKeyKey)
+					if robotPartKeyErr != nil && !errors.As(robotPartKeyErr, &e) {
 						return robotPartKeyErr
+					}
+				}
+				if appAdress == "" {
+					var e *emptyBluetoothCharacteristicError
+					appAdress, appAddressErr = bsl.getCharacteristic(appAddresskey)
+					if appAddressErr != nil && !errors.As(appAddressErr, &e) {
+						return appAddressErr
 					}
 				}
 			}
 			if requiresWiFiCredentials && requiresCloudCredentials && //nolint:gocritic
-				ssid != "" && psk != "" && robotPartKeyID != "" && robotPartKey != "" {
+				ssid != "" && psk != "" && robotPartKeyID != "" && robotPartKey != "" && appAdress != "" {
 				break
 			} else if requiresWiFiCredentials && ssid != "" && psk != "" {
 				break
-			} else if requiresCloudCredentials && robotPartKeyID != "" && robotPartKey != "" {
+			} else if requiresCloudCredentials && robotPartKeyID != "" && robotPartKey != "" && appAdress != "" {
 				break
 			}
 			if !bsl.health.Sleep(ctx, time.Second) {
@@ -336,10 +351,9 @@ func (bsl *bluetoothServiceLinux) listenForCredentials(
 			}
 			continue
 		}
-		break
+		inputChan <- userInput{SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey, AppAddr: appAdress}
+		return nil
 	}
-	inputChan <- userInput{SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey}
-	return nil
 }
 
 /** Custom error type and miscellaneous utils that are helpful for managing low-level bluetooth on Linux **/
@@ -533,6 +547,9 @@ func (bsl *bluetoothServiceLinux) autoAcceptPairRequest(ctx context.Context) err
 		case <-ctx.Done():
 			return ctx.Err()
 		case signal := <-signalChan:
+			if signal == nil || signal.Body == nil {
+				continue
+			}
 			// Check if the signal is from a BlueZ device
 			if len(signal.Body) < 3 {
 				continue
