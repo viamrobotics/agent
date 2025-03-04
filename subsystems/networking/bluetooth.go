@@ -116,9 +116,6 @@ func newBluetoothService(
 	return bsl, &health, nil
 }
 
-// ---------------------------------------------------------------------------------------
-// ----------------------------------- EXTERNAL METHODS ------------------------------------
-// ---------------------------------------------------------------------------------------
 
 // Start begins advertising a bluetooth service that advertises nearby networks and acccepts WiFi and/or Viam cloud config credentials.
 func (bsl *bluetoothServiceLinux) start(
