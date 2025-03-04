@@ -768,7 +768,6 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		}
 		isConfigured := n.connState.getConfigured()
 		allGood := isConfigured && (isConnected || isOnline)
-		fmt.Printf("\nSMURF: allGood: %s", allGood)
 		if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 			allGood = isOnline && isConfigured
 			hasConnectivity = isOnline
