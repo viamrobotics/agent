@@ -7,15 +7,6 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-type provisioningMode int
-
-const (
-	none provisioningMode = iota
-	hotspotOnly
-	bluetoothOnly
-	hotspotAndBluetooth
-)
-
 type connectionState struct {
 	mu sync.Mutex
 
@@ -27,7 +18,7 @@ type connectionState struct {
 	connected     bool
 	lastConnected time.Time
 
-	provisioningMode   provisioningMode
+	provisioningMode   bool
 	provisioningChange time.Time
 
 	lastInteraction time.Time
@@ -108,29 +99,15 @@ func (c *connectionState) getConfigured() bool {
 	return c.configured
 }
 
-// getProvisioning returns true if in provisioning mode, and the time of the last state change.
-func (c *connectionState) getProvisioning() bool {
+func (c *connectionState) setProvisioning(mode bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	switch c.provisioningMode {
-	case none:
-		return false
-	case hotspotOnly, bluetoothOnly, hotspotAndBluetooth:
-		return true
-	}
-	return false
-}
-
-// setProvisioningMode sets the provisioning mode.
-func (c *connectionState) setProvisioningMode(pm provisioningMode) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.provisioningMode = pm
+	c.provisioningMode = mode
 	c.provisioningChange = time.Now()
 }
 
-// getProvisioningMode returns the provisioning mode.
-func (c *connectionState) getProvisioningMode() provisioningMode {
+// getProvisioning returns true if in provisioning mode, and the time of the last state change.
+func (c *connectionState) getProvisioning() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.provisioningMode

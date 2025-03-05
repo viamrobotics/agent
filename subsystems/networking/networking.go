@@ -56,7 +56,6 @@ type Networking struct {
 
 	// bluetooth
 	bluetoothService bluetoothService
-	bluetoothHealth  *health
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -156,6 +155,9 @@ func (n *Networking) init(ctx context.Context) error {
 
 	if err := n.enableWifi(ctx); err != nil {
 		return err
+	}
+	if err := n.initBluetooth(); err != nil {
+		n.logger.Errorf("blutooth service for provisioning is not configured", "error", err)
 	}
 
 	if err := n.initDevices(); err != nil {
