@@ -6,7 +6,7 @@ on:
   workflow_call:
   push:
     branches:
-      - manifest
+      - main
   release:
     types: [created]
 
@@ -40,7 +40,7 @@ jobs:
   build:
     name: Build and Upload
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/manifest' || github.event_name == 'release'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
     needs: test
     steps:
     - uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
         go-version-file: go.mod
     - name: Build
       run: make all manifest
-    - uses: google-github-actions/auth@v2 # This BREAKS the git checkout/tags/history, so must run after builds!
+    - uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
     - uses: google-github-actions/setup-gcloud@v2
@@ -63,5 +63,5 @@ jobs:
     - name: Upload binaries to GCS (Prerelease)
       if: github.event_name != 'release'
       run: |
-        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/temp/apps/viam-agent/prerelease/
-        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/temp/apps/viam-subsystems/
+        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
+        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
