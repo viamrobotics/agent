@@ -3,7 +3,6 @@ package networking
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"reflect"
@@ -183,19 +182,9 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	if err := n.startProvisioningBluetooth(ctx, inputChan); err != nil {
 		bluetoothErr = err
 	}
-	if hotspotErr != nil && bluetoothErr != nil { //nolint:gocritic
-		n.connState.setProvisioningMode(none)
-		return errors.Join(hotspotErr, bluetoothErr)
-	} else if hotspotErr == nil && bluetoothErr != nil {
-		n.connState.setProvisioningMode(hotspotOnly)
-		return bluetoothErr
-	} else if hotspotErr != nil && bluetoothErr == nil {
-		n.connState.setProvisioningMode(bluetoothOnly)
-		return hotspotErr
-	} else {
-		n.connState.setProvisioningMode(hotspotAndBluetooth)
-		return nil
-	}
+
+	n.connState.setProvisioning(hotspotErr == nil || bluetoothErr == nil)
+	return errors.Join(hotspotErr, bluetoothErr)
 }
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
@@ -224,27 +213,10 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan cha
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
 func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput,
 ) error {
-	if err := n.prepareBluetooth(); err != nil {
-		return err
-	}
 	if err := n.bluetoothService.start(ctx, true, true, inputChan); err != nil {
 		return err
 	}
 	n.logger.Info("Bluetooth provisioning set up successfully.")
-	return nil
-}
-
-func (n *Networking) prepareBluetooth() error {
-	if n.bluetoothService != nil {
-		return nil
-	}
-	deviceName := fmt.Sprintf("%s.%s.%s", n.Config().Manufacturer, n.Config().Model, n.Config().FragmentID)
-	bt, health, err := newBluetoothService(n.logger, deviceName, n.getVisibleNetworks)
-	if err != nil {
-		return err
-	}
-	n.bluetoothService = bt
-	n.bluetoothHealth = health
 	return nil
 }
 
@@ -256,7 +228,8 @@ func (n *Networking) StopProvisioning() error {
 
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
-	n.connState.setProvisioningMode(none)
+	n.connState.setProvisioning(false)
+
 	return errors.Join(
 		n.stopProvisioningHotspot(),
 		n.stopProvisioningBluetooth(),

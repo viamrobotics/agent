@@ -5,6 +5,7 @@ package networking
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -150,4 +151,20 @@ func (n *Networking) enableWifi(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+func (n *Networking) initBluetooth() error {
+	if n.bluetoothService != nil {
+		return nil
+	}
+
+	deviceName := fmt.Sprintf("%s-%s-%s", n.Config().Manufacturer, n.Config().Model, n.Config().FragmentID)
+	bt, err := newBluetoothService(n.logger, deviceName, n.getVisibleNetworks)
+	if err != nil {
+		return err
+	}
+
+	n.bluetoothService = bt
+
+	return nil
 }
