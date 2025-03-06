@@ -158,7 +158,7 @@ func (n *Networking) init(ctx context.Context) error {
 		return err
 	}
 	if err := n.initBluetooth(); err != nil {
-		n.logger.Errorf("blutooth service for provisioning is not configured", "error", err)
+		n.logger.Errorw("blutooth service for provisioning is not configured", "error", err)
 	}
 
 	if err := n.initDevices(); err != nil {
