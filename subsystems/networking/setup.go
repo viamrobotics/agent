@@ -157,14 +157,12 @@ func (n *Networking) initBluetooth() error {
 	if n.bluetoothService != nil {
 		return nil
 	}
-
 	deviceName := fmt.Sprintf("%s-%s-%s", n.Config().Manufacturer, n.Config().Model, n.Config().FragmentID)
 	bt, err := newBluetoothService(n.logger, deviceName, n.getVisibleNetworks)
 	if err != nil {
+		n.noBS = true
 		return err
 	}
-
 	n.bluetoothService = bt
-
 	return nil
 }

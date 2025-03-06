@@ -68,9 +68,6 @@ type bluetoothServiceLinux struct {
 	// perspective of a client.
 	requestAvailableWiFiNetworks func() []NetworkInfo
 	refreshAvailableWiFiNetworks func(p []byte) (e error)
-
-	// Channel remains open until we have successfully completed provisioning.
-	provisioningComplete chan struct{}
 }
 
 // newBluetoothService returns a service which accepts credentials over bluetooth to provision a robot and its WiFi connection.
@@ -114,9 +111,6 @@ func newBluetoothService(
 
 		// Used to refresh the available WiFi networks.
 		requestAvailableWiFiNetworks: requestAvailableWiFiNetworksFn,
-
-		// Used to manage whether provisioning completes successfully.
-		provisioningComplete: make(chan struct{}),
 	}
 
 	return bsl, nil
@@ -300,49 +294,42 @@ func (bsl *bluetoothServiceLinux) run(
 func updateAvailableWiFiNetworks(ctx context.Context, bsl *bluetoothServiceLinux) error {
 	for {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return nil // Return nil instead of a canceled context error to gracefully exit.
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-bsl.provisioningComplete:
-			return nil
-		default:
-			networks := bsl.requestAvailableWiFiNetworks()
+		networks := bsl.requestAvailableWiFiNetworks()
 
-			// Writes are capped at a maximum of 512 bytes (bluetooth-low-energy protocol defines this behavior).
-			var msg []byte
-			remainingBytes := 512
-			for _, network := range networks {
-				// Can convert network
-				var signal uint8
-				if network.Signal > 127 {
-					continue // Shouldn't happen, but skipping to avoid integer overflow conversion int32 -> int8.
-				}
-				signal = uint8(network.Signal) //nolint:gosec
-				ssid, secure := network.SSID, network.Security
-				meta := signal
-				if secure != "" {
-					meta |= (1 << 7)
-				}
-				compressedNetwork := []byte{meta}
-				compressedNetwork = append(compressedNetwork, []byte(ssid)...)
-				compressedNetwork = append(compressedNetwork, 0x0)
+		// Writes are capped at a maximum of 512 bytes (bluetooth-low-energy protocol defines this behavior).
+		var msg []byte
+		remainingBytes := 512
+		for _, network := range networks {
+			// Can convert network
+			var signal uint8
+			if network.Signal > 127 {
+				continue // Shouldn't happen, but skipping to avoid integer overflow conversion int32 -> int8.
+			}
+			signal = uint8(network.Signal) //nolint:gosec
+			ssid, secure := network.SSID, network.Security
+			meta := signal
+			if secure != "" {
+				meta |= (1 << 7)
+			}
+			compressedNetwork := []byte{meta}
+			compressedNetwork = append(compressedNetwork, []byte(ssid)...)
+			compressedNetwork = append(compressedNetwork, 0x0)
 
-				// Add to msg buffer if we have space. Otherwise, break from loop.
-				if l := len(compressedNetwork); remainingBytes >= l {
-					msg = append(msg, compressedNetwork...)
-					remainingBytes -= l
-					continue
-				}
-				break
+			// Add to msg buffer if we have space. Otherwise, break from loop.
+			if l := len(compressedNetwork); remainingBytes >= l {
+				msg = append(msg, compressedNetwork...)
+				remainingBytes -= l
+				continue
 			}
-			if err := bsl.refreshAvailableWiFiNetworks(msg); err != nil {
-				return err
-			}
-			if !bsl.updateAvailableWiFiNetworksHealth.Sleep(ctx, time.Second*10) {
-				return ctx.Err()
-			}
+			break
+		}
+		if err := bsl.refreshAvailableWiFiNetworks(msg); err != nil {
+			return err
+		}
+		if !bsl.updateAvailableWiFiNetworksHealth.Sleep(ctx, time.Second*10) {
+			return nil // Return nil instead of a canceled context error to gracefully exit.
 		}
 	}
 }
@@ -410,12 +397,11 @@ func listenForCredentials(ctx context.Context, bsl *bluetoothServiceLinux, requi
 
 		// If we haven't received all required credentials, try again a second later.
 		if !bsl.listenForCredentialsHealth.Sleep(ctx, time.Second) {
-			return ctx.Err()
+			return nil // Return nil instead of a canceled context error to gracefully exit.
 		}
 		continue
 	}
 	inputChan <- userInput{SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey, AppAddr: appAddress}
-	close(bsl.provisioningComplete)
 	return nil
 }
 
@@ -466,13 +452,11 @@ func listenForPairRequest(ctx context.Context, bsl *bluetoothServiceLinux) error
 	conn.Signal(signalChan)
 	for {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return nil // Return nil instead of a canceled context error to gracefully exit.
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-bsl.provisioningComplete:
-			return nil
+			return nil // Return nil instead of a canceled context error to gracefully exit.
 		case signal := <-signalChan:
 			if signal == nil || signal.Body == nil {
 				continue
@@ -535,7 +519,7 @@ func listenForPairRequest(ctx context.Context, bsl *bluetoothServiceLinux) error
 
 		default:
 			if !bsl.listenForPairRequestHealth.Sleep(ctx, time.Second) {
-				return ctx.Err()
+				return nil // Return nil instead of a canceled context error to gracefully exit.
 			}
 		}
 	}
