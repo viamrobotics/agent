@@ -312,7 +312,7 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	}
 
 	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
-		(n.noBS || n.bluetoothService.healthy()) {
+		(n.bluetoothService == nil || n.bluetoothService.healthy()) {
 		return nil
 	}
 
