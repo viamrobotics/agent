@@ -217,6 +217,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan c
 		return nil
 	}
 	if err := n.bluetoothService.start(ctx, true, true, inputChan); err != nil {
+		n.noBS = true
 		return err
 	}
 	n.logger.Info("Bluetooth provisioning set up successfully.")
