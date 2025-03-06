@@ -79,8 +79,8 @@ func newBluetoothService(
 	deviceName string,
 	requestAvailableWiFiNetworksFn func() []NetworkInfo,
 ) (bluetoothService, error) {
-	if err := validateSystem(logger); err != nil {
-		return nil, fmt.Errorf("system requisites not met: %w", err)
+	if err := validateBlueZVersion(); err != nil {
+		return nil, fmt.Errorf("system requisites not met: %+w", err)
 	}
 	if deviceName == "" {
 		return nil, errors.New("must provide a device name")
@@ -221,9 +221,11 @@ func (bsl *bluetoothServiceLinux) prepare() error {
 	return nil
 }
 
-// run spawns three goroutines, one to refresh available WiFi networks, another to listen for user input, and the last to listen for bluetooth
-// pairing requests.
-func (bsl *bluetoothServiceLinux) run(ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool, inputChan chan<- userInput) error {
+// run spawns three goroutines, one to refresh available WiFi networks, another to listen for
+// user input, and the last to listen for bluetooth pairing requests.
+func (bsl *bluetoothServiceLinux) run(
+	ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool, inputChan chan<- userInput,
+) error {
 	// Can only call this function if the bsl.mu is already locked!
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -316,10 +318,16 @@ func updateAvailableWiFiNetworks(ctx context.Context, bsl *bluetoothServiceLinux
 			var msg []byte
 			remainingBytes := 512
 			for _, network := range networks {
-				ssid, signal, secure := network.SSID, uint8(network.Signal), network.Security
-				meta := byte(signal)
+				// Can convert network
+				var signal uint8
+				if network.Signal > 127 {
+					continue // Shouldn't happen, but skipping to avoid integer overflow conversion int32 -> int8.
+				}
+				signal = uint8(network.Signal) //nolint:gosec
+				ssid, secure := network.SSID, network.Security
+				meta := signal
 				if secure != "" {
-					meta = meta | (1 << 7)
+					meta |= (1 << 7)
 				}
 				compressedNetwork := []byte{meta}
 				compressedNetwork = append(compressedNetwork, []byte(ssid)...)
@@ -409,7 +417,6 @@ func listenForCredentials(ctx context.Context, bsl *bluetoothServiceLinux, requi
 			return ctx.Err()
 		}
 		continue
-
 	}
 	inputChan <- userInput{SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey, AppAddr: appAddress}
 	close(bsl.provisioningComplete)
@@ -422,6 +429,7 @@ func listenForPairRequest(ctx context.Context, bsl *bluetoothServiceLinux) error
 	if err != nil {
 		return fmt.Errorf("failed to connect to system DBus: %w", err)
 	}
+	defer conn.Close() //nolint:errcheck
 
 	// Register bluez agent if not registered.
 	if bsl.bluezAgentRegistered {
@@ -501,16 +509,54 @@ func listenForPairRequest(ctx context.Context, bsl *bluetoothServiceLinux) error
 			devicePath := string(signal.Path)
 
 			// Convert DBus object path to MAC address
-			deviceMAC := convertDBusPathToMAC(devicePath)
+			parts := strings.Split(devicePath, "/")
+			if len(parts) < 4 {
+				continue
+			}
+
+			// Extract last part and convert underscores to colons
+			macPart := parts[len(parts)-1]
+			deviceMAC := strings.ReplaceAll(macPart, "_", ":")
 			if deviceMAC == "" {
 				continue
 			}
-			return trustDevice(bsl, devicePath)
+
+			// Trust device
+			if slices.Contains(bsl.trustedDevices, devicePath) {
+				bsl.logger.Debugf("Device: %s is already trusted", devicePath)
+				return nil
+			}
+			obj := conn.Object(BluezDBusService, dbus.ObjectPath(devicePath))
+			call := obj.Call("org.freedesktop.DBus.Properties.Set", 0,
+				"org.bluez.Device1", "Trusted", dbus.MakeVariant(true))
+			if call.Err != nil {
+				return fmt.Errorf("failed to set Trusted property: %w", call.Err)
+			}
+			bsl.trustedDevices = append(bsl.trustedDevices, devicePath)
+			bsl.logger.Debugf("Device: %s marked as trusted.", devicePath)
+
+			return nil
+
 		default:
 			if !bsl.listenForPairRequestHealth.Sleep(ctx, time.Second) {
 				return ctx.Err()
 			}
 		}
+	}
+}
+
+// emptyBluetoothCharacteristicError represents the error which is raised when we attempt to read from an empty BLE characteristic.
+type emptyBluetoothCharacteristicError struct {
+	missingValue string
+}
+
+func (e *emptyBluetoothCharacteristicError) Error() string {
+	return fmt.Sprintf("no value has been written to bluetooth characteristic for %s", e.missingValue)
+}
+
+func newEmptyBluetoothCharacteristicError(missingValue string) error {
+	return &emptyBluetoothCharacteristicError{
+		missingValue: missingValue,
 	}
 }
 
@@ -619,21 +665,6 @@ func initializeBluetoothService(deviceName string, characteristics []bluetooth.C
 	return serviceUUID, defaultAdvertisement, nil
 }
 
-// emptyBluetoothCharacteristicError represents the error which is raised when we attempt to read from an empty BLE characteristic.
-type emptyBluetoothCharacteristicError struct {
-	missingValue string
-}
-
-func (e *emptyBluetoothCharacteristicError) Error() string {
-	return fmt.Sprintf("no value has been written to bluetooth characteristic for %s", e.missingValue)
-}
-
-func newEmptyBluetoothCharacteristicError(missingValue string) error {
-	return &emptyBluetoothCharacteristicError{
-		missingValue: missingValue,
-	}
-}
-
 const (
 	BluezDBusService  = "org.bluez"
 	BluezAgentPath    = "/custom/agent"
@@ -641,14 +672,13 @@ const (
 	BluezAgent        = "org.bluez.Agent1"
 )
 
-// getBlueZVersion retrieves the installed BlueZ version and extracts the numeric value correctly.
-func getBlueZVersion() (float64, error) {
-	// Try to get version from bluetoothctl first, fallback to bluetoothd
-	versionCmds := []string{"bluetoothctl --version", "bluetoothd --version"}
-
+// validateBlueZVersion retrieves the installed BlueZ version via D-Bus.
+func validateBlueZVersion() error {
 	var versionOutput bytes.Buffer
 	var err error
 
+	// Try to get version from bluetoothctl first, fallback to bluetoothd
+	versionCmds := []string{"bluetoothctl --version", "bluetoothd --version"}
 	for _, cmd := range versionCmds {
 		versionOutput.Reset() // Clear buffer
 		cmdParts := strings.Fields(cmd)
@@ -661,7 +691,7 @@ func getBlueZVersion() (float64, error) {
 	}
 
 	if err != nil {
-		return 0, fmt.Errorf("BlueZ is not installed or not accessible")
+		return fmt.Errorf("BlueZ is not installed or not accessible")
 	}
 
 	// Extract only the numeric version
@@ -670,7 +700,7 @@ func getBlueZVersion() (float64, error) {
 
 	// Ensure we have at least one part before accessing it
 	if len(parts) == 0 {
-		return 0, fmt.Errorf("failed to parse BlueZ version: empty output")
+		return fmt.Errorf("failed to parse BlueZ version: empty output")
 	}
 
 	versionNum := parts[len(parts)-1] // Get the last word, which should be the version number
@@ -678,67 +708,11 @@ func getBlueZVersion() (float64, error) {
 	// Convert to float
 	versionFloat, err := strconv.ParseFloat(versionNum, 64)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse BlueZ version: %s", versionStr)
+		return fmt.Errorf("failed to parse BlueZ version: %s", versionStr)
 	}
 
-	return versionFloat, nil
-}
-
-// validateSystem checks BlueZ installation/version.
-func validateSystem(logger logging.Logger) error {
-	// 1. Check BlueZ version
-	blueZVersion, err := getBlueZVersion()
-	if err != nil {
-		return err
+	if versionFloat < 5.66 {
+		return fmt.Errorf("BlueZ version is %.2f, but 5.66 or later is required", versionFloat)
 	}
-
-	// 2. Validate BlueZ version is 5.66 or higher
-	if blueZVersion < 5.66 {
-		return fmt.Errorf("BlueZ version is %.2f, but 5.66 or later is required", blueZVersion)
-	}
-
-	logger.Debugf("BlueZ version (%.2f) meets the requirement (5.66 or later)", blueZVersion)
-	return nil
-}
-
-// convertDBusPathToMAC converts a DBus object path to a Bluetooth MAC address.
-func convertDBusPathToMAC(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
-		return ""
-	}
-
-	// Extract last part and convert underscores to colons
-	macPart := parts[len(parts)-1]
-	mac := strings.ReplaceAll(macPart, "_", ":")
-	return mac
-}
-
-// trustDevice sets the device as trusted and connects to it.
-func trustDevice(bsl *bluetoothServiceLinux, devicePath string) error {
-	bsl.mu.Lock()
-	defer bsl.mu.Unlock()
-
-	if slices.Contains(bsl.trustedDevices, devicePath) {
-		bsl.logger.Debugf("Device: %s is already trusted", devicePath)
-		return nil
-	}
-
-	conn, err := dbus.SystemBus()
-	if err != nil {
-		return fmt.Errorf("failed to connect to DBus: %w", err)
-	}
-
-	obj := conn.Object(BluezDBusService, dbus.ObjectPath(devicePath))
-
-	// Set Trusted = true
-	call := obj.Call("org.freedesktop.DBus.Properties.Set", 0,
-		"org.bluez.Device1", "Trusted", dbus.MakeVariant(true))
-	if call.Err != nil {
-		return fmt.Errorf("failed to set Trusted property: %w", call.Err)
-	}
-	bsl.trustedDevices = append(bsl.trustedDevices, devicePath)
-	bsl.logger.Debugf("Device: %s marked as trusted.", devicePath)
-
 	return nil
 }
