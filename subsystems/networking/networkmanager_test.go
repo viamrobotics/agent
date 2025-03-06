@@ -138,6 +138,6 @@ func (bsm *bluetoothServiceMock) stop() error {
 	return nil
 }
 
-func (bsm *bluetoothServiceMock) getHealth() bool {
+func (bsm *bluetoothServiceMock) healthy() bool {
 	return bsm.shouldBeHealthy
 }

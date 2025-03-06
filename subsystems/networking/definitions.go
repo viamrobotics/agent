@@ -88,12 +88,12 @@ func (n *network) getInfo() NetworkInfo {
 }
 
 type NetworkInfo struct {
-	Type      string `json:"type,omitempty"`
-	SSID      string `json:"ssid"`
-	Security  string `json:"security"`
-	Signal    int32  `json:"signal"`
-	Connected bool   `json:"connected,omitempty"`
-	LastError string `json:"last_error,omitempty"`
+	Type      string
+	SSID      string
+	Security  string
+	Signal    int32
+	Connected bool
+	LastError string
 }
 
 func NetworkInfoToProto(net *NetworkInfo) *pb.NetworkInfo {
@@ -224,6 +224,14 @@ func (h *health) MarkGood() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.last = time.Now()
+}
+
+func (h *health) MarkBad() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Fast-forward to make this health expire now.
+	h.last = time.Now().Add(-1 * HealthCheckTimeout)
 }
 
 func (h *health) Sleep(ctx context.Context, timeout time.Duration) bool {
