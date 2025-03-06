@@ -213,6 +213,9 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan cha
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
 func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput,
 ) error {
+	if n.noBS {
+		return nil
+	}
 	if err := n.bluetoothService.start(ctx, true, true, inputChan); err != nil {
 		return err
 	}
@@ -252,6 +255,9 @@ func (n *Networking) stopProvisioningHotspot() error {
 // stopProvisioningBluetooth should only be called by a caller who has verified the
 // bluetooth service is active.
 func (n *Networking) stopProvisioningBluetooth() error {
+	if n.noBS {
+		return nil
+	}
 	if err := n.bluetoothService.stop(); err != nil {
 		return err
 	}

@@ -55,6 +55,7 @@ type Networking struct {
 	portalData *portalData
 
 	// bluetooth
+	noBS             bool
 	bluetoothService bluetoothService
 
 	pb.UnimplementedProvisioningServiceServer
