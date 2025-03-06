@@ -134,9 +134,7 @@ func (bsl *bluetoothServiceLinux) start(
 	if err := bsl.prepare(); err != nil {
 		return err
 	}
-	if err := bsl.run(ctx, requiresCloudCredentials, requiresWiFiCredentials, inputChan); err != nil {
-		return err
-	}
+	bsl.run(ctx, requiresCloudCredentials, requiresWiFiCredentials, inputChan)
 
 	return nil
 }
@@ -225,7 +223,7 @@ func (bsl *bluetoothServiceLinux) prepare() error {
 // user input, and the last to listen for bluetooth pairing requests.
 func (bsl *bluetoothServiceLinux) run(
 	ctx context.Context, requiresCloudCredentials, requiresWiFiCredentials bool, inputChan chan<- userInput,
-) error {
+) {
 	// Can only call this function if the bsl.mu is already locked!
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -292,8 +290,6 @@ func (bsl *bluetoothServiceLinux) run(
 		},
 		bsl.workers.Done,
 	)
-
-	return nil
 }
 
 // ---------------------------------------------------------------------------------------
