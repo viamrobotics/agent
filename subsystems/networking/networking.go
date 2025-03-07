@@ -55,8 +55,8 @@ type Networking struct {
 	portalData *portalData
 
 	// bluetooth
-	noBS             bool
-	bluetoothService bluetoothService
+	noBT bool
+	bt   bluetoothService
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -157,6 +157,7 @@ func (n *Networking) init(ctx context.Context) error {
 	if err := n.enableWifi(ctx); err != nil {
 		return err
 	}
+	// APP-7791: Add viam-agent config support for disabling bluetooth provisioning.
 	if err := n.initBluetooth(); err != nil {
 		n.logger.Errorw("blutooth service for provisioning is not configured", "error", err)
 	}
@@ -312,7 +313,7 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	}
 
 	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
-		(n.noBS || n.bluetoothService.healthy()) {
+		(n.noBT || n.bt.healthy()) {
 		return nil
 	}
 
