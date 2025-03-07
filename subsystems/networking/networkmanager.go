@@ -173,6 +173,26 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	defer n.opMu.Unlock()
 
 	n.logger.Info("Starting provisioning mode.")
+
+	hotspotErr := n.startProvisioningHotspot(ctx, inputChan)
+	if hotspotErr != nil {
+		n.logger.Errorw("failed to start hotspot provisioning", "error", hotspotErr)
+	}
+	bluetoothErr := n.startProvisioningBluetooth(ctx, inputChan)
+	if bluetoothErr != nil {
+		n.logger.Errorw("failed to start bluetooth provisioning", "error", bluetoothErr)
+	}
+
+	// Do not return an error if at least one provisioning method succeeds.
+	n.connState.setProvisioning(hotspotErr == nil || bluetoothErr == nil)
+	if hotspotErr == nil || bluetoothErr == nil {
+		return nil
+	}
+	return errors.Join(hotspotErr, bluetoothErr)
+}
+
+// startProvisioningHotspot should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
+func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan chan<- userInput) error {
 	_, err := n.addOrUpdateConnection(utils.NetworkDefinition{
 		Type:      NetworkTypeHotspot,
 		Interface: n.Config().HotspotInterface,
@@ -190,8 +210,21 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		err = errors.Join(err, n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID))
 		return errw.Wrap(err, "starting web/grpc portal")
 	}
+	n.logger.Info("Hotspot provisioning set up successfully.")
+	return nil
+}
 
-	n.connState.setProvisioning(true)
+// startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
+func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput,
+) error {
+	if n.noBT {
+		return nil
+	}
+	if err := n.bt.start(ctx, true, true, inputChan); err != nil {
+		n.noBT = true
+		return err
+	}
+	n.logger.Info("Bluetooth provisioning set up successfully.")
 	return nil
 }
 
@@ -204,12 +237,37 @@ func (n *Networking) StopProvisioning() error {
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
 	n.connState.setProvisioning(false)
+
+	return errors.Join(
+		n.stopProvisioningHotspot(),
+		n.stopProvisioningBluetooth(),
+	)
+}
+
+func (n *Networking) stopProvisioningHotspot() error {
 	err := n.stopPortal()
 	err2 := n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID)
 	if errors.Is(err2, ErrNoActiveConnectionFound) {
 		return err
 	}
-	return errors.Join(err, err2)
+	if err := errors.Join(err, err2); err != nil {
+		return err
+	}
+	n.logger.Info("Stopped hotspot provisioning mode.")
+	return nil
+}
+
+// stopProvisioningBluetooth should only be called by a caller who has verified the
+// bluetooth service is active.
+func (n *Networking) stopProvisioningBluetooth() error {
+	if n.noBT {
+		return nil
+	}
+	if err := n.bt.stop(); err != nil {
+		return err
+	}
+	n.logger.Info("Stopped bluetooth provisioning mode.")
+	return nil
 }
 
 func (n *Networking) ActivateConnection(ctx context.Context, ifName, ssid string) error {
