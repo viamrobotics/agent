@@ -174,16 +174,20 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 
 	n.logger.Info("Starting provisioning mode.")
 
-	var hotspotErr error
-	if err := n.startProvisioningHotspot(ctx, inputChan); err != nil {
-		hotspotErr = err
+	hotspotErr := n.startProvisioningHotspot(ctx, inputChan)
+	if hotspotErr != nil {
+		n.logger.Errorw("failed to start hotspot provisioning", "error", hotspotErr)
 	}
-	var bluetoothErr error
-	if err := n.startProvisioningBluetooth(ctx, inputChan); err != nil {
-		bluetoothErr = err
+	bluetoothErr := n.startProvisioningBluetooth(ctx, inputChan)
+	if bluetoothErr != nil {
+		n.logger.Errorw("failed to start bluetooth provisioning", "error", bluetoothErr)
 	}
 
+	// Do not return an error if at least one provisioning method succeeds.
 	n.connState.setProvisioning(hotspotErr == nil || bluetoothErr == nil)
+	if hotspotErr == nil || bluetoothErr == nil {
+		return nil
+	}
 	return errors.Join(hotspotErr, bluetoothErr)
 }
 
@@ -213,11 +217,11 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan cha
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
 func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput,
 ) error {
-	if n.noBS {
+	if n.noBT {
 		return nil
 	}
-	if err := n.bluetoothService.start(ctx, true, true, inputChan); err != nil {
-		n.noBS = true
+	if err := n.bt.start(ctx, true, true, inputChan); err != nil {
+		n.noBT = true
 		return err
 	}
 	n.logger.Info("Bluetooth provisioning set up successfully.")
@@ -256,10 +260,10 @@ func (n *Networking) stopProvisioningHotspot() error {
 // stopProvisioningBluetooth should only be called by a caller who has verified the
 // bluetooth service is active.
 func (n *Networking) stopProvisioningBluetooth() error {
-	if n.noBS {
+	if n.noBT {
 		return nil
 	}
-	if err := n.bluetoothService.stop(); err != nil {
+	if err := n.bt.stop(); err != nil {
 		return err
 	}
 	n.logger.Info("Stopped bluetooth provisioning mode.")

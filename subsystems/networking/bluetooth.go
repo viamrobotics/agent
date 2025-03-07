@@ -75,10 +75,9 @@ func newBluetoothService(
 	logger logging.Logger,
 	deviceName string,
 	requestAvailableWiFiNetworksFn func() []NetworkInfo,
+	requestConnected func() bool,
+	requestConfigured func() bool,
 ) (bluetoothService, error) {
-	if err := validateBlueZVersion(); err != nil {
-		return nil, fmt.Errorf("system requisites not met: %w", err)
-	}
 	if deviceName == "" {
 		return nil, errors.New("must provide a device name")
 	}

@@ -153,16 +153,27 @@ func (n *Networking) enableWifi(ctx context.Context) error {
 	}
 }
 
+// initBluetooth validates BlueZ versioning and initializes (but does not start!) a bluetooth service.
 func (n *Networking) initBluetooth() error {
-	if n.bluetoothService != nil {
+	if n.bt != nil {
 		return nil
 	}
+	if err := validateBlueZVersion(); err != nil {
+		return fmt.Errorf("system requisites not met: %w", err)
+	}
 	deviceName := fmt.Sprintf("%s-%s-%s", n.Config().Manufacturer, n.Config().Model, n.Config().FragmentID)
-	bt, err := newBluetoothService(n.logger, deviceName, n.getVisibleNetworks)
+
+	// Pass callback functions into bluetooth service that help update state while in-progress.
+	bt, err := newBluetoothService(
+		n.logger,
+		deviceName,
+		n.getVisibleNetworks,      // Func for getting list of available WiFi networks.
+		n.connState.getConnected,  // Func for getting whether the machine has internet connection.
+		n.connState.getConfigured) // Func for getting whether a Viam machine is configured for this device.
 	if err != nil {
-		n.noBS = true
+		n.noBT = true
 		return err
 	}
-	n.bluetoothService = bt
+	n.bt = bt
 	return nil
 }
