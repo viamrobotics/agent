@@ -220,7 +220,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan c
 	if n.noBT {
 		return nil
 	}
-	if err := n.bt.start(ctx, true, true, inputChan); err != nil {
+	if err := n.bt.start(ctx, inputChan); err != nil {
 		n.noBT = true
 		return err
 	}
