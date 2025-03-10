@@ -37,13 +37,6 @@ type bluetoothService interface {
 	healthy() bool
 }
 
-// bluetoothCharacteristicLinux is used to read and write values to a bluetooth peripheral.
-type bluetoothCharacteristicLinux[T any] struct {
-	UUID         bluetooth.UUID
-	mu           sync.Mutex
-	currentValue T
-}
-
 // bluetoothServiceLinux provides methods to retrieve cloud config and/or WiFi credentials for a robot over bluetooth.
 type bluetoothServiceLinux struct {
 	mu         sync.Mutex
