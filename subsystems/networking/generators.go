@@ -135,7 +135,7 @@ func generateIPv4Settings(cfg utils.NetworkDefinition) (map[string]any, error) {
 
 	ip4 := map[string]any{
 		"method":       "manual",
-		"addresses":    [][]uint32{{ip, uint32(mask), gateway}}, //nolint:gosec
+		"addresses":    [][]uint32{{ip, uint32(mask), gateway}},
 		"route-metric": cfg.IPv4RouteMetric,
 	}
 
