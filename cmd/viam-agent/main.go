@@ -29,7 +29,7 @@ var (
 
 	// only changed/set at startup, so no mutex.
 	globalLogger = logging.NewLogger("viam-agent")
-	globalCancel func()
+	globalCancel func() //nolint:unused
 )
 
 //nolint:lll

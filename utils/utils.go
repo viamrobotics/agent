@@ -110,7 +110,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 
 	//nolint:nestif
 	if parsedURL.Scheme == "file" {
-		infd, err := os.Open(parsedPath)
+		infd, err := os.Open(parsedPath) //nolint:gosec
 		if err != nil {
 			return "", err
 		}
@@ -196,19 +196,21 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command(
+		cmd := exec.Command( //nolint:gosec
 			"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
 			"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
 		)
-		cmd.Start()
-		waitErr := cmd.Wait()
-		if waitErr != nil {
-			user, _ := user.Current()
-			if user.Name != "SYSTEM" {
-				// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
-				println("Ignoring netsh error on non-SYSTEM windows")
-			} else {
-				errRet = errors.Join(errRet, cmd.Wait())
+		errRet = errors.Join(errRet, cmd.Start())
+		if errRet == nil {
+			waitErr := cmd.Wait()
+			if waitErr != nil {
+				user, _ := user.Current() //nolint:errcheck
+				if user.Name != "SYSTEM" {
+					// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
+					println("Ignoring netsh error on non-SYSTEM windows") //nolint:forbidigo
+				} else {
+					errRet = errors.Join(errRet, waitErr)
+				}
 			}
 		}
 	}

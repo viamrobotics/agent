@@ -1,4 +1,6 @@
 // Package viamserver contains the viam-server agent subsystem.
+//
+//nolint:goconst
 package viamserver
 
 import (

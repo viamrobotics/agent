@@ -1,3 +1,4 @@
+//nolint:goconst
 package utils
 
 import (
@@ -77,7 +78,7 @@ type AdvancedSettings struct {
 	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes,omitempty"`
 }
 
-// wrapper which force-disables on some OSes
+// NetworkConfigurationDisabled is a wrapper which force-disables on some OSes.
 func (as AdvancedSettings) NetworkConfigurationDisabled() bool {
 	if runtime.GOOS == "windows" {
 		return true
@@ -85,7 +86,7 @@ func (as AdvancedSettings) NetworkConfigurationDisabled() bool {
 	return as.DisableNetworkConfiguration
 }
 
-// wrapper which force-disables on some OSes
+// SystemConfigurationDisabled is a wrapper which force-disables on some OSes.
 func (as AdvancedSettings) SystemConfigurationDisabled() bool {
 	if runtime.GOOS == "windows" {
 		return true
