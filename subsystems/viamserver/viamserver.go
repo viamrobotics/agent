@@ -178,7 +178,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	if runtime.GOOS == "windows" {
 		// note: Signal(SIGTERM) returns 'not supported on windows' error on windows
-		// note: this kills all subproces, not just RDK
+		// note: this kills all subprocesses, not just RDK
 		if err := utils.KillTree(-1); err != nil {
 			return errw.Wrap(err, "stopping viam-server process tree")
 		}

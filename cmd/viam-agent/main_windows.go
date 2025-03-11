@@ -26,10 +26,6 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 		c := <-r
 		if c.Cmd == svc.Stop || c.Cmd == svc.Shutdown {
 			elog.Info(1, fmt.Sprintf("%s service stopping", serviceName))
-			if err := utils.KillTree(-1); err != nil {
-				elog.Error(1, fmt.Sprintf("error killing subtree %s", err))
-			}
-			elog.Info(1, "taskkilled")
 			break
 		} else {
 			elog.Error(1, fmt.Sprintf("unexpected control request #%d", c))
@@ -62,18 +58,28 @@ func main() {
 		elog.Error(1, fmt.Sprintf("%s service failed: %v", serviceName, err))
 		return
 	}
-	// todo(windows): gracefully stop. without this, RDK stays running in the background.
+	if globalCancel == nil {
+		elog.Error(1, "globalCancel is nil, shutdown will be unclean")
+	} else {
+		globalCancel()
+	}
+	// wait first so viam-server doesn't try to restart
+	activeBackgroundWorkers.Wait()
+	// KillTree to catch any stragglers
+	if err := utils.KillTree(-1); err != nil {
+		elog.Error(1, fmt.Sprintf("error killing subtree %s", err))
+	}
 	elog.Info(1, fmt.Sprintf("%s service stopped", serviceName))
 }
 
-func ignoredSignal(sig os.Signal) bool {
+func ignoredSignal(_ os.Signal) bool {
 	return false
 }
 
-func waitOnline(logger logging.Logger, timeoutCtx context.Context) {
+func waitOnline(logger logging.Logger, _ context.Context) {
 	logger.Warn("WaitOnline not available on windows yet")
 }
 
-func runPlatformProvisioning(ctx context.Context, cfg utils.AgentConfig, manager *agent.Manager, err error) bool {
+func runPlatformProvisioning(_ context.Context, _ utils.AgentConfig, _ *agent.Manager, _ error) bool {
 	return false
 }
