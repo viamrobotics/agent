@@ -6,10 +6,8 @@ else ifeq ($(GOARCH),arm64)
 LINUX_ARCH = aarch64
 endif
 
-ifeq ($(shell git status -s),)
-	TAG_VERSION ?= $(shell git tag --points-at | sort -Vr | head -n1 | cut -c2-)
-	GIT_REVISION = $(shell git rev-parse HEAD | tr -d '\n')
-endif
+GIT_REVISION = $(shell git rev-parse HEAD)
+TAG_VERSION ?= $(shell ./dev-version.sh | sed 's/^v//')
 ifeq ($(TAG_VERSION),)
 PATH_VERSION = custom
 else
@@ -35,7 +33,7 @@ amd64:
 
 bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go subsystems/viamagent/*.service Makefile
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent/main.go
-	test "$(PATH_VERSION)" != "custom" && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
 
 .PHONY: windows
 windows: bin/viam-agent.exe
@@ -55,11 +53,23 @@ lint: bin/golangci-lint
 	go mod tidy
 	bin/golangci-lint run -v --fix
 
+.PHONY: test
+test:
+	go test -race ./...
+
+.PHONY: manifest
+manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+' || exit 1
+	./manifest.sh bin/viam-agent-$(PATH_VERSION)-x86_64
+	./manifest.sh bin/viam-agent-$(PATH_VERSION)-aarch64
+
 .PHONY: upload-stable
-upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64
-	test "$(PATH_VERSION)" != "custom"
+upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 manifest
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 gs://packages.viam.com/apps/viam-agent/
+	gsutil cp etc/viam-agent-$(PATH_VERSION)-x86_64.json etc/viam-agent-$(PATH_VERSION)-aarch64.json gs://packages.viam.com/apps/viam-subsystems/
 
 .PHONY: upload-installer
 upload-installer:
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp preinstall.sh install.sh uninstall.sh gs://packages.viam.com/apps/viam-agent/

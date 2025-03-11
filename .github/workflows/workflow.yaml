@@ -1,0 +1,67 @@
+name: Test and Build
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches:
+      - main
+  release:
+    types: [created]
+
+jobs:
+  test:
+    name: Lint, Test, Build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required to be able to generate prerelease tags
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Lint
+      run: |
+        make lint
+        GEN_DIFF=$(git status -s)
+        if [ -n "$GEN_DIFF" ]; then
+            echo '"make lint" resulted in the following untracked changes:' 1>&2
+            git diff
+            echo '"make lint" resulted in changes not in git' 1>&2
+            git status
+            exit 1
+        fi
+    - name: Test
+      run: make test
+    - name: Build
+      run: make all
+
+  build:
+    name: Build and Upload
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    needs: test
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required to be able to generate prerelease tags
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Build
+      run: make all manifest
+    - uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+    - uses: google-github-actions/setup-gcloud@v2
+    - name: Upload binaries to GCS (Release)
+      if: github.event_name == 'release'
+      run: |
+        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* install.sh uninstall.sh preinstall.sh gs://packages.viam.com/apps/viam-agent/
+        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+    - name: Upload binaries to GCS (Prerelease)
+      if: github.event_name != 'release'
+      run: |
+        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
+        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/

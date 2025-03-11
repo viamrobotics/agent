@@ -212,7 +212,9 @@ func LoadConfigFromCache() (AgentConfig, error) {
 	//nolint:gosec
 	cacheBytes, err := os.ReadFile(cachePath)
 	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) {
+			return StackConfigs(&pb.DeviceAgentConfigResponse{})
+		} else {
 			cfg, newErr := StackConfigs(&pb.DeviceAgentConfigResponse{})
 			return cfg, errors.Join(errw.Wrap(err, "reading config cache"), newErr)
 		}
@@ -530,6 +532,6 @@ func (t *Timeout) UnmarshalJSON(b []byte) error {
 		*t = Timeout(tmp)
 		return nil
 	default:
-		return errw.Errorf("invalid duration: %+v", v)
+		return errw.Errorf("invalid duration: %#v", v)
 	}
 }
