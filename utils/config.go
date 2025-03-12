@@ -78,16 +78,16 @@ type AdvancedSettings struct {
 	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes,omitempty"`
 }
 
-// NetworkConfigurationDisabled is a wrapper which force-disables on some OSes.
-func (as AdvancedSettings) NetworkConfigurationDisabled() bool {
+// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes.
+func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	if runtime.GOOS == "windows" {
 		return true
 	}
 	return as.DisableNetworkConfiguration
 }
 
-// SystemConfigurationDisabled is a wrapper which force-disables on some OSes.
-func (as AdvancedSettings) SystemConfigurationDisabled() bool {
+// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes.
+func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 	if runtime.GOOS == "windows" {
 		return true
 	}

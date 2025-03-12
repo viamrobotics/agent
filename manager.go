@@ -215,7 +215,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	}
 
 	// System Configuration
-	if m.cfg.AdvancedSettings.SystemConfigurationDisabled() {
+	if m.cfg.AdvancedSettings.GetDisableSystemConfiguration() {
 		if err := m.sysConfig.Stop(ctx); err != nil {
 			m.logger.Error(err)
 		}
@@ -232,7 +232,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	}
 
 	// Network
-	if m.cfg.AdvancedSettings.NetworkConfigurationDisabled() {
+	if m.cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
 		if err := m.networking.Stop(ctx); err != nil {
 			m.logger.Error(err)
 		}
@@ -311,11 +311,11 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 				continue
 			}
 		case "sysconfig":
-			if m.cfg.AdvancedSettings.SystemConfigurationDisabled() {
+			if m.cfg.AdvancedSettings.GetDisableSystemConfiguration() {
 				continue
 			}
 		case "networking":
-			if m.cfg.AdvancedSettings.NetworkConfigurationDisabled() {
+			if m.cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
 				continue
 			}
 		}
