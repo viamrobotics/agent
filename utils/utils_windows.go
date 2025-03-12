@@ -15,7 +15,7 @@ import (
 
 func PlatformProcSettings(cmd *exec.Cmd) {}
 
-func PlatformKill(logger logging.Logger, cmd *exec.Cmd) {}
+func KillIfAvailable(logger logging.Logger, cmd *exec.Cmd) {}
 
 // platform-specific UID check.
 func checkPathOwner(_ int, _ fs.FileInfo) error {

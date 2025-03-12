@@ -198,7 +198,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
-	utils.PlatformKill(s.logger, s.cmd)
+	utils.KillIfAvailable(s.logger, s.cmd)
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
