@@ -21,6 +21,8 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
+	"go.viam.com/rdk/logging"
+	"go.viam.com/utils/rpc"
 	"golang.org/x/sys/unix"
 )
 
@@ -88,7 +90,7 @@ func InitPaths() error {
 }
 
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
-func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet error) {
+func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (outPath string, errRet error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -139,7 +141,13 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 		return "", errw.Wrap(err, "downloading file")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
+	// if trying to connect to a local address.
+	httpClient := &http.Client{Transport: &http.Transport{
+		DialContext: rpc.SocksProxyFallbackDialContext(parsedURL.String(), logger),
+	}}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", errw.Wrap(err, "downloading file")
 	}
