@@ -81,7 +81,7 @@ func ignoredSignal(_ os.Signal) bool {
 }
 
 func waitOnline(logger logging.Logger, _ context.Context) {
-	logger.Warn("WaitOnline not available on windows yet")
+	logger.Debug("WaitOnline not available on windows yet")
 }
 
 func runPlatformProvisioning(_ context.Context, _ utils.AgentConfig, _ *agent.Manager, _ error) bool {
