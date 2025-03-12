@@ -14,12 +14,14 @@ import (
 )
 
 var elog debug.Log
+var _ svc.Handler = (*agentService)(nil)
 
 const serviceName = "viam-agent"
 
 type agentService struct{}
 
-// control loop for a windows service
+// Execute is the control loop for a windows service.
+// This implements svc.Handler and gets called by svc.Run in main().
 func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for {
@@ -53,6 +55,8 @@ func main() {
 
 	elog.Info(1, fmt.Sprintf("starting %s service", serviceName))
 	go commonMain()
+	// note: svc.Run hangs until windows terminates the service. Then we manually call
+	// globalCancel, which stops the go commonMain goroutine, then we wait for the waitgroup.
 	err = svc.Run(serviceName, &agentService{})
 	if err != nil {
 		elog.Error(1, fmt.Sprintf("%s service failed: %v", serviceName, err))
