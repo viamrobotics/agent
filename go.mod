@@ -95,5 +95,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	nhooyr.io/websocket v1.8.9 // indirect
 )
-
-replace go.viam.com/utils => ../goutils-cheuk
