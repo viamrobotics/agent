@@ -58,9 +58,11 @@ type viamServer struct {
 	logger logging.Logger
 }
 
-func pathExists(path string) bool {
+// Returns true if path is definitely missing,
+// false if file is present or something else is wrong.
+func pathMissing(path string) bool {
 	_, err := os.Stat(path)
-	return err == nil
+	return errors.Is(err, os.ErrNotExist)
 }
 
 func (s *viamServer) Start(ctx context.Context) error {
@@ -77,7 +79,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	if runtime.GOOS == "windows" {
 		binPath += ".exe"
 	}
-	if !pathExists(binPath) {
+	if pathMissing(binPath) {
 		s.logger.Warnf("viam-server binary missing at %s, not starting", binPath)
 		// todo: nested func so unlock is deferable
 		s.mu.Unlock()
