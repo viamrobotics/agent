@@ -228,7 +228,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 
 	// download and record the sha of the download itself
 	var err error
-	verData.DlPath, err = utils.DownloadFile(ctx, verData.URL)
+	verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
 	if err != nil {
 		if isCustomURL {
 			data.brokenTarget = true

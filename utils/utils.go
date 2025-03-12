@@ -23,6 +23,7 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
+	"go.viam.com/rdk/logging"
 )
 
 var (
@@ -96,7 +97,7 @@ func InitPaths() error {
 }
 
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
-func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet error) {
+func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (outPath string, errRet error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -207,7 +208,7 @@ func DownloadFile(ctx context.Context, rawURL string) (outPath string, errRet er
 				user, _ := user.Current() //nolint:errcheck
 				if user.Name != "SYSTEM" {
 					// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
-					println("Ignoring netsh error on non-SYSTEM windows") //nolint:forbidigo
+					logger.Info("Ignoring netsh error on non-SYSTEM windows")
 				} else {
 					errRet = errors.Join(errRet, waitErr)
 				}
