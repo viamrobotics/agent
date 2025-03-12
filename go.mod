@@ -16,8 +16,8 @@ require (
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.395
 	go.viam.com/rdk v0.51.0
-	go.viam.com/test v1.2.3
-	go.viam.com/utils v0.1.112
+	go.viam.com/test v1.2.4
+	go.viam.com/utils v0.1.134
 	golang.org/x/sys v0.28.0
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.35.1
@@ -29,7 +29,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
-	github.com/dgottlieb/smarty-assertions v1.2.5 // indirect
+	github.com/dgottlieb/smarty-assertions v1.2.6 // indirect
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0 // indirect
 	github.com/edaniels/zeroconf v1.0.10 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
