@@ -8,13 +8,18 @@
         <StandardDirectory Id="TARGETDIR">
             <Directory Id="CustomInstallPath" Name="opt">
                 <Directory Id="ViamFolder" Name="viam">
-                    <Directory Id="INSTALLFOLDER" Name="bin">
+                    <Directory Id="CACHEFOLDER" Name="cache">
                         <Component Id="MainServiceComponent" Guid="d478ceba-537c-4e49-9262-bf24ccfe4909">
                             <File Id="ViamExe" Source="$(var.GoBinDir)\viam-agent.exe" KeyPath="yes" />
                             <ServiceInstall Id="InstallAgentervice" Name="viam-agent" DisplayName="viam-agent Service" Description="viam-agent Windows service" Start="auto" Type="ownProcess" ErrorControl="normal" Account="LocalSystem" Interactive="yes" />
                             <ServiceControl Id="ControlAgentService" Name="viam-agent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
                             <fire:FirewallException Id="AllowAllTCP" Name="viam-agent" Profile="all" Protocol="tcp" Scope="any" />
                             <fire:FirewallException Id="AllowAllUDP" Name="viam-agent" Profile="all" Protocol="tcp" Scope="any" />
+                        </Component>
+                    </Directory>
+                    <Directory Id="BINFOLDER" Name="bin">
+                        <Component Id="MainServiceComponent" Guid="d478ceba-537c-4e49-9262-bf24ccfe4909">
+                            <CustomAction Id="Mklink" ExeCommand='cmd /c mklink viam-agent.exe ..\bin\viam-agent.exe' />
                         </Component>
                     </Directory>
                 </Directory>
