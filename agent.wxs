@@ -17,11 +17,7 @@
                             <fire:FirewallException Id="AllowAllUDP" Name="viam-agent" Profile="all" Protocol="tcp" Scope="any" />
                         </Component>
                     </Directory>
-                    <Directory Id="BINFOLDER" Name="bin">
-                        <Component Id="MainServiceComponent" Guid="d478ceba-537c-4e49-9262-bf24ccfe4909">
-                            <CustomAction Id="Mklink" ExeCommand='cmd /c mklink viam-agent.exe ..\bin\viam-agent.exe' />
-                        </Component>
-                    </Directory>
+                    <Directory Id="BINFOLDER" Name="bin" />
                 </Directory>
             </Directory>
         </StandardDirectory>
@@ -29,5 +25,7 @@
         <Feature Id="MainFeature" Title="Main Feature" Level="1">
             <ComponentRef Id="MainServiceComponent" />
         </Feature>
+
+        <CustomAction Id="Mklink" Directory="BINFOLDER" ExeCommand='cmd /c mklink viam-agent.exe ..\bin\viam-agent.exe' />
     </Package>
 </Wix>
