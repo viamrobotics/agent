@@ -36,9 +36,9 @@ bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.servic
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
 
 .PHONY: windows
-windows: bin/viam-agent.exe
+windows: bin/viam-agent-$(PATH_VERSION)-windows-$(LINUX_ARCH)
 
-bin/viam-agent.exe:
+bin/viam-agent-$(PATH_VERSION)-windows-$(LINUX_ARCH):
 	GOOS=windows GOARCH=amd64 go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
 
 .PHONY: clean
