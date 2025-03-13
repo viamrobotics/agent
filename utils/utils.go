@@ -13,17 +13,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"os/user"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/ulikunitz/xz"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
-	"golang.org/x/sys/unix"
 )
 
 var (
@@ -51,6 +52,14 @@ func GetRevision() string {
 }
 
 func init() {
+	if runtime.GOOS == "windows" {
+		// note: forward slash isn't an abs path on windows, but resolves to one.
+		var err error
+		ViamDirs["viam"], err = filepath.Abs(ViamDirs["viam"])
+		if err != nil {
+			panic(err)
+		}
+	}
 	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
 	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
 	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
@@ -59,6 +68,10 @@ func init() {
 
 func InitPaths() error {
 	uid := os.Getuid()
+	expectedPerms := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		expectedPerms = 0o777
+	}
 	for _, p := range ViamDirs {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -71,19 +84,14 @@ func InitPaths() error {
 			}
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			// should be impossible on Linux
-			return errw.New("cannot convert to syscall.Stat_t")
-		}
-		if uid != int(stat.Uid) {
-			return errw.Errorf("%s is owned by UID %d but the current UID is %d", p, stat.Uid, uid)
+		if err := checkPathOwner(uid, info); err != nil {
+			return err
 		}
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)
 		}
-		if info.Mode().Perm() != 0o755 {
-			return errw.Errorf("%s should be have permission set to 0755, but has permissions %d", p, info.Mode().Perm())
+		if info.Mode().Perm() != expectedPerms {
+			return errw.Errorf("%s should be have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
 		}
 	}
 	return nil
@@ -96,11 +104,15 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		return "", err
 	}
 
-	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedURL.Path))
+	parsedPath := parsedURL.Path
+	if runtime.GOOS == "windows" && !strings.HasSuffix(parsedPath, ".exe") {
+		parsedPath += ".exe"
+	}
+	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedPath))
 
 	//nolint:nestif
 	if parsedURL.Scheme == "file" {
-		infd, err := os.Open(parsedURL.Path)
+		infd, err := os.Open(parsedPath) //nolint:gosec
 		if err != nil {
 			return "", err
 		}
@@ -168,8 +180,16 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	if err != nil {
 		return "", err
 	}
+	// `closed` suppresses double-close
+	closed := false
 	defer func() {
-		errRet = errors.Join(errRet, out.Close(), SyncFS(out.Name()))
+		if !closed {
+			errRet = errors.Join(errRet, out.Close())
+		}
+		if runtime.GOOS != "windows" {
+			// todo(windows): doc why we don't do this / test adding it back
+			errRet = errors.Join(errRet, SyncFS(out.Name()))
+		}
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -179,8 +199,29 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	if err != nil && !os.IsNotExist(err) {
 		errRet = errors.Join(errRet, err)
 	}
+	errRet = errors.Join(errRet, out.Close())
+	closed = true
 
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command( //nolint:gosec
+			"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
+			"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
+		)
+		errRet = errors.Join(errRet, cmd.Start())
+		if errRet == nil {
+			waitErr := cmd.Wait()
+			if waitErr != nil {
+				user, _ := user.Current() //nolint:errcheck
+				if user.Name != "SYSTEM" {
+					// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
+					logger.Info("Ignoring netsh error on non-SYSTEM windows")
+				} else {
+					errRet = errors.Join(errRet, waitErr)
+				}
+			}
+		}
+	}
 	return outPath, errRet
 }
 
@@ -287,22 +328,12 @@ func ForceSymlink(orig, symlink string) error {
 
 	err = os.Symlink(orig, symlink)
 	if err != nil {
+		// note: this will fail on windows if you are not privileged unless you enable developer mode
+		// https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
 		return errw.Wrap(err, "symlinking file")
 	}
 
 	return SyncFS(symlink)
-}
-
-func SyncFS(syncPath string) (errRet error) {
-	file, errRet := os.Open(filepath.Dir(syncPath))
-	if errRet != nil {
-		return errw.Wrapf(errRet, "syncing fs %s", syncPath)
-	}
-	_, _, err := unix.Syscall(unix.SYS_SYNCFS, file.Fd(), 0, 0)
-	if err != 0 {
-		errRet = errw.Wrapf(err, "syncing fs %s", syncPath)
-	}
-	return errors.Join(errRet, file.Close())
 }
 
 // WriteFileIfNew returns true if contents changed and a write happened.

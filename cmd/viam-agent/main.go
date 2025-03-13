@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
-	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,12 +18,10 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-	"github.com/viamrobotics/agent/subsystems/networking"
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/utils"
 	"go.uber.org/zap"
 	"go.viam.com/rdk/logging"
-	goutils "go.viam.com/utils"
 )
 
 var (
@@ -32,29 +29,32 @@ var (
 
 	// only changed/set at startup, so no mutex.
 	globalLogger = logging.NewLogger("viam-agent")
+	globalCancel func() //nolint:unused
 )
 
+//nolint:lll
+type agentOpts struct {
+	Config         string `default:"/etc/viam.json"                        description:"Path to machine credentials file"   long:"config"   short:"c"`
+	DefaultsConfig string `default:"/etc/viam-defaults.json"               description:"Path to manufacturer defaults file" long:"defaults"`
+	Debug          bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
+	UpdateFirst    bool   `description:"Update versions before starting"   env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
+	Help           bool   `description:"Show this help message"            long:"help"                                      short:"h"`
+	Version        bool   `description:"Show version"                      long:"version"                                   short:"v"`
+	Install        bool   `description:"Install systemd service"           long:"install"`
+	DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                         long:"dev-mode"`
+}
+
 //nolint:gocognit
-func main() {
+func commonMain() {
 	ctx, cancel := setupExitSignalHandling()
+	globalCancel = cancel
 
 	defer func() {
 		cancel()
 		activeBackgroundWorkers.Wait()
 	}()
 
-	//nolint:lll
-	var opts struct {
-		Config         string `default:"/etc/viam.json"                        description:"Path to machine credentials file"   long:"config"   short:"c"`
-		DefaultsConfig string `default:"/etc/viam-defaults.json"               description:"Path to manufacturer defaults file" long:"defaults"`
-		Debug          bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
-		UpdateFirst    bool   `description:"Update versions before starting"   env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
-		Help           bool   `description:"Show this help message"            long:"help"                                      short:"h"`
-		Version        bool   `description:"Show version"                      long:"version"                                   short:"v"`
-		Install        bool   `description:"Install systemd service"           long:"install"`
-		DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                         long:"dev-mode"`
-	}
-
+	var opts agentOpts
 	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
 	parser.Usage = "runs as a background service and manages updates and the process lifecycle for viam-server."
 
@@ -87,7 +87,7 @@ func main() {
 	// need to be root to go any further than this
 	curUser, err := user.Current()
 	exitIfError(err)
-	if curUser.Uid != "0" && !opts.DevMode {
+	if runtime.GOOS != "windows" && curUser.Uid != "0" && !opts.DevMode {
 		//nolint:forbidigo
 		fmt.Printf("viam-agent must be run as root (uid 0), but current user is %s (uid %s)\n", curUser.Username, curUser.Uid)
 		return
@@ -98,7 +98,7 @@ func main() {
 		return
 	}
 
-	if !opts.DevMode {
+	if runtime.GOOS != "windows" && !opts.DevMode {
 		// confirm that we're running from a proper install
 		if !strings.HasPrefix(os.Args[0], utils.ViamDirs["viam"]) {
 			//nolint:forbidigo
@@ -143,47 +143,9 @@ func main() {
 	err = manager.LoadAppConfig()
 	//nolint:nestif
 	if err != nil {
-		if cfg.AdvancedSettings.DisableNetworkConfiguration {
-			globalLogger.Errorf("Cannot read %s and network configuration is disabled. Please correct and restart viam-agent.",
-				utils.AppConfigFilePath)
+		if !runPlatformProvisioning(ctx, cfg, manager, err) {
 			manager.CloseAll()
 			return
-		}
-
-		// If the local /etc/viam.json config is corrupted, invalid, or missing (due to a new install), we can get stuck here.
-		// Rename the file (if it exists) and wait to provision a new one.
-		if !errors.Is(err, fs.ErrNotExist) {
-			globalLogger.Error(errors.Wrapf(err, "reading %s", utils.AppConfigFilePath))
-			globalLogger.Warn("renaming %s to %s.old", utils.AppConfigFilePath, utils.AppConfigFilePath)
-			if err := os.Rename(utils.AppConfigFilePath, utils.AppConfigFilePath+".old"); err != nil {
-				// if we can't rename the file, we're up a creek, and it's fatal
-				globalLogger.Error(errors.Wrapf(err, "removing invalid config file %s", utils.AppConfigFilePath))
-				globalLogger.Error("unable to continue with provisioning, exiting")
-				manager.CloseAll()
-				return
-			}
-		}
-
-		// We manually start the provisioning service to allow the user to update it and wait.
-		// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
-		globalLogger.Infof("machine credentials file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
-
-		if err := manager.StartSubsystem(ctx, networking.SubsysName); err != nil {
-			globalLogger.Error(errors.Wrapf(err, "could not start networking subsystem, "+
-				"please manually update /etc/viam.json and connect to internet"))
-			manager.CloseAll()
-			return
-		}
-
-		for {
-			globalLogger.Warn("waiting for user provisioning")
-			if !goutils.SelectContextOrWait(ctx, time.Second*10) {
-				manager.CloseAll()
-				return
-			}
-			if err := manager.LoadAppConfig(); err == nil {
-				break
-			}
 		}
 	}
 
@@ -202,23 +164,7 @@ func main() {
 		// wait to be online
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
-		for {
-			cmd := exec.CommandContext(timeoutCtx, "systemctl", "is-active", "network-online.target")
-			_, err := cmd.CombinedOutput()
-
-			if err == nil {
-				break
-			}
-
-			if e := (&exec.ExitError{}); !errors.As(err, &e) {
-				// if it's not an ExitError, that means it didn't even start, so bail out
-				globalLogger.Error(errors.Wrap(err, "running 'systemctl is-active network-online.target'"))
-				break
-			}
-			if !goutils.SelectContextOrWait(timeoutCtx, time.Second) {
-				break
-			}
-		}
+		waitOnline(globalLogger, timeoutCtx)
 
 		// Check for self-update and restart if needed.
 		needRestart, err := manager.SelfUpdate(ctx)
@@ -271,12 +217,11 @@ func setupExitSignalHandling() (context.Context, func()) {
 			// this will eventually be handled elsewhere as a restart, not exit
 			case syscall.SIGHUP:
 
-			// ignore SIGURG entirely, it's used for real-time scheduling notifications
-			case syscall.SIGURG:
-
 			// log everything else
 			default:
-				globalLogger.Debugw("received unknown signal", "signal", sig)
+				if !ignoredSignal(sig) {
+					globalLogger.Debugw("received unknown signal", "signal", sig)
+				}
 			}
 		}
 	}()
@@ -285,6 +230,7 @@ func setupExitSignalHandling() (context.Context, func()) {
 	return ctx, cancel
 }
 
+// helper to log.Fatal if error is non-nil.
 func exitIfError(err error) {
 	if err != nil {
 		globalLogger.WithOptions(zap.AddCallerSkip(1)).Fatal(err)

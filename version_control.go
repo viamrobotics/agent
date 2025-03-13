@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -158,6 +159,9 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	info.Version = newVersion
 	info.URL = cfg.GetUrl()
 	info.SymlinkPath = path.Join(utils.ViamDirs["bin"], cfg.GetFilename())
+	if runtime.GOOS == "windows" {
+		info.SymlinkPath += ".exe"
+	}
 	info.UnpackedSHA = cfg.GetSha256()
 
 	return c.save()
@@ -246,9 +250,14 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		if err != nil {
 			return needRestart, errw.Wrapf(err, "determining file type of download")
 		}
-		if !mtype.Is("application/x-elf") && !mtype.Is("application/x-executable") {
+		expectedMimes := []string{"application/x-elf", "application/x-executable"}
+		if runtime.GOOS == "windows" {
+			expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
+		}
+
+		if !mimeIsAny(mtype, expectedMimes) {
 			data.brokenTarget = true
-			return needRestart, errw.Errorf("downloaded file is %s, not application/x-elf or application/x-executable, skipping", mtype)
+			return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
 		}
 		verData.UnpackedSHA = actualSha
 	}
@@ -287,4 +296,14 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 
 	// record the cache
 	return needRestart, c.save()
+}
+
+// returns true if mtype is any of expected strings.
+func mimeIsAny(mtype *mimetype.MIME, expected []string) bool {
+	for _, expectedType := range expected {
+		if mtype.Is(expectedType) {
+			return true
+		}
+	}
+	return false
 }

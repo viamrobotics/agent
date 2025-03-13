@@ -1,3 +1,4 @@
+//nolint:goconst
 package utils
 
 import (
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -74,6 +76,22 @@ type AdvancedSettings struct {
 	DisableNetworkConfiguration   bool    `json:"disable_network_configuration,omitempty"`
 	DisableSystemConfiguration    bool    `json:"disable_system_configuration,omitempty"`
 	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes,omitempty"`
+}
+
+// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes.
+func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return as.DisableNetworkConfiguration
+}
+
+// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes.
+func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return as.DisableSystemConfiguration
 }
 
 type SystemConfiguration struct {
