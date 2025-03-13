@@ -1,4 +1,8 @@
 #!/bin/bash
+# dev-version.sh -- this generates filenames like 'viam-agent-v0.15.1-dev.4-x86_64' for prereleases.
+# To test locally, comment out the `git status` stanza and do:
+# `GITHUB_REF_NAME=main ./dev-setup.sh` (to just see the version)
+# `GITHUB_REF_NAME=main make all` (for an actual build)
 
 # Exit with a blank if tree is dirty
 if [ -n "$(git status -s)" ]; then
