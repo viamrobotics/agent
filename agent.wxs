@@ -8,8 +8,9 @@
         <StandardDirectory Id="TARGETDIR">
             <Directory Id="CustomInstallPath" Name="opt">
                 <Directory Id="ViamFolder" Name="viam">
-                    <Directory Id="CACHEFOLDER" Name="cache">
-                        <Component Id="MainServiceComponent" Guid="d478ceba-537c-4e49-9262-bf24ccfe4909">
+                    <Directory Id="CACHEFOLDER" Name="cache" />
+                    <Directory Id="BINFOLDER" Name="bin">
+                        <Component Id="binary" Guid="d478ceba-537c-4e49-9262-bf24ccfe4910">
                             <File Id="ViamExe" Source="$(var.GoBinDir)\viam-agent.exe" KeyPath="yes" />
                             <ServiceInstall Id="InstallAgentervice" Name="viam-agent" DisplayName="viam-agent Service" Description="viam-agent Windows service" Start="auto" Type="ownProcess" ErrorControl="normal" Account="LocalSystem" Interactive="yes" />
                             <ServiceControl Id="ControlAgentService" Name="viam-agent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
@@ -17,15 +18,20 @@
                             <fire:FirewallException Id="AllowAllUDP" Name="viam-agent" Profile="all" Protocol="tcp" Scope="any" />
                         </Component>
                     </Directory>
-                    <Directory Id="BINFOLDER" Name="bin" />
                 </Directory>
             </Directory>
         </StandardDirectory>
 
         <Feature Id="MainFeature" Title="Main Feature" Level="1">
-            <ComponentRef Id="MainServiceComponent" />
+            <ComponentRef Id="binary" />
         </Feature>
 
-        <CustomAction Id="Mklink" Directory="BINFOLDER" ExeCommand='cmd /c mklink viam-agent.exe ..\bin\viam-agent.exe' />
+        <CustomAction Id="MvCache" Directory="BINFOLDER" ExeCommand="cmd /c move viam-agent.exe ..\cache" />
+        <CustomAction Id="MkLink" Directory="BINFOLDER" ExeCommand="cmd /c mklink viam-agent.exe ..\cache\viam-agent.exe" />
+
+        <InstallExecuteSequence>
+            <Custom Action='MvCache' Before='MkLink' />
+            <Custom Action='MkLink' After='InstallFinalize' />
+        </InstallExecuteSequence>
     </Package>
 </Wix>
