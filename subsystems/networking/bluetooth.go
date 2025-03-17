@@ -55,7 +55,6 @@ type bluetoothServiceLinux struct {
 	bluezAgentRegistered        bool
 	listeningForPropertyChanges bool
 	adv                         *bluetooth.Advertisement
-	advActive                   bool
 
 	// Used to store user input values written to this bluetooth service.
 	userInputMu               sync.Mutex
@@ -98,6 +97,7 @@ func newBluetoothService(
 	bsl := &bluetoothServiceLinux{
 		requestConnected:           requestConnected,
 		requestConfigured:          requestConfigured,
+		requestAvailableWiFiNetworks: requestAvailableWiFiNetworksFn,
 		logger:                     logger,
 		deviceName:                 deviceName,
 		updateROHealth:             &health{},
@@ -134,16 +134,12 @@ func (bsl *bluetoothServiceLinux) stop() error {
 	bsl.mu.Lock()
 	defer bsl.mu.Unlock()
 
-	if !bsl.advActive {
-		return errors.New("invalid request, advertising already inactive")
-	}
 	if bsl.adv == nil {
-		return errors.New("advertisement is nil")
+		return nil
 	}
 	if err := bsl.adv.Stop(); err != nil {
 		return fmt.Errorf("failed to stop advertising: %w", err)
 	}
-	bsl.advActive = false
 	bsl.logger.Debug("Stopped advertising bluetooth service.")
 
 	if bsl.cancelFunc != nil {
@@ -158,11 +154,18 @@ func (bsl *bluetoothServiceLinux) healthy() bool {
 	bsl.mu.Lock()
 	defer bsl.mu.Unlock()
 
-	return !bsl.advActive || // If we are not advertising, we're healthy (nothing to check).
+	bsl.logger.Debugf("SMURF BTHealth - UpdateRO: %t, Credentials: %t, Pairing: %t",
+		bsl.updateROHealth.IsHealthy(),
+		bsl.listenForCredentialsHealth.IsHealthy(),
+		bsl.listenForPairRequestHealth.IsHealthy(),
+	)
 
-		(bsl.updateROHealth.IsHealthy() && // Otherwise, return combined health of goroutines.
-			bsl.listenForCredentialsHealth.IsHealthy() &&
-			bsl.listenForPairRequestHealth.IsHealthy())
+	// If bluetooth isn't running, it's healthy
+	if bsl.adv == nil {
+		return true
+	}
+
+	return bsl.updateROHealth.IsHealthy() && bsl.listenForCredentialsHealth.IsHealthy() && bsl.listenForPairRequestHealth.IsHealthy()
 }
 
 // ---------------------------------------------------------------------------------------
@@ -173,26 +176,26 @@ func (bsl *bluetoothServiceLinux) healthy() bool {
 func (bsl *bluetoothServiceLinux) prepare() error {
 	// Can only call this function if the bsl.mu is already locked!
 
-	if bsl.advActive {
+	if bsl.adv != nil {
 		return errors.New("invalid request, advertising already active")
 	}
 
 	// Define write-only characteristics and associated in-memory storage of written values.
-	ssidCharacteristicConfig := initializeWOCharacteristic(bsl, ssidKey, 0x0001)
-	pskCharacteristicConfig := initializeWOCharacteristic(bsl, pskKey, 0x0002)
-	robotPartKeyIDCharacteristicConfig := initializeWOCharacteristic(bsl, robotPartKeyIDKey, 0x0003)
-	robotPartKeyCharacteristicConfig := initializeWOCharacteristic(bsl, robotPartKeyKey, 0x0004)
-	appAddressCharacteristicConfig := initializeWOCharacteristic(bsl, appAddressKey, 0x0005)
+	ssidCharacteristicConfig := bsl.initializeWOCharacteristic(ssidKey, 0x0001)
+	pskCharacteristicConfig := bsl.initializeWOCharacteristic(pskKey, 0x0002)
+	robotPartKeyIDCharacteristicConfig := bsl.initializeWOCharacteristic(robotPartKeyIDKey, 0x0003)
+	robotPartKeyCharacteristicConfig := bsl.initializeWOCharacteristic(robotPartKeyKey, 0x0004)
+	appAddressCharacteristicConfig := bsl.initializeWOCharacteristic(appAddressKey, 0x0005)
 
 	// Define read-only characteristics and associated callback functions for updating read-only values.
-	availableWiFiNetworksCharacteristicConfig, refreshAvailableWiFiNetworksFn := initializeROCharacteristic(
-		bsl, availableWiFiNetworksKey, 0x0006)
+	availableWiFiNetworksCharacteristicConfig, refreshAvailableWiFiNetworksFn := bsl.initializeROCharacteristic(
+		availableWiFiNetworksKey, 0x0006)
 	bsl.refreshAvailableWiFiNetworks = refreshAvailableWiFiNetworksFn
-	configuredCharacteristicConfig, refreshConfiguredFn := initializeROCharacteristic(
-		bsl, isConfiguredKey, 0x0007)
+	configuredCharacteristicConfig, refreshConfiguredFn := bsl.initializeROCharacteristic(
+		isConfiguredKey, 0x0007)
 	bsl.refreshConfigured = refreshConfiguredFn
-	connectedCharacteristicConfig, refreshConnectedFn := initializeROCharacteristic(
-		bsl, isConnectedKey, 0x0008)
+	connectedCharacteristicConfig, refreshConnectedFn := bsl.initializeROCharacteristic(
+		isConnectedKey, 0x0008)
 	bsl.refreshConnected = refreshConnectedFn
 
 	// Create a bluetooth service comprised of the above configs.
@@ -217,7 +220,6 @@ func (bsl *bluetoothServiceLinux) prepare() error {
 	if err := defaultAdvertisement.Start(); err != nil {
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
-	bsl.advActive = true
 	bsl.adv = defaultAdvertisement
 	bsl.logger.Debugf("Started advertising bluetooth service with UUID: %s.", serviceUUID.String())
 
@@ -226,9 +228,7 @@ func (bsl *bluetoothServiceLinux) prepare() error {
 
 // run spawns three goroutines, one to refresh available WiFi networks, another to listen for
 // user input, and the last to listen for bluetooth pairing requests.
-func (bsl *bluetoothServiceLinux) run(
-	ctx context.Context, inputChan chan<- userInput,
-) {
+func (bsl *bluetoothServiceLinux) run(ctx context.Context, inputChan chan<- userInput) {
 	// Can only call this function if the bsl.mu is already locked!
 
 	// Initialize health for each goroutine.
@@ -240,7 +240,7 @@ func (bsl *bluetoothServiceLinux) run(
 	bsl.workers.Add(1)
 	utils.ManagedGo(
 		func() {
-			if err := refreshReadOnlyBluetoothCharacteristics(ctx, bsl); err != nil {
+			if err := bsl.refreshROCharacteristics(ctx); err != nil {
 				bsl.logger.Errorw("failed to update available WiFi networks", "error", err)
 				bsl.updateROHealth.MarkBad()
 			}
@@ -252,7 +252,7 @@ func (bsl *bluetoothServiceLinux) run(
 	bsl.workers.Add(1)
 	utils.ManagedGo(
 		func() {
-			if err := listenForCredentials(ctx, bsl, inputChan); err != nil {
+			if err := bsl.listenForCredentials(ctx, inputChan); err != nil {
 				bsl.logger.Errorw("failed to get credentials from user input", "error", err)
 				bsl.listenForCredentialsHealth.MarkBad()
 			}
@@ -264,7 +264,7 @@ func (bsl *bluetoothServiceLinux) run(
 	bsl.workers.Add(1)
 	utils.ManagedGo(
 		func() {
-			if err := listenForPairRequest(ctx, bsl); err != nil {
+			if err := bsl.listenForPairRequest(ctx); err != nil {
 				bsl.logger.Errorw("failed to enable auto accept of bluetooth pairing requests", "error", err)
 				bsl.listenForPairRequestHealth.MarkBad()
 			}
@@ -277,10 +277,10 @@ func (bsl *bluetoothServiceLinux) run(
 // --------------------------------------- HELPERS ---------------------------------------
 // ---------------------------------------------------------------------------------------
 
-// refreshReadOnlyBluetoothCharacteristics writes machine state that is relevant to the provisioning client to a bluetooth
+// refreshROCharacteristics writes machine state that is relevant to the provisioning client to a bluetooth
 // characteristic. This state includes whether the machine is already configured (i.e. has a cloud config), already has
 // connectivity (and thus doesn't need WiFi credentials), and the available WiFi networks nearby the machine.
-func refreshReadOnlyBluetoothCharacteristics(ctx context.Context, bsl *bluetoothServiceLinux) error {
+func (bsl *bluetoothServiceLinux) refreshROCharacteristics(ctx context.Context) error {
 	for {
 		if ctx.Err() != nil {
 			//nolint:nilerr
@@ -359,87 +359,44 @@ func refreshReadOnlyBluetoothCharacteristics(ctx context.Context, bsl *bluetooth
 }
 
 // listenForCredentials returns credentials, the minimum required information to provision a robot and/or its WiFi.
-func listenForCredentials(ctx context.Context, bsl *bluetoothServiceLinux, inputChan chan<- userInput,
-) error {
-	var ssid, psk, robotPartKeyID, robotPartKey, appAddress string
-	e := newEmptyBluetoothCharacteristicError("")
+func (bsl *bluetoothServiceLinux) listenForCredentials(ctx context.Context, inputChan chan<- userInput) error {
+	input := &userInput{}
 	for {
-		bsl.machineStateMu.Lock()
-
-		requiresWiFiCredentials := !bsl.isConnected
-		requiresCloudCredentials := !bsl.isConfigured
-
-		bsl.machineStateMu.Unlock()
-
-		// If we no longer need values, we are in an error state (we should need one or the other or both, so return
-		// an error and close bluetooth provisioning).
-		if !requiresWiFiCredentials && !requiresCloudCredentials {
-			return errors.New("should require either WiFi credentials, cloud credentials, or both")
-		}
-
 		// If new values are provided, persist them to in-memory storage.
-		if requiresWiFiCredentials {
-			ssidInput, ssidErr := readCharacteristic(bsl, ssidKey)
-			if ssidErr != nil && !errors.Is(ssidErr, e) {
-				return ssidErr
-			}
-			if ssidInput != "" && ssidInput != ssid {
-				ssid = ssidInput
-			}
-			pskInput, pskErr := readCharacteristic(bsl, pskKey)
-			if pskErr != nil && !errors.Is(pskErr, e) {
-				return pskErr
-			}
-			if pskInput != "" && pskInput != psk {
-				psk = pskInput
-			}
-		}
-		if requiresCloudCredentials {
-			robotPartKeyIDInput, robotPartKeyIDErr := readCharacteristic(bsl, robotPartKeyIDKey)
-			if robotPartKeyIDErr != nil && !errors.Is(robotPartKeyIDErr, e) {
-				return robotPartKeyIDErr
-			}
-			if robotPartKeyIDInput != "" && robotPartKeyIDInput != robotPartKeyID {
-				robotPartKeyID = robotPartKeyIDInput
-			}
-			robotPartKeyInput, robotPartKeyErr := readCharacteristic(bsl, robotPartKeyKey)
-			if robotPartKeyErr != nil && !errors.Is(robotPartKeyErr, e) {
-				return robotPartKeyErr
-			}
-			if robotPartKeyInput != "" && robotPartKeyInput != robotPartKey {
-				robotPartKey = robotPartKeyInput
-			}
-			appAddressInput, appAddressErr := readCharacteristic(bsl, appAddressKey)
-			if appAddressErr != nil && !errors.Is(appAddressErr, e) {
-				return appAddressErr
-			}
-			if appAddressInput != "" && appAddressInput != appAddress {
-				appAddress = appAddressInput
-			}
-		}
+		input.SSID = bsl.readCharacteristic(ssidKey)
+		input.PSK = bsl.readCharacteristic(pskKey)
 
-		// If we've received all required credentials, break to pass them through inputChan.
-		if requiresWiFiCredentials && requiresCloudCredentials && //nolint:gocritic
-			ssid != "" && psk != "" && robotPartKeyID != "" && robotPartKey != "" && appAddress != "" {
-			break
-		} else if requiresWiFiCredentials && !requiresCloudCredentials && ssid != "" && psk != "" {
-			break
-		} else if requiresCloudCredentials && !requiresWiFiCredentials && robotPartKeyID != "" && robotPartKey != "" && appAddress != "" {
-			break
+		input.PartID = bsl.readCharacteristic(robotPartKeyIDKey)
+		input.Secret = bsl.readCharacteristic(robotPartKeyKey)
+		input.AppAddr = bsl.readCharacteristic(appAddressKey)
+
+		// If we've received a "set" of required credentials, pass them through inputChan.
+		hasWifiInput := input.SSID != "" && input.PSK != ""
+		hasCredInput := input.AppAddr != "" && input.PartID != "" && input.Secret != ""
+
+		if hasWifiInput || hasCredInput {
+			inputChan <- *input
+			if hasWifiInput {
+				// reset for next round
+				input.SSID = ""
+				input.PSK = ""
+			}
+			if hasCredInput {
+				input.AppAddr = ""
+				input.PartID = ""
+				input.Secret = ""
+			}
 		}
 
 		// If we haven't received all required credentials, sleep and try again.
 		if !bsl.listenForCredentialsHealth.Sleep(ctx, time.Second*5) {
 			return nil // Return nil instead of a canceled context error to gracefully exit.
 		}
-		continue
 	}
-	inputChan <- userInput{SSID: ssid, PSK: psk, PartID: robotPartKeyID, Secret: robotPartKey, AppAddr: appAddress}
-	return nil
 }
 
 // listenForPairRequest ensures this device automatically accepts bluetooth pairing requests.
-func listenForPairRequest(ctx context.Context, bsl *bluetoothServiceLinux) error {
+func (bsl *bluetoothServiceLinux) listenForPairRequest(ctx context.Context) error {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return fmt.Errorf("failed to connect to system DBus: %w", err)
@@ -558,44 +515,15 @@ func listenForPairRequest(ctx context.Context, bsl *bluetoothServiceLinux) error
 	}
 }
 
-// emptyBluetoothCharacteristicError represents the error which is raised when we attempt to read from an empty BLE characteristic.
-type emptyBluetoothCharacteristicError struct {
-	missingValue string
-}
-
-func (e *emptyBluetoothCharacteristicError) Is(target error) bool {
-	return true
-}
-
-func (e *emptyBluetoothCharacteristicError) Error() string {
-	return fmt.Sprintf("no value has been written to bluetooth characteristic for %s", e.missingValue)
-}
-
-func newEmptyBluetoothCharacteristicError(missingValue string) error {
-	return &emptyBluetoothCharacteristicError{
-		missingValue: missingValue,
-	}
-}
-
 // read returns a string value that was written to a bluetooth characteristic by a client.
-func readCharacteristic(bsl *bluetoothServiceLinux, c string) (string, error) {
+func (bsl *bluetoothServiceLinux) readCharacteristic(c string) string {
 	bsl.userInputMu.Lock()
 	defer bsl.userInputMu.Unlock()
-
-	cValue, ok := bsl.valueByCharacteristicUUID[bsl.characteristicUUIDByName[c]]
-	if !ok {
-		return "", fmt.Errorf("characteristic %s does not have a locally-stored value", c)
-	}
-
-	if cValue == "" {
-		return "", newEmptyBluetoothCharacteristicError(c)
-	}
-	return cValue, nil
+	return bsl.valueByCharacteristicUUID[bsl.characteristicUUIDByName[c]]
 }
 
 // initializeWOCharacteristic returns a bluetooth characteristic config.
-func initializeWOCharacteristic(bsl *bluetoothServiceLinux, cName string, encoding uint16,
-) bluetooth.CharacteristicConfig {
+func (bsl *bluetoothServiceLinux) initializeWOCharacteristic(cName string, encoding uint16) bluetooth.CharacteristicConfig {
 	cUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(encoding)
 	bsl.logger.Debugf("%s can be written to the following bluetooth characteristic: %s", cName, cUUID.String())
 
@@ -624,7 +552,7 @@ func initializeWOCharacteristic(bsl *bluetoothServiceLinux, cName string, encodi
 }
 
 // initializeROCharacteristic returns a bluetooth characteristic config.
-func initializeROCharacteristic(bsl *bluetoothServiceLinux, cName string, encoding uint16) (
+func (bsl *bluetoothServiceLinux) initializeROCharacteristic(cName string, encoding uint16) (
 	bluetooth.CharacteristicConfig, func(bs []byte) error,
 ) {
 	cUUID := bluetooth.NewUUID(uuid.New()).Replace16BitComponent(encoding)
