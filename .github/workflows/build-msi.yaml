@@ -1,46 +1,58 @@
-name: Build MSI
+name: Build and Publish Agent Windows Installer
 
 on:
   workflow_dispatch:
-    inputs:
-      # since this is being triggered manually on branch but we should use our regular git tags when we're back on the normal flow
-      msi_version:
-        description: "MSI package version (e.g., 1.0.0)"
-        required: true
 
 jobs:
-  build-msi:
+  validate:
     runs-on: windows-2019
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.23.1'
-
-      - name: Install Make
-        run: choco install make --yes
-
-      - name: Install WiX CLI
-        run: dotnet tool install --global wix
-
-      - name: Install WiX Extensions
+      - name: Validate PowerShell script
         run: |
-          wix extension add -g WixToolset.Firewall.wixext/5.0.2
-          wix extension add -g WixToolset.Util.wixext/5.0.2
+          # Run the script in test mode (without actually installing)
+          Write-Host "Running PowerShell script validation..."
+          $ErrorActionPreference = 'Stop'
+          
+          # Test script syntax
+          $scriptContent = Get-Content -Path windows-installer-agent.ps1 -Raw
+          $scriptBlock = [ScriptBlock]::Create($scriptContent)
+          Write-Host "✓ Script syntax validation passed"
+          
+          # Test script execution with -Silent parameter
+          try {
+            & $scriptBlock -Silent
+            Write-Host "✓ Script execution test passed"
+          } catch {
+            Write-Error "Script execution failed: $_"
+            exit 1
+          }
+          
+          Write-Host "✓ All validation tests passed successfully"
 
-      - name: Build Go binary
-        run: make windows
+  build:
+    needs: validate
+    runs-on: windows-2019
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Build MSI
+      - name: Install PS2EXE
         run: |
-          wix build agent.wxs -define GoBinDir="${{ github.workspace }}\bin" -define MSIProductVersion="${{ github.event.inputs.msi_version }}" -ext WixToolset.Util.wixext -ext WixToolset.Firewall.wixext -o agent-${{ github.event.inputs.msi_version }}.msi
-    
-      - name: Upload MSI artifact
+          Install-Module -Name ps2exe -Scope CurrentUser -Force
+
+      - name: Convert PowerShell script to EXE
+        run: |
+          Invoke-ps2exe -InputFile windows-installer-agent.ps1 -OutputFile viam-agent-installer.exe -NoConsole -RequireAdmin
+
+      - name: Sign Installer EXE
+        run: |
+          echo "TODO: Sign Installer EXE"
+          
+      - name: Upload Installer EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agent-${{ github.event.inputs.msi_version }}.msi
-          path: agent-${{ github.event.inputs.msi_version }}.msi
+          name: viam-agent-installer.exe
+          path: viam-agent-installer.exe
