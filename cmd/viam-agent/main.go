@@ -49,7 +49,7 @@ func commonMain() {
 	ctx, globalCancel := setupExitSignalHandling()
 
 	defer func() {
-		cancel()
+		globalCancel()
 		activeBackgroundWorkers.Wait()
 	}()
 
