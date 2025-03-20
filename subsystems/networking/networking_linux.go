@@ -221,14 +221,18 @@ func (n *Networking) Start(ctx context.Context) error {
 		n.logger.Error(err)
 	}
 
-	if !n.Config().DisableBTProvisioning && !n.Config().DisableWifiProvisioning {
+	if !n.Config().DisableBTProvisioning || !n.Config().DisableWifiProvisioning {
 		cancelCtx, cancel := context.WithCancel(ctx)
 		n.cancel = cancel		// This will loop indefinitely until context cancellation or serious error
 		n.monitorWorkers.Add(1)
+		n.mainLoopHealth.MarkGood()
+		n.bgLoopHealth.MarkGood()
 		go n.mainLoop(cancelCtx)
+	}else{
+		n.logger.Warn("Both wifi and bluetooth provisioning have been disabled by configuration. Provisioning will not be available.")
 	}
 
-	n.logger.Info("networking startup complete")
+	n.logger.Info("Networking startup complete")
 	n.running = true
 	return nil
 }
@@ -308,7 +312,7 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 		return nil
 	}
 
-	return errw.New("provisioning not responsive")
+	return errw.New("networking system not responsive")
 }
 
 func (n *Networking) Config() utils.NetworkConfiguration {

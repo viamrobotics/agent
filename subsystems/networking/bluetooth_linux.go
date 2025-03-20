@@ -168,10 +168,6 @@ func (bsl *bluetoothServiceLinux) healthy() bool {
 	return bsl.updateROHealth.IsHealthy() && bsl.listenForCredentialsHealth.IsHealthy() && bsl.listenForPairRequestHealth.IsHealthy()
 }
 
-// ---------------------------------------------------------------------------------------
-// ---------------------------------- INTERNAL METHODS -----------------------------------
-// ---------------------------------------------------------------------------------------
-
 // prepare initializes bluetooth services and defines in-memory state for storing user input.
 func (bsl *bluetoothServiceLinux) prepare() error {
 	// Can only call this function if the bsl.mu is already locked!
@@ -441,6 +437,7 @@ func (bsl *bluetoothServiceLinux) listenForPairRequest(ctx context.Context) erro
 		if ctx.Err() != nil {
 			return nil // Return nil instead of a canceled context error to gracefully exit.
 		}
+		bsl.listenForPairRequestHealth.MarkGood()
 		select {
 		case <-ctx.Done():
 			return nil // Return nil instead of a canceled context error to gracefully exit.

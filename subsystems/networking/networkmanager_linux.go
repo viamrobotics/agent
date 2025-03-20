@@ -263,11 +263,10 @@ func (n *Networking) stopProvisioningHotspot() error {
 // stopProvisioningBluetooth should only be called by a caller who has verified the
 // bluetooth service is active.
 func (n *Networking) stopProvisioningBluetooth() error {
-	if n.noBT {
-		return nil
-	}
-	if err := n.bt.stop(); err != nil {
-		return err
+	if n.bt != nil {
+		if err := n.bt.stop(); err != nil {
+			return err
+		}
 	}
 	n.logger.Info("Stopped bluetooth provisioning mode.")
 	return nil
