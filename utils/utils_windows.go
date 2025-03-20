@@ -29,8 +29,7 @@ func SyncFS(syncPath string) error {
 		return err
 	}
 	defer func() {
-		//nolint:errcheck,gosec // CloseHandle errors can be ignored in defer
-		syscall.CloseHandle(handle)
+		goutils.UncheckedError(syscall.CloseHandle(handle))
 	}()
 	err = syscall.Fsync(handle)
 	if err != nil {
