@@ -16,7 +16,6 @@ import (
 var (
 	elog         debug.Log
 	_            svc.Handler = (*agentService)(nil)
-	globalCancel func()
 )
 
 const serviceName = "viam-agent"
