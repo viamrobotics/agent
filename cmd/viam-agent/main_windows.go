@@ -56,8 +56,7 @@ func main() {
 		return
 	}
 	defer func() {
-		//nolint:errcheck,gosec // logging utility errors can be ignored
-		elog.Close()
+		goutils.UncheckedError(elog.Close())
 	}()
 
 	//nolint:errcheck,gosec // logging utility errors can be ignored
