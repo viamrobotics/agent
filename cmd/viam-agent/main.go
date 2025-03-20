@@ -29,7 +29,6 @@ var (
 
 	// only changed/set at startup, so no mutex.
 	globalLogger = logging.NewLogger("viam-agent")
-	globalCancel func() //nolint:unused
 )
 
 //nolint:lll
@@ -47,7 +46,6 @@ type agentOpts struct {
 //nolint:gocognit
 func commonMain() {
 	ctx, cancel := setupExitSignalHandling()
-	globalCancel = cancel
 
 	defer func() {
 		cancel()
