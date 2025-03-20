@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	elog         debug.Log
-	_            svc.Handler = (*agentService)(nil)
+	elog debug.Log
+	_    svc.Handler = (*agentService)(nil)
 )
 
 const serviceName = "viam-agent"
