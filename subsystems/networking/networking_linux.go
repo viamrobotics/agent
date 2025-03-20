@@ -2,7 +2,6 @@ package networking
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"reflect"
 	"sync"
@@ -81,14 +80,12 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
-		n.noNM = true
 		n.logger.Error(err)
 		return nil, ErrNM
 	}
 
 	ver, err := nm.GetPropertyVersion()
 	if err != nil {
-		n.noNM = true
 		n.logger.Error(err)
 		return nil, ErrNM
 	}
@@ -97,13 +94,11 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 
 	sv, err := semver.NewVersion(ver)
 	if err != nil {
-		n.noNM = true
 		n.logger.Error(err)
 		return nil, ErrNM
 	}
 
 	if !sv.GreaterThanEqual(semver.MustParse("1.30.0")) {
-		n.noNM = true
 		return nil, ErrNM
 	}
 
@@ -112,13 +107,11 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	if sv.GreaterThanEqual(semver.MustParse("1.38.0")) {
 		flags, err := nm.GetPropertyRadioFlags()
 		if err != nil {
-			n.noNM = true
 			n.logger.Error(err)
 			return nil, ErrNoWifi
 		}
 
 		if flags&gnm.NmRadioFlagsWlanAvailable != gnm.NmRadioFlagsWlanAvailable {
-			n.noNM = true
 			return nil, ErrNoWifi
 		}
 	}
@@ -132,6 +125,7 @@ func (n *Networking) init(ctx context.Context) error {
 
 	nm, err := n.getNM()
 	if err != nil {
+		n.noNM = true
 		return err
 	}
 
@@ -162,9 +156,7 @@ func (n *Networking) init(ctx context.Context) error {
 	}
 
 	if err := n.initDevices(); err != nil {
-		if errors.Is(err, ErrNoWifi) {
-			n.noNM = true
-		}
+		n.noNM = true
 		return err
 	}
 
@@ -208,7 +200,7 @@ func (n *Networking) init(ctx context.Context) error {
 func (n *Networking) Start(ctx context.Context) error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
-	if n.running {
+	if n.running || n.noNM {
 		return nil
 	}
 	n.logger.Debugf("Starting networking")
@@ -229,12 +221,12 @@ func (n *Networking) Start(ctx context.Context) error {
 		n.logger.Error(err)
 	}
 
-	cancelCtx, cancel := context.WithCancel(ctx)
-	n.cancel = cancel
-
-	// This will loop indefinitely until context cancellation or serious error
-	n.monitorWorkers.Add(1)
-	go n.mainLoop(cancelCtx)
+	if !n.Config().DisableBTProvisioning && !n.Config().DisableWifiProvisioning {
+		cancelCtx, cancel := context.WithCancel(ctx)
+		n.cancel = cancel		// This will loop indefinitely until context cancellation or serious error
+		n.monitorWorkers.Add(1)
+		go n.mainLoop(cancelCtx)
+	}
 
 	n.logger.Info("networking startup complete")
 	n.running = true
@@ -307,7 +299,7 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 func (n *Networking) HealthCheck(ctx context.Context) error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
-	if n.noNM {
+	if n.noNM || (n.Config().DisableBTProvisioning && n.Config().DisableWifiProvisioning) {
 		return nil
 	}
 

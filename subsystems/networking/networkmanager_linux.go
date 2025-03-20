@@ -193,6 +193,10 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
 func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan chan<- userInput) error {
+	if n.Config().DisableWifiProvisioning {
+		return nil
+	}
+
 	_, err := n.addOrUpdateConnection(utils.NetworkDefinition{
 		Type:      NetworkTypeHotspot,
 		Interface: n.Config().HotspotInterface,
@@ -215,9 +219,8 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan cha
 }
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput,
-) error {
-	if n.noBT {
+func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput) error {
+	if n.Config().DisableBTProvisioning || n.noBT {
 		return nil
 	}
 	if err := n.bt.start(ctx, inputChan); err != nil {
