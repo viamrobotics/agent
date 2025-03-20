@@ -46,12 +46,13 @@ clean:
 	rm -rf bin/
 
 bin/golangci-lint: Makefile
-	GOBIN=`pwd`/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
+	GOOS='' GOBIN=`pwd`/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
 
 .PHONY: lint
 lint: bin/golangci-lint
 	go mod tidy
-	bin/golangci-lint run -v --fix
+	GOOS='linux' bin/golangci-lint run -v --fix
+	GOOS='windows' bin/golangci-lint run -v --fix
 
 .PHONY: test
 test:
