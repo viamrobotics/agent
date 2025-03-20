@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"go.viam.com/rdk/logging"
+	goutils "go.viam.com/utils"
 	"golang.org/x/sys/windows/svc/eventlog"
 )
 
@@ -59,8 +60,7 @@ func KillTree(pid int) error {
 	}
 	lines := strings.Split(string(output), "\r\n")
 	if elog != nil {
-		//nolint:errcheck,gosec // logging utility errors can be ignored
-		elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(lines), pid))
+		goutils.UncheckedError(elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(lines), pid)))
 	}
 	for _, line := range lines[1:] {
 		if line == "" {
@@ -70,8 +70,7 @@ func KillTree(pid int) error {
 		_, err := fmt.Sscan(line, &childPID)
 		if err != nil {
 			if elog != nil {
-				//nolint:errcheck,gosec // logging utility errors can be ignored
-				elog.Error(1, fmt.Sprintf("not a valid childProcess line %q, #%s", line, err))
+				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("not a valid childProcess line %q, #%s", line, err)))
 			}
 			continue
 		}
@@ -81,17 +80,14 @@ func KillTree(pid int) error {
 		err = cmd.Run()
 		if elog != nil {
 			if err != nil {
-				//nolint:errcheck,gosec // logging utility errors can be ignored
-				elog.Error(1, fmt.Sprintf("error running taskkill pid %d: #%s", childPID, err))
+				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error running taskkill pid %d: #%s", childPID, err)))
 			} else {
-				//nolint:errcheck,gosec // logging utility errors can be ignored
-				elog.Info(1, fmt.Sprintf("killed pid %d", childPID))
+				goutils.UncheckedError(elog.Info(1, fmt.Sprintf("killed pid %d", childPID)))
 			}
 		}
 	}
 	if elog != nil {
-		//nolint:errcheck,gosec // logging utility errors can be ignored
-		elog.Info(1, "KillTree finished")
+		goutils.UncheckedError(elog.Info(1, "KillTree finished"))
 	}
 	return nil
 }
