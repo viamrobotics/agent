@@ -29,6 +29,7 @@ var (
 
 	// only changed/set at startup, so no mutex.
 	globalLogger = logging.NewLogger("viam-agent")
+	globalCancel context.CancelFunc
 )
 
 //nolint:lll
