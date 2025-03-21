@@ -173,6 +173,30 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	defer n.opMu.Unlock()
 
 	n.logger.Info("Starting provisioning mode.")
+
+	hotspotErr := n.startProvisioningHotspot(ctx, inputChan)
+	if hotspotErr != nil {
+		n.logger.Errorw("failed to start hotspot provisioning", "error", hotspotErr)
+	}
+	bluetoothErr := n.startProvisioningBluetooth(ctx, inputChan)
+	if bluetoothErr != nil {
+		n.logger.Errorw("failed to start bluetooth provisioning", "error", bluetoothErr)
+	}
+
+	// Do not return an error if at least one provisioning method succeeds.
+	n.connState.setProvisioning(hotspotErr == nil || bluetoothErr == nil)
+	if hotspotErr == nil || bluetoothErr == nil {
+		return nil
+	}
+	return errors.Join(hotspotErr, bluetoothErr)
+}
+
+// startProvisioningHotspot should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
+func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan chan<- userInput) error {
+	if n.Config().DisableWifiProvisioning {
+		return nil
+	}
+
 	_, err := n.addOrUpdateConnection(utils.NetworkDefinition{
 		Type:      NetworkTypeHotspot,
 		Interface: n.Config().HotspotInterface,
@@ -190,8 +214,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 		err = errors.Join(err, n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID))
 		return errw.Wrap(err, "starting web/grpc portal")
 	}
-
-	n.connState.setProvisioning(true)
+	n.logger.Info("Hotspot provisioning set up successfully.")
 	return nil
 }
 
@@ -204,12 +227,25 @@ func (n *Networking) StopProvisioning() error {
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
 	n.connState.setProvisioning(false)
+
+	n.errors.Clear()
+	return errors.Join(
+		n.stopProvisioningHotspot(),
+		n.stopProvisioningBluetooth(),
+	)
+}
+
+func (n *Networking) stopProvisioningHotspot() error {
 	err := n.stopPortal()
 	err2 := n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID)
 	if errors.Is(err2, ErrNoActiveConnectionFound) {
 		return err
 	}
-	return errors.Join(err, err2)
+	if err := errors.Join(err, err2); err != nil {
+		return err
+	}
+	n.logger.Info("Stopped hotspot provisioning mode.")
+	return nil
 }
 
 func (n *Networking) ActivateConnection(ctx context.Context, ifName, ssid string) error {
@@ -711,6 +747,17 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		)
 
 		if pMode {
+			// Update bluetooth read-only characteristics
+			if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
+				n.logger.Warn("could not update BT status characteristic")
+			}
+			if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
+				n.logger.Warn("could not update BT networks characteristic")
+			}
+			if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
+				n.logger.Warn("could not update BT errors characteristic")
+			}
+
 			// complex logic, so wasting some variables for readability
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
