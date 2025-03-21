@@ -108,13 +108,13 @@ create_tarball() {
 		echo "Using custom binary: $VIAM_AGENT_PATH"
 	fi
 
-	if [ -n "$PROVISIONING_PATH" ]; then
-		PROVISIONING_PATH=$(eval echo "$PROVISIONING_PATH")
-		if ! [ -f "$PROVISIONING_PATH" ]; then
-			echo "Provisioning file path provided, but file ($PROVISIONING_PATH) was not found."
+	if [ -n "$DEFAULTS_PATH" ]; then
+		DEFAULTS_PATH=$(eval echo "$DEFAULTS_PATH")
+		if ! [ -f "$DEFAULTS_PATH" ]; then
+			echo "viam-defaults.json file path provided, but file ($DEFAULTS_PATH) was not found."
 			return 1
 		fi
-		echo "Installing $PROVISIONING_PATH as /etc/viam-defaults.json"
+		echo "Installing $DEFAULTS_PATH as /etc/viam-defaults.json"
 	fi
 
 	if [ -n "$VIAM_JSON_PATH" ]; then
@@ -145,8 +145,8 @@ create_tarball() {
 	ln -s "/opt/viam/cache/viam-agent-factory-$ARCH" "$TEMPDIR/opt/viam/bin/viam-agent"
 
 	mkdir -p "$TEMPDIR/etc"
-	if [ -f "$PROVISIONING_PATH" ]; then
-		cp "$PROVISIONING_PATH" "$TEMPDIR/etc/viam-defaults.json"
+	if [ -f "$DEFAULTS_PATH" ]; then
+		cp "$DEFAULTS_PATH" "$TEMPDIR/etc/viam-defaults.json"
 	fi
 
 	if [ -f "$VIAM_JSON_PATH" ]; then
@@ -215,8 +215,8 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 		read -p "Path to custom viam-agent binary (leave empty to download default): " VIAM_AGENT_PATH
 	fi
 
-	if [ -z "$PROVISIONING_PATH" ]; then
-		read -p "Path to custom viam-defaults.json (leave empty to skip): " PROVISIONING_PATH
+	if [ -z "$DEFAULTS_PATH" ]; then
+		read -p "Path to custom viam-defaults.json (leave empty to skip): " DEFAULTS_PATH
 	fi
 
 	if [ -z "$VIAM_JSON_PATH" ]; then
