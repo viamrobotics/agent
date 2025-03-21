@@ -130,7 +130,7 @@ try {
     Start-Process -FilePath "sc" -ArgumentList $scArgs -NoNewWindow -Wait
     
     # Configure failure actions
-    $scFailArgs = @("failure", "viam-agent", "reset=", "0", "actions=", "restart/30000/restart/30000/restart/30000")
+    $scFailArgs = @("failure", "viam-agent", "reset=", "0", "actions=", "restart/5000/restart/5000/restart/5000")
     Start-Process -FilePath "sc" -ArgumentList $scFailArgs -NoNewWindow -Wait
     
     # Set failure flag
