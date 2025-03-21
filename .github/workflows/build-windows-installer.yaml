@@ -1,4 +1,4 @@
-name: Build and Publish Agent Windows Installer
+name: Build Agent Windows Installer
 
 on:
   workflow_dispatch:

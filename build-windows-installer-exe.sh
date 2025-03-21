@@ -35,7 +35,7 @@ fi
 read -p "Enter branch name (leave empty for main): " branch
 branch=${branch:-main}
 echo "Starting Windows installer build for branch: $branch"
-gh workflow run build-msi.yaml --ref "$branch"
+gh workflow run build-windows-installer.yaml --ref "$branch"
 
 echo "Waiting for workflow to start..."
 
@@ -49,13 +49,13 @@ while true; do
     
     if [ $elapsed -ge 90 ]; then
         echo "Timeout: Workflow did not start within 90 seconds."
-        echo "Please check the workflow status manually at: https://github.com/viamrobotics/agent/actions/workflows/build-msi.yaml"
+        echo "Please check the workflow status manually at: https://github.com/viamrobotics/agent/actions/workflows/build-windows-installer.yaml"
         echo "Once completed, you can download the artifact using: gh run download <run-id> --name viam-agent-installer.exe"
         exit 1
     fi
     
     # Try to get the latest run ID
-    if job_id=$(gh run list --workflow=build-msi.yaml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null); then
+    if job_id=$(gh run list --workflow=build-windows-installer.yaml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null); then
         job_url="https://github.com/viamrobotics/agent/actions/runs/$job_id"
         echo "Job started: $job_url"
         workflow_started=true
