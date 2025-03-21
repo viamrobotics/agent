@@ -15,6 +15,7 @@ import (
 	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	"google.golang.org/grpc"
+	"tinygo.org/x/bluetooth"
 )
 
 type Networking struct {
@@ -41,6 +42,7 @@ type Networking struct {
 
 	mainLoopHealth *health
 	bgLoopHealth   *health
+	btLoopHealth   *health
 
 	// locking for config updates
 	dataMu sync.Mutex
@@ -53,8 +55,9 @@ type Networking struct {
 	portalData *portalData
 
 	// bluetooth
-	noBT bool
-	bt   bluetoothService
+	noBT   bool
+	btChar *btCharacteristics
+	btAdv  *bluetooth.Advertisement
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -72,8 +75,11 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		banner:     &banner{},
 		portalData: &portalData{},
 
+		btChar: newBTCharacteristics(logger),
+
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
+		btLoopHealth:   &health{},
 	}
 }
 
@@ -150,10 +156,6 @@ func (n *Networking) init(ctx context.Context) error {
 	if err := n.enableWifi(ctx); err != nil {
 		return err
 	}
-	// APP-7791: Add viam-agent config support for disabling bluetooth provisioning.
-	if err := n.initBluetooth(); err != nil {
-		n.logger.Errorw("blutooth service for provisioning is not configured", "error", err)
-	}
 
 	if err := n.initDevices(); err != nil {
 		n.noNM = true
@@ -223,12 +225,12 @@ func (n *Networking) Start(ctx context.Context) error {
 
 	if !n.Config().DisableBTProvisioning || !n.Config().DisableWifiProvisioning {
 		cancelCtx, cancel := context.WithCancel(ctx)
-		n.cancel = cancel		// This will loop indefinitely until context cancellation or serious error
+		n.cancel = cancel // This will loop indefinitely until context cancellation or serious error
 		n.monitorWorkers.Add(1)
 		n.mainLoopHealth.MarkGood()
 		n.bgLoopHealth.MarkGood()
 		go n.mainLoop(cancelCtx)
-	}else{
+	} else {
 		n.logger.Warn("Both wifi and bluetooth provisioning have been disabled by configuration. Provisioning will not be available.")
 	}
 
@@ -308,7 +310,7 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	}
 
 	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
-		(n.noBT || n.bt.healthy()) {
+		(n.noBT || n.btAdv == nil || n.btChar.health.IsHealthy()) {
 		return nil
 	}
 

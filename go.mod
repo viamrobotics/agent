@@ -6,7 +6,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.0
 	github.com/Otterverse/gonetworkmanager/v2 v2.2.2
 	github.com/gabriel-vasile/mimetype v1.4.8
-	github.com/godbus/dbus v4.1.0+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/nightlyone/lockfile v1.0.0

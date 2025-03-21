@@ -218,19 +218,6 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan cha
 	return nil
 }
 
-// startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput) error {
-	if n.Config().DisableBTProvisioning || n.noBT {
-		return nil
-	}
-	if err := n.bt.start(ctx, inputChan); err != nil {
-		n.noBT = true
-		return err
-	}
-	n.logger.Info("Bluetooth provisioning set up successfully.")
-	return nil
-}
-
 func (n *Networking) StopProvisioning() error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
@@ -241,6 +228,7 @@ func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
 	n.connState.setProvisioning(false)
 
+	n.errors.Clear()
 	return errors.Join(
 		n.stopProvisioningHotspot(),
 		n.stopProvisioningBluetooth(),
@@ -257,18 +245,6 @@ func (n *Networking) stopProvisioningHotspot() error {
 		return err
 	}
 	n.logger.Info("Stopped hotspot provisioning mode.")
-	return nil
-}
-
-// stopProvisioningBluetooth should only be called by a caller who has verified the
-// bluetooth service is active.
-func (n *Networking) stopProvisioningBluetooth() error {
-	if n.bt != nil {
-		if err := n.bt.stop(); err != nil {
-			return err
-		}
-	}
-	n.logger.Info("Stopped bluetooth provisioning mode.")
 	return nil
 }
 
@@ -771,6 +747,17 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		)
 
 		if pMode {
+			// Update bluetooth read-only characteristics
+			if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
+				n.logger.Warn("could not update BT status characteristic")
+			}
+			if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
+				n.logger.Warn("could not update BT networks characteristic")
+			}
+			if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
+				n.logger.Warn("could not update BT errors characteristic")
+			}
+
 			// complex logic, so wasting some variables for readability
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
