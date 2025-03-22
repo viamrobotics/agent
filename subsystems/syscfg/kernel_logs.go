@@ -39,7 +39,19 @@ func (k *KernelLogForwarder) Start() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	if !k.cfg.ForwardKernelLogs {
+	// If forwarding is disabled but we have a running process, stop it
+	if !k.cfg.ForwardKernelLogs && k.cmd != nil {
+		k.cancel()
+		if err := k.cmd.Wait(); err != nil && !strings.Contains(err.Error(), "signal: killed") {
+			return errw.Wrap(err, "stopping kernel log forwarding")
+		}
+		k.cmd = nil
+		k.logger.Info("Stopped Kernel logs forwarding")
+		return nil
+	}
+
+	// If forwarding is disabled or we already have a running process, do nothing
+	if !k.cfg.ForwardKernelLogs || k.cmd != nil {
 		return nil
 	}
 
@@ -47,8 +59,6 @@ func (k *KernelLogForwarder) Start() error {
 		k.logger.Error("journalctl not available, kernel log forwarding disabled")
 		return nil
 	}
-
-	k.logger.Info("Starting kernel log forwarding")
 
 	// Use journalctl to follow kernel logs
 	cmd := exec.CommandContext(k.ctx, "journalctl", "-f", "-k", "-o", "json")
@@ -59,6 +69,7 @@ func (k *KernelLogForwarder) Start() error {
 		return errw.Wrap(err, "starting kernel log forwarding")
 	}
 
+	k.logger.Info("Started Kernel logs forwarding")
 	k.cmd = cmd
 	return nil
 }
@@ -73,30 +84,19 @@ func (k *KernelLogForwarder) Stop() error {
 	}
 
 	k.cancel()
-	if err := k.cmd.Wait(); err != nil {
-		if strings.Contains(err.Error(), "signal: killed") {
-			return nil
-		}
+	if err := k.cmd.Wait(); err != nil && !strings.Contains(err.Error(), "signal: killed") {
 		return errw.Wrap(err, "stopping kernel log forwarding")
 	}
 
 	k.cmd = nil
+	k.logger.Info("Stopped Kernel logs forwarding")
 	return nil
 }
 
 // Update updates the kernel log forwarding configuration
 func (k *KernelLogForwarder) Update(cfg utils.SystemConfiguration) error {
 	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	if k.cfg.ForwardKernelLogs == cfg.ForwardKernelLogs {
-		return nil
-	}
-
-	if err := k.Stop(); err != nil {
-		return err
-	}
-
 	k.cfg = cfg
-	return k.Start()
+	k.mu.Unlock()
+	return nil
 }
