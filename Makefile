@@ -58,6 +58,13 @@ lint: bin/golangci-lint
 test:
 	go test -race ./...
 
+# For convenience of non-linux devs, -race requires CGO which means it must run on a Linux environment
+# make test-docker-linux TEST_TARGET=<test_name> will run a specific test
+.PHONY: test-docker-linux
+test-docker-linux:
+	docker build -t viam-agent-test -f Dockerfile.test .
+	docker run --rm $(if $(TEST_TARGET),-e TEST_TARGET=$(TEST_TARGET)) viam-agent-test
+
 .PHONY: manifest
 manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+' || exit 1

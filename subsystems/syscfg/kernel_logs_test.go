@@ -40,7 +40,7 @@ sleep 1
 	}
 }
 
-func TestKernelLogForwarderForwarding(t *testing.T) {
+func TestKernelLogForwarder(t *testing.T) {
 	cleanup := createMockJournalctl(t)
 	defer cleanup()
 

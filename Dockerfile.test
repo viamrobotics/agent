@@ -8,14 +8,19 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
-COPY go.mod go.sum ./
+# Copy everything at once to preserve module structure
+COPY . .
 
 # Download dependencies
 RUN go mod download
 
-# Copy source code
-COPY . .
+# Create a shell script to run tests
+RUN echo '#!/bin/sh\n\
+if [ -n "$TEST_TARGET" ]; then\n\
+    go test -race -v ./... -run "^$TEST_TARGET\$"\n\
+else\n\
+    go test -race -v ./...\n\
+fi' > /app/run-tests.sh && chmod +x /app/run-tests.sh
 
 # Run tests
-CMD ["go", "test", "-race", "-v", "./..."] 
+CMD ["/app/run-tests.sh"] 
