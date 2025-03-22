@@ -55,7 +55,8 @@ func TestParseJournalEntry(t *testing.T) {
 		wantOk bool
 	}{
 		{
-			name:   "single valid entry",
+			name: "single valid entry",
+			//nolint:lll
 			input:  []byte(`{"MESSAGE":"test message","PRIORITY":"6","SYSLOG_IDENTIFIER":"test-service","_BOOT_ID":"abc123","__REALTIME_TIMESTAMP":"1234567890000","__MONOTONIC_TIMESTAMP":"1000000"}`),
 			wantOk: true,
 			want: []logging.LogEntry{
@@ -71,6 +72,7 @@ func TestParseJournalEntry(t *testing.T) {
 		},
 		{
 			name: "multiple entries",
+			//nolint:lll
 			input: []byte(`{"MESSAGE":"error message","PRIORITY":"3","SYSLOG_IDENTIFIER":"error-service","_BOOT_ID":"abc123","__REALTIME_TIMESTAMP":"1234567890000","__MONOTONIC_TIMESTAMP":"1000000"}
 {"MESSAGE":"warning message","PRIORITY":"4","SYSLOG_IDENTIFIER":"warn-service","_BOOT_ID":"abc123","__REALTIME_TIMESTAMP":"1234567890000","__MONOTONIC_TIMESTAMP":"1000000"}`),
 			wantOk: true,

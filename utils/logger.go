@@ -150,9 +150,8 @@ func (l *MatchingLogger) parseJournalEntry(p []byte) ([]logging.LogEntry, bool) 
 	// Split the input into lines to handle multiple JSON entries
 	lines := bytes.Split(p, []byte("\n"))
 	var entries []logging.LogEntry
-	var parseErrors []string
 
-	for i, line := range lines {
+	for _, line := range lines {
 		if len(line) == 0 {
 			continue
 		}
@@ -164,7 +163,6 @@ func (l *MatchingLogger) parseJournalEntry(p []byte) ([]logging.LogEntry, bool) 
 			if idx := bytes.Index(line, []byte("{")); idx != -1 {
 				line = line[idx:]
 			} else {
-				parseErrors = append(parseErrors, fmt.Sprintf("line %d: no JSON object found", i))
 				continue
 			}
 		}
@@ -178,8 +176,6 @@ func (l *MatchingLogger) parseJournalEntry(p []byte) ([]logging.LogEntry, bool) 
 			MonotonicTS      string `json:"__MONOTONIC_TIMESTAMP"`
 		}
 		if err := json.Unmarshal(line, &journalEntry); err != nil || journalEntry.Message == "" {
-			// Log the error but continue processing other lines
-			parseErrors = append(parseErrors, fmt.Sprintf("line %d: %v", i, err))
 			continue
 		}
 

@@ -11,20 +11,21 @@ import (
 	"go.viam.com/test"
 )
 
-// createMockJournalctl creates a temporary mock journalctl command and modifies PATH to find it
+// createMockJournalctl creates a temporary mock journalctl command and modifies PATH to find it.
 func createMockJournalctl(t *testing.T) func() {
 	// Create a temporary directory for the mock command
 	tmpDir := t.TempDir()
 	mockPath := filepath.Join(tmpDir, "journalctl")
 
 	// Create the mock command that outputs test log entries
+	//nolint:lll
 	mockContent := `#!/bin/bash
 echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890123","__MONOTONIC_TIMESTAMP":"1234567890","MESSAGE":"Test kernel error"}'
 echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"Test kernel warning"}'
 echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890125","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test kernel info"}'
 sleep 1
 `
-	if err := os.WriteFile(mockPath, []byte(mockContent), 0755); err != nil {
+	if err := os.WriteFile(mockPath, []byte(mockContent), 0o755); err != nil {
 		t.Fatalf("Failed to create mock journalctl: %v", err)
 	}
 
@@ -32,11 +33,11 @@ sleep 1
 	oldPath := os.Getenv("PATH")
 
 	// Modify PATH to find our mock command
-	os.Setenv("PATH", tmpDir+":"+oldPath)
+	t.Setenv("PATH", tmpDir+":"+oldPath)
 
 	// Return cleanup function
 	return func() {
-		os.Setenv("PATH", oldPath)
+		t.Setenv("PATH", oldPath)
 	}
 }
 
@@ -154,8 +155,8 @@ func TestKernelLogForwarderErrorHandling(t *testing.T) {
 	t.Run("command error", func(t *testing.T) {
 		// Temporarily modify PATH to make journalctl unavailable
 		oldPath := os.Getenv("PATH")
-		os.Setenv("PATH", "")
-		defer os.Setenv("PATH", oldPath)
+		t.Setenv("PATH", "")
+		defer t.Setenv("PATH", oldPath)
 
 		err := k.Start()
 		test.That(t, err, test.ShouldBeNil)

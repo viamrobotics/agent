@@ -11,7 +11,7 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-// KernelLogForwarder handles forwarding kernel logs to the cloud
+// KernelLogForwarder handles forwarding kernel logs to the cloud.
 type KernelLogForwarder struct {
 	logger logging.Logger
 	cfg    utils.SystemConfiguration
@@ -23,7 +23,7 @@ type KernelLogForwarder struct {
 	mu sync.RWMutex
 }
 
-// NewKernelLogForwarder creates a new kernel log forwarder
+// NewKernelLogForwarder creates a new kernel log forwarder.
 func NewKernelLogForwarder(logger logging.Logger, cfg utils.SystemConfiguration) *KernelLogForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &KernelLogForwarder{
@@ -34,7 +34,7 @@ func NewKernelLogForwarder(logger logging.Logger, cfg utils.SystemConfiguration)
 	}
 }
 
-// Start begins forwarding kernel logs if enabled
+// Start begins forwarding kernel logs if enabled.
 func (k *KernelLogForwarder) Start() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -74,7 +74,7 @@ func (k *KernelLogForwarder) Start() error {
 	return nil
 }
 
-// Stop stops the kernel log forwarding
+// Stop stops the kernel log forwarding.
 func (k *KernelLogForwarder) Stop() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -93,7 +93,7 @@ func (k *KernelLogForwarder) Stop() error {
 	return nil
 }
 
-// Update updates the kernel log forwarding configuration
+// Update updates the kernel log forwarding configuration.
 func (k *KernelLogForwarder) Update(cfg utils.SystemConfiguration) error {
 	k.mu.Lock()
 	k.cfg = cfg
