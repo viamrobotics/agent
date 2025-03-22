@@ -17,13 +17,19 @@ func createMockJournalctl(t *testing.T) func() {
 	tmpDir := t.TempDir()
 	mockPath := filepath.Join(tmpDir, "journalctl")
 
-	// Create the mock command that outputs test log entries
+	// Create the mock command that outputs test log entries and reads from stdin for new entries
 	//nolint:lll
 	mockContent := `#!/bin/bash
+# Initial entries
 echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890123","__MONOTONIC_TIMESTAMP":"1234567890","MESSAGE":"Test kernel error"}'
 echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"Test kernel warning"}'
 echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890125","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test kernel info"}'
-sleep 1
+
+# Sleep to simulate time passing
+sleep 2
+
+# Output new entries after delay
+echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890126","__MONOTONIC_TIMESTAMP":"1234567893","MESSAGE":"New kernel entry after forwarder started"}'
 `
 	if err := os.WriteFile(mockPath, []byte(mockContent), 0o755); err != nil {
 		t.Fatalf("Failed to create mock journalctl: %v", err)
@@ -57,26 +63,36 @@ func TestKernelLogForwarder(t *testing.T) {
 	err := k.Start()
 	test.That(t, err, test.ShouldBeNil)
 
-	// Wait for logs to be output
+	// Wait for initial logs
 	time.Sleep(100 * time.Millisecond)
+
+	// Verify initial logs
+	initialLogs := logs.All()
+	test.That(t, len(initialLogs), test.ShouldEqual, 4) // 3 kernel logs + start message
+
+	// Wait for new logs
+	time.Sleep(3 * time.Second)
 
 	// Stop forwarding to ensure all logs are flushed
 	err = k.Stop()
 	test.That(t, err, test.ShouldBeNil)
 
-	// Get the logs from the observed logger
+	// Get all logs and verify
 	allLogs := logs.All()
+	test.That(t, len(allLogs), test.ShouldEqual, 6) // 4 kernel logs + start + stop messages
 
-	// Verify the logs
-	test.That(t, len(allLogs), test.ShouldBeGreaterThan, 0)
-	for _, log := range allLogs {
-		test.That(t, log.Message, test.ShouldBeIn, []string{
-			"Started Kernel logs forwarding",
-			"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890123Z monotonic=1.23456789s since boot] Test kernel error",
-			"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890124Z monotonic=1.234567891s since boot] Test kernel warning",
-			"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890125Z monotonic=1.234567892s since boot] Test kernel info",
-			"Stopped Kernel logs forwarding",
-		})
+	// Verify the logs in order
+	expectedLogs := []string{
+		"Started Kernel logs forwarding",
+		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890123Z monotonic=1.23456789s since boot] Test kernel error",
+		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890124Z monotonic=1.234567891s since boot] Test kernel warning",
+		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890125Z monotonic=1.234567892s since boot] Test kernel info",
+		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890126Z monotonic=1.234567893s since boot] New kernel entry after forwarder started",
+		"Stopped Kernel logs forwarding",
+	}
+
+	for i, log := range allLogs {
+		test.That(t, log.Message, test.ShouldEqual, expectedLogs[i])
 	}
 }
 

@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -102,16 +101,6 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 
-	// Try to parse journalctl JSON log entries first.
-	if bytes.Contains(p, []byte(`"MESSAGE"`)) && bytes.Contains(p, []byte(`"PRIORITY"`)) && bytes.Contains(p, []byte(`"SYSLOG_IDENTIFIER"`)) {
-		if entries, ok := l.parseJournalEntry(p); ok {
-			for _, entry := range entries {
-				l.logger.Write(&entry)
-			}
-			return len(p), nil
-		}
-	}
-
 	// TODO(RSDK-7895): the lines from subprocess stdout are sometimes multi-line.
 	dateMatched := dateRegex.Match(p)
 	if !dateMatched { //nolint:gocritic
@@ -142,95 +131,6 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 	// than len(p) in some cases, and we don't know if the write succeeded (to stderr or network).
 	// Basically we are telling the caller not to retry part of the line.
 	return len(p), nil
-}
-
-// parseJournalEntry attempts to parse journalctl JSON log entries.
-// Returns a slice of LogEntry and true if successful, or nil and false if not.
-func (l *MatchingLogger) parseJournalEntry(p []byte) ([]logging.LogEntry, bool) {
-	// Split the input into lines to handle multiple JSON entries
-	lines := bytes.Split(p, []byte("\n"))
-	var entries []logging.LogEntry
-
-	for _, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-
-		// Clean up the line - remove any leading/trailing whitespace and ensure it starts with {
-		line = bytes.TrimSpace(line)
-		if !bytes.HasPrefix(line, []byte("{")) {
-			// Try to find the first { and start from there
-			if idx := bytes.Index(line, []byte("{")); idx != -1 {
-				line = line[idx:]
-			} else {
-				continue
-			}
-		}
-
-		var journalEntry struct {
-			Message          string `json:"MESSAGE"`
-			Priority         string `json:"PRIORITY"`
-			SyslogIdentifier string `json:"SYSLOG_IDENTIFIER"`
-			BootID           string `json:"_BOOT_ID"`
-			RealtimeTS       string `json:"__REALTIME_TIMESTAMP"`
-			MonotonicTS      string `json:"__MONOTONIC_TIMESTAMP"`
-		}
-		if err := json.Unmarshal(line, &journalEntry); err != nil || journalEntry.Message == "" {
-			continue
-		}
-
-		level := zapcore.InfoLevel
-		// Priority levels from systemd journal (https://www.freedesktop.org/software/systemd/man/systemd.journal-fields.html#PRIORITY=)
-		switch journalEntry.Priority {
-		case "0", "1", "2", "3": // emerg, alert, crit, err
-			level = levels["ERROR"]
-		case "4": // warning
-			level = levels["WARN"]
-		case "5": // notice
-			level = levels["INFO"]
-		case "6": // info
-			level = levels["INFO"]
-		case "7": // debug
-			level = levels["DEBUG"]
-		}
-
-		// Convert timestamps to readable format
-		realtime := "unknown"
-		if ts, err := strconv.ParseInt(journalEntry.RealtimeTS, 10, 64); err == nil {
-			realtime = time.Unix(0, ts*1000).UTC().Format(time.RFC3339Nano)
-		}
-
-		// __MONOTONIC_TIMESTAMP is in microseconds since boot
-		// See: https://www.freedesktop.org/software/systemd/man/systemd.journal-fields.html#__MONOTONIC_TIMESTAMP=
-		monotonic := "unknown"
-		if ts, err := strconv.ParseInt(journalEntry.MonotonicTS, 10, 64); err == nil {
-			monotonic = fmt.Sprintf("%s since boot", time.Duration(ts).String())
-		}
-
-		// Format message with additional context
-		message := journalEntry.Message
-		context := []string{}
-
-		context = append(context, fmt.Sprintf("syslog_id=%s", journalEntry.SyslogIdentifier))
-		context = append(context, fmt.Sprintf("boot_id=%s", journalEntry.BootID))
-		context = append(context, fmt.Sprintf("realtime=%s", realtime))
-		context = append(context, fmt.Sprintf("monotonic=%s", monotonic))
-		message = fmt.Sprintf("[%s] %s", strings.Join(context, " "), message)
-
-		entries = append(entries, logging.LogEntry{Entry: zapcore.Entry{
-			Level:      level,
-			Time:       time.Now().UTC(),
-			LoggerName: l.logger.Desugar().Name(),
-			Message:    message,
-			Caller:     zapcore.EntryCaller{Defined: false},
-		}})
-	}
-
-	if len(entries) == 0 {
-		return nil, false
-	}
-
-	return entries, true
 }
 
 // parsedLog is a lightweight log structure we parse from subsystem logs.
