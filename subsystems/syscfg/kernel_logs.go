@@ -1,0 +1,102 @@
+package syscfg
+
+import (
+	"context"
+	"os/exec"
+	"strings"
+	"sync"
+
+	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
+	"go.viam.com/rdk/logging"
+)
+
+// KernelLogForwarder handles forwarding kernel logs to the cloud
+type KernelLogForwarder struct {
+	logger logging.Logger
+	cfg    utils.SystemConfiguration
+	cmd    *exec.Cmd
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// mu protects access to cmd and cfg
+	mu sync.RWMutex
+}
+
+// NewKernelLogForwarder creates a new kernel log forwarder
+func NewKernelLogForwarder(logger logging.Logger, cfg utils.SystemConfiguration) *KernelLogForwarder {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &KernelLogForwarder{
+		logger: logger,
+		cfg:    cfg,
+		ctx:    ctx,
+		cancel: cancel,
+	}
+}
+
+// Start begins forwarding kernel logs if enabled
+func (k *KernelLogForwarder) Start() error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if !k.cfg.ForwardKernelLogs {
+		return nil
+	}
+
+	if _, err := exec.LookPath("journalctl"); err != nil {
+		k.logger.Error("journalctl not available, kernel log forwarding disabled")
+		return nil
+	}
+
+	k.logger.Info("Starting kernel log forwarding")
+
+	// Use journalctl to follow kernel logs
+	cmd := exec.CommandContext(k.ctx, "journalctl", "-f", "-k", "-o", "json")
+	cmd.Stdout = utils.NewMatchingLogger(k.logger, false, true)
+	cmd.Stderr = utils.NewMatchingLogger(k.logger, true, true)
+
+	if err := cmd.Start(); err != nil {
+		return errw.Wrap(err, "starting kernel log forwarding")
+	}
+
+	k.cmd = cmd
+	return nil
+}
+
+// Stop stops the kernel log forwarding
+func (k *KernelLogForwarder) Stop() error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if k.cmd == nil {
+		return nil
+	}
+
+	k.cancel()
+	if err := k.cmd.Wait(); err != nil {
+		if strings.Contains(err.Error(), "signal: killed") {
+			return nil
+		}
+		return errw.Wrap(err, "stopping kernel log forwarding")
+	}
+
+	k.cmd = nil
+	return nil
+}
+
+// Update updates the kernel log forwarding configuration
+func (k *KernelLogForwarder) Update(cfg utils.SystemConfiguration) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if k.cfg.ForwardKernelLogs == cfg.ForwardKernelLogs {
+		return nil
+	}
+
+	if err := k.Stop(); err != nil {
+		return err
+	}
+
+	k.cfg = cfg
+	return k.Start()
+}
