@@ -60,8 +60,8 @@ func (k *KernelLogForwarder) Start() error {
 		return nil
 	}
 
-	// Use journalctl to follow kernel logs
-	cmd := exec.CommandContext(k.ctx, "journalctl", "-f", "-k", "-o", "json")
+	// Start journalctl with JSON output and follow mode
+	cmd := exec.Command("journalctl", "-f", "-k", "-o", "json", "-n")
 	cmd.Stdout = utils.NewMatchingLogger(k.logger, false, true)
 	cmd.Stderr = utils.NewMatchingLogger(k.logger, true, true)
 

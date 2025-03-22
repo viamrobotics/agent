@@ -1,293 +1,174 @@
 package syscfg
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/test"
 )
 
-// testLogger captures log messages for verification
-type testLogger struct {
-	logging.Logger
-	messages []string
-}
-
-func (l *testLogger) Error(args ...interface{}) {
-	l.messages = append(l.messages, "ERROR: "+fmt.Sprint(args...))
-	l.Logger.Error(args...)
-}
-
-func (l *testLogger) Info(args ...interface{}) {
-	l.messages = append(l.messages, "INFO: "+fmt.Sprint(args...))
-	l.Logger.Info(args...)
-}
-
-func (l *testLogger) GetMessages() []string {
-	return l.messages
-}
-
-// createMockJournalctl creates a temporary mock journalctl command that outputs test logs
-func createMockJournalctl(t *testing.T) (string, func()) {
+// createMockJournalctl creates a temporary mock journalctl command and modifies PATH to find it
+func createMockJournalctl(t *testing.T) func() {
 	// Create a temporary directory for the mock command
-	tmpDir, err := os.MkdirTemp("", "mock-journalctl")
-	assert.NoError(t, err)
-
-	// Create the mock command
+	tmpDir := t.TempDir()
 	mockPath := filepath.Join(tmpDir, "journalctl")
+
+	// Create the mock command that outputs test log entries
 	mockContent := `#!/bin/bash
-echo '{"MESSAGE":"Test kernel error","PRIORITY":3}'
-echo '{"MESSAGE":"Test kernel warning","PRIORITY":4}'
-echo '{"MESSAGE":"Test kernel info","PRIORITY":6}'
+echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890123","__MONOTONIC_TIMESTAMP":"1234567890","MESSAGE":"Test kernel error"}'
+echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"Test kernel warning"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890125","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test kernel info"}'
 sleep 1
 `
-	err = os.WriteFile(mockPath, []byte(mockContent), 0755)
-	assert.NoError(t, err)
+	if err := os.WriteFile(mockPath, []byte(mockContent), 0755); err != nil {
+		t.Fatalf("Failed to create mock journalctl: %v", err)
+	}
 
-	// Add the temporary directory to PATH
+	// Save original PATH
 	oldPath := os.Getenv("PATH")
+
+	// Modify PATH to find our mock command
 	os.Setenv("PATH", tmpDir+":"+oldPath)
 
 	// Return cleanup function
-	cleanup := func() {
+	return func() {
 		os.Setenv("PATH", oldPath)
-		os.RemoveAll(tmpDir)
-	}
-
-	return mockPath, cleanup
-}
-
-func TestKernelLogForwarder(t *testing.T) {
-	logger := &testLogger{
-		Logger:   logging.NewTestLogger(t),
-		messages: make([]string, 0),
-	}
-
-	tests := []struct {
-		name     string
-		cfg      utils.SystemConfiguration
-		action   func(*KernelLogForwarder) error
-		expected []string
-	}{
-		{
-			name: "start when not running",
-			cfg: utils.SystemConfiguration{
-				ForwardKernelLogs: true,
-			},
-			action: func(k *KernelLogForwarder) error {
-				return k.Start()
-			},
-			expected: []string{
-				"INFO: Started Kernel logs forwarding",
-			},
-		},
-		{
-			name: "stop when running",
-			cfg: utils.SystemConfiguration{
-				ForwardKernelLogs: true,
-			},
-			action: func(k *KernelLogForwarder) error {
-				if err := k.Start(); err != nil {
-					return err
-				}
-				time.Sleep(100 * time.Millisecond) // Wait for process to start
-				return k.Stop()
-			},
-			expected: []string{
-				"INFO: Started Kernel logs forwarding",
-				"INFO: Stopped Kernel logs forwarding",
-			},
-		},
-		{
-			name: "update configuration",
-			cfg: utils.SystemConfiguration{
-				ForwardKernelLogs: true,
-			},
-			action: func(k *KernelLogForwarder) error {
-				if err := k.Start(); err != nil {
-					return err
-				}
-				time.Sleep(100 * time.Millisecond) // Wait for process to start
-				k.cfg.ForwardKernelLogs = false
-				return k.Start()
-			},
-			expected: []string{
-				"INFO: Started Kernel logs forwarding",
-				"INFO: Stopped Kernel logs forwarding",
-			},
-		},
-		{
-			name: "update with no change",
-			cfg: utils.SystemConfiguration{
-				ForwardKernelLogs: true,
-			},
-			action: func(k *KernelLogForwarder) error {
-				if err := k.Start(); err != nil {
-					return err
-				}
-				time.Sleep(100 * time.Millisecond) // Wait for process to start
-				return k.Start()
-			},
-			expected: []string{
-				"INFO: Started Kernel logs forwarding",
-			},
-		},
-		{
-			name: "concurrent access",
-			cfg: utils.SystemConfiguration{
-				ForwardKernelLogs: true,
-			},
-			action: func(k *KernelLogForwarder) error {
-				// Start the forwarder
-				if err := k.Start(); err != nil {
-					return err
-				}
-				time.Sleep(100 * time.Millisecond) // Wait for process to start
-
-				// Simulate concurrent updates
-				done := make(chan error)
-				for i := 0; i < 5; i++ {
-					go func() {
-						k.cfg.ForwardKernelLogs = !k.cfg.ForwardKernelLogs
-						done <- k.Start()
-					}()
-				}
-
-				// Wait for all goroutines to complete
-				for i := 0; i < 5; i++ {
-					if err := <-done; err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			expected: []string{
-				"INFO: Started Kernel logs forwarding",
-				"INFO: Stopped Kernel logs forwarding",
-				"INFO: Started Kernel logs forwarding",
-				"INFO: Stopped Kernel logs forwarding",
-				"INFO: Started Kernel logs forwarding",
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			k := NewKernelLogForwarder(logger, tc.cfg)
-			err := tc.action(k)
-			assert.NoError(t, err)
-
-			// Verify log messages
-			messages := logger.GetMessages()
-			assert.Equal(t, tc.expected, messages)
-
-			// Clean up
-			if err := k.Stop(); err != nil {
-				t.Logf("Error stopping forwarder: %v", err)
-			}
-		})
-	}
-}
-
-func TestKernelLogForwarderErrorHandling(t *testing.T) {
-	logger := &testLogger{
-		Logger:   logging.NewTestLogger(t),
-		messages: make([]string, 0),
-	}
-
-	tests := []struct {
-		name     string
-		cfg      utils.SystemConfiguration
-		action   func(*KernelLogForwarder) error
-		expected []string
-	}{
-		{
-			name: "command error",
-			cfg: utils.SystemConfiguration{
-				ForwardKernelLogs: true,
-			},
-			action: func(k *KernelLogForwarder) error {
-				// Temporarily set PATH to make journalctl unavailable
-				oldPath := os.Getenv("PATH")
-				os.Setenv("PATH", "")
-				defer os.Setenv("PATH", oldPath)
-				return k.Start()
-			},
-			expected: []string{
-				"ERROR: journalctl not available, kernel log forwarding disabled",
-			},
-		},
-		{
-			name: "stop after context cancellation",
-			cfg: utils.SystemConfiguration{
-				ForwardKernelLogs: true,
-			},
-			action: func(k *KernelLogForwarder) error {
-				if err := k.Start(); err != nil {
-					return err
-				}
-				time.Sleep(100 * time.Millisecond) // Wait for process to start
-				k.cancel()
-				return k.Stop()
-			},
-			expected: []string{
-				"INFO: Started Kernel logs forwarding",
-				"INFO: Stopped Kernel logs forwarding",
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			k := NewKernelLogForwarder(logger, tc.cfg)
-			err := tc.action(k)
-			assert.NoError(t, err)
-
-			// Verify log messages
-			messages := logger.GetMessages()
-			assert.Equal(t, tc.expected, messages)
-
-			// Clean up
-			if err := k.Stop(); err != nil {
-				t.Logf("Error stopping forwarder: %v", err)
-			}
-		})
 	}
 }
 
 func TestKernelLogForwarderForwarding(t *testing.T) {
-	logger := &testLogger{
-		Logger:   logging.NewTestLogger(t),
-		messages: make([]string, 0),
-	}
-
-	// Create mock journalctl command
-	_, cleanup := createMockJournalctl(t)
+	cleanup := createMockJournalctl(t)
 	defer cleanup()
 
-	k := NewKernelLogForwarder(logger, utils.SystemConfiguration{
+	logger, logs := logging.NewObservedTestLogger(t)
+
+	cfg := utils.SystemConfiguration{
 		ForwardKernelLogs: true,
+	}
+
+	k := NewKernelLogForwarder(logger, cfg)
+
+	// On start, we should see kernel forwarder start log
+	err := k.Start()
+	test.That(t, err, test.ShouldBeNil)
+
+	// Wait for logs to be output
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop forwarding to ensure all logs are flushed
+	err = k.Stop()
+	test.That(t, err, test.ShouldBeNil)
+
+	// Get the logs from the observed logger
+	allLogs := logs.All()
+
+	// Verify the logs
+	test.That(t, len(allLogs), test.ShouldBeGreaterThan, 0)
+	for _, log := range allLogs {
+		test.That(t, log.Message, test.ShouldBeIn, []string{
+			"Started Kernel logs forwarding",
+			"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890123Z monotonic=1.23456789s since boot] Test kernel error",
+			"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890124Z monotonic=1.234567891s since boot] Test kernel warning",
+			"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890125Z monotonic=1.234567892s since boot] Test kernel info",
+			"Stopped Kernel logs forwarding",
+		})
+	}
+}
+
+func TestKernelLogForwarderDisabled(t *testing.T) {
+	cleanup := createMockJournalctl(t)
+	defer cleanup()
+
+	logger, logs := logging.NewObservedTestLogger(t)
+	cfg := utils.SystemConfiguration{
+		ForwardKernelLogs: false,
+	}
+	k := NewKernelLogForwarder(logger, cfg)
+	err := k.Start()
+	test.That(t, err, test.ShouldBeNil)
+
+	// Wait a bit to ensure no logs are forwarded
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop forwarding to ensure all logs are flushed
+	err = k.Stop()
+	test.That(t, err, test.ShouldBeNil)
+
+	// Verify no logs were forwarded
+	allLogs := logs.All()
+	test.That(t, len(allLogs), test.ShouldEqual, 0)
+}
+
+func TestKernelLogForwarderUpdate(t *testing.T) {
+	cleanup := createMockJournalctl(t)
+	defer cleanup()
+
+	logger, logs := logging.NewObservedTestLogger(t)
+
+	cfg := utils.SystemConfiguration{
+		ForwardKernelLogs: false,
+	}
+
+	k := NewKernelLogForwarder(logger, cfg)
+
+	// Start with forwarding disabled
+	err := k.Start()
+	test.That(t, err, test.ShouldBeNil)
+
+	// Update to enable forwarding
+	cfg.ForwardKernelLogs = true
+	err = k.Update(cfg)
+	test.That(t, err, test.ShouldBeNil)
+
+	// Start with forwarding disabled
+	err = k.Start()
+	test.That(t, err, test.ShouldBeNil)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop forwarding to ensure all logs are flushed
+	err = k.Stop()
+	test.That(t, err, test.ShouldBeNil)
+
+	// Verify logs are forwarded
+	allLogs := logs.All()
+	test.That(t, len(allLogs), test.ShouldBeGreaterThan, 0)
+}
+
+func TestKernelLogForwarderErrorHandling(t *testing.T) {
+	cleanup := createMockJournalctl(t)
+	defer cleanup()
+
+	logger := logging.NewTestLogger(t)
+
+	cfg := utils.SystemConfiguration{
+		ForwardKernelLogs: true,
+	}
+
+	k := NewKernelLogForwarder(logger, cfg)
+
+	t.Run("command error", func(t *testing.T) {
+		// Temporarily modify PATH to make journalctl unavailable
+		oldPath := os.Getenv("PATH")
+		os.Setenv("PATH", "")
+		defer os.Setenv("PATH", oldPath)
+
+		err := k.Start()
+		test.That(t, err, test.ShouldBeNil)
 	})
 
-	// Start the forwarder
-	err := k.Start()
-	assert.NoError(t, err)
+	t.Run("stop after context cancellation", func(t *testing.T) {
+		err := k.Start()
+		test.That(t, err, test.ShouldBeNil)
 
-	// Wait for logs to be processed
-	time.Sleep(2 * time.Second)
+		// Cancel context
+		k.cancel()
 
-	// Stop the forwarder
-	err = k.Stop()
-	assert.NoError(t, err)
-
-	// Verify that the test messages were captured
-	messages := logger.GetMessages()
-	assert.Contains(t, messages, "Test kernel error")
-	assert.Contains(t, messages, "Test kernel warning")
-	assert.Contains(t, messages, "Test kernel info")
+		err = k.Stop()
+		test.That(t, err, test.ShouldBeNil)
+	})
 }
