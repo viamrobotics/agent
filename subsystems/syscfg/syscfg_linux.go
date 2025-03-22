@@ -18,12 +18,15 @@ type syscfg struct {
 	logger  logging.Logger
 	healthy bool
 	started bool
+
+	kernelLogForwarder *KernelLogForwarder
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
 	return &syscfg{
-		logger: logger,
-		cfg:    cfg.SystemConfiguration,
+		logger:             logger,
+		cfg:                cfg.SystemConfiguration,
+		kernelLogForwarder: NewKernelLogForwarder(ctx, logger, cfg.SystemConfiguration),
 	}
 }
 
@@ -36,7 +39,14 @@ func (s *syscfg) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart
 	}
 
 	s.cfg = cfg.SystemConfiguration
+	if err := s.kernelLogForwarder.Update(s.cfg); err != nil {
+		s.logger.Error(errw.Wrap(err, "updating kernel log forwarding"))
+	}
 	return
+}
+
+func (s *syscfg) Version() string {
+	return utils.GetVersion()
 }
 
 func (s *syscfg) Start(ctx context.Context) error {
@@ -51,7 +61,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 	s.logger.Debugf("Starting syscfg")
 
 	s.started = true
-	var healthyLog, healthyUpgrades bool
+	var healthyLog, healthyUpgrades, healthyKernelLogs bool
 	defer func() {
 		// if something panicked, log it and allow things to continue
 		r := recover()
@@ -60,7 +70,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 			s.logger.Error(r)
 		}
 
-		s.healthy = healthyLog && healthyUpgrades
+		s.healthy = healthyLog && healthyUpgrades && healthyKernelLogs
 	}()
 
 	// set journald max size limits
@@ -77,6 +87,14 @@ func (s *syscfg) Start(ctx context.Context) error {
 	}
 	healthyUpgrades = true
 
+	// start kernel log forwarding
+	err = s.kernelLogForwarder.Start()
+	if err != nil {
+		s.logger.Error(errw.Wrap(err, "starting kernel log forwarding"))
+	} else {
+		healthyKernelLogs = true
+	}
+
 	return nil
 }
 
@@ -84,6 +102,10 @@ func (s *syscfg) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = false
+
+	if err := s.kernelLogForwarder.Stop(); err != nil {
+		s.logger.Error(errw.Wrap(err, "stopping kernel log forwarding"))
+	}
 	return nil
 }
 
