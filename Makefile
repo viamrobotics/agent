@@ -26,7 +26,7 @@ TAGS = osusergo,netgo
 .DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH)
 
 .PHONY: all
-all: amd64 arm64
+all: amd64 arm64 windows
 
 .PHONY: arm64
 arm64:
@@ -62,13 +62,14 @@ test:
 	go test -race ./...
 
 .PHONY: manifest
-manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64
+manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-windows-x86_64
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+' || exit 1
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-x86_64
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-aarch64
+	./manifest.sh bin/viam-agent-$(PATH_VERSION)-windows-x86_64
 
 .PHONY: upload-stable
-upload-stable: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 manifest
+upload-stable: manifest
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 gs://packages.viam.com/apps/viam-agent/
 	gsutil cp etc/viam-agent-$(PATH_VERSION)-x86_64.json etc/viam-agent-$(PATH_VERSION)-aarch64.json gs://packages.viam.com/apps/viam-subsystems/
