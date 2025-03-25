@@ -1,0 +1,61 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Viam Agent .cursorrules
+
+The Viam Agent is an open-source service manager that automates the installation, execution, and monitoring of `viam-server` and associated services. It includes a self-update capability to keep itself and the services current, reducing manual maintenance. Additionally, it provides device provisioning and network configuration tools for seamless integration and connectivity within a network.
+
+## Scope of Changes
+- **Relevance**:
+  - Only modify code explicitly requested by the change request or task description. Avoid any unrelated or unnecessary changes to maintain clarity and focus.
+
+## Coding Conventions
+- **Linting Configuration**:
+  - Follow all linting standards as defined in the project's authoritative `golangci.yml` file located at the repository root.
+
+## Architecture & File Structure
+- **Directories**:
+  - Keep core business logic and service interactions in the `/subsystems/` directory.
+- **Agent Configuration**:
+  - When changing agent configurations, ensure updates are consistently applied in both `DefaultConfiguration` (in `config.go`) and `agent-config.jsonc`. Include clear, contextual comments explaining default values.
+
+## Service Management & Error Handling
+- **Error Handling**:
+  - Always handle errors explicitly and gracefully; avoid using `panic`.
+  - Use `errors.Wrap` from `github.com/pkg/errors` to annotate additional context when returning an error.
+  - Rare cases requiring skipping error checks must explicitly use `goutils.UncheckedError`, with clear explanatory comments justifying the decision.
+- **Process Management**:
+  - Log all service lifecycle events explicitly, including start, stop, crash, and recovery actions.
+  - Log all executed system commands (e.g., file operations or interactions with external processes like `systemd`), log both the command executed and its output clearly for audit purposes.
+  - Example:
+    ```go
+    logger.Infof("Executing system command: %s", cmd)
+    output, err := exec.Command(cmd).CombinedOutput()
+    logger.Infof("Command output: %s", string(output))
+    ```
+
+## Logging & Observability
+- **Logging Standard**:
+  - Exclusively use the logging library provided by `go.viam.com/rdk/logging` for consistent log management.
+
+## Testing Standards
+-  Place code used solely for testing in files ending with _test.go or in dedicated test helper files.
+- **Unit Tests**:
+  - Always include unit tests for any new or changed cod
+- **Test Assertions**:
+  - Exclusively use `test.That` assertions from `go.viam.com/test` in all `*_test.go` files. Avoid other assertion libraries.
+  - When comparing values that render identically and share the same type, use `test.ShouldResemble`.
+
+## Cross-Platform Compatibility
+- **Platform-specific Code**:
+  - Store OS-specific implementations in clearly named files (e.g., `_linux.go`). 
+  - Avoid build tags to manage platform-specific implementations.
+  - Example:
+    ✅ file_linux.go (correct)
+    ❌ file.go with build tags (incorrect)
+
+
+
+
