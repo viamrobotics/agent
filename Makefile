@@ -6,6 +6,11 @@ else ifeq ($(GOARCH),arm64)
 LINUX_ARCH = aarch64
 endif
 
+OS_NAME =
+ifeq ($(GOOS),windows)
+	OS_NAME = -windows
+endif
+
 GIT_REVISION = $(shell git rev-parse HEAD)
 TAG_VERSION ?= $(shell ./dev-version.sh | sed 's/^v//')
 ifeq ($(TAG_VERSION),)
@@ -18,7 +23,7 @@ LDFLAGS = "-s -w -X 'github.com/viamrobotics/agent/utils.Version=${TAG_VERSION}'
 TAGS = osusergo,netgo
 
 
-.DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH)
+.DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH)
 
 .PHONY: all
 all: amd64 arm64
@@ -31,15 +36,13 @@ arm64:
 amd64:
 	make GOARCH=amd64
 
-bin/viam-agent-$(PATH_VERSION)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.service Makefile
-	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
-	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable-$(LINUX_ARCH) || true
-
 .PHONY: windows
-windows: bin/viam-agent-$(PATH_VERSION)-windows-$(LINUX_ARCH)
+windows:
+	make GOOS=windows GOARCH=amd64
 
-bin/viam-agent-$(PATH_VERSION)-windows-$(LINUX_ARCH):
-	GOOS=windows GOARCH=amd64 go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
+bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.service Makefile
+	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable$(OS_NAME)-$(LINUX_ARCH) || true
 
 .PHONY: clean
 clean:
