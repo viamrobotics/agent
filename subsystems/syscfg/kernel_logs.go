@@ -126,7 +126,11 @@ func (k *KernelLogForwarder) Start() error {
 	k.wg.Add(1)
 	go func() {
 		defer k.wg.Done()
-		defer stdout.Close()
+		defer func() {
+			if err := stdout.Close(); err != nil {
+				k.logger.Error(errw.Wrap(err, "closing stdout"))
+			}
+		}()
 		decoder := json.NewDecoder(stdout)
 		for {
 			select {
@@ -208,7 +212,7 @@ func (k *KernelLogForwarder) Update(cfg utils.SystemConfiguration) error {
 	return nil
 }
 
-// getLevel converts a systemd priority to zapcore.Level
+// getLevel converts a systemd priority to zapcore.Level.
 func getLevel(priority string) zapcore.Level {
 	switch priority {
 	case "0", "1", "2", "3": // emerg, alert, crit, err
