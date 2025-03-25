@@ -29,7 +29,7 @@ var (
 
 	// only changed/set at startup, so no mutex.
 	globalLogger = logging.NewLogger("viam-agent")
-	globalCancel func() //nolint:unused
+	globalCancel context.CancelFunc
 )
 
 //nolint:lll
@@ -46,11 +46,11 @@ type agentOpts struct {
 
 //nolint:gocognit
 func commonMain() {
-	ctx, cancel := setupExitSignalHandling()
-	globalCancel = cancel
+	var ctx context.Context
+	ctx, globalCancel = setupExitSignalHandling()
 
 	defer func() {
-		cancel()
+		globalCancel()
 		activeBackgroundWorkers.Wait()
 	}()
 
