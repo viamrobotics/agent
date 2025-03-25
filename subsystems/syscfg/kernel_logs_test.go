@@ -83,6 +83,7 @@ func TestKernelLogForwarder(t *testing.T) {
 	test.That(t, len(allLogs), test.ShouldEqual, 6) // 4 kernel logs + start + stop messages
 
 	// Verify the logs in order
+	//nolint:lll
 	expectedLogs := []string{
 		"Started Kernel logs forwarding",
 		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890123Z monotonic=1.23456789s since boot] Test kernel error",
