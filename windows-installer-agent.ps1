@@ -84,7 +84,7 @@ New-Item -ItemType Directory -Path $binPath -Force | Out-Null
 # Download the agent
 if (-not $Silent) { Write-Host "Downloading Viam Agent..." }
 try {
-    Invoke-WebRequest -Uri "https://storage.googleapis.com/packages.viam.com/temp/$agentCURLFileName" -OutFile $agentCachePath
+    Invoke-WebRequest -Uri "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentCURLFileName" -OutFile $agentCachePath
     if (-not (Test-Path $agentCachePath)) {
         throw "Failed to download agent executable."
     }
