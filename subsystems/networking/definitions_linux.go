@@ -219,6 +219,14 @@ func (h *health) MarkGood() {
 	h.last = time.Now()
 }
 
+func (h *health) MarkBad() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Fast-forward to make this health expire now.
+	h.last = time.Now().Add(-1 * HealthCheckTimeout)
+}
+
 func (h *health) Sleep(ctx context.Context, timeout time.Duration) bool {
 	select {
 	case <-ctx.Done():

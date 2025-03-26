@@ -182,6 +182,10 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		m.logger.Error(err)
 	}
 	if needRestart {
+		_, err := InstallNewVersion(ctx, m.logger)
+		if err != nil {
+			m.logger.Errorw("running install of new agent version", "error", err)
+		}
 		m.logger.Info("viam-agent update complete, please restart using 'systemctl restart viam-agent'")
 	}
 
