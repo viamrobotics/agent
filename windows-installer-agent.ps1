@@ -27,7 +27,7 @@ if (-not $Silent) {
 $rootPath = "C:\opt\viam"
 $cachePath = Join-Path $rootPath "cache"
 $binPath = Join-Path $rootPath "bin"
-$agentCURLFileName = "viam-agent-windows-amd64-dev.exe" # TODO: update this to viam-agent-windows-amd64-stable.exe
+$agentCURLFileName = "viam-agent-stable-windows-x86_64"
 $agentFileName = "viam-agent-from-installer.exe"
 $agentCachePath = Join-Path $cachePath $agentFileName
 $agentBinPath = Join-Path $binPath "viam-agent.exe"
