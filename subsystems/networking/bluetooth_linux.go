@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 
 	"github.com/google/uuid"
+	"github.com/viamrobotics/agent/utils"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -82,5 +84,31 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	}
 	n.btAdv = adv
 	n.logger.Debugf("Bluetooth service UUID: %s.", serviceUUID.String())
+	return nil
+}
+
+// We have to disable reverse discovery, or bluez will potentially try to access secure properties on the connecting client/phone.
+// When that happens, we get instantly disconnected due to OS security on the client (where full pairing is required.)
+func (n *Networking) writeBTDisableDiscovery(ctx context.Context) error {
+	contents := BTDiscoveryContentsDisable
+	if n.Config().DisableBTProvisioning {
+		contents = BTDiscoveryContentsDefault
+	}
+
+	isNew, err := utils.WriteFileIfNew(BTDiscoveryFilepath, []byte(contents))
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", BTDiscoveryFilepath, err)
+	}
+
+	if isNew {
+		n.logger.Infof("Updated %s to: %q", BTDiscoveryFilepath, contents)
+		// restart bluetooth to apply changes
+		cmd := exec.CommandContext(ctx, "systemctl", "restart", "bluetooth")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("reloading bluetooth service after config update: %w, output: %s", err, out)
+		}
+	}
+
 	return nil
 }
