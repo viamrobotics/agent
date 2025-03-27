@@ -78,3 +78,19 @@ upload-stable: manifest
 upload-installer:
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp preinstall.sh install.sh uninstall.sh gs://packages.viam.com/apps/viam-agent/
+
+.PHONY: windows-installer
+windows-installer:
+	@./build-windows-installer-exe.sh
+
+.PHONY: upload-windows-installer
+upload-windows-installer:
+	@if [ -n "$$(find . -name 'viam-agent-windows-installer*.exe')" ]; then \
+		INSTALLER=$$(find . -name 'viam-agent-windows-installer*.exe'); \
+		gsutil -h "Cache-Control:no-cache" cp "$$INSTALLER" gs://packages.viam.com/apps/viam-agent/; \
+		echo "Uploaded: $$INSTALLER"; \
+	else \
+		echo "Error: No Windows installer executable found"; \
+		echo "Please run 'make windows-installer' first"; \
+		exit 1; \
+	fi

@@ -1,0 +1,58 @@
+name: Build Agent Windows Installer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: windows-2019
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate PowerShell script
+        run: |
+          # Run the script in test mode (without actually installing)
+          Write-Host "Running PowerShell script validation..."
+          $ErrorActionPreference = 'Stop'
+          
+          # Test script syntax
+          $scriptContent = Get-Content -Path windows-installer-agent.ps1 -Raw
+          $scriptBlock = [ScriptBlock]::Create($scriptContent)
+          Write-Host "✓ Script syntax validation passed"
+          
+          # Test script execution with -Silent parameter
+          try {
+            & $scriptBlock -Silent
+            Write-Host "✓ Script execution test passed"
+          } catch {
+            Write-Error "Script execution failed: $_"
+            exit 1
+          }
+          
+          Write-Host "✓ All validation tests passed successfully"
+
+  build:
+    needs: validate
+    runs-on: windows-2019
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PS2EXE
+        run: |
+          Install-Module -Name ps2exe -Scope CurrentUser -Force
+
+      - name: Convert PowerShell script to EXE
+        run: |
+          Invoke-ps2exe -InputFile windows-installer-agent.ps1 -OutputFile viam-agent-installer.exe -NoConsole -RequireAdmin
+
+      - name: Sign Installer EXE
+        run: |
+          echo "TODO: Sign Installer EXE"
+          
+      - name: Upload Installer EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: viam-agent-installer.exe
+          path: viam-agent-installer.exe
