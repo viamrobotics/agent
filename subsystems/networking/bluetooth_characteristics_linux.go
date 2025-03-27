@@ -16,6 +16,7 @@ const (
 	uuidNamespace = "74a942f4-0f45-43f4-88ca-f87021ae36ea"
 
 	// These values will be combined into Sha1 (v5) UUIDs along with the above namespace.
+	serviceNameKey           = "viam-provisioning"
 	ssidKey                  = "ssid"
 	pskKey                   = "psk"
 	robotPartIDKey           = "id"
@@ -23,7 +24,6 @@ const (
 	appAddressKey            = "app_address"
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
-	serviceNameKey           = "viam-provisioning"
 	errorsKey                = "errors"
 )
 
@@ -85,7 +85,7 @@ func (b *btCharacteristics) initWOCharacteristic(cName string) bluetooth.Charact
 	b.logger.Debugf("%s can be written to BT characteristic: %s", cName, cUUID.String())
 	return bluetooth.CharacteristicConfig{
 		UUID:  cUUID,
-		Flags: bluetooth.CharacteristicWritePermission,
+		Flags: bluetooth.CharacteristicWritePermission | bluetooth.CharacteristicWriteWithoutResponsePermission,
 
 		// WriteEvent is triggered by BT, and we store it in the valuesByName map
 		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
@@ -106,7 +106,7 @@ func (b *btCharacteristics) initROCharacteristic(cName string) bluetooth.Charact
 	return bluetooth.CharacteristicConfig{
 		Handle: &bluetooth.Characteristic{},
 		UUID:   cUUID,
-		Flags:  bluetooth.CharacteristicReadPermission,
+		Flags:  bluetooth.CharacteristicReadPermission | bluetooth.CharacteristicNotifyPermission,
 	}
 }
 
