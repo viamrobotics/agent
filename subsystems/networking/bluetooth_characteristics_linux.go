@@ -2,6 +2,11 @@ package networking
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -25,11 +30,12 @@ const (
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
 	errorsKey                = "errors"
+	cryptoKey                = "pub_key"
 )
 
 var (
 	characteristicsWO = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey}
-	characteristicsRO = []string{statusKey, availableWiFiNetworksKey, errorsKey}
+	characteristicsRO = []string{cryptoKey, statusKey, availableWiFiNetworksKey, errorsKey}
 )
 
 type btCharacteristics struct {
@@ -43,6 +49,8 @@ type btCharacteristics struct {
 	workers sync.WaitGroup
 	cancel  context.CancelFunc
 	health  *health
+
+	privKey *rsa.PrivateKey
 }
 
 func newBTCharacteristics(logger logging.Logger) *btCharacteristics {
@@ -77,6 +85,24 @@ func (b *btCharacteristics) initCharacteristics() []bluetooth.CharacteristicConf
 	return charList
 }
 
+func (b *btCharacteristics) initCrypto() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+	b.privKey = privKey
+
+	// write the public crypto key
+	pubKey, err := x509.MarshalPKIXPublicKey(&b.privKey.PublicKey)
+	if err != nil {
+		return err
+	}
+	_, err = b.writables[cryptoKey].Write(pubKey)
+	return err
+}
+
 // initWOCharacteristic returns a bluetooth characteristic config.
 func (b *btCharacteristics) initWOCharacteristic(cName string) bluetooth.CharacteristicConfig {
 	// Generate predictable (v5) UUID from common namespace+cName
@@ -89,10 +115,16 @@ func (b *btCharacteristics) initWOCharacteristic(cName string) bluetooth.Charact
 
 		// WriteEvent is triggered by BT, and we store it in the valuesByName map
 		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
-			b.logger.Infof("Received %s: %s", cName, value)
 			b.mu.Lock()
 			defer b.mu.Unlock()
-			b.values[cName] = string(value)
+
+			plaintext, err := b.decrypt(value)
+			if err != nil {
+				b.logger.Errorf("could not decrypt incoming value for %s: %w", cName, err)
+			}
+
+			b.values[cName] = string(plaintext)
+			b.logger.Debugf("Received %s: %s (cipher/plain sizes: %d/%d)", cName, plaintext, len(value), len(plaintext))
 		},
 	}
 }
@@ -236,4 +268,12 @@ func (b *btCharacteristics) stopBTLoop() {
 		b.cancel()
 	}
 	b.workers.Wait()
+}
+
+func (b *btCharacteristics) decrypt(ciphertext []byte) ([]byte, error) {
+	if b.privKey == nil {
+		return nil, errors.New("private key not initialized")
+	}
+	// using sha256 for the hash, OAEP allows for messages up to 190 bytes
+	return rsa.DecryptOAEP(sha256.New(), nil, b.privKey, ciphertext, nil)
 }

@@ -82,6 +82,11 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	if err := adv.Configure(opts); err != nil {
 		return fmt.Errorf("failed to configure default advertisement: %w", err)
 	}
+	err := n.btChar.initCrypto()
+	if err != nil {
+		return err
+	}
+
 	n.btAdv = adv
 	n.logger.Debugf("Bluetooth service UUID: %s.", serviceUUID.String())
 	return nil
