@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,7 +31,10 @@ const (
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
 	errorsKey                = "errors"
+	cryptoKey                = "pub_key"
 )
+
+var pubKey *rsa.PublicKey
 
 func btClient() error {
 	adapter := bluetooth.DefaultAdapter
@@ -198,18 +205,36 @@ func BTGetNetworks(chars map[string]bluetooth.DeviceCharacteristic) error {
 
 func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 	fmt.Println("Writing device credentials...")
+	if err := initCrypto(chars); err != nil {
+		return err
+	}
 
-	_, err := chars[robotPartIDKey].WriteWithoutResponse([]byte(opts.PartID))
+	cryptPartID, err := encrypt([]byte(opts.PartID))
+	if err != nil {
+		return err
+	}
+
+	cryptSecret, err := encrypt([]byte(opts.Secret))
+	if err != nil {
+		return err
+	}
+
+	cryptAppAddr, err := encrypt([]byte(opts.AppAddr))
+	if err != nil {
+		return err
+	}
+
+	_, err = chars[robotPartIDKey].WriteWithoutResponse(cryptPartID)
 	if err != nil {
 		return errw.Wrap(err, "writing part id")
 	}
 
-	_, err = chars[robotPartSecretKey].WriteWithoutResponse([]byte(opts.Secret))
+	_, err = chars[robotPartSecretKey].WriteWithoutResponse(cryptSecret)
 	if err != nil {
 		return errw.Wrap(err, "writing secret")
 	}
 
-	_, err = chars[appAddressKey].WriteWithoutResponse([]byte(opts.AppAddr))
+	_, err = chars[appAddressKey].WriteWithoutResponse(cryptAppAddr)
 	if err != nil {
 		return errw.Wrap(err, "writing app address")
 	}
@@ -219,12 +244,26 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 
 func BTSetWifiCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 	fmt.Println("Writing wifi credentials...")
-	_, err := chars[ssidKey].WriteWithoutResponse([]byte(opts.SSID))
+	if err := initCrypto(chars); err != nil {
+		return err
+	}
+
+	cryptSSID, err := encrypt([]byte(opts.SSID))
+	if err != nil {
+		return err
+	}
+
+	cryptPSK, err := encrypt([]byte(opts.PSK))
+	if err != nil {
+		return err
+	}
+
+	_, err = chars[ssidKey].WriteWithoutResponse(cryptSSID)
 	if err != nil {
 		return errw.Wrap(err, "writing ssid")
 	}
 
-	_, err = chars[pskKey].WriteWithoutResponse([]byte(opts.PSK))
+	_, err = chars[pskKey].WriteWithoutResponse(cryptPSK)
 	if err != nil {
 		return errw.Wrap(err, "writing psk")
 	}
@@ -297,6 +336,9 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 		case getUUID(robotPartSecretKey):
 			key = robotPartSecretKey
 			charMap[robotPartSecretKey] = char
+		case getUUID(cryptoKey):
+			key = cryptoKey
+			charMap[cryptoKey] = char
 		default:
 			fmt.Printf("Unknown characteristic discovered with UUID: %s", char.String())
 		}
@@ -304,4 +346,33 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 	}
 
 	return charMap, nil
+}
+
+func encrypt(plaintext []byte) ([]byte, error) {
+	// using sha256 for the hash, OAEP allows for messages up to 190 bytes
+	crypttext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pubKey, plaintext, nil)
+	return crypttext, err
+}
+
+func initCrypto(chars map[string]bluetooth.DeviceCharacteristic) error {
+	if pubKey != nil {
+		return nil
+	}
+
+	buf := make([]byte, 512)
+	size, err := chars[cryptoKey].Read(buf)
+	if err != nil {
+		return errw.Wrap(err, "reading network list")
+	}
+
+	ifc, err := x509.ParsePKIXPublicKey(buf[:size])
+	if err != nil {
+		return err
+	}
+	key, ok := ifc.(*rsa.PublicKey)
+	if !ok {
+		return errw.New("cannot cast to public key")
+	}
+	pubKey = key
+	return nil
 }
