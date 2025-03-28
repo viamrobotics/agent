@@ -35,10 +35,30 @@ jobs:
   build:
     needs: validate
     runs-on: windows-2019
+    permissions:
+      contents: 'read'
+      id-token: 'write'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - id: 'gcp-auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          project_id: 'engineering-tools-310515'
+          workload_identity_provider: 'projects/385154741571/locations/global/workloadIdentityPools/ev-signing-id/providers/github-repos-viam-and-labs'
+          service_account: 'ev-code-signing@engineering-tools-310515.iam.gserviceaccount.com'
+
+      - id: 'gcp-secrets'
+        uses: 'google-github-actions/get-secretmanager-secrets@v2'
+        with:
+          secrets: |-
+            public_key:projects/385154741571/secrets/ev-code-signing-public-key
+          
+      - name: Download Jsign
+        run: curl -L -o jsign.jar https://github.com/ebourg/jsign/releases/download/7.1/jsign-7.1.jar
+  
       - name: Install PS2EXE
         run: |
           Install-Module -Name ps2exe -Scope CurrentUser -Force
@@ -49,8 +69,15 @@ jobs:
 
       - name: Sign Installer EXE
         run: |
-          echo "TODO: Sign Installer EXE"
-          
+          echo '${{ steps.gcp-secrets.outputs.public_key }}' > cert.pem
+          java -jar jsign.jar `
+            --name "Viam Agent Installer" `
+            --storetype GOOGLECLOUD `
+            --keystore "projects/engineering-tools-310515/locations/global/keyRings/release_signing_key" `
+            --storepass "${{ steps.gcp-auth.outputs.access_token }}" `
+            --alias "ev-code-signing-key/cryptoKeyVersions/1" `
+            --certfile cert.pem viam-agent-installer.exe
+
       - name: Upload Installer EXE artifact
         uses: actions/upload-artifact@v4
         with:
