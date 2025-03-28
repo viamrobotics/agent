@@ -2,7 +2,6 @@ package networking
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"reflect"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	"google.golang.org/grpc"
+	"tinygo.org/x/bluetooth"
 )
 
 type Networking struct {
@@ -42,6 +42,7 @@ type Networking struct {
 
 	mainLoopHealth *health
 	bgLoopHealth   *health
+	btLoopHealth   *health
 
 	// locking for config updates
 	dataMu sync.Mutex
@@ -52,6 +53,11 @@ type Networking struct {
 	webServer  *http.Server
 	grpcServer *grpc.Server
 	portalData *portalData
+
+	// bluetooth
+	noBT   bool
+	btChar *btCharacteristics
+	btAdv  *bluetooth.Advertisement
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -69,22 +75,23 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		banner:     &banner{},
 		portalData: &portalData{},
 
+		btChar: newBTCharacteristics(logger),
+
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
+		btLoopHealth:   &health{},
 	}
 }
 
 func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
-		n.noNM = true
 		n.logger.Error(err)
 		return nil, ErrNM
 	}
 
 	ver, err := nm.GetPropertyVersion()
 	if err != nil {
-		n.noNM = true
 		n.logger.Error(err)
 		return nil, ErrNM
 	}
@@ -93,13 +100,11 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 
 	sv, err := semver.NewVersion(ver)
 	if err != nil {
-		n.noNM = true
 		n.logger.Error(err)
 		return nil, ErrNM
 	}
 
 	if !sv.GreaterThanEqual(semver.MustParse("1.30.0")) {
-		n.noNM = true
 		return nil, ErrNM
 	}
 
@@ -108,13 +113,11 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	if sv.GreaterThanEqual(semver.MustParse("1.38.0")) {
 		flags, err := nm.GetPropertyRadioFlags()
 		if err != nil {
-			n.noNM = true
 			n.logger.Error(err)
 			return nil, ErrNoWifi
 		}
 
 		if flags&gnm.NmRadioFlagsWlanAvailable != gnm.NmRadioFlagsWlanAvailable {
-			n.noNM = true
 			return nil, ErrNoWifi
 		}
 	}
@@ -128,6 +131,7 @@ func (n *Networking) init(ctx context.Context) error {
 
 	nm, err := n.getNM()
 	if err != nil {
+		n.noNM = true
 		return err
 	}
 
@@ -154,9 +158,7 @@ func (n *Networking) init(ctx context.Context) error {
 	}
 
 	if err := n.initDevices(); err != nil {
-		if errors.Is(err, ErrNoWifi) {
-			n.noNM = true
-		}
+		n.noNM = true
 		return err
 	}
 
@@ -200,7 +202,7 @@ func (n *Networking) init(ctx context.Context) error {
 func (n *Networking) Start(ctx context.Context) error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
-	if n.running {
+	if n.running || n.noNM {
 		return nil
 	}
 	n.logger.Debugf("Starting networking")
@@ -215,20 +217,28 @@ func (n *Networking) Start(ctx context.Context) error {
 		n.logger.Error(errw.Wrap(err, "applying wifi power save configuration"))
 	}
 
+	if err := n.writeBTDisableDiscovery(ctx); err != nil {
+		n.logger.Error(errw.Wrap(err, "applying bluetooth configuration"))
+	}
+
 	n.processAdditionalnetworks(ctx)
 
 	if err := n.checkOnline(true); err != nil {
 		n.logger.Error(err)
 	}
 
-	cancelCtx, cancel := context.WithCancel(ctx)
-	n.cancel = cancel
+	if !n.Config().DisableBTProvisioning || !n.Config().DisableWifiProvisioning {
+		cancelCtx, cancel := context.WithCancel(ctx)
+		n.cancel = cancel // This will loop indefinitely until context cancellation or serious error
+		n.monitorWorkers.Add(1)
+		n.mainLoopHealth.MarkGood()
+		n.bgLoopHealth.MarkGood()
+		go n.mainLoop(cancelCtx)
+	} else {
+		n.logger.Warn("Both wifi and bluetooth provisioning have been disabled by configuration. Provisioning will not be available.")
+	}
 
-	// This will loop indefinitely until context cancellation or serious error
-	n.monitorWorkers.Add(1)
-	go n.mainLoop(cancelCtx)
-
-	n.logger.Info("networking startup complete")
+	n.logger.Info("Networking startup complete")
 	n.running = true
 	return nil
 }
@@ -299,15 +309,16 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 func (n *Networking) HealthCheck(ctx context.Context) error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
-	if n.noNM {
+	if n.noNM || (n.Config().DisableBTProvisioning && n.Config().DisableWifiProvisioning) {
 		return nil
 	}
 
-	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() {
+	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
+		(n.noBT || n.btAdv == nil || n.btChar.health.IsHealthy()) {
 		return nil
 	}
 
-	return errw.New("provisioning not responsive")
+	return errw.New("networking system not responsive")
 }
 
 func (n *Networking) Config() utils.NetworkConfiguration {
