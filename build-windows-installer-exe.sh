@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit immediately if a command exits with a non-zero status
+set -e
+
 # Build Windows Installer EXE
 # -------------------------
 # This script builds the Windows installer executable by:
@@ -35,6 +38,8 @@ fi
 read -p "Enter branch name (leave empty for main): " branch
 branch=${branch:-main}
 echo "Starting Windows installer build for branch: $branch"
+# Get the time before triggering the workflow
+trigger_time=$(date +%s)
 gh workflow run build-windows-installer.yaml --ref "$branch"
 
 echo "Waiting for workflow to start..."
@@ -54,12 +59,20 @@ while true; do
         exit 1
     fi
     
-    # Try to get the latest run ID
-    if job_id=$(gh run list --workflow=build-windows-installer.yaml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null); then
-        job_url="https://github.com/viamrobotics/agent/actions/runs/$job_id"
-        echo "Job started: $job_url"
-        workflow_started=true
-        break
+    # Convert trigger_time to ISO 8601 format in UTC
+    if [ "$(uname)" = "Darwin" ]; then
+        trigger_time_iso=$(date -u -r "$trigger_time" "+%Y-%m-%dT%H:%M:%SZ") || exit 1
+    else
+        trigger_time_iso=$(date -u -d "@$trigger_time" "+%Y-%m-%dT%H:%M:%SZ") || exit 1
+    fi
+
+    if job_id=$(gh run list --workflow=build-windows-installer.yaml --limit 10 --json databaseId,createdAt --jq "[.[] | select(.createdAt >= \"$trigger_time_iso\") | .databaseId][0]" 2>/dev/null); then
+        if [ -n "$job_id" ]; then
+            job_url="https://github.com/viamrobotics/agent/actions/runs/$job_id"
+            echo "Job started: $job_url"
+            workflow_started=true
+            break
+        fi
     fi
     
     echo "Waiting for workflow to start... (${elapsed}/90 seconds)"

@@ -3,4 +3,5 @@ etc/
 
 # GCP's auth action adds this in CI, dirtying the tree
 gha-creds-*.json
-viam-agent-installer*.exe
+viam-agent-windows-installer*.exe
+*.pem
