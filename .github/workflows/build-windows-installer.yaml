@@ -69,7 +69,7 @@ jobs:
 
       - name: Sign Installer EXE
         run: |
-          echo '${{ steps.gcp-secrets.outputs.public_key }}' > cert.pem
+          echo "${{ steps.gcp-secrets.outputs.public_key }}" > cert.pem
           java -jar jsign.jar `
             --name "Viam Agent Installer" `
             --storetype GOOGLECLOUD `
