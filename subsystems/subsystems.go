@@ -20,3 +20,22 @@ type Subsystem interface {
 	// HealthCheck reports if a subsystem is running correctly (it is restarted if not)
 	HealthCheck(ctx context.Context) error
 }
+
+// Dummy is a fake subsystem for when a particular OS doesn't (yet) have support.
+type Dummy struct{}
+
+func (d *Dummy) Start(_ context.Context) error {
+	return nil
+}
+
+func (d *Dummy) Stop(_ context.Context) error {
+	return nil
+}
+
+func (d *Dummy) Update(_ context.Context, _ utils.AgentConfig) bool {
+	return false
+}
+
+func (d *Dummy) HealthCheck(_ context.Context) error {
+	return nil
+}
