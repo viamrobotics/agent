@@ -77,6 +77,7 @@ jobs:
             --storepass "${{ steps.gcp-auth.outputs.access_token }}" `
             --alias "ev-code-signing-key/cryptoKeyVersions/1" `
             --certfile cert.pem viam-agent-installer.exe
+          rm cert.pem
 
       - name: Upload Installer EXE artifact
         uses: actions/upload-artifact@v4
