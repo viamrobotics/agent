@@ -120,7 +120,7 @@ func (b *btCharacteristics) initWOCharacteristic(cName string) bluetooth.Charact
 
 			plaintext, err := b.decrypt(value)
 			if err != nil {
-				b.logger.Errorf("could not decrypt incoming value for %s: %w", cName, err)
+				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
 			}
 
 			b.values[cName] = string(plaintext)
