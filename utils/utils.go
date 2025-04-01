@@ -57,6 +57,7 @@ func GetRevision() string {
 
 func init() {
 	if runtime.GOOS == "windows" {
+		ViamDirs["viam"] = "c:/opt/viam"
 		// note: forward slash isn't an abs path on windows, but resolves to one.
 		var err error
 		ViamDirs["viam"], err = filepath.Abs(ViamDirs["viam"])
@@ -112,10 +113,15 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	if runtime.GOOS == "windows" && !strings.HasSuffix(parsedPath, ".exe") {
 		parsedPath += ".exe"
 	}
+
 	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedPath))
 
 	//nolint:nestif
 	if parsedURL.Scheme == "file" {
+		if runtime.GOOS == "windows" {
+			parsedPath = strings.TrimLeft(parsedPath, "/")
+		}
+
 		infd, err := os.Open(parsedPath) //nolint:gosec
 		if err != nil {
 			return "", err
@@ -134,7 +140,12 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 			return "", err
 		}
 		defer func() {
-			errRet = errors.Join(errRet, outfd.Close(), SyncFS(outPath))
+			// we might double close because we have to explicitly close before the rename for windows
+			errClose := outfd.Close()
+			if !errors.Is(errClose, os.ErrClosed) {
+				errRet = errors.Join(errRet, errClose)
+			}
+			errRet = errors.Join(errRet, SyncFS(outPath))
 			if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
 				errRet = errors.Join(errRet, err)
 			}
@@ -142,9 +153,9 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 
 		_, err = io.Copy(outfd, infd)
 		if err != nil {
-			return "", err
+			return "", errors.Join(errRet, err)
 		}
-		errRet = errors.Join(errRet, os.Rename(outfd.Name(), outPath))
+		errRet = errors.Join(errRet, outfd.Close(), os.Rename(outfd.Name(), outPath))
 		return outPath, errRet
 	}
 
