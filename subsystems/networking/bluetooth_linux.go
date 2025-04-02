@@ -71,9 +71,6 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	if err := adapter.AddService(&bluetooth.Service{UUID: serviceUUID, Characteristics: characteristics}); err != nil {
 		return fmt.Errorf("unable to add bluetooth service to default adapter: %w", err)
 	}
-	// if err := adapter.Enable(); err != nil {
-	// 	return nil, fmt.Errorf("failed to enable bluetooth adapter: %w", err)
-	// }
 	adv := adapter.DefaultAdvertisement()
 	opts := bluetooth.AdvertisementOptions{
 		LocalName:    deviceName,

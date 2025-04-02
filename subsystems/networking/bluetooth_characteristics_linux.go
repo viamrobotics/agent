@@ -34,8 +34,8 @@ const (
 )
 
 var (
-	characteristicsWO = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey}
-	characteristicsRO = []string{cryptoKey, statusKey, availableWiFiNetworksKey, errorsKey}
+	characteristicsWriteOnly = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey}
+	characteristicsReadOnly  = []string{cryptoKey, statusKey, availableWiFiNetworksKey, errorsKey}
 )
 
 type btCharacteristics struct {
@@ -72,12 +72,12 @@ func (b *btCharacteristics) initCharacteristics() []bluetooth.CharacteristicConf
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var charList []bluetooth.CharacteristicConfig
-	for _, char := range characteristicsWO {
-		charList = append(charList, b.initWOCharacteristic(char))
+	for _, char := range characteristicsWriteOnly {
+		charList = append(charList, b.initWriteOnlyCharacteristic(char))
 	}
 
-	for _, char := range characteristicsRO {
-		cfg := b.initROCharacteristic(char)
+	for _, char := range characteristicsReadOnly {
+		cfg := b.initReadOnlyCharacteristic(char)
 		charList = append(charList, cfg)
 		b.writables[char] = cfg.Handle
 	}
@@ -103,8 +103,8 @@ func (b *btCharacteristics) initCrypto() error {
 	return err
 }
 
-// initWOCharacteristic returns a bluetooth characteristic config.
-func (b *btCharacteristics) initWOCharacteristic(cName string) bluetooth.CharacteristicConfig {
+// initWriteOnlyCharacteristic returns a bluetooth characteristic config.
+func (b *btCharacteristics) initWriteOnlyCharacteristic(cName string) bluetooth.CharacteristicConfig {
 	// Generate predictable (v5) UUID from common namespace+cName
 	cUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(cName)))
 
@@ -129,8 +129,8 @@ func (b *btCharacteristics) initWOCharacteristic(cName string) bluetooth.Charact
 	}
 }
 
-// initROCharacteristic returns a bluetooth characteristic config.
-func (b *btCharacteristics) initROCharacteristic(cName string) bluetooth.CharacteristicConfig {
+// initReadOnlyCharacteristic returns a bluetooth characteristic config.
+func (b *btCharacteristics) initReadOnlyCharacteristic(cName string) bluetooth.CharacteristicConfig {
 	// Generate predictable (v5) UUID from common namespace+cName
 	cUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(cName)))
 
