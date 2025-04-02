@@ -3,6 +3,7 @@ package syscfg
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"reflect"
 	"sync"
 
@@ -12,6 +13,10 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
+const (
+	SubsysName = "syscfg"
+)
+
 type syscfg struct {
 	mu      sync.RWMutex
 	cfg     utils.SystemConfiguration
@@ -19,14 +24,19 @@ type syscfg struct {
 	healthy bool
 	started bool
 
-	kernelLogForwarder *KernelLogForwarder
+	// Log Forwarding
+	logWorkers sync.WaitGroup
+	logHealth  *utils.Health
+	journalCmd *exec.Cmd
+	cancelFunc context.CancelFunc
+	noJournald bool
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
 	return &syscfg{
 		logger:             logger,
 		cfg:                cfg.SystemConfiguration,
-		kernelLogForwarder: NewKernelLogForwarder(ctx, logger, cfg.SystemConfiguration),
+		logHealth: utils.NewHealth(),
 	}
 }
 
@@ -39,9 +49,6 @@ func (s *syscfg) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart
 	}
 
 	s.cfg = cfg.SystemConfiguration
-	if err := s.kernelLogForwarder.Update(s.cfg); err != nil {
-		s.logger.Error(errw.Wrap(err, "updating kernel log forwarding"))
-	}
 	return
 }
 
@@ -61,7 +68,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 	s.logger.Debugf("Starting syscfg")
 
 	s.started = true
-	var healthyLog, healthyUpgrades, healthyKernelLogs bool
+	var healthyLog, healthyUpgrades bool
 	defer func() {
 		// if something panicked, log it and allow things to continue
 		r := recover()
@@ -70,7 +77,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 			s.logger.Error(r)
 		}
 
-		s.healthy = healthyLog && healthyUpgrades && healthyKernelLogs
+		s.healthy = healthyLog && healthyUpgrades
 	}()
 
 	// set journald max size limits
@@ -88,11 +95,9 @@ func (s *syscfg) Start(ctx context.Context) error {
 	healthyUpgrades = true
 
 	// start kernel log forwarding
-	err = s.kernelLogForwarder.Start()
+	err = s.startLogForwarding(ctx)
 	if err != nil {
 		s.logger.Error(errw.Wrap(err, "starting kernel log forwarding"))
-	} else {
-		healthyKernelLogs = true
 	}
 
 	return nil
@@ -103,7 +108,7 @@ func (s *syscfg) Stop(ctx context.Context) error {
 	defer s.mu.Unlock()
 	s.started = false
 
-	if err := s.kernelLogForwarder.Stop(); err != nil {
+	if err := s.stopLogForwarding(ctx); err != nil {
 		s.logger.Error(errw.Wrap(err, "stopping kernel log forwarding"))
 	}
 	return nil
@@ -112,7 +117,7 @@ func (s *syscfg) Stop(ctx context.Context) error {
 func (s *syscfg) HealthCheck(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.healthy {
+	if s.healthy && s.logHealth.IsHealthy() {
 		return nil
 	}
 	return errors.New("healthcheck failed")

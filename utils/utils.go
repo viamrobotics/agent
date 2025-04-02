@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -33,6 +34,8 @@ var (
 	GitRevision = ""
 
 	ViamDirs = map[string]string{"viam": "/opt/viam"}
+
+	HealthCheckTimeout = time.Minute
 )
 
 // GetVersion returns the version embedded at build time.
@@ -359,4 +362,38 @@ func WriteFileIfNew(outPath string, data []byte) (bool, error) {
 	}
 
 	return true, SyncFS(outPath)
+}
+
+type Health struct {
+	mu   sync.Mutex
+	last time.Time
+	Timeout time.Duration
+}
+
+func NewHealth() *Health {
+	return &Health{Timeout: HealthCheckTimeout}
+}
+
+func (h *Health) MarkGood() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.last = time.Now()
+}
+
+func (h *Health) Sleep(ctx context.Context, timeout time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.last = time.Now()
+		return true
+	}
+}
+
+func (h *Health) IsHealthy() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return time.Since(h.last) < h.Timeout
 }

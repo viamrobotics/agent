@@ -57,7 +57,7 @@ func TestConvertJson(t *testing.T) {
 			"logging_journald_system_max_use_megabytes": 512,
 			"logging_journald_runtime_max_use_megabytes": 512,
 			"os_auto_upgrade_type": "",
-			"forward_kernel_logs": false
+			"forward_system_logs": ""
 	}
 }
 `

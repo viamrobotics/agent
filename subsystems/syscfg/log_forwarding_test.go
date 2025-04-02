@@ -55,7 +55,7 @@ func TestKernelLogForwarder(t *testing.T) {
 	logger, logs := logging.NewObservedTestLogger(t)
 
 	cfg := utils.SystemConfiguration{
-		ForwardKernelLogs: true,
+		ForwardSystemLogs: "kernel",
 	}
 
 	k := NewKernelLogForwarder(context.Background(), logger, cfg)
@@ -104,7 +104,7 @@ func TestKernelLogForwarderDisabled(t *testing.T) {
 
 	logger, logs := logging.NewObservedTestLogger(t)
 	cfg := utils.SystemConfiguration{
-		ForwardKernelLogs: false,
+		ForwardSystemLogs: false,
 	}
 	k := NewKernelLogForwarder(context.Background(), logger, cfg)
 	err := k.Start()
@@ -129,7 +129,7 @@ func TestKernelLogForwarderUpdate(t *testing.T) {
 	logger, logs := logging.NewObservedTestLogger(t)
 
 	cfg := utils.SystemConfiguration{
-		ForwardKernelLogs: false,
+		ForwardSystemLogs: false,
 	}
 
 	k := NewKernelLogForwarder(context.Background(), logger, cfg)
@@ -139,7 +139,7 @@ func TestKernelLogForwarderUpdate(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 
 	// Update to enable forwarding
-	cfg.ForwardKernelLogs = true
+	cfg.ForwardSystemLogs = true
 	err = k.Update(cfg)
 	test.That(t, err, test.ShouldBeNil)
 
@@ -164,7 +164,7 @@ func TestKernelLogForwarderErrorHandling(t *testing.T) {
 	logger := logging.NewTestLogger(t)
 
 	cfg := utils.SystemConfiguration{
-		ForwardKernelLogs: true,
+		ForwardSystemLogs: true,
 	}
 
 	k := NewKernelLogForwarder(context.Background(), logger, cfg)
@@ -197,7 +197,7 @@ func TestKernelLogForwarderCleanup(t *testing.T) {
 
 	logger, logs := logging.NewObservedTestLogger(t)
 	cfg := utils.SystemConfiguration{
-		ForwardKernelLogs: true,
+		ForwardSystemLogs: true,
 	}
 	k := NewKernelLogForwarder(context.Background(), logger, cfg)
 
@@ -222,7 +222,7 @@ func TestKernelLogForwarderCleanup(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 
 	// Test cleanup during Start when disabled
-	cfg.ForwardKernelLogs = false
+	cfg.ForwardSystemLogs = false
 	err = k.Update(cfg)
 	test.That(t, err, test.ShouldBeNil)
 
@@ -238,7 +238,7 @@ func TestKernelLogForwarderToggle(t *testing.T) {
 
 	logger, logs := logging.NewObservedTestLogger(t)
 	cfg := utils.SystemConfiguration{
-		ForwardKernelLogs: true,
+		ForwardSystemLogs: true,
 	}
 	k := NewKernelLogForwarder(context.Background(), logger, cfg)
 
@@ -254,7 +254,7 @@ func TestKernelLogForwarderToggle(t *testing.T) {
 	test.That(t, len(initialLogs), test.ShouldBeGreaterThan, 0)
 
 	// Disable forwarding
-	cfg.ForwardKernelLogs = false
+	cfg.ForwardSystemLogs = false
 	err = k.Update(cfg)
 	test.That(t, err, test.ShouldBeNil)
 	err = k.Start()
@@ -269,7 +269,7 @@ func TestKernelLogForwarderToggle(t *testing.T) {
 	test.That(t, len(logs.All()), test.ShouldEqual, 0)
 
 	// Re-enable forwarding
-	cfg.ForwardKernelLogs = true
+	cfg.ForwardSystemLogs = true
 	err = k.Update(cfg)
 	test.That(t, err, test.ShouldBeNil)
 	err = k.Start()

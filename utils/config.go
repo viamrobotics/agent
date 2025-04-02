@@ -32,7 +32,7 @@ var (
 		SystemConfiguration{
 			LoggingJournaldSystemMaxUseMegabytes:  512,
 			LoggingJournaldRuntimeMaxUseMegabytes: 512,
-			ForwardKernelLogs:                     false,
+			ForwardSystemLogs:                     "",
 			OSAutoUpgradeType:                     "",
 		},
 		NetworkConfiguration{
@@ -102,8 +102,9 @@ type SystemConfiguration struct {
 	LoggingJournaldSystemMaxUseMegabytes  int `json:"logging_journald_system_max_use_megabytes,omitempty"`
 	LoggingJournaldRuntimeMaxUseMegabytes int `json:"logging_journald_runtime_max_use_megabytes,omitempty"`
 
-	// Enable forwarding of kernel logs to the cloud (disabled by default)
-	ForwardKernelLogs bool `json:"forward_kernel_logs,omitempty"`
+	// Enable forwarding of system logs (journald) to the cloud (disabled by default)
+	// Can be "all" or a pipe-seperated list of SYSLOG_IDENTIFIERs, ex: "kernel|tailscaled|NetworkManager"
+	ForwardSystemLogs string `json:"forward_system_logs,omitempty"`
 
 	// UpgradeType can be
 	// Empty/missing ("") to make no changes
