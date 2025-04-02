@@ -55,10 +55,6 @@ func (s *syscfg) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart
 	return
 }
 
-func (s *syscfg) Version() string {
-	return utils.GetVersion()
-}
-
 func (s *syscfg) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -16,7 +16,6 @@ import (
 	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	"google.golang.org/grpc"
-	"tinygo.org/x/bluetooth"
 )
 
 type Networking struct {
@@ -41,9 +40,8 @@ type Networking struct {
 	errors    *errorList
 	banner    *banner
 
-	mainLoopHealth *utils.Health
-	bgLoopHealth   *utils.Health
-	btLoopHealth   *utils.Health
+	mainLoopHealth *health
+	bgLoopHealth   *health
 
 	// locking for config updates
 	dataMu sync.Mutex
@@ -54,11 +52,6 @@ type Networking struct {
 	webServer  *http.Server
 	grpcServer *grpc.Server
 	portalData *portalData
-
-	// bluetooth
-	noBT   bool
-	btChar *btCharacteristics
-	btAdv  *bluetooth.Advertisement
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -76,11 +69,8 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		banner:     &banner{},
 		portalData: &portalData{},
 
-		btChar: newBTCharacteristics(logger),
-
-		mainLoopHealth: utils.NewHealth(),
-		bgLoopHealth:   utils.NewHealth(),
-		btLoopHealth:   utils.NewHealth(),
+		mainLoopHealth: &health{},
+		bgLoopHealth:   &health{},
 	}
 }
 
@@ -223,10 +213,6 @@ func (n *Networking) Start(ctx context.Context) error {
 
 	if err := n.writeWifiPowerSave(ctx); err != nil {
 		n.logger.Error(errw.Wrap(err, "applying wifi power save configuration"))
-	}
-
-	if err := n.writeBTDisableDiscovery(ctx); err != nil {
-		n.logger.Error(errw.Wrap(err, "applying bluetooth configuration"))
 	}
 
 	n.processAdditionalnetworks(ctx)
