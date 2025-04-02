@@ -21,6 +21,7 @@ require (
 	golang.org/x/sys v0.30.0
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.35.1
+	tinygo.org/x/bluetooth v0.11.0
 )
 
 require (
@@ -32,6 +33,7 @@ require (
 	github.com/dgottlieb/smarty-assertions v1.2.6 // indirect
 	github.com/edaniels/golog v0.0.0-20230215213219-28954395e8d0 // indirect
 	github.com/edaniels/zeroconf v1.0.10 // indirect
+	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.1-0.20241109141230-b9236d654833 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
@@ -69,8 +71,14 @@ require (
 	github.com/pion/turn/v2 v2.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rs/cors v1.11.1 // indirect
+	github.com/saltosystems/winrt-go v0.0.0-20240509164145-4f7860a3bd2b // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/soypat/cyw43439 v0.0.0-20241116210509-ae1ce0e084c5 // indirect
+	github.com/soypat/seqs v0.0.0-20240527012110-1201bab640ef // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
+	github.com/tinygo-org/cbgo v0.0.4 // indirect
+	github.com/tinygo-org/pio v0.0.0-20231216154340-cd888eb58899 // indirect
 	github.com/viamrobotics/webrtc/v3 v3.99.10 // indirect
 	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
@@ -83,6 +91,7 @@ require (
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.35.0 // indirect
+	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/net v0.36.0 // indirect
 	golang.org/x/oauth2 v0.22.0 // indirect

@@ -49,6 +49,8 @@ var (
 			RetryConnectionTimeoutMinutes:       Timeout(time.Minute * 10),
 			DeviceRebootAfterOfflineMinutes:     Timeout(0),
 			HotspotSSID:                         "",
+			DisableBTProvisioning:               false,
+			DisableWifiProvisioning:             false,
 		},
 		AdditionalNetworks{},
 	}
@@ -144,6 +146,10 @@ type NetworkConfiguration struct {
 	// If set, will reboot the device after it has been offline for this duration
 	// 0, default, will disable this feature.
 	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes,omitempty"`
+
+	// Disable flags for provisioning types.
+	DisableBTProvisioning   bool `json:"disable_bt_provisioning,omitempty"`
+	DisableWifiProvisioning bool `json:"disable_wifi_provisioning,omitempty"`
 }
 
 type AdditionalNetworks map[string]NetworkDefinition
