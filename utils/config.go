@@ -103,7 +103,9 @@ type SystemConfiguration struct {
 	LoggingJournaldRuntimeMaxUseMegabytes int `json:"logging_journald_runtime_max_use_megabytes,omitempty"`
 
 	// Enable forwarding of system logs (journald) to the cloud (disabled by default)
-	// Can be "all" or a pipe-seperated list of SYSLOG_IDENTIFIERs, ex: "kernel|tailscaled|NetworkManager"
+	// A comma-separated list of SYSLOG_IDENTIFIERs, optionally prefixed with "-" to exclude
+	// "all" is a special keyword to log everything
+	// Ex: "kernel,tailscaled,NetworkManager" or "all,-gdm,-tailscaled"
 	ForwardSystemLogs string `json:"forward_system_logs,omitempty"`
 
 	// UpgradeType can be
@@ -314,14 +316,12 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	// SystemConfiguration
 	// zero isn't allowed, revert to default, but don't warn
 	if cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes == 0 {
-		//nolint:gofumpt
-		cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes =
-			DefaultConfiguration.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes
+		//nolint:lll
+		cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes
 	}
 	if cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes == 0 {
-		//nolint:gofumpt
-		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes =
-			DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
+		//nolint:lll
+		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
 	}
 	if cfg.SystemConfiguration.OSAutoUpgradeType != "" &&
 		cfg.SystemConfiguration.OSAutoUpgradeType != "security" &&
@@ -370,9 +370,8 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	var haveBadTimeout bool
 	minTimeout := Timeout(time.Minute)
 	if cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes < minTimeout {
-		//nolint:gofumpt
-		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes =
-			DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
+		//nolint:lll
+		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
 		haveBadTimeout = true
 	}
 
@@ -382,9 +381,7 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	}
 
 	if cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes < minTimeout {
-		//nolint:gofumpt
-		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes =
-			DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
+		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes = DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
 		haveBadTimeout = true
 	}
 

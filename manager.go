@@ -69,9 +69,10 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 
 		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
 		networking: networking.NewSubsystem(ctx, logger, cfg),
-		sysConfig:  syscfg.NewSubsystem(ctx, logger, cfg),
 		cache:      NewVersionCache(logger),
 	}
+
+	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
 
 	return manager
 }
@@ -116,6 +117,8 @@ func (m *Manager) LoadAppConfig() error {
 
 // CreateNetAppender creates or replaces m.netAppender. Must be called after config is loaded.
 func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
+	m.connMu.Lock()
+	defer m.connMu.Unlock()
 	if m.cloudConfig == nil {
 		return nil, errors.New("can't create NetAppender before config has been loaded")
 	}
@@ -125,6 +128,13 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 	var err error
 	m.netAppender, err = logging.NewNetAppender(m.cloudConfig, nil, true, m.logger)
 	return m.netAppender, err
+}
+
+// GetNetAppender is a somewhat ugly workaround to pass the (constructed later) netAppender to the syscfg subsystem.
+func (m *Manager) GetNetAppender() *logging.NetAppender {
+	m.connMu.RLock()
+	defer m.connMu.RUnlock()
+	return m.netAppender
 }
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.

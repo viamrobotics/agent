@@ -13,10 +13,6 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-const (
-	SubsysName = "syscfg"
-)
-
 type syscfg struct {
 	mu      sync.RWMutex
 	cfg     utils.SystemConfiguration
@@ -25,17 +21,24 @@ type syscfg struct {
 	started bool
 
 	// Log Forwarding
+	logMu      sync.Mutex
 	logWorkers sync.WaitGroup
+	appender   func() *logging.NetAppender
 	logHealth  *utils.Health
 	journalCmd *exec.Cmd
 	cancelFunc context.CancelFunc
 	noJournald bool
 }
 
-func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
+func NewSubsystem(ctx context.Context,
+	logger logging.Logger,
+	cfg utils.AgentConfig,
+	getAppenderFunc func() *logging.NetAppender,
+) subsystems.Subsystem {
 	return &syscfg{
-		logger:             logger,
-		cfg:                cfg.SystemConfiguration,
+		appender:  getAppenderFunc,
+		logger:    logger,
+		cfg:       cfg.SystemConfiguration,
 		logHealth: utils.NewHealth(),
 	}
 }
@@ -95,7 +98,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 	healthyUpgrades = true
 
 	// start kernel log forwarding
-	err = s.startLogForwarding(ctx)
+	err = s.startLogForwarding()
 	if err != nil {
 		s.logger.Error(errw.Wrap(err, "starting kernel log forwarding"))
 	}
@@ -108,7 +111,7 @@ func (s *syscfg) Stop(ctx context.Context) error {
 	defer s.mu.Unlock()
 	s.started = false
 
-	if err := s.stopLogForwarding(ctx); err != nil {
+	if err := s.stopLogForwarding(); err != nil {
 		s.logger.Error(errw.Wrap(err, "stopping kernel log forwarding"))
 	}
 	return nil

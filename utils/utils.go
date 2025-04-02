@@ -365,13 +365,13 @@ func WriteFileIfNew(outPath string, data []byte) (bool, error) {
 }
 
 type Health struct {
-	mu   sync.Mutex
-	last time.Time
+	mu      sync.Mutex
+	last    time.Time
 	Timeout time.Duration
 }
 
 func NewHealth() *Health {
-	return &Health{Timeout: HealthCheckTimeout}
+	return &Health{Timeout: HealthCheckTimeout, last: time.Now()}
 }
 
 func (h *Health) MarkGood() {

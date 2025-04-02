@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,61 +15,11 @@ import (
 
 	errw "github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
-	"go.viam.com/rdk/logging"
 )
 
-// cleanup stops the kernel log forwarding process.
-func (s *syscfg) stopLogForwarding(ctx context.Context) error {
-	if s.journalCmd == nil {
-		return nil
-	}
-
-	// Cancel the context to signal the reader goroutine to stop
-	s.cancelFunc()
-
-	// Create a fresh context for the cleanup operation
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	// Interrupt the process first for a clean shutdown
-	if err := s.journalCmd.Process.Signal(os.Interrupt); err != nil {
-		s.logger.Warn("Failed to interrupt kernel log process:", err)
-	}
-
-	// Wait for the process to exit with a timeout
-	done := make(chan error, 1)
-	go func() {
-		done <- s.journalCmd.Wait()
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil && !strings.Contains(err.Error(), "signal:") {
-			s.logger.Warn("Process exited with error:", err)
-		}
-	case <-cleanupCtx.Done():
-		// Process didn't exit gracefully, force kill
-		if err := s.journalCmd.Process.Kill(); err != nil {
-			s.logger.Warn("Failed to kill process:", err)
-		}
-		<-done // Drain channel
-	}
-
-	// Wait for the reader goroutine to finish
-	s.logWorkers.Wait()
-
-	// Reset state
-	s.journalCmd = nil
-	s.logger.Info("Stopped Kernel logs forwarding")
-
-	return nil
-}
-
-// Start begins forwarding kernel logs if enabled.
-func (s *syscfg) startLogForwarding(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *syscfg) startLogForwarding() error {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
 	// If forwarding is disabled or we already have a running command, do nothing
 	if s.cfg.ForwardSystemLogs == "" || s.journalCmd != nil {
 		return nil
@@ -81,9 +31,9 @@ func (s *syscfg) startLogForwarding(ctx context.Context) error {
 		return nil
 	}
 
-	cancelCtx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(context.Background())
 
-	cmd := exec.CommandContext(cancelCtx, "journalctl", "-f", "-o", "json")
+	cmd := exec.CommandContext(ctx, "journalctl", "-f", "-o", "json")
 	cmd.Cancel = func() error {
 		// will send a signal to do this the "nice way"
 		return errw.Wrap(s.journalCmd.Process.Signal(syscall.SIGTERM), "sending SIGTERM to journalctl")
@@ -92,11 +42,12 @@ func (s *syscfg) startLogForwarding(ctx context.Context) error {
 	cmd.WaitDelay = time.Second * 10
 
 	// use custom buffers so we can watch for data
-	var stdout, stderr *bytes.Buffer
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	var stdout, stderr bytes.Buffer // SMURF make these pointers to test recovery
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
+		cancelFunc()
 		return errw.Wrap(err, "starting journalctl for log forwarding")
 	}
 
@@ -106,7 +57,6 @@ func (s *syscfg) startLogForwarding(ctx context.Context) error {
 	// this will let us only log services we're interested in
 	filter := newFilter(s.cfg.ForwardSystemLogs)
 
-
 	// Start a goroutine to read and process the output
 	s.logWorkers.Add(1)
 	go func() {
@@ -114,63 +64,90 @@ func (s *syscfg) startLogForwarding(ctx context.Context) error {
 		defer func() {
 			s.cancelFunc()
 			if err := s.journalCmd.Wait(); err != nil {
-				s.logger.Error(errw.Wrap(err, "stopping journalctl"))
+				s.logger.Info(errw.Wrap(err, "stopping journalctl"))
 			}
-			s.mu.Lock()
-			defer s.mu.Unlock()
+			s.logMu.Lock()
+			defer s.logMu.Unlock()
 			s.cancelFunc = nil
 			s.journalCmd = nil
 		}()
-		decoder := json.NewDecoder(stdout)
+		decoder := json.NewDecoder(&stdout)
 
 		for {
-			if ctx.Err() != nil {
+			if !s.logHealth.Sleep(ctx, time.Millisecond*10) {
 				return
+			}
+
+			// if we don't have an appender, we can't do anything, so sleep and try again later
+			appender := s.appender()
+			if appender == nil {
+				if !s.logHealth.Sleep(ctx, time.Second*10) {
+					return
+				}
+				continue
 			}
 
 			s.logHealth.MarkGood()
 
-			if stderr.Available() > 0 {
+			if stderr.Len() > 0 {
 				// sleep one second in case a write is taking a while, so we get a more complete message
-				if !s.logHealth.Sleep(cancelCtx, time.Second) {
+				if !s.logHealth.Sleep(ctx, time.Second) {
 					return
 				}
 				s.logger.Errorf("unexpected error output from journalctl: %s", stderr.String())
 			}
 
-			if stdout.Available() > 0 {
+			if stdout.Len() > 0 {
 				var entry journaldEntry
 				if err := decoder.Decode(&entry); err != nil {
 					// Ignore EOF errors as they're expected when the stream ends
 					if err != io.EOF {
 						s.logger.Error(errw.Wrap(err, "decoding journalctl output"))
+						stdout.Reset()
 					}
-					return
+					continue
 				}
 
 				if !filter.shouldLog(entry) {
 					continue
 				}
 
-				logEntry := &logging.LogEntry{
-					Entry: zapcore.Entry{
-						Level:      entry.getLevel(),
-						Time:       entry.getTime(),
-						LoggerName: entry.getName(),
-						Message:    entry.getMessage(),
-						//Caller:     zapcore.EntryCaller{Defined: false},
-					},
+				logEntry := zapcore.Entry{
+					Level:      entry.getLevel(),
+					Time:       entry.getTime(),
+					LoggerName: entry.getName(),
+					Message:    entry.getMessage(),
+					Caller:     zapcore.EntryCaller{Defined: false},
 				}
 
-				s.logger.Write(logEntry)
+				if err := appender.Write(logEntry, nil); err != nil {
+					s.logger.Error(err)
+				}
 			}
 		}
 	}()
 
-	s.logger.Info("Started Kernel logs forwarding")
+	s.logger.Info("Started system log forwarding")
 	return nil
 }
 
+func (s *syscfg) stopLogForwarding() error {
+	if s.journalCmd == nil {
+		return nil
+	}
+
+	// Cancel the context to signal the reader goroutine to stop
+	if s.cancelFunc == nil {
+		return errors.New("log forwarding cancel function is nil")
+	}
+	s.cancelFunc()
+
+	// Wait for the reader goroutine to finish
+	s.logWorkers.Wait()
+
+	s.logger.Info("Stopped system log forwarding")
+	return nil
+}
 
 type journaldEntry struct {
 	Message          string `json:"MESSAGE"`
@@ -198,7 +175,7 @@ func (e journaldEntry) getLevel() zapcore.Level {
 	}
 }
 
-// more closely mimic journalctl's normal output by including the PID, when available
+// more closely mimic journalctl's normal output by including the PID, when available.
 func (e journaldEntry) getName() string {
 	if e.PID != "" {
 		return fmt.Sprintf("%s[%s]", e.SyslogIdentifier, e.PID)
@@ -211,19 +188,15 @@ func (e journaldEntry) getTime() time.Time {
 	if err != nil {
 		return time.Now()
 	}
-	return time.Unix(0, timeAsInt)
+	return time.UnixMicro(timeAsInt)
 }
 
 func (e journaldEntry) getMessage() string {
 	return e.Message
 }
 
-func (e journaldEntry) shouldLog() bool {
-	return false
-}
-
 type logFilter struct {
-	all bool
+	all    bool
 	filter map[string]bool
 }
 
@@ -243,6 +216,9 @@ func newFilter(cfg string) *logFilter {
 			self.filter[opt] = true
 		}
 	}
+
+	// never forward our own logs
+	self.filter["viam-agent"] = false
 
 	return self
 }
