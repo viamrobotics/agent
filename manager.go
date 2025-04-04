@@ -398,7 +398,7 @@ func (m *Manager) CloseAll() {
 }
 
 // StartBackgroundChecks kicks off a go routine that loops on a timer to check for updates and health checks.
-func (m *Manager) StartBackgroundChecks(ctx context.Context) {
+func (m *Manager) StartBackgroundChecks(ctx context.Context, globalCancel context.CancelFunc) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -406,13 +406,12 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	m.logger.Debug("starting background checks")
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
+		defer m.activeBackgroundWorkers.Done()
 		defer utils.Recover(m.logger, func(_ any) {
 			// if panic escalates to this height, we should let it crash and get restarted from systemd
 			m.logger.Error("serious panic discovered, exiting for clean restart")
-			m.CloseAll()
-			os.Exit(1)
+			globalCancel()
 		})
-		defer m.activeBackgroundWorkers.Done()
 
 		checkInterval := minimalCheckInterval
 		m.cfgMu.RLock()

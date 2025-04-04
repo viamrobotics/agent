@@ -178,12 +178,12 @@ func commonMain() {
 		}
 	}
 
-	manager.StartBackgroundChecks(ctx)
+	manager.StartBackgroundChecks(ctx, globalCancel)
 	<-ctx.Done()
 	manager.CloseAll()
 }
 
-func setupExitSignalHandling() (context.Context, func()) {
+func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 16)
 	activeBackgroundWorkers.Add(1)
