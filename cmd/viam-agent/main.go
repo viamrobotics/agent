@@ -188,8 +188,8 @@ func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 	sigChan := make(chan os.Signal, 16)
 	activeBackgroundWorkers.Add(1)
 	go func() {
-		defer activeBackgroundWorkers.Done()
 		defer utils.Recover(globalLogger, nil)
+		defer activeBackgroundWorkers.Done()
 		defer cancel()
 		for {
 			var sig os.Signal

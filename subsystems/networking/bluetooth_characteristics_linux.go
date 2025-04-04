@@ -228,8 +228,8 @@ func (b *btCharacteristics) startBTLoop(ctx context.Context, inputChan chan<- us
 	b.health.MarkGood()
 	b.workers.Add(1)
 	go func() {
-		defer b.workers.Done()
 		defer utils.Recover(b.logger, nil)
+		defer b.workers.Done()
 		for {
 			// If new values are provided, persist them to in-memory storage.
 			input.SSID = b.readCharacteristic(ssidKey)

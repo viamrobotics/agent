@@ -406,12 +406,12 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context, globalCancel contex
 	m.logger.Debug("starting background checks")
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
-		defer m.activeBackgroundWorkers.Done()
 		defer utils.Recover(m.logger, func(_ any) {
 			// if panic escalates to this height, we should let it crash and get restarted from systemd
 			m.logger.Error("serious panic discovered, exiting for clean restart")
 			globalCancel()
 		})
+		defer m.activeBackgroundWorkers.Done()
 
 		checkInterval := minimalCheckInterval
 		m.cfgMu.RLock()

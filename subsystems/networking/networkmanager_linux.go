@@ -596,8 +596,8 @@ func (n *Networking) getCandidates(ifName string) []string {
 }
 
 func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
-	defer n.monitorWorkers.Done()
 	defer utils.Recover(n.logger, nil)
+	defer n.monitorWorkers.Done()
 	n.logger.Info("Background state monitors started")
 	defer n.logger.Info("Background state monitors stopped")
 	for {
@@ -623,8 +623,8 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 }
 
 func (n *Networking) mainLoop(ctx context.Context) {
-	defer n.monitorWorkers.Done()
 	defer utils.Recover(n.logger, nil)
+	defer n.monitorWorkers.Done()
 
 	scanChan := make(chan bool, 16)
 	inputChan := make(chan userInput, 1)

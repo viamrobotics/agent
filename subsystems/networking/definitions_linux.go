@@ -187,8 +187,8 @@ func (p *portalData) sendInput(connState *connectionState) {
 
 	p.workers.Add(1)
 	go func() {
-		defer p.workers.Done()
 		defer utils.Recover(logging.Global(), nil)
+		defer p.workers.Done()
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		select {

@@ -124,14 +124,14 @@ func (s *viamServer) Start(ctx context.Context) error {
 	// must be unlocked before spawning goroutine
 	s.mu.Unlock()
 	go func() {
-		err := s.cmd.Wait()
-		s.mu.Lock()
-		defer s.mu.Unlock()
 		defer utils.Recover(s.logger, func(_ any) {
 			if err := s.Stop(ctx); err != nil {
 				s.logger.Error(err)
 			}
 		})
+		err := s.cmd.Wait()
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.running = false
 		s.logger.Infof("%s exited", SubsysName)
 		if err != nil {

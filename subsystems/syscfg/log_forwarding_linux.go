@@ -60,8 +60,8 @@ func (s *syscfg) startLogForwarding() error {
 	// Start a goroutine to read and process the output
 	s.logWorkers.Add(1)
 	go func() {
-		defer s.logWorkers.Done()
 		defer utils.Recover(s.logger, nil)
+		defer s.logWorkers.Done()
 		defer func() {
 			s.cancelFunc()
 			if err := s.journalCmd.Wait(); err != nil {
