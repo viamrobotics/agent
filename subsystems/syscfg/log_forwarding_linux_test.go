@@ -184,8 +184,8 @@ func TestLogForwarderFilter(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			cfg := utils.AgentConfig{
 				SystemConfiguration: utils.SystemConfiguration{
-					ForwardSystemLogs: cfgVal,
-					LoggingJournaldSystemMaxUseMegabytes: -1,
+					ForwardSystemLogs:                     cfgVal,
+					LoggingJournaldSystemMaxUseMegabytes:  -1,
 					LoggingJournaldRuntimeMaxUseMegabytes: -1,
 				},
 			}
