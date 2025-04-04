@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap/zapcore"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
 )
@@ -21,6 +23,7 @@ func createMockJournalctl(t *testing.T) func() {
 	// Create the mock command that outputs test log entries and reads from stdin for new entries
 	//nolint:lll
 	mockContent := `#!/bin/bash
+trap exit TERM
 # Initial entries
 echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890123","__MONOTONIC_TIMESTAMP":"1234567890","MESSAGE":"Test kernel error"}'
 echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"Test kernel warning"}'
@@ -30,7 +33,12 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_B
 sleep 2
 
 # Output new entries after delay
-echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890126","__MONOTONIC_TIMESTAMP":"1234567893","MESSAGE":"New kernel entry after forwarder started"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"foobar","_PID":"666","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890133","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test foobar info"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"NetworkManager","_PID":"555","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890134","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"New NetworkManager entry after forwarder started"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"foobar","_PID":"666","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890135","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test foobar info"}'
+
+# keep sleeping because journalctl should not exit
+while true; do sleep 1; done
 `
 	if err := os.WriteFile(mockPath, []byte(mockContent), 0o755); err != nil {
 		t.Fatalf("Failed to create mock journalctl: %v", err)
@@ -48,241 +56,189 @@ echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_B
 	}
 }
 
-func TestKernelLogForwarder(t *testing.T) {
-	cleanup := createMockJournalctl(t)
-	defer cleanup()
-
-	logger, logs := logging.NewObservedTestLogger(t)
-
-	cfg := utils.SystemConfiguration{
-		ForwardSystemLogs: "kernel",
-	}
-
-	k := NewKernelLogForwarder(context.Background(), logger, cfg)
-
-	// On start, we should see kernel forwarder start log
-	err := k.Start()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Wait for initial logs
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify initial logs
-	initialLogs := logs.All()
-	test.That(t, len(initialLogs), test.ShouldEqual, 4) // 3 kernel logs + start message
-
-	// Wait for new logs
-	time.Sleep(3 * time.Second)
-
-	// Stop forwarding to ensure all logs are flushed
-	err = k.Stop()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Get all logs and verify
-	allLogs := logs.All()
-	test.That(t, len(allLogs), test.ShouldEqual, 6) // 4 kernel logs + start + stop messages
-
-	// Verify the logs in order
-	//nolint:lll
-	expectedLogs := []string{
-		"Started Kernel logs forwarding",
-		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890123Z monotonic=1.23456789s since boot] Test kernel error",
-		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890124Z monotonic=1.234567891s since boot] Test kernel warning",
-		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890125Z monotonic=1.234567892s since boot] Test kernel info",
-		"[syslog_id=kernel boot_id=test-boot-id realtime=2024-02-29T19:22:47.890126Z monotonic=1.234567893s since boot] New kernel entry after forwarder started",
-		"Stopped Kernel logs forwarding",
-	}
-
-	for i, log := range allLogs {
-		test.That(t, log.Message, test.ShouldEqual, expectedLogs[i])
-	}
+type mockAppender struct {
+	mu      sync.Mutex
+	entries []zapcore.Entry
 }
 
-func TestKernelLogForwarderDisabled(t *testing.T) {
-	cleanup := createMockJournalctl(t)
-	defer cleanup()
-
-	logger, logs := logging.NewObservedTestLogger(t)
-	cfg := utils.SystemConfiguration{
-		ForwardSystemLogs: false,
-	}
-	k := NewKernelLogForwarder(context.Background(), logger, cfg)
-	err := k.Start()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Wait a bit to ensure no logs are forwarded
-	time.Sleep(100 * time.Millisecond)
-
-	// Stop forwarding to ensure all logs are flushed
-	err = k.Stop()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Verify no logs were forwarded
-	allLogs := logs.All()
-	test.That(t, len(allLogs), test.ShouldEqual, 0)
+func (m *mockAppender) Write(e zapcore.Entry, _ []zapcore.Field) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = append(m.entries, e)
+	return nil
 }
 
-func TestKernelLogForwarderUpdate(t *testing.T) {
-	cleanup := createMockJournalctl(t)
-	defer cleanup()
-
-	logger, logs := logging.NewObservedTestLogger(t)
-
-	cfg := utils.SystemConfiguration{
-		ForwardSystemLogs: false,
-	}
-
-	k := NewKernelLogForwarder(context.Background(), logger, cfg)
-
-	// Start with forwarding disabled
-	err := k.Start()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Update to enable forwarding
-	cfg.ForwardSystemLogs = true
-	err = k.Update(cfg)
-	test.That(t, err, test.ShouldBeNil)
-
-	err = k.Start()
-	test.That(t, err, test.ShouldBeNil)
-
-	time.Sleep(100 * time.Millisecond)
-
-	// Stop forwarding to ensure all logs are flushed
-	err = k.Stop()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Verify logs are forwarded
-	allLogs := logs.All()
-	test.That(t, len(allLogs), test.ShouldBeGreaterThan, 0)
+func (m *mockAppender) Sync() error {
+	return nil
 }
 
-func TestKernelLogForwarderErrorHandling(t *testing.T) {
-	cleanup := createMockJournalctl(t)
-	defer cleanup()
-
-	logger := logging.NewTestLogger(t)
-
-	cfg := utils.SystemConfiguration{
-		ForwardSystemLogs: true,
-	}
-
-	k := NewKernelLogForwarder(context.Background(), logger, cfg)
-
-	t.Run("command error", func(t *testing.T) {
-		// Temporarily modify PATH to make journalctl unavailable
-		oldPath := os.Getenv("PATH")
-		t.Setenv("PATH", "")
-		defer t.Setenv("PATH", oldPath)
-
-		err := k.Start()
-		test.That(t, err, test.ShouldBeNil)
-	})
-
-	t.Run("stop after context cancellation", func(t *testing.T) {
-		err := k.Start()
-		test.That(t, err, test.ShouldBeNil)
-
-		// Cancel context
-		k.cancel()
-
-		err = k.Stop()
-		test.That(t, err, test.ShouldBeNil)
-	})
+func (m *mockAppender) All() []zapcore.Entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.entries
 }
 
-func TestKernelLogForwarderCleanup(t *testing.T) {
-	cleanup := createMockJournalctl(t)
-	defer cleanup()
+func TestLogForwarderFilter(t *testing.T) {
+	t.Cleanup(createMockJournalctl(t))
+	ctx := context.Background()
 
-	logger, logs := logging.NewObservedTestLogger(t)
-	cfg := utils.SystemConfiguration{
-		ForwardSystemLogs: true,
+	expectedEntries := map[string][]zapcore.Entry{
+		"all,-foobar": {
+			{
+				Level:      zapcore.ErrorLevel,
+				Time:       time.UnixMicro(1709234567890123),
+				LoggerName: "kernel",
+				Message:    "Test kernel error",
+			},
+			{
+				Level:      zapcore.WarnLevel,
+				Time:       time.UnixMicro(1709234567890124),
+				LoggerName: "kernel",
+				Message:    "Test kernel warning",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890125),
+				LoggerName: "kernel",
+				Message:    "Test kernel info",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890134),
+				LoggerName: "NetworkManager[555]",
+				Message:    "New NetworkManager entry after forwarder started",
+			},
+		},
+		"kernel,NetworkManager": {
+			{
+				Level:      zapcore.ErrorLevel,
+				Time:       time.UnixMicro(1709234567890123),
+				LoggerName: "kernel",
+				Message:    "Test kernel error",
+			},
+			{
+				Level:      zapcore.WarnLevel,
+				Time:       time.UnixMicro(1709234567890124),
+				LoggerName: "kernel",
+				Message:    "Test kernel warning",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890125),
+				LoggerName: "kernel",
+				Message:    "Test kernel info",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890134),
+				LoggerName: "NetworkManager[555]",
+				Message:    "New NetworkManager entry after forwarder started",
+			},
+		},
+		"all": {
+			{
+				Level:      zapcore.ErrorLevel,
+				Time:       time.UnixMicro(1709234567890123),
+				LoggerName: "kernel",
+				Message:    "Test kernel error",
+			},
+			{
+				Level:      zapcore.WarnLevel,
+				Time:       time.UnixMicro(1709234567890124),
+				LoggerName: "kernel",
+				Message:    "Test kernel warning",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890125),
+				LoggerName: "kernel",
+				Message:    "Test kernel info",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890133),
+				LoggerName: "foobar[666]",
+				Message:    "Test foobar info",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890134),
+				LoggerName: "NetworkManager[555]",
+				Message:    "New NetworkManager entry after forwarder started",
+			},
+			{
+				Level:      zapcore.InfoLevel,
+				Time:       time.UnixMicro(1709234567890135),
+				LoggerName: "foobar[666]",
+				Message:    "Test foobar info",
+			},
+		},
+		"": []zapcore.Entry(nil),
 	}
-	k := NewKernelLogForwarder(context.Background(), logger, cfg)
 
-	// Start the forwarder
-	err := k.Start()
-	test.That(t, err, test.ShouldBeNil)
+	for cfgVal, expected := range expectedEntries {
+		testName := cfgVal
+		if testName == "" {
+			testName = "NONE"
+		}
+		t.Run(testName, func(t *testing.T) {
+			cfg := utils.AgentConfig{
+				SystemConfiguration: utils.SystemConfiguration{
+					ForwardSystemLogs: cfgVal,
+				},
+			}
 
-	// Wait for start message
-	time.Sleep(100 * time.Millisecond)
+			logger, logs := logging.NewObservedTestLogger(t)
 
-	// Verify forwarder is running
-	test.That(t, k.cmd, test.ShouldNotBeNil)
+			appender := &mockAppender{}
 
-	// Test cleanup during Stop
-	err = k.Stop()
-	test.That(t, err, test.ShouldBeNil)
-	test.That(t, k.cmd, test.ShouldBeNil)
-	test.That(t, logs.All()[len(logs.All())-1].Message, test.ShouldEqual, "Stopped Kernel logs forwarding")
+			sys := NewSubsystem(ctx, logger, cfg, func() logging.Appender {
+				return appender
+			})
 
-	// Start again
-	err = k.Start()
-	test.That(t, err, test.ShouldBeNil)
+			// On start, we should see kernel forwarder start log
+			err := sys.Start(context.Background())
+			test.That(t, err, test.ShouldBeNil)
 
-	// Test cleanup during Start when disabled
-	cfg.ForwardSystemLogs = false
-	err = k.Update(cfg)
-	test.That(t, err, test.ShouldBeNil)
+			// Wait for initial logs
+			time.Sleep(100 * time.Millisecond)
 
-	err = k.Start()
-	test.That(t, err, test.ShouldBeNil)
-	test.That(t, k.cmd, test.ShouldBeNil)
-	test.That(t, logs.All()[len(logs.All())-1].Message, test.ShouldEqual, "Stopped Kernel logs forwarding")
-}
+			// Verify initial forwarded entries
+			initialEntries := 3
+			if cfgVal == "" {
+				initialEntries = 0
+			}
 
-func TestKernelLogForwarderToggle(t *testing.T) {
-	cleanup := createMockJournalctl(t)
-	defer cleanup()
+			test.That(t, len(appender.All()), test.ShouldEqual, initialEntries)
 
-	logger, logs := logging.NewObservedTestLogger(t)
-	cfg := utils.SystemConfiguration{
-		ForwardSystemLogs: true,
+			// Wait for new logs
+			time.Sleep(3 * time.Second)
+
+			// Stop forwarding to ensure all logs are flushed
+			err = sys.Stop(context.Background())
+			test.That(t, err, test.ShouldBeNil)
+
+			// Verify total forwarded entries
+			test.That(t, len(appender.All()), test.ShouldEqual, len(expected))
+
+			// Verify forwarded entries content
+			test.That(t, appender.All(), test.ShouldResemble, expected)
+
+			// Verify the logs in order
+			expectedLogs := []string{
+				"Starting syscfg",
+				"Started system log forwarding",
+				"stopped journalctl",
+				"Stopped system log forwarding",
+			}
+
+			for i, log := range logs.All() {
+				test.That(t, log.Message, test.ShouldEqual, expectedLogs[i])
+				// bail after the first line when we're disabled
+				if cfgVal == "" {
+					break
+				}
+			}
+		})
 	}
-	k := NewKernelLogForwarder(context.Background(), logger, cfg)
-
-	// Start with forwarding enabled
-	err := k.Start()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Wait for initial logs
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify we got initial logs
-	initialLogs := logs.All()
-	test.That(t, len(initialLogs), test.ShouldBeGreaterThan, 0)
-
-	// Disable forwarding
-	cfg.ForwardSystemLogs = false
-	err = k.Update(cfg)
-	test.That(t, err, test.ShouldBeNil)
-	err = k.Start()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Create new logger to check only new logs
-	logger, logs = logging.NewObservedTestLogger(t)
-	k.logger = logger
-
-	// Wait a bit to ensure no logs are forwarded while disabled
-	time.Sleep(100 * time.Millisecond)
-	test.That(t, len(logs.All()), test.ShouldEqual, 0)
-
-	// Re-enable forwarding
-	cfg.ForwardSystemLogs = true
-	err = k.Update(cfg)
-	test.That(t, err, test.ShouldBeNil)
-	err = k.Start()
-	test.That(t, err, test.ShouldBeNil)
-
-	// Wait for new logs
-	time.Sleep(3 * time.Second)
-
-	// Verify we got new logs after re-enabling
-	newLogs := logs.All()
-	test.That(t, len(newLogs), test.ShouldBeGreaterThan, 0)
-
-	// Stop forwarding
-	err = k.Stop()
-	test.That(t, err, test.ShouldBeNil)
 }

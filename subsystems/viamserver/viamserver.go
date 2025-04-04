@@ -127,7 +127,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		err := s.cmd.Wait()
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		defer utils.Recover(s.logger, func(r any){
+		defer utils.Recover(s.logger, func(_ any) {
 			if err := s.Stop(ctx); err != nil {
 				s.logger.Error(err)
 			}

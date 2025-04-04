@@ -130,7 +130,7 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 }
 
 // GetNetAppender is a somewhat ugly workaround to pass the (constructed later) netAppender to the syscfg subsystem.
-func (m *Manager) GetNetAppender() *logging.NetAppender {
+func (m *Manager) GetNetAppender() logging.Appender {
 	m.connMu.RLock()
 	defer m.connMu.RUnlock()
 	return m.netAppender
@@ -406,7 +406,7 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	m.logger.Debug("starting background checks")
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
-		defer utils.Recover(m.logger, func(r any) {
+		defer utils.Recover(m.logger, func(_ any) {
 			// if panic escalates to this height, we should let it crash and get restarted from systemd
 			m.logger.Error("serious panic discovered, exiting for clean restart")
 			m.CloseAll()

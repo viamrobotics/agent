@@ -8,6 +8,6 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-func NewSubsystem(_ context.Context, _ logging.Logger, _ utils.AgentConfig, _ func() *logging.NetAppender) subsystems.Subsystem {
+func NewSubsystem(_ context.Context, _ logging.Logger, _ utils.AgentConfig, _ func() logging.Appender) subsystems.Subsystem {
 	return &subsystems.Dummy{}
 }

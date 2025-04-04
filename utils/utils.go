@@ -410,3 +410,44 @@ func Recover(logger logging.Logger, inner func(r any)) {
 		}
 	}
 }
+
+const maxBufferSize = 16 * 1024 * 1024
+
+type SafeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (sb *SafeBuffer) Write(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	if sb.buf.Len() > maxBufferSize {
+		sb.buf.Reset()
+	}
+	return sb.buf.Write(p)
+}
+
+func (sb *SafeBuffer) Read(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Read(p)
+}
+
+func (sb *SafeBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	defer sb.buf.Reset()
+	return sb.buf.String()
+}
+
+func (sb *SafeBuffer) Len() int {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Len()
+}
+
+func (sb *SafeBuffer) Reset() {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	sb.buf.Reset()
+}

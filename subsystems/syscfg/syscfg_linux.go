@@ -23,7 +23,7 @@ type syscfg struct {
 	// Log Forwarding
 	logMu      sync.Mutex
 	logWorkers sync.WaitGroup
-	appender   func() *logging.NetAppender
+	appender   func() logging.Appender
 	logHealth  *utils.Health
 	journalCmd *exec.Cmd
 	cancelFunc context.CancelFunc
@@ -33,7 +33,7 @@ type syscfg struct {
 func NewSubsystem(ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
-	getAppenderFunc func() *logging.NetAppender,
+	getAppenderFunc func() logging.Appender,
 ) subsystems.Subsystem {
 	return &syscfg{
 		appender:  getAppenderFunc,

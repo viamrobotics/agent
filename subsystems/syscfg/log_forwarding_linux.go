@@ -1,7 +1,6 @@
 package syscfg
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,8 +16,6 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	"go.uber.org/zap/zapcore"
 )
-
-const maxBufferSize = 16 * 1024 * 1024
 
 func (s *syscfg) startLogForwarding() error {
 	s.logMu.Lock()
@@ -45,7 +42,7 @@ func (s *syscfg) startLogForwarding() error {
 	cmd.WaitDelay = time.Second * 10
 
 	// use custom buffers so we can watch for data
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr utils.SafeBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -70,7 +67,7 @@ func (s *syscfg) startLogForwarding() error {
 			if err := s.journalCmd.Wait(); err != nil {
 				if !strings.Contains(err.Error(), "signal: terminated") {
 					s.logger.Info("stopped journalctl")
-				}else{
+				} else {
 					s.logger.Error(errw.Wrap(err, "stopping journalctl"))
 				}
 			}
@@ -93,10 +90,6 @@ func (s *syscfg) startLogForwarding() error {
 				if !s.logHealth.Sleep(ctx, time.Second*10) {
 					return
 				}
-				// the stdout buffer will be filling up when we can't write
-				if stdout.Len() > maxBufferSize {
-					stdout.Reset()
-				}
 				continue
 			}
 
@@ -106,17 +99,16 @@ func (s *syscfg) startLogForwarding() error {
 					return
 				}
 				s.logger.Errorf("unexpected error output from journalctl: %s", stderr.String())
-				stderr.Reset()
 			}
 
-			if stdout.Len() > 0 {
+			if decoder.More() {
 				var entry journaldEntry
 				if err := decoder.Decode(&entry); err != nil {
-					// Ignore EOF errors as they're expected when the stream ends
-					if err != io.EOF {
-						s.logger.Error(errw.Wrap(err, "decoding journalctl output"))
-						stdout.Reset()
+					// let other stuff process in the outer loop if we're caught up
+					if err == io.EOF {
+						continue
 					}
+					s.logger.Error(errw.Wrap(err, "decoding journalctl output"))
 					continue
 				}
 
