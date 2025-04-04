@@ -8,6 +8,7 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/provisioning/v1"
 	"google.golang.org/grpc"
 )
@@ -25,6 +26,11 @@ func (n *Networking) startGRPC() error {
 	n.portalData.workers.Add(1)
 	go func() {
 		defer n.portalData.workers.Done()
+		defer utils.Recover(n.logger, func(r any){
+			if err := n.stopProvisioning(); err != nil {
+				n.logger.Error(err)
+			}
+		})
 		if err := n.grpcServer.Serve(lis); err != nil {
 			n.logger.Error(err)
 		}

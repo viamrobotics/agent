@@ -9,7 +9,9 @@ import (
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
+	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/provisioning/v1"
+	"go.viam.com/rdk/logging"
 )
 
 // This file contains type, const, and var definitions.
@@ -186,6 +188,7 @@ func (p *portalData) sendInput(connState *connectionState) {
 	p.workers.Add(1)
 	go func() {
 		defer p.workers.Done()
+		defer utils.Recover(logging.Global(), nil)
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		select {

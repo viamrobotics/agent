@@ -14,8 +14,11 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 	"go.uber.org/zap/zapcore"
 )
+
+const maxBufferSize = 16 * 1024 * 1024
 
 func (s *syscfg) startLogForwarding() error {
 	s.logMu.Lock()
@@ -42,7 +45,7 @@ func (s *syscfg) startLogForwarding() error {
 	cmd.WaitDelay = time.Second * 10
 
 	// use custom buffers so we can watch for data
-	var stdout, stderr bytes.Buffer // SMURF make these pointers to test recovery
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -61,10 +64,15 @@ func (s *syscfg) startLogForwarding() error {
 	s.logWorkers.Add(1)
 	go func() {
 		defer s.logWorkers.Done()
+		defer utils.Recover(s.logger, nil)
 		defer func() {
 			s.cancelFunc()
 			if err := s.journalCmd.Wait(); err != nil {
-				s.logger.Info(errw.Wrap(err, "stopping journalctl"))
+				if !strings.Contains(err.Error(), "signal: terminated") {
+					s.logger.Info("stopped journalctl")
+				}else{
+					s.logger.Error(errw.Wrap(err, "stopping journalctl"))
+				}
 			}
 			s.logMu.Lock()
 			defer s.logMu.Unlock()
@@ -74,6 +82,7 @@ func (s *syscfg) startLogForwarding() error {
 		decoder := json.NewDecoder(&stdout)
 
 		for {
+			// speed limit ourselves to a max of ~100 entries per second
 			if !s.logHealth.Sleep(ctx, time.Millisecond*10) {
 				return
 			}
@@ -84,10 +93,12 @@ func (s *syscfg) startLogForwarding() error {
 				if !s.logHealth.Sleep(ctx, time.Second*10) {
 					return
 				}
+				// the stdout buffer will be filling up when we can't write
+				if stdout.Len() > maxBufferSize {
+					stdout.Reset()
+				}
 				continue
 			}
-
-			s.logHealth.MarkGood()
 
 			if stderr.Len() > 0 {
 				// sleep one second in case a write is taking a while, so we get a more complete message
@@ -95,6 +106,7 @@ func (s *syscfg) startLogForwarding() error {
 					return
 				}
 				s.logger.Errorf("unexpected error output from journalctl: %s", stderr.String())
+				stderr.Reset()
 			}
 
 			if stdout.Len() > 0 {
@@ -117,7 +129,6 @@ func (s *syscfg) startLogForwarding() error {
 					Time:       entry.getTime(),
 					LoggerName: entry.getName(),
 					Message:    entry.getMessage(),
-					Caller:     zapcore.EntryCaller{Defined: false},
 				}
 
 				if err := appender.Write(logEntry, nil); err != nil {

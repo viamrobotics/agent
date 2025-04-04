@@ -9,7 +9,6 @@ import (
 	"os"
 	"regexp"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -139,7 +138,7 @@ func (m *Manager) GetNetAppender() *logging.NetAppender {
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
 func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 
 	switch name {
 	case viamserver.SubsysName:
@@ -178,7 +177,7 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 
 // SubsystemUpdates checks for updates to configured subsystems and restarts them as needed.
 func (m *Manager) SubsystemUpdates(ctx context.Context) {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 	if ctx.Err() != nil {
 		return
 	}
@@ -265,7 +264,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 
 // CheckUpdates retrieves an updated config from the cloud, and then passes it to SubsystemUpdates().
 func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 	m.logger.Debug("Checking cloud for update")
 	interval, err := m.GetConfig(ctx)
 
@@ -297,7 +296,7 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 
 // SubsystemHealthChecks makes sure all subsystems are responding, and restarts them if not.
 func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 	if ctx.Err() != nil {
 		return
 	}
@@ -407,6 +406,14 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	m.logger.Debug("starting background checks")
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
+		defer utils.Recover(m.logger, func(r any) {
+			// if panic escalates to this height, we should let it crash and get restarted from systemd
+			m.logger.Error("serious panic discovered, exiting for clean restart")
+			m.CloseAll()
+			os.Exit(1)
+		})
+		defer m.activeBackgroundWorkers.Done()
+
 		checkInterval := minimalCheckInterval
 		m.cfgMu.RLock()
 		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck
@@ -420,7 +427,6 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 
 		timer := time.NewTimer(checkInterval)
 		defer timer.Stop()
-		defer m.activeBackgroundWorkers.Done()
 		for {
 			if ctx.Err() != nil {
 				return
@@ -593,13 +599,4 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	}
 
 	return vers
-}
-
-func (m *Manager) handlePanic() {
-	// if something panicked, log it and let things continue
-	r := recover()
-	if r != nil {
-		m.logger.Error("unknown panic encountered, will attempt to recover")
-		m.logger.Errorf("panic: %s\n%s", r, debug.Stack())
-	}
 }

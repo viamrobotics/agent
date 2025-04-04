@@ -18,6 +18,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -396,4 +397,16 @@ func (h *Health) IsHealthy() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return time.Since(h.last) < h.Timeout
+}
+
+func Recover(logger logging.Logger, inner func(r any)) {
+	// if something panicked, log it and allow things to continue
+	r := recover()
+	if r != nil {
+		logger.Error("encountered a panic, attempting to recover")
+		logger.Errorf("panic: %s\n%s", r, debug.Stack())
+		if inner != nil {
+			inner(r)
+		}
+	}
 }

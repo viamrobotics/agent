@@ -189,6 +189,7 @@ func setupExitSignalHandling() (context.Context, func()) {
 	activeBackgroundWorkers.Add(1)
 	go func() {
 		defer activeBackgroundWorkers.Done()
+		defer utils.Recover(globalLogger, nil)
 		defer cancel()
 		for {
 			var sig os.Signal
