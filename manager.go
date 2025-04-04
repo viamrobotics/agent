@@ -9,7 +9,6 @@ import (
 	"os"
 	"regexp"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -69,9 +68,10 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 
 		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
 		networking: networking.NewSubsystem(ctx, logger, cfg),
-		sysConfig:  syscfg.NewSubsystem(ctx, logger, cfg),
 		cache:      NewVersionCache(logger),
 	}
+
+	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
 
 	return manager
 }
@@ -116,6 +116,8 @@ func (m *Manager) LoadAppConfig() error {
 
 // CreateNetAppender creates or replaces m.netAppender. Must be called after config is loaded.
 func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
+	m.connMu.Lock()
+	defer m.connMu.Unlock()
 	if m.cloudConfig == nil {
 		return nil, errors.New("can't create NetAppender before config has been loaded")
 	}
@@ -127,9 +129,16 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 	return m.netAppender, err
 }
 
+// GetNetAppender is a somewhat ugly workaround to pass the (constructed later) netAppender to the syscfg subsystem.
+func (m *Manager) GetNetAppender() logging.Appender {
+	m.connMu.RLock()
+	defer m.connMu.RUnlock()
+	return m.netAppender
+}
+
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.
 func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 
 	switch name {
 	case viamserver.SubsysName:
@@ -168,7 +177,7 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 
 // SubsystemUpdates checks for updates to configured subsystems and restarts them as needed.
 func (m *Manager) SubsystemUpdates(ctx context.Context) {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 	if ctx.Err() != nil {
 		return
 	}
@@ -255,7 +264,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 
 // CheckUpdates retrieves an updated config from the cloud, and then passes it to SubsystemUpdates().
 func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 	m.logger.Debug("Checking cloud for update")
 	interval, err := m.GetConfig(ctx)
 
@@ -287,7 +296,7 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 
 // SubsystemHealthChecks makes sure all subsystems are responding, and restarts them if not.
 func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
-	defer m.handlePanic()
+	defer utils.Recover(m.logger, nil)
 	if ctx.Err() != nil {
 		return
 	}
@@ -389,7 +398,7 @@ func (m *Manager) CloseAll() {
 }
 
 // StartBackgroundChecks kicks off a go routine that loops on a timer to check for updates and health checks.
-func (m *Manager) StartBackgroundChecks(ctx context.Context) {
+func (m *Manager) StartBackgroundChecks(ctx context.Context, globalCancel context.CancelFunc) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -397,6 +406,13 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	m.logger.Debug("starting background checks")
 	m.activeBackgroundWorkers.Add(1)
 	go func() {
+		defer utils.Recover(m.logger, func(_ any) {
+			// if panic escalates to this height, we should let it crash and get restarted from systemd
+			m.logger.Error("serious panic discovered, exiting for clean restart")
+			globalCancel()
+		})
+		defer m.activeBackgroundWorkers.Done()
+
 		checkInterval := minimalCheckInterval
 		m.cfgMu.RLock()
 		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck
@@ -410,7 +426,6 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 
 		timer := time.NewTimer(checkInterval)
 		defer timer.Stop()
-		defer m.activeBackgroundWorkers.Done()
 		for {
 			if ctx.Err() != nil {
 				return
@@ -583,13 +598,4 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	}
 
 	return vers
-}
-
-func (m *Manager) handlePanic() {
-	// if something panicked, log it and let things continue
-	r := recover()
-	if r != nil {
-		m.logger.Error("unknown panic encountered, will attempt to recover")
-		m.logger.Errorf("panic: %s\n%s", r, debug.Stack())
-	}
 }

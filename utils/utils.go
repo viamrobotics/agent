@@ -18,7 +18,9 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -33,6 +35,8 @@ var (
 	GitRevision = ""
 
 	ViamDirs = map[string]string{"viam": "/opt/viam"}
+
+	HealthCheckTimeout = time.Minute
 )
 
 // GetVersion returns the version embedded at build time.
@@ -359,4 +363,91 @@ func WriteFileIfNew(outPath string, data []byte) (bool, error) {
 	}
 
 	return true, SyncFS(outPath)
+}
+
+type Health struct {
+	mu      sync.Mutex
+	last    time.Time
+	Timeout time.Duration
+}
+
+func NewHealth() *Health {
+	return &Health{Timeout: HealthCheckTimeout, last: time.Now()}
+}
+
+func (h *Health) MarkGood() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.last = time.Now()
+}
+
+func (h *Health) Sleep(ctx context.Context, timeout time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(timeout):
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.last = time.Now()
+		return true
+	}
+}
+
+func (h *Health) IsHealthy() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return time.Since(h.last) < h.Timeout
+}
+
+func Recover(logger logging.Logger, inner func(r any)) {
+	// if something panicked, log it and allow things to continue
+	r := recover()
+	if r != nil {
+		logger.Error("encountered a panic, attempting to recover")
+		logger.Errorf("panic: %s\n%s", r, debug.Stack())
+		if inner != nil {
+			inner(r)
+		}
+	}
+}
+
+const maxBufferSize = 16 * 1024 * 1024
+
+type SafeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (sb *SafeBuffer) Write(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	if sb.buf.Len() > maxBufferSize {
+		sb.buf.Reset()
+	}
+	return sb.buf.Write(p)
+}
+
+func (sb *SafeBuffer) Read(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Read(p)
+}
+
+func (sb *SafeBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	defer sb.buf.Reset()
+	return sb.buf.String()
+}
+
+func (sb *SafeBuffer) Len() int {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Len()
+}
+
+func (sb *SafeBuffer) Reset() {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	sb.buf.Reset()
 }

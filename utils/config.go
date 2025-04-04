@@ -32,6 +32,7 @@ var (
 		SystemConfiguration{
 			LoggingJournaldSystemMaxUseMegabytes:  512,
 			LoggingJournaldRuntimeMaxUseMegabytes: 512,
+			ForwardSystemLogs:                     "",
 			OSAutoUpgradeType:                     "",
 		},
 		NetworkConfiguration{
@@ -100,6 +101,12 @@ type SystemConfiguration struct {
 	// can set either to -1 to disable, defaults to 512M (when int is 0)
 	LoggingJournaldSystemMaxUseMegabytes  int `json:"logging_journald_system_max_use_megabytes,omitempty"`
 	LoggingJournaldRuntimeMaxUseMegabytes int `json:"logging_journald_runtime_max_use_megabytes,omitempty"`
+
+	// Enable forwarding of system logs (journald) to the cloud (disabled by default)
+	// A comma-separated list of SYSLOG_IDENTIFIERs, optionally prefixed with "-" to exclude
+	// "all" is a special keyword to log everything
+	// Ex: "kernel,tailscaled,NetworkManager" or "all,-gdm,-tailscaled"
+	ForwardSystemLogs string `json:"forward_system_logs,omitempty"`
 
 	// UpgradeType can be
 	// Empty/missing ("") to make no changes
@@ -309,14 +316,12 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	// SystemConfiguration
 	// zero isn't allowed, revert to default, but don't warn
 	if cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes == 0 {
-		//nolint:gofumpt
-		cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes =
-			DefaultConfiguration.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes
+		//nolint:lll
+		cfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes
 	}
 	if cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes == 0 {
-		//nolint:gofumpt
-		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes =
-			DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
+		//nolint:lll
+		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
 	}
 	if cfg.SystemConfiguration.OSAutoUpgradeType != "" &&
 		cfg.SystemConfiguration.OSAutoUpgradeType != "security" &&
@@ -365,9 +370,8 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	var haveBadTimeout bool
 	minTimeout := Timeout(time.Minute)
 	if cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes < minTimeout {
-		//nolint:gofumpt
-		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes =
-			DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
+		//nolint:lll
+		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
 		haveBadTimeout = true
 	}
 
@@ -377,9 +381,7 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 	}
 
 	if cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes < minTimeout {
-		//nolint:gofumpt
-		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes =
-			DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
+		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes = DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
 		haveBadTimeout = true
 	}
 
