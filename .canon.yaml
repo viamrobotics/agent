@@ -1,0 +1,9 @@
+# This file provides project-level configuration for the canon dev environment utility. https://github.com/viamrobotics/canon
+viam-agent:
+    image_amd64: ghcr.io/viamrobotics/rdk-devenv:amd64
+    image_arm64: ghcr.io/viamrobotics/rdk-devenv:arm64
+    image_arm: ghcr.io/viamrobotics/rdk-devenv:armhf
+    update_interval: 168h0m0s
+    user: testbot
+    group: testbot
+    persistent: true

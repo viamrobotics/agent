@@ -11,6 +11,7 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 )
 
 type templateData struct {
@@ -61,6 +62,11 @@ func (n *Networking) startWeb() error {
 
 	n.portalData.workers.Add(1)
 	go func() {
+		defer utils.Recover(n.logger, func(_ any) {
+			if err := n.stopProvisioning(); err != nil {
+				n.logger.Error(err)
+			}
+		})
 		defer n.portalData.workers.Done()
 		err := n.webServer.Serve(lis)
 		if !errors.Is(err, http.ErrServerClosed) {

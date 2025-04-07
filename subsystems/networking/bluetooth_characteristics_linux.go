@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	"tinygo.org/x/bluetooth"
 )
@@ -227,6 +228,7 @@ func (b *btCharacteristics) startBTLoop(ctx context.Context, inputChan chan<- us
 	b.health.MarkGood()
 	b.workers.Add(1)
 	go func() {
+		defer utils.Recover(b.logger, nil)
 		defer b.workers.Done()
 		for {
 			// If new values are provided, persist them to in-memory storage.
