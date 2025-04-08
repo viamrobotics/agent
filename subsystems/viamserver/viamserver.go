@@ -1,6 +1,4 @@
 // Package viamserver contains the viam-server agent subsystem.
-//
-//nolint:goconst
 package viamserver
 
 import (
@@ -244,10 +242,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("%s not running", SubsysName)
 	}
 	if s.checkURL == "" {
-		if runtime.GOOS == "windows" {
-			// todo(windows): we hit this case on windows; debug why. note: it also can't signal the subprocess to stop.
-			return nil
-		}
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
@@ -291,10 +285,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
 // both accessed.
 func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
-	if runtime.GOOS == "windows" {
-		// todo(windows): this function throws 'unsupported protocol scheme', needs debugging
-		return true, nil
-	}
 	for _, url := range []string{s.checkURL, s.checkURLAlt} {
 		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
 
