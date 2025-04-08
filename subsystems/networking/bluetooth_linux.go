@@ -79,8 +79,10 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	if err := adv.Configure(opts); err != nil {
 		return fmt.Errorf("failed to configure default advertisement: %w", err)
 	}
-	err := n.btChar.initCrypto()
-	if err != nil {
+	if err := n.btChar.initCrypto(); err != nil {
+		return err
+	}
+	if err := n.btChar.initDevInfo(n.Config()); err != nil {
 		return err
 	}
 

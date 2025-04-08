@@ -30,13 +30,16 @@ const (
 	appAddressKey            = "app_address"
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
+	manufacturerKey          = "manufacturer"
+	modelKey                 = "model"
+	fragmentKey              = "fragment_id"
 	errorsKey                = "errors"
 	cryptoKey                = "pub_key"
 )
 
 var (
 	characteristicsWriteOnly = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey}
-	characteristicsReadOnly  = []string{cryptoKey, statusKey, availableWiFiNetworksKey, errorsKey}
+	characteristicsReadOnly  = []string{cryptoKey, statusKey, manufacturerKey, modelKey, fragmentKey, availableWiFiNetworksKey, errorsKey}
 )
 
 type btCharacteristics struct {
@@ -105,6 +108,15 @@ func (b *btCharacteristics) initCrypto() error {
 	}
 	_, err = b.writables[cryptoKey].Write(pubKey)
 	return err
+}
+
+func (b *btCharacteristics) initDevInfo(cfg utils.NetworkConfiguration) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, err1 := b.writables[manufacturerKey].Write([]byte(cfg.Manufacturer))
+	_, err2 := b.writables[modelKey].Write([]byte(cfg.Model))
+	_, err3 := b.writables[fragmentKey].Write([]byte(cfg.FragmentID))
+	return errors.Join(err1, err2, err3)
 }
 
 // initWriteOnlyCharacteristic returns a bluetooth characteristic config.
