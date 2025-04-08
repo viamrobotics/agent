@@ -51,10 +51,12 @@ type btCharacteristics struct {
 	cancel  context.CancelFunc
 	health  *health
 
+	userInputData *userInputData
+
 	privKey *rsa.PrivateKey
 }
 
-func newBTCharacteristics(logger logging.Logger) *btCharacteristics {
+func newBTCharacteristics(logger logging.Logger, userInputData *userInputData) *btCharacteristics {
 	return &btCharacteristics{
 		logger: logger,
 		values: map[string]string{
@@ -64,8 +66,9 @@ func newBTCharacteristics(logger logging.Logger) *btCharacteristics {
 			robotPartSecretKey: "",
 			appAddressKey:      "",
 		},
-		writables: map[string]*bluetooth.Characteristic{},
-		health:    &health{},
+		writables:     map[string]*bluetooth.Characteristic{},
+		health:        &health{},
+		userInputData: userInputData,
 	}
 }
 
@@ -222,15 +225,15 @@ func (b *btCharacteristics) updateErrors(errList []string) error {
 }
 
 // startBTLoop returns credentials, the minimum required information to provision a robot and/or its WiFi.
-func (b *btCharacteristics) startBTLoop(ctx context.Context, inputChan chan<- userInput) {
-	input := &userInput{}
-	ctx, b.cancel = context.WithCancel(ctx)
+func (b *btCharacteristics) startBTLoop(ctx context.Context) {
 	b.health.MarkGood()
 	b.workers.Add(1)
 	go func() {
 		defer utils.Recover(b.logger, nil)
 		defer b.workers.Done()
 		for {
+			b.userInputData.mu.Lock()
+			input := b.userInputData.input
 			// If new values are provided, persist them to in-memory storage.
 			input.SSID = b.readCharacteristic(ssidKey)
 			input.PSK = b.readCharacteristic(pskKey)
@@ -239,28 +242,11 @@ func (b *btCharacteristics) startBTLoop(ctx context.Context, inputChan chan<- us
 			input.Secret = b.readCharacteristic(robotPartSecretKey)
 			input.AppAddr = b.readCharacteristic(appAddressKey)
 
-			// If we've received a "set" of required credentials, pass them through inputChan.
-			hasWifiInput := input.SSID != "" && input.PSK != ""
-			hasCredInput := input.AppAddr != "" && input.PartID != "" && input.Secret != ""
-
-			if hasWifiInput || hasCredInput {
-				inputChan <- *input
-				if hasWifiInput {
-					// reset for next round
-					input.SSID = ""
-					input.PSK = ""
-				}
-				if hasCredInput {
-					input.AppAddr = ""
-					input.PartID = ""
-					input.Secret = ""
-				}
+			if input.SSID != "" || input.PartID != "" {
+				b.userInputData.sendInput(ctx)
 			}
-
-			// If we haven't received all required credentials, sleep and try again.
-			if !b.health.Sleep(ctx, time.Second*5) {
-				return
-			}
+			b.userInputData.mu.Unlock()
+			b.health.Sleep(ctx, time.Second)
 		}
 	}()
 }

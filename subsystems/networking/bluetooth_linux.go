@@ -12,7 +12,7 @@ import (
 )
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 	if n.Config().DisableBTProvisioning || n.noBT {
 		return nil
 	}
@@ -35,7 +35,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan c
 	}
 
 	// Start the loop that monitors for BT writes.
-	n.btChar.startBTLoop(ctx, inputChan)
+	n.btChar.startBTLoop(ctx)
 
 	// Start advertising the bluetooth service.
 	if err := n.btAdv.Start(); err != nil {

@@ -52,7 +52,7 @@ type Networking struct {
 	// portal
 	webServer  *http.Server
 	grpcServer *grpc.Server
-	portalData *portalData
+	portalData *userInputData
 
 	// bluetooth
 	noBT   bool
@@ -63,7 +63,7 @@ type Networking struct {
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
-	return &Networking{
+	subsys := &Networking{
 		cfg:    cfg.NetworkConfiguration,
 		nets:   cfg.AdditionalNetworks,
 		logger: logger,
@@ -71,16 +71,16 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		connState: NewConnectionState(logger),
 		netState:  NewNetworkState(logger),
 
-		errors:     &errorList{},
-		banner:     &banner{},
-		portalData: &portalData{},
-
-		btChar: newBTCharacteristics(logger),
+		errors: &errorList{},
+		banner: &banner{},
 
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
 		btLoopHealth:   &health{},
 	}
+	subsys.portalData = &userInputData{connState: subsys.connState}
+	subsys.btChar = newBTCharacteristics(logger, subsys.portalData)
+	return subsys
 }
 
 func (n *Networking) getNM() (gnm.NetworkManager, error) {
@@ -223,7 +223,7 @@ func (n *Networking) Start(ctx context.Context) error {
 
 	n.processAdditionalnetworks(ctx)
 
-	if err := n.checkOnline(true); err != nil {
+	if err := n.checkOnline(ctx, true); err != nil {
 		n.logger.Error(err)
 	}
 

@@ -1,8 +1,11 @@
 package networking
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"reflect"
@@ -12,6 +15,13 @@ import (
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	"go.viam.com/utils/rpc"
+)
+
+const (
+	socksTestURL      = "http://packages.viam.com/check_network_status.txt"
+	socksTestContents = "NetworkManager is online"
+	socksTestInterval = time.Minute * 2
 )
 
 func (n *Networking) warnIfMultiplePrimaryNetworks() {
@@ -67,7 +77,7 @@ func (n *Networking) getLastNetworkTried() NetworkInfo {
 	return lastNetwork.getInfo()
 }
 
-func (n *Networking) checkOnline(force bool) error {
+func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	if force {
 		if err := n.nm.CheckConnectivity(); err != nil {
 			n.logger.Error(err)
@@ -90,9 +100,20 @@ func (n *Networking) checkOnline(force bool) error {
 	case gnm.NmStateConnectedLocal:
 		// do nothing, but may need these two in the future
 	case gnm.NmStateUnknown:
-		err = errors.New("unable to determine network state")
+		n.logger.Debug("unable to determine network state")
 	default:
 		err = nil
+	}
+
+	if !online && os.Getenv("SOCKS_PROXY") != "" {
+		if time.Now().After(n.connState.getLastTested().Add(socksTestInterval)) {
+			var errSocks error
+			online, errSocks = n.CheckInternetViaSOCKS(ctx)
+			n.connState.setLastTested()
+			if errSocks != nil {
+				n.logger.Debug(errw.Wrap(errSocks, "testing connectivity via possible SOCKS proxy"))
+			}
+		}
 	}
 
 	n.connState.setOnline(online)
@@ -174,11 +195,12 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 
 	n.logger.Info("Starting provisioning mode.")
 
-	hotspotErr := n.startProvisioningHotspot(ctx, inputChan)
+	n.portalData.resetInputData(inputChan)
+	hotspotErr := n.startProvisioningHotspot(ctx)
 	if hotspotErr != nil {
 		n.logger.Errorw("failed to start hotspot provisioning", "error", hotspotErr)
 	}
-	bluetoothErr := n.startProvisioningBluetooth(ctx, inputChan)
+	bluetoothErr := n.startProvisioningBluetooth(ctx)
 	if bluetoothErr != nil {
 		n.logger.Errorw("failed to start bluetooth provisioning", "error", bluetoothErr)
 	}
@@ -192,7 +214,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 }
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 	if n.Config().DisableWifiProvisioning {
 		return nil
 	}
@@ -210,7 +232,7 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context, inputChan cha
 	}
 
 	// start portal with ssid list and known connections
-	if err := n.startPortal(inputChan); err != nil {
+	if err := n.startPortal(); err != nil {
 		err = errors.Join(err, n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID))
 		return errw.Wrap(err, "starting web/grpc portal")
 	}
@@ -227,7 +249,6 @@ func (n *Networking) StopProvisioning() error {
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
 	n.connState.setProvisioning(false)
-
 	n.errors.Clear()
 	return errors.Join(
 		n.stopProvisioningHotspot(),
@@ -312,7 +333,7 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 		if ifName == n.Config().HotspotInterface && (n.Config().TurnOnHotspotIfWifiHasNoInternet || n.netState.PrimarySSID(ifName) == ssid) {
 			n.connState.setConnected(true)
 		}
-		return n.checkOnline(true)
+		return n.checkOnline(ctx, true)
 	}
 
 	return nil
@@ -615,7 +636,7 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 		if err := n.checkConnections(); err != nil {
 			n.logger.Error(err)
 		}
-		if err := n.checkOnline(false); err != nil {
+		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Error(err)
 		}
 		scanChan <- true
@@ -845,4 +866,43 @@ func (n *Networking) doReboot(ctx context.Context) bool {
 	}
 	n.logger.Errorf("failed to reboot after %s time", time.Minute*5)
 	return false
+}
+
+func (n *Networking) CheckInternetViaSOCKS(ctx context.Context) (bool, error) {
+	n.logger.Debug("checking internet via possible SOCKS proxy")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, socksTestURL, nil)
+	if err != nil {
+		return false, errw.Wrap(err, "request setup")
+	}
+
+	// Use SOCKS proxy from environment as gRPC proxy dialer.
+	httpClient := &http.Client{Transport: &http.Transport{
+		DialContext: rpc.SocksProxyFallbackDialContext(socksTestURL, n.logger),
+	}}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, errw.Wrap(err, "connection test")
+	}
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			n.logger.Error(errw.Wrap(err, "closing connection test request"))
+		}
+	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return false, errw.Errorf("got response '%s' while checking %s", resp.Status, socksTestURL)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, errw.Wrap(err, "reading document body")
+	}
+
+	online := bytes.Contains(data, []byte(socksTestContents))
+
+	n.logger.Debugf("connection test to %s and possibly via SOCKS result: %t", socksTestURL, online)
+
+	return online, nil
 }

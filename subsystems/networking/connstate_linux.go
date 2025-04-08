@@ -14,6 +14,7 @@ type connectionState struct {
 
 	online     bool
 	lastOnline time.Time
+	lastTested time.Time
 
 	connected     bool
 	lastConnected time.Time
@@ -129,4 +130,16 @@ func (c *connectionState) getLastInteraction() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.lastInteraction
+}
+
+func (c *connectionState) setLastTested() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastTested = time.Now()
+}
+
+func (c *connectionState) getLastTested() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastTested
 }

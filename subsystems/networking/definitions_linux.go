@@ -148,9 +148,8 @@ func WriteDeviceConfig(file string, input userInput) error {
 	return os.WriteFile(file, jsonBytes, 0o600)
 }
 
-type portalData struct {
-	mu      sync.Mutex
-	Updated time.Time
+type userInputData struct {
+	mu sync.Mutex
 
 	inputChan chan<- userInput
 
@@ -159,46 +158,63 @@ type portalData struct {
 
 	// used to cancel background threads
 	cancel context.CancelFunc
+
+	connState *connectionState
 }
 
 // must be called with p.mu already locked!
-func (p *portalData) sendInput(connState *connectionState) {
-	input := *p.input
+func (u *userInputData) sendInput(ctx context.Context) {
+	if u.cancel != nil {
+		u.cancel()
+	}
+	inputSnapshot := *u.input
 
-	// in case both network and device credentials are being updated
-	// only send user data if both are already set
-	if (input.SSID != "" && input.PartID != "") ||
-		(input.SSID != "" && connState.getConfigured()) ||
-		(input.PartID != "" && connState.getOnline()) {
-		p.input = &userInput{}
-		p.inputChan <- input
-		if p.cancel != nil {
-			p.cancel()
+	// send immediately if we have a full/useful set of details, either complete wifi OR complete machine credentials
+	fullWifi := inputSnapshot.SSID != "" && inputSnapshot.PSK != ""
+	fullCreds := inputSnapshot.AppAddr != "" && inputSnapshot.PartID != "" && inputSnapshot.Secret != ""
+
+	// immediate send if wifi is being completed and we're already configured
+	if (fullWifi && fullCreds) ||
+		(fullWifi && u.connState.getConfigured()) ||
+		(fullCreds && u.connState.getOnline()) {
+		// special keyword "NONE" can be used for PSK to send immediately even when using an unsecured network
+		// otherwise a blank password would cause a wait for the timeout logic further down
+		if inputSnapshot.PSK == "NONE" {
+			inputSnapshot.PSK = ""
 		}
+		u.input = &userInput{}
+		u.inputChan <- inputSnapshot
 		return
 	}
-	// if not, wait 10 seconds for full input
-	if p.cancel != nil {
-		p.cancel()
-	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
-
-	p.workers.Add(1)
+	// if not complete set, wait ten seconds for more input before sending whatever we DO have
+	ctx, u.cancel = context.WithCancel(ctx)
+	u.workers.Add(1)
 	go func() {
 		defer utils.Recover(logging.Global(), nil)
-		defer p.workers.Done()
-		p.mu.Lock()
-		defer p.mu.Unlock()
+		defer u.workers.Done()
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(time.Second * 10):
 		}
-		p.input = &userInput{}
-		p.inputChan <- input
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		u.input = &userInput{}
+		u.inputChan <- inputSnapshot
 	}()
+}
+
+func (u *userInputData) resetInputData(inputChan chan<- userInput) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.cancel != nil {
+		u.cancel()
+	}
+	u.workers.Wait()
+	u.cancel = nil
+	u.input = &userInput{}
+	u.inputChan = inputChan
 }
 
 type userInput struct {
