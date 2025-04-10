@@ -21,7 +21,9 @@ import (
 const (
 	socksTestURL      = "http://packages.viam.com/check_network_status.txt"
 	socksTestContents = "NetworkManager is online"
-	socksTestInterval = time.Minute * 2
+
+	socksTestIntervalShort = time.Second * 15
+	socksTestIntervalLong  = time.Minute * 2
 )
 
 func (n *Networking) warnIfMultiplePrimaryNetworks() {
@@ -102,22 +104,26 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	case gnm.NmStateUnknown:
 		n.logger.Debug("unable to determine network state")
 	default:
-		err = nil
 	}
 
 	if !online && os.Getenv("SOCKS_PROXY") != "" {
-		if time.Now().After(n.connState.getLastTested().Add(socksTestInterval)) {
+		if force ||
+			(n.connState.getOnline() && time.Now().After(n.connState.getLastTested().Add(socksTestIntervalLong))) ||
+			(!n.connState.getOnline() && time.Now().After(n.connState.getLastTested().Add(socksTestIntervalShort))) {
 			var errSocks error
 			online, errSocks = n.CheckInternetViaSOCKS(ctx)
 			n.connState.setLastTested()
 			if errSocks != nil {
 				n.logger.Debug(errw.Wrap(errSocks, "testing connectivity via possible SOCKS proxy"))
 			}
+		} else {
+			// if it's not time for a new test, we want to avoid mistakenly recording "offline"
+			return nil
 		}
 	}
 
 	n.connState.setOnline(online)
-	return err
+	return nil
 }
 
 func (n *Networking) checkConnections() error {
@@ -189,9 +195,11 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
-
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	n.logger.Info("Starting provisioning mode.")
 
@@ -273,9 +281,11 @@ func (n *Networking) ActivateConnection(ctx context.Context, ifName, ssid string
 	if n.connState.getProvisioning() && ifName == n.Config().HotspotInterface {
 		return errors.New("cannot activate another connection while in provisioning mode")
 	}
-
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return n.activateConnection(ctx, ifName, ssid)
 }
 
@@ -639,7 +649,12 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Error(err)
 		}
-		scanChan <- true
+		select {
+		case scanChan <- true:
+		case <-ctx.Done():
+			return
+		default:
+		}
 	}
 }
 
@@ -652,7 +667,6 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 	n.monitorWorkers.Add(1)
 	go n.backgroundLoop(ctx, scanChan)
-
 	for {
 		var userInputReceived bool
 
@@ -870,7 +884,9 @@ func (n *Networking) doReboot(ctx context.Context) bool {
 
 func (n *Networking) CheckInternetViaSOCKS(ctx context.Context) (bool, error) {
 	n.logger.Debug("checking internet via possible SOCKS proxy")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, socksTestURL, nil)
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*15)
+	defer cancel()
+	req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, socksTestURL, nil)
 	if err != nil {
 		return false, errw.Wrap(err, "request setup")
 	}

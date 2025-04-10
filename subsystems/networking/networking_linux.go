@@ -205,6 +205,9 @@ func (n *Networking) Start(ctx context.Context) error {
 	if n.running || n.noNM {
 		return nil
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	n.logger.Debugf("Starting networking")
 
 	if n.nm == nil || n.settings == nil {
@@ -269,7 +272,9 @@ func (n *Networking) Stop(ctx context.Context) error {
 func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
-
+	if ctx.Err() != nil {
+		return false
+	}
 	if n.noNM {
 		return needRestart
 	}
@@ -309,6 +314,9 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 func (n *Networking) HealthCheck(ctx context.Context) error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if n.noNM || (n.Config().DisableBTProvisioning && n.Config().DisableWifiProvisioning) {
 		return nil
 	}

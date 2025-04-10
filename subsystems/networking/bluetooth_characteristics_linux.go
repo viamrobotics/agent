@@ -258,7 +258,9 @@ func (b *btCharacteristics) startBTLoop(ctx context.Context) {
 				b.userInputData.sendInput(ctx)
 			}
 			b.userInputData.mu.Unlock()
-			b.health.Sleep(ctx, time.Second)
+			if !b.health.Sleep(ctx, time.Second) {
+				return
+			}
 		}
 	}()
 }
