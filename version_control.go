@@ -209,6 +209,11 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			}
 		}
 
+		if runtime.GOOS == "windows" && verData.UnpackedPath == "" {
+			// This case happens as a result of manual action to fix systems which used the old installer.
+			c.logger.Debug("replacing blank UnpackedPath with DlPath")
+			verData.UnpackedPath = verData.DlPath
+		}
 		shasum, err := utils.GetFileSum(verData.UnpackedPath)
 		if err == nil && bytes.Equal(shasum, verData.UnpackedSHA) {
 			return false, nil
