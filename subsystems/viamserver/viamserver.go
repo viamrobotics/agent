@@ -242,6 +242,10 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("%s not running", SubsysName)
 	}
 	if s.checkURL == "" {
+		if runtime.GOOS == "windows" {
+			// note: the log matcher works when running in cmd.exe but not as a service.
+			return nil
+		}
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
