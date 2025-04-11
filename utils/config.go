@@ -65,6 +65,12 @@ var (
 	CLIWaitForUpdateCheck = false
 )
 
+func init() {
+	if runtime.GOOS == "windows" {
+		DefaultConfiguration.AdvancedSettings.ViamServerStartTimeoutMinutes = Timeout(time.Minute)
+	}
+}
+
 type AgentConfig struct {
 	AdvancedSettings     AdvancedSettings     `json:"advanced_settings,omitempty"`
 	SystemConfiguration  SystemConfiguration  `json:"system_configuration,omitempty"`
