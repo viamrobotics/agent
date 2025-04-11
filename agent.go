@@ -1,4 +1,6 @@
 // Package agent is the viam-agent itself. It contains code to install/update the systemd service as well.
+//
+//nolint:goconst
 package agent
 
 import (
