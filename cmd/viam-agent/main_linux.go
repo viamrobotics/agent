@@ -47,6 +47,9 @@ func ignoredSignal(sig os.Signal) bool {
 
 // tries to run provisioning, returns false if failed + main function should exit.
 func runPlatformProvisioning(ctx context.Context, cfg utils.AgentConfig, manager *agent.Manager, err error) bool {
+	// It may be some time before we provision, so go ahead and log this here too, so it's displayed sooner
+	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
+
 	if cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
 		globalLogger.Errorf("Cannot read %s and network configuration is disabled. Please correct and restart viam-agent.",
 			utils.AppConfigFilePath)

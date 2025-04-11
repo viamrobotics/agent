@@ -49,6 +49,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 // stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.
 func (n *Networking) stopProvisioningBluetooth() error {
 	if n.btAdv == nil {
+		n.logger.Warnf("bluetooth already stopped")
 		return nil
 	}
 	if err := n.btAdv.Stop(); err != nil {

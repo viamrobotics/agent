@@ -694,6 +694,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 					priority = 100
 				}
+				// NONE is a special keyword clients can send to indicate they expect an unsecured network
+				if userInput.PSK == "NONE" {
+					userInput.PSK = ""
+				}
 				cfg := utils.NetworkDefinition{
 					Type:     NetworkTypeWifi,
 					SSID:     userInput.SSID,
@@ -798,20 +802,22 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			// complex logic, so wasting some variables for readability
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
-			inactivePortal := n.connState.getLastInteraction().Before(now.Add(time.Duration(n.Config().UserIdleMinutes)*-1)) || userInputReceived
+			inactivePortal := now.After(n.connState.getLastInteraction().Add(time.Duration(n.Config().UserIdleMinutes))) || userInputReceived
 
 			// exit/retry to test networks only if there's no recent user interaction AND configuration is present
 			haveCandidates := len(n.getCandidates(n.Config().HotspotInterface)) > 0 && inactivePortal && isConfigured
 
 			// exit/retry every FallbackTimeout (10 minute default), unless user is active
-			fallbackHit := pModeChange.Before(now.Add(time.Duration(n.Config().RetryConnectionTimeoutMinutes)*-1)) && inactivePortal
+			fallbackRemaining := pModeChange.Add(time.Duration(n.Config().RetryConnectionTimeoutMinutes)).Sub(now)
+			fallbackHit := fallbackRemaining <= 0 && inactivePortal
 
 			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot
+			shouldExit := isConfigured && (allGood || haveCandidates || fallbackHit || shouldReboot)
 
-			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t", inactivePortal, haveCandidates, fallbackHit)
+			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
+				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
 
 			if shouldExit {
 				if err := n.StopProvisioning(); err != nil {
@@ -856,8 +862,8 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			return
 		}
 
-		hitOfflineTimeout := lastConnectivity.Before(now.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)*-1)) &&
-			pModeChange.Before(now.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)*-1))
+		hitOfflineTimeout := now.After(lastConnectivity.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes))) &&
+			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
 		if !isConfigured || hitOfflineTimeout {

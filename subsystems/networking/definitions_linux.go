@@ -164,9 +164,6 @@ type userInputData struct {
 
 // must be called with p.mu already locked!
 func (u *userInputData) sendInput(ctx context.Context) {
-	if u.cancel != nil {
-		u.cancel()
-	}
 	inputSnapshot := *u.input
 
 	// send immediately if we have a full/useful set of details, either complete wifi OR complete machine credentials
@@ -177,32 +174,35 @@ func (u *userInputData) sendInput(ctx context.Context) {
 	if (fullWifi && fullCreds) ||
 		(fullWifi && u.connState.getConfigured()) ||
 		(fullCreds && u.connState.getOnline()) {
-		// special keyword "NONE" can be used for PSK to send immediately even when using an unsecured network
-		// otherwise a blank password would cause a wait for the timeout logic further down
-		if inputSnapshot.PSK == "NONE" {
-			inputSnapshot.PSK = ""
+		if u.cancel != nil {
+			u.cancel()
 		}
 		u.input = &userInput{}
 		u.inputChan <- inputSnapshot
 		return
 	}
 
-	// if not complete set, wait ten seconds for more input before sending whatever we DO have
-	ctx, u.cancel = context.WithCancel(ctx)
-	u.workers.Add(1)
-	go func() {
-		defer utils.Recover(logging.Global(), nil)
-		defer u.workers.Done()
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Second * 10):
+	// if a "set" of either is complete, wait ten seconds for more input before sending whatever we DO have
+	if fullWifi || fullCreds {
+		if u.cancel != nil {
+			u.cancel()
 		}
-		u.mu.Lock()
-		defer u.mu.Unlock()
 		u.input = &userInput{}
-		u.inputChan <- inputSnapshot
-	}()
+		ctx, u.cancel = context.WithCancel(ctx)
+		u.workers.Add(1)
+		go func() {
+			defer utils.Recover(logging.Global(), nil)
+			defer u.workers.Done()
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second * 10):
+			}
+			u.mu.Lock()
+			defer u.mu.Unlock()
+			u.inputChan <- inputSnapshot
+		}()
+	}
 }
 
 func (u *userInputData) resetInputData(inputChan chan<- userInput) {

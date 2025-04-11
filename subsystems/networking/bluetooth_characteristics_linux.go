@@ -238,23 +238,41 @@ func (b *btCharacteristics) updateErrors(errList []string) error {
 
 // startBTLoop returns credentials, the minimum required information to provision a robot and/or its WiFi.
 func (b *btCharacteristics) startBTLoop(ctx context.Context) {
+	ctx, b.cancel = context.WithCancel(ctx)
 	b.health.MarkGood()
 	b.workers.Add(1)
 	go func() {
 		defer utils.Recover(b.logger, nil)
 		defer b.workers.Done()
+		inputSnapshot := *b.userInputData.input
 		for {
 			b.userInputData.mu.Lock()
-			input := b.userInputData.input
 			// If new values are provided, persist them to in-memory storage.
-			input.SSID = b.readCharacteristic(ssidKey)
-			input.PSK = b.readCharacteristic(pskKey)
+			ssid := b.readCharacteristic(ssidKey)
+			psk := b.readCharacteristic(pskKey)
 
-			input.PartID = b.readCharacteristic(robotPartIDKey)
-			input.Secret = b.readCharacteristic(robotPartSecretKey)
-			input.AppAddr = b.readCharacteristic(appAddressKey)
+			partID := b.readCharacteristic(robotPartIDKey)
+			secret := b.readCharacteristic(robotPartSecretKey)
+			appAddr := b.readCharacteristic(appAddressKey)
 
-			if input.SSID != "" || input.PartID != "" {
+			var shouldSend bool
+			if ssid != "" && ssid != inputSnapshot.SSID && psk != "" && psk != inputSnapshot.PSK {
+				b.userInputData.input.SSID = ssid
+				b.userInputData.input.PSK = psk
+				shouldSend = true
+			}
+
+			if partID != "" && partID != inputSnapshot.PartID &&
+				secret != "" && secret != inputSnapshot.Secret &&
+				appAddr != "" && appAddr != inputSnapshot.AppAddr {
+				b.userInputData.input.PartID = partID
+				b.userInputData.input.Secret = secret
+				b.userInputData.input.AppAddr = appAddr
+				shouldSend = true
+			}
+
+			if shouldSend {
+				inputSnapshot = *b.userInputData.input
 				b.userInputData.sendInput(ctx)
 			}
 			b.userInputData.mu.Unlock()
@@ -268,8 +286,9 @@ func (b *btCharacteristics) startBTLoop(ctx context.Context) {
 func (b *btCharacteristics) stopBTLoop() {
 	if b.cancel != nil {
 		b.cancel()
+		b.workers.Wait()
 	}
-	b.workers.Wait()
+	b.cancel = nil
 }
 
 func (b *btCharacteristics) decrypt(ciphertext []byte) ([]byte, error) {
