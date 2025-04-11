@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	errw "github.com/pkg/errors"
@@ -27,6 +28,10 @@ var serviceFileContents []byte
 
 // InstallNewVersion runs the newly downloaded binary's Install() for installation of systemd files and the like.
 func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error) {
+	if runtime.GOOS == "windows" {
+		// windows doesn't have systemctl so we don't do a postinstall yet.
+		return true, nil
+	}
 	expectedPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
 
 	// Run the newly updated version to install systemd and other service files.
