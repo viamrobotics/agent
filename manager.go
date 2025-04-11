@@ -195,7 +195,11 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		if err != nil {
 			m.logger.Errorw("running install of new agent version", "error", err)
 		}
-		m.logger.Info("viam-agent update complete, please restart using 'systemctl restart viam-agent'")
+		restartCmd := "using 'systemctl restart viam-agent'"
+		if runtime.GOOS == "windows" {
+			restartCmd = "the viam-agent windows service"
+		}
+		m.logger.Infof("viam-agent update complete, please restart %s", restartCmd)
 	}
 
 	// Viam Server
