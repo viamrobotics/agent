@@ -238,6 +238,9 @@ func (b *btCharacteristics) updateErrors(errList []string) error {
 
 // startBTLoop returns credentials, the minimum required information to provision a robot and/or its WiFi.
 func (b *btCharacteristics) startBTLoop(ctx context.Context) {
+	if b.cancel != nil {
+		b.stopBTLoop()
+	}
 	ctx, b.cancel = context.WithCancel(ctx)
 	b.health.MarkGood()
 	b.workers.Add(1)

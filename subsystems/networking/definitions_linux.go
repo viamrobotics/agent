@@ -162,7 +162,7 @@ type userInputData struct {
 	connState *connectionState
 }
 
-// must be called with p.mu already locked!
+// must be called with u.mu already locked!
 func (u *userInputData) sendInput(ctx context.Context) {
 	inputSnapshot := *u.input
 

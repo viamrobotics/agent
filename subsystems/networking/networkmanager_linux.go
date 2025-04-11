@@ -256,12 +256,16 @@ func (n *Networking) StopProvisioning() error {
 
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
-	n.connState.setProvisioning(false)
 	n.errors.Clear()
-	return errors.Join(
+	err := errors.Join(
 		n.stopProvisioningHotspot(),
 		n.stopProvisioningBluetooth(),
 	)
+	if err != nil {
+		return err
+	}
+	n.connState.setProvisioning(false)
+	return nil
 }
 
 func (n *Networking) stopProvisioningHotspot() error {
