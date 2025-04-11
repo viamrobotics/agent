@@ -30,6 +30,9 @@ const (
 	appAddressKey            = "app_address"
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
+	manufacturerKey          = "manufacturer"
+	modelKey                 = "model"
+	fragmentKey              = "fragment_id"
 	errorsKey                = "errors"
 	cryptoKey                = "pub_key"
 )
@@ -59,6 +62,12 @@ func btClient() error {
 
 	if opts.Status {
 		if err := BTGetStatus(chars); err != nil {
+			return err
+		}
+	}
+
+	if opts.Info {
+		if err := BTGetInfo(chars); err != nil {
 			return err
 		}
 	}
@@ -145,6 +154,27 @@ func BTScan(adapter *bluetooth.Adapter) (bluetooth.Address, error) {
 	}
 
 	return addr, err
+}
+
+func BTGetInfo(chars map[string]bluetooth.DeviceCharacteristic) error {
+	buf := make([]byte, 512)
+	var manufacturer, model, fragment string
+	for _, c := range []string{manufacturerKey, modelKey, fragmentKey} {
+		size, err := chars[statusKey].Read(buf)
+		if err != nil {
+			return errw.Wrap(err, "reading status")
+		}
+		switch c {
+		case manufacturerKey:
+			manufacturer = string(buf[:size])
+		case modelKey:
+			manufacturer = string(buf[:size])
+		case fragmentKey:
+			manufacturer = string(buf[:size])
+		}
+	}
+	fmt.Printf("Manufacturer: %s, Model: %s, Fragment: %s\n", manufacturer, model, fragment)
+	return nil
 }
 
 func BTGetStatus(chars map[string]bluetooth.DeviceCharacteristic) error {
@@ -339,6 +369,16 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 		case getUUID(cryptoKey):
 			key = cryptoKey
 			charMap[cryptoKey] = char
+		case getUUID(manufacturerKey):
+			key = manufacturerKey
+			charMap[manufacturerKey] = char
+		case getUUID(modelKey):
+			key = modelKey
+			charMap[modelKey] = char
+		case getUUID(fragmentKey):
+			key = fragmentKey
+			charMap[fragmentKey] = char
+
 		default:
 			fmt.Printf("Unknown characteristic discovered with UUID: %s", char.String())
 		}

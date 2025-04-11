@@ -30,13 +30,16 @@ const (
 	appAddressKey            = "app_address"
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
+	manufacturerKey          = "manufacturer"
+	modelKey                 = "model"
+	fragmentKey              = "fragment_id"
 	errorsKey                = "errors"
 	cryptoKey                = "pub_key"
 )
 
 var (
 	characteristicsWriteOnly = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey}
-	characteristicsReadOnly  = []string{cryptoKey, statusKey, availableWiFiNetworksKey, errorsKey}
+	characteristicsReadOnly  = []string{cryptoKey, statusKey, manufacturerKey, modelKey, fragmentKey, availableWiFiNetworksKey, errorsKey}
 )
 
 type btCharacteristics struct {
@@ -51,10 +54,12 @@ type btCharacteristics struct {
 	cancel  context.CancelFunc
 	health  *health
 
+	userInputData *userInputData
+
 	privKey *rsa.PrivateKey
 }
 
-func newBTCharacteristics(logger logging.Logger) *btCharacteristics {
+func newBTCharacteristics(logger logging.Logger, userInputData *userInputData) *btCharacteristics {
 	return &btCharacteristics{
 		logger: logger,
 		values: map[string]string{
@@ -64,8 +69,9 @@ func newBTCharacteristics(logger logging.Logger) *btCharacteristics {
 			robotPartSecretKey: "",
 			appAddressKey:      "",
 		},
-		writables: map[string]*bluetooth.Characteristic{},
-		health:    &health{},
+		writables:     map[string]*bluetooth.Characteristic{},
+		health:        &health{},
+		userInputData: userInputData,
 	}
 }
 
@@ -102,6 +108,15 @@ func (b *btCharacteristics) initCrypto() error {
 	}
 	_, err = b.writables[cryptoKey].Write(pubKey)
 	return err
+}
+
+func (b *btCharacteristics) initDevInfo(cfg utils.NetworkConfiguration) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, err1 := b.writables[manufacturerKey].Write([]byte(cfg.Manufacturer))
+	_, err2 := b.writables[modelKey].Write([]byte(cfg.Model))
+	_, err3 := b.writables[fragmentKey].Write([]byte(cfg.FragmentID))
+	return errors.Join(err1, err2, err3)
 }
 
 // initWriteOnlyCharacteristic returns a bluetooth characteristic config.
@@ -222,43 +237,49 @@ func (b *btCharacteristics) updateErrors(errList []string) error {
 }
 
 // startBTLoop returns credentials, the minimum required information to provision a robot and/or its WiFi.
-func (b *btCharacteristics) startBTLoop(ctx context.Context, inputChan chan<- userInput) {
-	input := &userInput{}
+func (b *btCharacteristics) startBTLoop(ctx context.Context) {
+	if b.cancel != nil {
+		b.stopBTLoop()
+	}
 	ctx, b.cancel = context.WithCancel(ctx)
 	b.health.MarkGood()
 	b.workers.Add(1)
 	go func() {
 		defer utils.Recover(b.logger, nil)
 		defer b.workers.Done()
+		inputSnapshot := *b.userInputData.input
 		for {
+			b.userInputData.mu.Lock()
 			// If new values are provided, persist them to in-memory storage.
-			input.SSID = b.readCharacteristic(ssidKey)
-			input.PSK = b.readCharacteristic(pskKey)
+			ssid := b.readCharacteristic(ssidKey)
+			psk := b.readCharacteristic(pskKey)
 
-			input.PartID = b.readCharacteristic(robotPartIDKey)
-			input.Secret = b.readCharacteristic(robotPartSecretKey)
-			input.AppAddr = b.readCharacteristic(appAddressKey)
+			partID := b.readCharacteristic(robotPartIDKey)
+			secret := b.readCharacteristic(robotPartSecretKey)
+			appAddr := b.readCharacteristic(appAddressKey)
 
-			// If we've received a "set" of required credentials, pass them through inputChan.
-			hasWifiInput := input.SSID != "" && input.PSK != ""
-			hasCredInput := input.AppAddr != "" && input.PartID != "" && input.Secret != ""
-
-			if hasWifiInput || hasCredInput {
-				inputChan <- *input
-				if hasWifiInput {
-					// reset for next round
-					input.SSID = ""
-					input.PSK = ""
-				}
-				if hasCredInput {
-					input.AppAddr = ""
-					input.PartID = ""
-					input.Secret = ""
-				}
+			var shouldSend bool
+			if ssid != "" && ssid != inputSnapshot.SSID && psk != "" && psk != inputSnapshot.PSK {
+				b.userInputData.input.SSID = ssid
+				b.userInputData.input.PSK = psk
+				shouldSend = true
 			}
 
-			// If we haven't received all required credentials, sleep and try again.
-			if !b.health.Sleep(ctx, time.Second*5) {
+			if partID != "" && partID != inputSnapshot.PartID &&
+				secret != "" && secret != inputSnapshot.Secret &&
+				appAddr != "" && appAddr != inputSnapshot.AppAddr {
+				b.userInputData.input.PartID = partID
+				b.userInputData.input.Secret = secret
+				b.userInputData.input.AppAddr = appAddr
+				shouldSend = true
+			}
+
+			if shouldSend {
+				inputSnapshot = *b.userInputData.input
+				b.userInputData.sendInput(ctx)
+			}
+			b.userInputData.mu.Unlock()
+			if !b.health.Sleep(ctx, time.Second) {
 				return
 			}
 		}
@@ -268,8 +289,9 @@ func (b *btCharacteristics) startBTLoop(ctx context.Context, inputChan chan<- us
 func (b *btCharacteristics) stopBTLoop() {
 	if b.cancel != nil {
 		b.cancel()
+		b.workers.Wait()
 	}
-	b.workers.Wait()
+	b.cancel = nil
 }
 
 func (b *btCharacteristics) decrypt(ciphertext []byte) ([]byte, error) {

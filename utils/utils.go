@@ -24,6 +24,7 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
@@ -109,6 +110,8 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		return "", err
 	}
 
+	logger.Infof("Starting download of %s", rawURL)
+
 	parsedPath := parsedURL.Path
 	if runtime.GOOS == "windows" && !strings.HasSuffix(parsedPath, ".exe") {
 		parsedPath += ".exe"
@@ -156,6 +159,9 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 			return "", errors.Join(errRet, err)
 		}
 		errRet = errors.Join(errRet, outfd.Close(), os.Rename(outfd.Name(), outPath))
+		if errRet == nil {
+			logger.Infof("Download (local file copy) complete for %s", rawURL)
+		}
 		return outPath, errRet
 	}
 
@@ -176,7 +182,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", errw.Wrap(err, "downloading file")
+		return "", errw.Wrapf(err, "downloading file %s", rawURL)
 	}
 	defer func() {
 		errRet = errors.Join(errRet, resp.Body.Close())
@@ -210,7 +216,12 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		}
 	}()
 
-	_, err = io.Copy(out, resp.Body)
+	workers := &sync.WaitGroup{}
+	writer, cancelFunc := downloadProgressSetup(ctx, out, outPath, resp.ContentLength, logger, workers)
+	defer workers.Wait()
+	defer cancelFunc()
+
+	_, err = io.Copy(writer, resp.Body)
 	if err != nil && !os.IsNotExist(err) {
 		errRet = errors.Join(errRet, err)
 	}
@@ -218,6 +229,11 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	closed = true
 
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
+
+	if errRet == nil {
+		logger.Infof("Download complete for %s", rawURL)
+	}
+
 	if runtime.GOOS == "windows" {
 		cmd := exec.Command( //nolint:gosec
 			"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
@@ -461,4 +477,68 @@ func (sb *SafeBuffer) Reset() {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 	sb.buf.Reset()
+}
+
+// Simple io.WriteSeeker type for progress bar.
+type progressMultiWriter struct {
+	progressBar io.Writer
+	outFile     io.WriteSeeker
+}
+
+func (pmw *progressMultiWriter) Write(p []byte) (n int, err error) {
+	for _, w := range []io.Writer{pmw.progressBar, pmw.outFile} {
+		n, err = w.Write(p)
+		if err != nil {
+			return
+		}
+		if n != len(p) {
+			err = io.ErrShortWrite
+			return
+		}
+	}
+	return len(p), nil
+}
+
+func (pmw *progressMultiWriter) Seek(offset int64, whence int) (int64, error) {
+	return pmw.outFile.Seek(offset, whence)
+}
+
+func downloadProgressSetup(ctx context.Context,
+	outWriter io.WriteSeeker,
+	outPath string,
+	size int64,
+	logger logging.Logger,
+	workers *sync.WaitGroup,
+) (io.WriteSeeker, context.CancelFunc) {
+	bar := progressbar.NewOptions64(
+		size,
+		progressbar.OptionSetDescription("Downloading "+filepath.Base(outPath)),
+		progressbar.OptionSetWriter(io.Discard),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionShowTotalBytes(true),
+		progressbar.OptionSetWidth(10),
+		progressbar.OptionThrottle(65*time.Millisecond),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSpinnerType(0),
+	)
+	writer := &progressMultiWriter{progressBar: bar, outFile: outWriter}
+	barCtx, cancel := context.WithCancel(ctx)
+	if err := bar.RenderBlank(); err != nil {
+		logger.Error(err)
+	}
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		logger.Info(bar.String())
+		for {
+			select {
+			case <-barCtx.Done():
+				logger.Info(bar.String())
+				return
+			case <-time.After(time.Second * 10):
+				logger.Info(bar.String())
+			}
+		}
+	}()
+	return writer, cancel
 }

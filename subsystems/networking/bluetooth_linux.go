@@ -12,7 +12,7 @@ import (
 )
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 	if n.Config().DisableBTProvisioning || n.noBT {
 		return nil
 	}
@@ -35,7 +35,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan c
 	}
 
 	// Start the loop that monitors for BT writes.
-	n.btChar.startBTLoop(ctx, inputChan)
+	n.btChar.startBTLoop(ctx)
 
 	// Start advertising the bluetooth service.
 	if err := n.btAdv.Start(); err != nil {
@@ -49,6 +49,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context, inputChan c
 // stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.
 func (n *Networking) stopProvisioningBluetooth() error {
 	if n.btAdv == nil {
+		n.logger.Warnf("bluetooth already stopped")
 		return nil
 	}
 	if err := n.btAdv.Stop(); err != nil {
@@ -79,8 +80,10 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	if err := adv.Configure(opts); err != nil {
 		return fmt.Errorf("failed to configure default advertisement: %w", err)
 	}
-	err := n.btChar.initCrypto()
-	if err != nil {
+	if err := n.btChar.initCrypto(); err != nil {
+		return err
+	}
+	if err := n.btChar.initDevInfo(n.Config()); err != nil {
 		return err
 	}
 

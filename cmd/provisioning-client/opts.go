@@ -22,6 +22,7 @@ var opts struct {
 	Secret  string `description:"Device secret to set in viam.json" long:"secret"`
 
 	Status   bool `description:"Get device status"      long:"status"   short:"s"`
+	Info     bool `description:"Get device info"        long:"info"     short:"i"`
 	Networks bool `description:"List networks"          long:"networks" short:"n"`
 	Help     bool `description:"Show this help message" long:"help"     short:"h"`
 }
