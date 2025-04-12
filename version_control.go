@@ -203,17 +203,19 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		if err != nil {
 			return needRestart, err
 		}
-		if !same {
-			if err := utils.ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
-				return needRestart, err
-			}
-		}
 
 		if runtime.GOOS == "windows" && verData.UnpackedPath == "" {
 			// This case happens as a result of manual action to fix systems which used the old installer.
 			c.logger.Debug("replacing blank UnpackedPath with DlPath")
 			verData.UnpackedPath = verData.DlPath
 		}
+
+		if !same {
+			if err := utils.ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
+				return needRestart, err
+			}
+		}
+
 		shasum, err := utils.GetFileSum(verData.UnpackedPath)
 		if err == nil && bytes.Equal(shasum, verData.UnpackedSHA) {
 			return false, nil
