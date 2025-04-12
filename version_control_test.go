@@ -34,25 +34,33 @@ func TestUpdateBinary(t *testing.T) {
 	mockViamDirs(t)
 	logger := logging.NewTestLogger(t)
 
-	f, err := os.Create(filepath.Join(t.TempDir(), "source-binary"))
-	test.That(t, err, test.ShouldBeNil)
-	f.Close()
-
-	vi := &VersionInfo{
+	vi := VersionInfo{
 		Version:     "0.70.0",
-		URL:         "file://" + f.Name(),
 		SymlinkPath: filepath.Join(utils.ViamDirs["bin"], "viam-server"),
 	}
 	// sha of an empty file
+	var err error
 	vi.UnpackedSHA, err = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 	test.That(t, err, test.ShouldBeNil)
+
+	vi2 := vi
+	vi2.Version = "0.71.0"
+
+	td := t.TempDir()
+	for _, v := range []*VersionInfo{&vi, &vi2} {
+		f, err := os.Create(filepath.Join(td, "source-binary-"+v.Version))
+		test.That(t, err, test.ShouldBeNil)
+		f.Close()
+		v.URL = "file://" + f.Name()
+	}
+
 	vc := VersionCache{
 		logger: logger,
 		ViamServer: &Versions{
-			TargetVersion:  "0.70.0",
-			CurrentVersion: "",
+			TargetVersion: vi.Version,
 			Versions: map[string]*VersionInfo{
-				"0.70.0": vi,
+				vi.Version:  &vi,
+				vi2.Version: &vi2,
 			},
 		},
 	}
@@ -61,10 +69,8 @@ func TestUpdateBinary(t *testing.T) {
 	needsRestart, err := vc.UpdateBinary(context.Background(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeTrue)
-	_, err = os.Stat(filepath.Join(utils.ViamDirs["bin"], "viam-server"))
-	test.That(t, err, test.ShouldBeNil)
-	_, err = os.Stat(filepath.Join(utils.ViamDirs["cache"], "source-binary"))
-	test.That(t, err, test.ShouldBeNil)
+	testExists(t, filepath.Join(utils.ViamDirs["bin"], "viam-server"))
+	testExists(t, filepath.Join(utils.ViamDirs["cache"], "source-binary-"+vi.Version))
 	test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
 
 	// rerun with no change
@@ -72,18 +78,19 @@ func TestUpdateBinary(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeFalse)
 
-	// todo: test upgrade case
+	// upgrade
+	vc.ViamServer.TargetVersion = vi2.Version
+	needsRestart, err = vc.UpdateBinary(context.Background(), viamserver.SubsysName)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, needsRestart, test.ShouldBeTrue)
+	testExists(t, filepath.Join(utils.ViamDirs["cache"], "source-binary-"+vi2.Version))
+
+	// todo: test custom URL
 }
 
-/*
-// VersionInfo records details about each version of a subsystem.
-type VersionInfo struct {
-	Version      string
-	URL          string
-	DlPath       string
-	DlSHA        []byte
-	UnpackedPath string
-	UnpackedSHA  []byte
-	SymlinkPath  string
-	Installed    time.Time
-}*/
+// assert that a file exists
+func testExists(t *testing.T, path string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	test.That(t, err, test.ShouldBeNil)
+}
