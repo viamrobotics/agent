@@ -8,7 +8,7 @@ import (
 	"go.viam.com/test"
 )
 
-// replace utils.ViamDirs with t.TempDir for duration of test.
+// MockViamDirs replaces utils.ViamDirs entries with t.TempDir for duration of test.
 func MockViamDirs(t *testing.T) {
 	t.Helper()
 	old := ViamDirs
@@ -21,13 +21,14 @@ func MockViamDirs(t *testing.T) {
 	}
 	for _, subdir := range []string{"bin", "cache", "tmp", "etc"} {
 		ViamDirs[subdir] = filepath.Join(td, subdir)
-		os.Mkdir(ViamDirs[subdir], 0o755)
+		err := os.Mkdir(ViamDirs[subdir], 0o750)
+		test.That(t, err, test.ShouldBeNil)
 	}
 }
 
-// equivalent to unix touch; creates an empty file at path
+// Touch is equivalent to unix touch; creates an empty file at path.
 func Touch(t *testing.T, path string) {
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec
 	test.That(t, err, test.ShouldBeNil)
-	f.Close()
+	f.Close() //nolint:gosec,errcheck
 }
