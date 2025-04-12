@@ -88,7 +88,7 @@ func TestUpdateBinary(t *testing.T) {
 	// todo: test custom URL
 }
 
-// assert that a file exists
+// assert that a file exists.
 func testExists(t *testing.T, path string) {
 	t.Helper()
 	_, err := os.Stat(path)
