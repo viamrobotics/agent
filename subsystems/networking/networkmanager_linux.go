@@ -486,7 +486,6 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 	} else {
 		id := n.Config().Manufacturer + "-" + netKey
 		settings, err = generateNetworkSettings(id, cfg)
-		n.logger.Debugf("Network settings: %#v", settings)
 		if err != nil {
 			return changesMade, errw.Errorf("error generating network settings for %s: %v", id, err)
 		}

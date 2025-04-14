@@ -178,7 +178,10 @@ func (u *userInputData) sendInput(ctx context.Context) {
 			u.cancel()
 		}
 		u.input = &userInput{}
-		u.inputChan <- inputSnapshot
+		select {
+		case u.inputChan <- inputSnapshot:
+		case <-ctx.Done():
+		}
 		return
 	}
 
@@ -198,9 +201,10 @@ func (u *userInputData) sendInput(ctx context.Context) {
 				return
 			case <-time.After(time.Second * 10):
 			}
-			u.mu.Lock()
-			defer u.mu.Unlock()
-			u.inputChan <- inputSnapshot
+			select {
+			case u.inputChan <- inputSnapshot:
+			case <-ctx.Done():
+			}
 		}()
 	}
 }
