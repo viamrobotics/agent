@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"time"
 
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent/utils"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -31,7 +29,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 	}
 
 	// Create a bluetooth service comprised of the above configs.
-	if err := n.initializeBluetoothService(n.Config().HotspotSSID, n.btChar.initCharacteristics()); err != nil {
+	if err := n.initializeBluetoothService(n.btChar.initCharacteristics()); err != nil {
 		n.noBT = true
 		return fmt.Errorf("failed to initialize bluetooth service: %w", err)
 	}
@@ -44,7 +42,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 		n.logger.Warn("could not update BT networks characteristic")
 	}
 
-	if err := n.enablePairing(); err != nil {
+	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
 		return err
 	}
 
@@ -80,7 +78,7 @@ func (n *Networking) stopProvisioningBluetooth() error {
 }
 
 // initializeBluetoothService performs low-level system configuration to enable bluetooth advertisement.
-func (n *Networking) initializeBluetoothService(deviceName string, characteristics []bluetooth.CharacteristicConfig) error {
+func (n *Networking) initializeBluetoothService(characteristics []bluetooth.CharacteristicConfig) error {
 	serviceUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(serviceNameKey)))
 
 	adapter := bluetooth.DefaultAdapter
@@ -92,7 +90,6 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	}
 	adv := adapter.DefaultAdvertisement()
 	opts := bluetooth.AdvertisementOptions{
-		LocalName:    deviceName,
 		ServiceUUIDs: []bluetooth.UUID{serviceUUID},
 	}
 	if err := adv.Configure(opts); err != nil {
@@ -110,36 +107,15 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	return nil
 }
 
-// We have to disable reverse discovery, or bluez will potentially try to access secure properties on the connecting client/phone.
-// When that happens, we get instantly disconnected due to OS security on the client (where full pairing is required.)
-func (n *Networking) writeBTDisableDiscovery(ctx context.Context) error {
-	contents := BTDiscoveryContentsDisable
-	if n.Config().DisableBTProvisioning {
-		contents = BTDiscoveryContentsDefault
-	}
-
-	isNew, err := utils.WriteFileIfNew(BTDiscoveryFilepath, []byte(contents))
-	if err != nil {
-		return fmt.Errorf("writing %s: %w", BTDiscoveryFilepath, err)
-	}
-
-	if isNew {
-		n.logger.Infof("Updated %s to: %q", BTDiscoveryFilepath, contents)
-		// restart bluetooth to apply changes
-		cmd := exec.CommandContext(ctx, "systemctl", "restart", "bluetooth")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("reloading bluetooth service after config update: %w, output: %s", err, out)
-		}
-	}
-
-	return nil
-}
-
-func (n *Networking) enablePairing() error {
+func (n *Networking) enablePairing(deviceName string) error {
 	conn, adapter, err := getBluetoothDBus()
 	if err != nil {
 		return err
+	}
+
+	err = adapter.SetProperty("org.bluez.Adapter1.Alias", dbus.MakeVariant(deviceName))
+	if err != nil {
+		return errw.Wrap(err, "setting bluetooth alias")
 	}
 
 	n.logger.Debug("setting bluetooth to discoverable")

@@ -220,10 +220,6 @@ func (n *Networking) Start(ctx context.Context) error {
 		n.logger.Error(errw.Wrap(err, "applying wifi power save configuration"))
 	}
 
-	if err := n.writeBTDisableDiscovery(ctx); err != nil {
-		n.logger.Error(errw.Wrap(err, "applying bluetooth configuration"))
-	}
-
 	n.processAdditionalnetworks(ctx)
 
 	if err := n.checkOnline(ctx, true); err != nil {

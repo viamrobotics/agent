@@ -306,23 +306,36 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 	n.logger.Infof("Activating connection: %s", n.netState.GenNetKey(ifName, ssid))
 
 	var netDev gnm.Device
-	if nw.netType == NetworkTypeWifi || nw.netType == NetworkTypeHotspot {
+	switch nw.netType {
+	case NetworkTypeWifi:
+		fallthrough
+	case NetworkTypeHotspot:
 		// wifi
 		if nw.netType != NetworkTypeHotspot {
 			nw.lastTried = now
 			n.netState.SetLastSSID(ifName, ssid)
 		}
 		netDev = n.netState.WifiDevice(ifName)
-	} else {
+	case NetworkTypeBluetooth:
+		netDev = n.netState.BTDevice(ifName)
+	case NetworkTypeWired:
+		fallthrough
+	default:
 		// wired
-		nw.lastTried = now
 		netDev = n.netState.EthDevice(ifName)
 	}
 
 	if netDev == nil {
+		// we're trying to activate something on a missing adapter, perhaps it was hotplugged, so re-init devices for future retries
+		n.dataMu.Lock()
+		if err := n.initDevices(); err != nil {
+			n.logger.Error(err)
+		}
+		n.dataMu.Unlock()
 		return errw.Errorf("cannot activate connection due to missing interface: %s", ifName)
 	}
 
+	nw.lastTried = now
 	activeConnection, err := n.nm.ActivateConnection(nw.conn, netDev, nil)
 	if err != nil {
 		nw.lastError = err
@@ -440,7 +453,7 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 	var changesMade bool
 
 	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired {
-		return changesMade, errw.Errorf("unspported network type %s, only %s and %s currently supported",
+		return changesMade, errw.Errorf("unspported network type %s, only %s, and %s currently supported",
 			cfg.Type, NetworkTypeWifi, NetworkTypeWired)
 	}
 
@@ -564,6 +577,35 @@ func (n *Networking) lowerMaxNetPriorities(skip string) {
 func (n *Networking) checkConfigured() {
 	_, err := os.ReadFile(utils.AppConfigFilePath)
 	n.connState.setConfigured(err == nil)
+}
+
+func (n *Networking) tryBluetoothTether(ctx context.Context) bool {
+	for _, nw := range n.netState.Networks() {
+		if nw.netType != NetworkTypeBluetooth {
+			continue
+		}
+		if nw.connected {
+			continue
+		}
+		if !time.Now().After(nw.lastTried.Add(VisibleNetworkTimeout)) {
+			continue
+		}
+		if err := n.ActivateConnection(ctx, nw.interfaceName, nw.ssid); err != nil {
+			n.logger.Info(errw.Wrap(err, "activating bluetooth tether"))
+			continue
+		}
+
+		// in single mode we just need a connection
+		if !n.Config().TurnOnHotspotIfWifiHasNoInternet {
+			return true
+		}
+
+		// in roaming mode we need full internet
+		if n.connState.getOnline() {
+			return true
+		}
+	}
+	return false
 }
 
 // tryCandidates returns true if a network activated.
@@ -803,6 +845,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				n.logger.Warn("could not update BT errors characteristic")
 			}
 
+			if !hasConnectivity && n.tryBluetoothTether(ctx) {
+				continue
+			}
+
 			// complex logic, so wasting some variables for readability
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
@@ -843,7 +889,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 		// not in provisioning mode
 		if !hasConnectivity {
-			if n.tryCandidates(ctx) {
+			if n.tryCandidates(ctx) || n.tryBluetoothTether(ctx) {
 				hasConnectivity = n.connState.getConnected() || n.connState.getOnline()
 				// if we're roaming or this network was JUST added, it must have internet
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
