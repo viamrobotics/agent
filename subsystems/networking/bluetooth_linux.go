@@ -1,7 +1,6 @@
 package networking
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -20,16 +19,17 @@ const (
 )
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
+func (n *Networking) startProvisioningBluetooth() error {
 	if n.Config().DisableBTProvisioning || n.noBT {
 		return nil
 	}
 	if n.btAdv != nil {
 		return errors.New("invalid request, advertising already active")
 	}
+	n.btHealthy = false
 
 	// Create a bluetooth service comprised of the above configs.
-	if err := n.initializeBluetoothService(n.btChar.initCharacteristics()); err != nil {
+	if err := n.initializeBluetoothService(n.Config().HotspotSSID, n.btChar.initCharacteristics()); err != nil {
 		n.noBT = true
 		return fmt.Errorf("failed to initialize bluetooth service: %w", err)
 	}
@@ -46,13 +46,11 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 		return err
 	}
 
-	// Start the loop that monitors for BT writes.
-	n.btChar.startBTLoop(ctx)
-
 	// Start advertising the bluetooth service.
 	if err := n.btAdv.Start(); err != nil {
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
+	n.btHealthy = true
 
 	n.logger.Info("Bluetooth provisioning started.")
 	return nil
@@ -68,17 +66,17 @@ func (n *Networking) stopProvisioningBluetooth() error {
 		return fmt.Errorf("failed to stop BT advertising: %w", err)
 	}
 	n.btAdv = nil
-	n.btChar.stopBTLoop()
 	if err := n.disablePairing(); err != nil {
 		return err
 	}
 
+	n.btHealthy = false
 	n.logger.Debug("Stopped advertising bluetooth service.")
 	return nil
 }
 
 // initializeBluetoothService performs low-level system configuration to enable bluetooth advertisement.
-func (n *Networking) initializeBluetoothService(characteristics []bluetooth.CharacteristicConfig) error {
+func (n *Networking) initializeBluetoothService(deviceName string, characteristics []bluetooth.CharacteristicConfig) error {
 	serviceUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(serviceNameKey)))
 
 	adapter := bluetooth.DefaultAdapter
@@ -90,6 +88,7 @@ func (n *Networking) initializeBluetoothService(characteristics []bluetooth.Char
 	}
 	adv := adapter.DefaultAdvertisement()
 	opts := bluetooth.AdvertisementOptions{
+		LocalName:    deviceName,
 		ServiceUUIDs: []bluetooth.UUID{serviceUUID},
 	}
 	if err := adv.Configure(opts); err != nil {

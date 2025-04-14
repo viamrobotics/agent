@@ -208,7 +208,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	if hotspotErr != nil {
 		n.logger.Errorw("failed to start hotspot provisioning", "error", hotspotErr)
 	}
-	bluetoothErr := n.startProvisioningBluetooth(ctx)
+	bluetoothErr := n.startProvisioningBluetooth()
 	if bluetoothErr != nil {
 		n.logger.Errorw("failed to start bluetooth provisioning", "error", bluetoothErr)
 	}
@@ -731,17 +731,11 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				userInputReceived = true
 			}
 
-			var newSSID string
-			var changesMade bool
 			if userInput.SSID != "" {
 				n.logger.Infof("Wifi settings received for %s", userInput.SSID)
 				priority := int32(999)
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
 					priority = 100
-				}
-				// NONE is a special keyword clients can send to indicate they expect an unsecured network
-				if userInput.PSK == "NONE" {
-					userInput.PSK = ""
 				}
 				cfg := utils.NetworkDefinition{
 					Type:     NetworkTypeWifi,
@@ -750,53 +744,21 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					Priority: priority,
 				}
 				var err error
-				changesMade, err = n.AddOrUpdateConnection(cfg)
+				_, err = n.AddOrUpdateConnection(cfg)
 				if err != nil {
 					n.errors.Add(err)
 					n.logger.Error(err)
 					continue
 				}
 				userInputReceived = true
-				newSSID = cfg.SSID
+				// newSSID = cfg.SSID
 			}
 
-			// wait 3 seconds so responses can be sent to/seen by user
-			if !n.mainLoopHealth.Sleep(ctx, time.Second*3) {
+			// wait 5 seconds so responses can be sent to/seen by user, or additional input can be queued
+			if !n.mainLoopHealth.Sleep(ctx, time.Second*5) {
 				return
 			}
-			if changesMade {
-				err := n.StopProvisioning()
-				if err != nil {
-					n.logger.Error(err)
-					continue
-				}
-				err = n.ActivateConnection(ctx, n.Config().HotspotInterface, newSSID)
-				if err != nil {
-					n.logger.Error(err)
-					continue
-				}
-				if !n.connState.getOnline() {
-					err := n.deactivateConnection(n.Config().HotspotInterface, newSSID)
-					if err != nil {
-						n.logger.Error(err)
-					}
-					nw := n.netState.LockingNetwork("", newSSID)
-					nw.mu.Lock()
-					if nw.conn != nil {
-						// add a user warning for the portal
-						err = errw.New("Network has no internet. Resubmit to use anyway.")
-						nw.lastError = err
-						n.logger.Warn(err)
-					} else {
-						n.logger.Error("cannot find %s in network list", n.netState.GenNetKey("", newSSID))
-					}
-					nw.mu.Unlock()
-					err = n.StartProvisioning(ctx, inputChan)
-					if err != nil {
-						n.logger.Error(err)
-					}
-				}
-			}
+			continue
 		case <-scanChan:
 		case <-time.After((scanLoopDelay + scanTimeout) * 2):
 			// safety fallback if something hangs

@@ -1,7 +1,6 @@
 package networking
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -9,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/viamrobotics/agent/utils"
@@ -47,12 +45,7 @@ type btCharacteristics struct {
 
 	// Used to store user input values written to this bluetooth service.
 	mu        sync.RWMutex
-	values    map[string]string
 	writables map[string]*bluetooth.Characteristic
-
-	workers sync.WaitGroup
-	cancel  context.CancelFunc
-	health  *health
 
 	userInputData *userInputData
 
@@ -61,16 +54,8 @@ type btCharacteristics struct {
 
 func newBTCharacteristics(logger logging.Logger, userInputData *userInputData) *btCharacteristics {
 	return &btCharacteristics{
-		logger: logger,
-		values: map[string]string{
-			ssidKey:            "",
-			pskKey:             "",
-			robotPartIDKey:     "",
-			robotPartSecretKey: "",
-			appAddressKey:      "",
-		},
+		logger:        logger,
 		writables:     map[string]*bluetooth.Characteristic{},
-		health:        &health{},
 		userInputData: userInputData,
 	}
 }
@@ -131,15 +116,11 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(cName string) bluetooth.
 
 		// WriteEvent is triggered by BT, and we store it in the valuesByName map
 		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
-			b.mu.Lock()
-			defer b.mu.Unlock()
-
 			plaintext, err := b.decrypt(value)
 			if err != nil {
 				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
 			}
-
-			b.values[cName] = string(plaintext)
+			b.recordInput(cName, string(plaintext))
 			b.logger.Debugf("Received %s: %s (cipher/plain sizes: %d/%d)", cName, plaintext, len(value), len(plaintext))
 		},
 	}
@@ -167,17 +148,6 @@ func (b *btCharacteristics) writeCharacteristic(cName string, value []byte) erro
 	}
 	_, err := char.Write(value)
 	return err
-}
-
-func (b *btCharacteristics) readCharacteristic(cName string) string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	value, ok := b.values[cName]
-	if !ok {
-		b.logger.Warnf("no readable characteristic named %s", cName)
-		return ""
-	}
-	return value
 }
 
 func (b *btCharacteristics) updateNetworks(networks []NetworkInfo) error {
@@ -236,68 +206,30 @@ func (b *btCharacteristics) updateErrors(errList []string) error {
 	return b.writeCharacteristic(errorsKey, msg)
 }
 
-// startBTLoop returns credentials, the minimum required information to provision a robot and/or its WiFi.
-func (b *btCharacteristics) startBTLoop(ctx context.Context) {
-	if b.cancel != nil {
-		b.stopBTLoop()
-	}
-	ctx, b.cancel = context.WithCancel(ctx)
-	b.health.MarkGood()
-	b.workers.Add(1)
-	go func() {
-		defer utils.Recover(b.logger, nil)
-		defer b.workers.Done()
-		inputSnapshot := *b.userInputData.input
-		for {
-			b.userInputData.mu.Lock()
-			// If new values are provided, persist them to in-memory storage.
-			ssid := b.readCharacteristic(ssidKey)
-			psk := b.readCharacteristic(pskKey)
-
-			partID := b.readCharacteristic(robotPartIDKey)
-			secret := b.readCharacteristic(robotPartSecretKey)
-			appAddr := b.readCharacteristic(appAddressKey)
-
-			var shouldSend bool
-			if ssid != "" && ssid != inputSnapshot.SSID && psk != "" && psk != inputSnapshot.PSK {
-				b.userInputData.input.SSID = ssid
-				b.userInputData.input.PSK = psk
-				shouldSend = true
-			}
-
-			if partID != "" && partID != inputSnapshot.PartID &&
-				secret != "" && secret != inputSnapshot.Secret &&
-				appAddr != "" && appAddr != inputSnapshot.AppAddr {
-				b.userInputData.input.PartID = partID
-				b.userInputData.input.Secret = secret
-				b.userInputData.input.AppAddr = appAddr
-				shouldSend = true
-			}
-
-			if shouldSend {
-				inputSnapshot = *b.userInputData.input
-				b.userInputData.sendInput(ctx)
-			}
-			b.userInputData.mu.Unlock()
-			if !b.health.Sleep(ctx, time.Second) {
-				return
-			}
-		}
-	}()
-}
-
-func (b *btCharacteristics) stopBTLoop() {
-	if b.cancel != nil {
-		b.cancel()
-		b.workers.Wait()
-	}
-	b.cancel = nil
-}
-
 func (b *btCharacteristics) decrypt(ciphertext []byte) ([]byte, error) {
 	if b.privKey == nil {
 		return nil, errors.New("private key not initialized")
 	}
 	// using sha256 for the hash, OAEP allows for messages up to 190 bytes
 	return rsa.DecryptOAEP(sha256.New(), nil, b.privKey, ciphertext, nil)
+}
+
+func (b *btCharacteristics) recordInput(cName, value string) {
+	b.userInputData.mu.Lock()
+	defer b.userInputData.mu.Unlock()
+
+	switch cName {
+	case ssidKey:
+		b.userInputData.input.SSID = value
+	case pskKey:
+		b.userInputData.input.PSK = value
+	case robotPartIDKey:
+		b.userInputData.input.PartID = value
+	case robotPartSecretKey:
+		b.userInputData.input.Secret = value
+	case appAddressKey:
+		b.userInputData.input.AppAddr = value
+	}
+
+	b.userInputData.sendInput()
 }

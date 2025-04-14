@@ -9,9 +9,7 @@ import (
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
-	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/provisioning/v1"
-	"go.viam.com/rdk/logging"
 )
 
 // This file contains type, const, and var definitions.
@@ -141,6 +139,10 @@ func WriteDeviceConfig(file string, input userInput) error {
 		},
 	}
 
+	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" {
+		return errors.New("incomplete machine credentials received, please try again")
+	}
+
 	jsonBytes, err := json.Marshal(cfg)
 	if err != nil {
 		return err
@@ -163,49 +165,34 @@ type userInputData struct {
 }
 
 // must be called with u.mu already locked!
-func (u *userInputData) sendInput(ctx context.Context) {
+func (u *userInputData) sendInput() {
 	inputSnapshot := *u.input
 
-	// send immediately if we have a full/useful set of details, either complete wifi OR complete machine credentials
-	fullWifi := inputSnapshot.SSID != "" && inputSnapshot.PSK != ""
-	fullCreds := inputSnapshot.AppAddr != "" && inputSnapshot.PartID != "" && inputSnapshot.Secret != ""
+	// send if we have a full/useful set of details, either complete wifi OR complete machine credentials
+	fullWifi := u.input.SSID != "" && u.input.PSK != ""
+	fullCreds := u.input.AppAddr != "" && u.input.PartID != "" && u.input.Secret != ""
 
-	// immediate send if wifi is being completed and we're already configured
-	if (fullWifi && fullCreds) ||
-		(fullWifi && u.connState.getConfigured()) ||
-		(fullCreds && u.connState.getOnline()) {
-		if u.cancel != nil {
-			u.cancel()
-		}
-		u.input = &userInput{}
-		select {
-		case u.inputChan <- inputSnapshot:
-		case <-ctx.Done():
-		}
+	if !fullWifi && !fullCreds {
 		return
 	}
 
-	// if a "set" of either is complete, wait ten seconds for more input before sending whatever we DO have
-	if fullWifi || fullCreds {
-		if u.cancel != nil {
-			u.cancel()
-		}
-		u.input = &userInput{}
-		ctx, u.cancel = context.WithCancel(ctx)
-		u.workers.Add(1)
-		go func() {
-			defer utils.Recover(logging.Global(), nil)
-			defer u.workers.Done()
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second * 10):
-			}
-			select {
-			case u.inputChan <- inputSnapshot:
-			case <-ctx.Done():
-			}
-		}()
+	// reset full set that we're about to send
+	if fullWifi {
+		u.input.SSID = ""
+		u.input.PSK = ""
+	}
+
+	if fullCreds {
+		u.input.PartID = ""
+		u.input.Secret = ""
+		u.input.AppAddr = ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	select {
+	case u.inputChan <- inputSnapshot:
+	case <-ctx.Done():
 	}
 }
 

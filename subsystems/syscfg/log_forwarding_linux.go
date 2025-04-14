@@ -20,6 +20,8 @@ import (
 func (s *syscfg) startLogForwarding() error {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
+	s.logHealth.MarkGood()
+
 	// If forwarding is disabled or we already have a running command, do nothing
 	if s.cfg.ForwardSystemLogs == "" || s.journalCmd != nil {
 		return nil

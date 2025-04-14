@@ -42,7 +42,7 @@ type Networking struct {
 
 	mainLoopHealth *health
 	bgLoopHealth   *health
-	btLoopHealth   *health
+	btHealthy      bool
 
 	// locking for config updates
 	dataMu sync.Mutex
@@ -76,7 +76,6 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
-		btLoopHealth:   &health{},
 	}
 	subsys.portalData = &userInputData{connState: subsys.connState}
 	subsys.btChar = newBTCharacteristics(logger, subsys.portalData)
@@ -318,7 +317,7 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	}
 
 	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
-		(n.noBT || n.btAdv == nil || n.btChar.health.IsHealthy()) {
+		(n.noBT || n.btAdv == nil || n.btHealthy) {
 		return nil
 	}
 

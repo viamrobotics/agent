@@ -1,7 +1,6 @@
 package networking
 
 import (
-	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -195,5 +194,5 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()
 	}
-	n.portalData.sendInput(context.Background())
+	n.portalData.sendInput()
 }
