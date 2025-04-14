@@ -96,12 +96,11 @@ func (b *btCharacteristics) initCrypto() error {
 }
 
 func (b *btCharacteristics) initDevInfo(cfg utils.NetworkConfiguration) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	_, err1 := b.writables[manufacturerKey].Write([]byte(cfg.Manufacturer))
-	_, err2 := b.writables[modelKey].Write([]byte(cfg.Model))
-	_, err3 := b.writables[fragmentKey].Write([]byte(cfg.FragmentID))
-	return errors.Join(err1, err2, err3)
+	return errors.Join(
+		b.writeCharacteristic(manufacturerKey, []byte(cfg.Manufacturer)),
+		b.writeCharacteristic(modelKey, []byte(cfg.Model)),
+		b.writeCharacteristic(fragmentKey, []byte(cfg.FragmentID)),
+	)
 }
 
 // initWriteOnlyCharacteristic returns a bluetooth characteristic config.
