@@ -8,6 +8,7 @@ import (
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
+	"go.viam.com/rdk/logging"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -106,6 +107,20 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	return nil
 }
 
+type basicAgent struct {
+	conn   *dbus.Conn
+	logger logging.Logger
+}
+
+func (b *basicAgent) RequestAuthorization(device dbus.ObjectPath) *dbus.Error {
+	obj := b.conn.Object(BluezDBusService, device)
+	if err := obj.SetProperty("org.bluez.Device1.Trusted", dbus.MakeVariant(true)); err != nil {
+		return dbus.MakeFailedError(err)
+	}
+	b.logger.Infof("trusting bluetooth device %s", device)
+	return nil
+}
+
 func (n *Networking) enablePairing(deviceName string) error {
 	conn, adapter, err := getBluetoothDBus()
 	if err != nil {
@@ -129,7 +144,7 @@ func (n *Networking) enablePairing(deviceName string) error {
 		return errw.Wrap(err, "adjusting discovery timeout")
 	}
 
-	if err := conn.Export(nil, BluezAgentPath, BluezAgent); err != nil {
+	if err := conn.Export(&basicAgent{logger: n.logger, conn: conn}, BluezAgentPath, BluezAgent); err != nil {
 		return errw.Wrap(err, "exporting custom agent object")
 	}
 
@@ -137,6 +152,11 @@ func (n *Networking) enablePairing(deviceName string) error {
 	call := obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "NoInputNoOutput")
 	if err := call.Err; err != nil {
 		return errw.Wrap(err, "registering custom agent")
+	}
+
+	call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
+	if err := call.Err; err != nil {
+		return fmt.Errorf("failed to set default agent: %w", err)
 	}
 
 	n.logger.Debug("bluetooth pairing enabled")
