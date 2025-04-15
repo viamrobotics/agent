@@ -14,9 +14,9 @@ import (
 
 const (
 	BluezDBusService  = "org.bluez"
-	BluezAgentPath    = "/custom/agent"
 	BluezAgentManager = "org.bluez.AgentManager1"
 	BluezAgent        = "org.bluez.Agent1"
+	BluezAgentPath    = "/com/viam/btagent"
 )
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
@@ -113,12 +113,12 @@ type basicAgent struct {
 }
 
 func (b *basicAgent) RequestAuthorization(device dbus.ObjectPath) *dbus.Error {
-	obj := b.conn.Object(BluezDBusService, device)
-	if err := obj.SetProperty("org.bluez.Device1.Trusted", dbus.MakeVariant(true)); err != nil {
-		return dbus.MakeFailedError(err)
-	}
-	b.logger.Infof("trusting bluetooth device %s", device)
-	return nil
+	// obj := b.conn.Object(BluezDBusService, device)
+	// if err := obj.SetProperty("org.bluez.Device1.Trusted", dbus.MakeVariant(true)); err != nil {
+	// 	return dbus.MakeFailedError(err)
+	// }
+	b.logger.Infof("rejecting just-works bluetooth pair attempt for %s, please initiate pairing from your mobile device settings", device)
+	return &dbus.Error{Name: "org.bluez.Error.Rejected"}
 }
 
 func (n *Networking) enablePairing(deviceName string) error {
