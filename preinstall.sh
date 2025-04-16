@@ -13,6 +13,7 @@ SERVICE_FILE=$(cat <<EOF
 [Unit]
 Description=Viam Services Agent
 After=NetworkManager.service
+After=bluetooth.service
 StartLimitIntervalSec=0
 
 [Service]

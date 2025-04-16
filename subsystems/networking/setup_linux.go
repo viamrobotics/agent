@@ -115,6 +115,8 @@ func (n *Networking) initDevices() error {
 				n.netState.SetHotspotInterface(ifName)
 				n.logger.Infof("Using %s for hotspot/provisioning, will actively manage wifi only on this device.", ifName)
 			}
+		case gnm.NmDeviceTypeBt:
+			n.netState.SetBTDevice("bluetooth", device)
 		default:
 			continue
 		}

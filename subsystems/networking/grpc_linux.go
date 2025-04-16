@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
@@ -79,7 +78,6 @@ func (n *Networking) SetNetworkCredentials(ctx context.Context,
 	n.portalData.mu.Lock()
 	defer n.portalData.mu.Unlock()
 
-	n.portalData.Updated = time.Now()
 	n.portalData.input.SSID = req.GetSsid()
 	n.portalData.input.PSK = req.GetPsk()
 
@@ -91,7 +89,7 @@ func (n *Networking) SetNetworkCredentials(ctx context.Context,
 		lastNetwork.mu.Unlock()
 	}
 
-	n.portalData.sendInput(n.connState)
+	n.portalData.sendInput()
 
 	return &pb.SetNetworkCredentialsResponse{}, nil
 }
@@ -107,12 +105,11 @@ func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
 	}
 	n.portalData.mu.Lock()
 	defer n.portalData.mu.Unlock()
-	n.portalData.Updated = time.Now()
 	n.portalData.input.PartID = cloud.GetId()
 	n.portalData.input.Secret = cloud.GetSecret()
 	n.portalData.input.AppAddr = cloud.GetAppAddress()
 
-	n.portalData.sendInput(n.connState)
+	n.portalData.sendInput()
 
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }

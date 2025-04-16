@@ -83,7 +83,8 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 			"mode": "infrastructure",
 			"ssid": []byte(cfg.SSID),
 		}
-		if cfg.PSK != "" {
+		// NONE is a special keyword clients can send to indicate they expect an unsecured network
+		if cfg.PSK != "" && cfg.PSK != "NONE" {
 			settings["802-11-wireless-security"] = map[string]any{"key-mgmt": "wpa-psk", "psk": cfg.PSK}
 		}
 	}

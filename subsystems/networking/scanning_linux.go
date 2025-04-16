@@ -4,6 +4,7 @@ package networking
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -213,9 +214,18 @@ func (n *Networking) updateKnownConnections(ctx context.Context) error {
 			highestPriority[ifName] = -999
 		}
 
-		if netType != NetworkTypeWired && ssid == "" {
+		if netType != NetworkTypeBluetooth && netType != NetworkTypeWired && ssid == "" {
 			n.logger.Warn("wifi network with no ssid detected, skipping")
 			continue
+		}
+
+		if netType == NetworkTypeBluetooth && !getAutoConnectFromSettings(settings) {
+			settings["connection"]["autoconnect"] = true
+			delete(settings["ipv6"], "addresses")
+			delete(settings["ipv6"], "routes")
+			if err := conn.Update(settings); err != nil {
+				n.logger.Warn(errw.Wrap(err, "updating bluetooth autoconnect"))
+			}
 		}
 
 		// actually record the network
@@ -232,10 +242,45 @@ func (n *Networking) updateKnownConnections(ctx context.Context) error {
 			highestPriority[ifName] = nw.priority
 			n.netState.SetPrimarySSID(ifName, nw.ssid)
 		}
+
+		switch netType {
+		case NetworkTypeWired:
+			if n.netState.ActiveConn(nw.interfaceName) != nil {
+				nw.connected = true
+			} else {
+				nw.connected = false
+			}
+		case NetworkTypeWifi:
+			fallthrough
+		case NetworkTypeBluetooth:
+			if n.netState.ActiveConn(nw.interfaceName) != nil && n.netState.ActiveSSID(ifName) == nw.ssid {
+				nw.connected = true
+			} else {
+				nw.connected = false
+			}
+		}
 		nw.mu.Unlock()
 	}
 
 	return nil
+}
+
+// this will look backwards, because autoconnect is "true" by default (when absent).
+func getAutoConnectFromSettings(settings gnm.ConnectionSettings) bool {
+	connection, ok := settings["connection"]
+	if !ok {
+		return true
+	}
+	autoRaw, ok := connection["autoconnect"]
+	if !ok {
+		return true
+	}
+
+	auto, ok := autoRaw.(bool)
+	if !ok {
+		return true
+	}
+	return auto
 }
 
 func getPriorityFromSettings(settings gnm.ConnectionSettings) int32 {
@@ -288,10 +333,38 @@ func getSSIDFromSettings(settings gnm.ConnectionSettings) string {
 	return string(ssidBytes)
 }
 
+func getBTAddrFromSettings(settings gnm.ConnectionSettings) string {
+	bt, ok := settings["bluetooth"]
+	if !ok {
+		return ""
+	}
+
+	addrRaw, ok := bt["bdaddr"]
+	if !ok {
+		return ""
+	}
+
+	addr, ok := addrRaw.([]byte)
+	if !ok {
+		return ""
+	}
+
+	return formatHexWithColons(addr)
+}
+
+func formatHexWithColons(data []byte) string {
+	hexValues := make([]string, len(data))
+	for i, b := range data {
+		hexValues[i] = fmt.Sprintf("%02x", b)
+	}
+	return strings.Join(hexValues, ":")
+}
+
 func getIfNameSSIDTypeFromSettings(settings gnm.ConnectionSettings) (string, string, string) {
 	_, wired := settings["802-3-ethernet"]
 	_, wireless := settings["802-11-wireless"]
-	if !wired && !wireless {
+	_, bluetooth := settings["bluetooth"]
+	if !wired && !wireless && !bluetooth {
 		return "", "", ""
 	}
 
@@ -317,6 +390,10 @@ func getIfNameSSIDTypeFromSettings(settings gnm.ConnectionSettings) (string, str
 			return "", "", ""
 		}
 		return ifName, ssid, NetworkTypeWifi
+	}
+
+	if bluetooth {
+		return "bluetooth", getBTAddrFromSettings(settings), NetworkTypeBluetooth
 	}
 
 	return "", "", ""

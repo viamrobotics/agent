@@ -9,9 +9,7 @@ import (
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
-	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/provisioning/v1"
-	"go.viam.com/rdk/logging"
 )
 
 // This file contains type, const, and var definitions.
@@ -141,6 +139,10 @@ func WriteDeviceConfig(file string, input userInput) error {
 		},
 	}
 
+	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" {
+		return errors.New("incomplete machine credentials received, please try again")
+	}
+
 	jsonBytes, err := json.Marshal(cfg)
 	if err != nil {
 		return err
@@ -148,9 +150,8 @@ func WriteDeviceConfig(file string, input userInput) error {
 	return os.WriteFile(file, jsonBytes, 0o600)
 }
 
-type portalData struct {
-	mu      sync.Mutex
-	Updated time.Time
+type userInputData struct {
+	mu sync.Mutex
 
 	inputChan chan<- userInput
 
@@ -159,46 +160,52 @@ type portalData struct {
 
 	// used to cancel background threads
 	cancel context.CancelFunc
+
+	connState *connectionState
 }
 
-// must be called with p.mu already locked!
-func (p *portalData) sendInput(connState *connectionState) {
-	input := *p.input
+// must be called with u.mu already locked!
+func (u *userInputData) sendInput() {
+	inputSnapshot := *u.input
 
-	// in case both network and device credentials are being updated
-	// only send user data if both are already set
-	if (input.SSID != "" && input.PartID != "") ||
-		(input.SSID != "" && connState.getConfigured()) ||
-		(input.PartID != "" && connState.getOnline()) {
-		p.input = &userInput{}
-		p.inputChan <- input
-		if p.cancel != nil {
-			p.cancel()
-		}
+	// send if we have a full/useful set of details, either complete wifi OR complete machine credentials
+	fullWifi := u.input.SSID != "" && u.input.PSK != ""
+	fullCreds := u.input.AppAddr != "" && u.input.PartID != "" && u.input.Secret != ""
+
+	if !fullWifi && !fullCreds {
 		return
 	}
-	// if not, wait 10 seconds for full input
-	if p.cancel != nil {
-		p.cancel()
+
+	// reset full set that we're about to send
+	if fullWifi {
+		u.input.SSID = ""
+		u.input.PSK = ""
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
+	if fullCreds {
+		u.input.PartID = ""
+		u.input.Secret = ""
+		u.input.AppAddr = ""
+	}
 
-	p.workers.Add(1)
-	go func() {
-		defer utils.Recover(logging.Global(), nil)
-		defer p.workers.Done()
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Second * 10):
-		}
-		p.input = &userInput{}
-		p.inputChan <- input
-	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	select {
+	case u.inputChan <- inputSnapshot:
+	case <-ctx.Done():
+	}
+}
+
+func (u *userInputData) resetInputData(inputChan chan<- userInput) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.cancel != nil {
+		u.cancel()
+	}
+	u.workers.Wait()
+	u.cancel = nil
+	u.input = &userInput{}
+	u.inputChan = inputChan
 }
 
 type userInput struct {

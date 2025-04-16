@@ -30,10 +30,9 @@ type templateData struct {
 //go:embed templates/*
 var templates embed.FS
 
-func (n *Networking) startPortal(inputChan chan<- userInput) error {
+func (n *Networking) startPortal() error {
 	n.dataMu.Lock()
 	defer n.dataMu.Unlock()
-	n.portalData = &portalData{input: &userInput{}, inputChan: inputChan}
 
 	if err := n.startGRPC(); err != nil {
 		return errw.Wrap(err, "starting GRPC service")
@@ -86,15 +85,6 @@ func (n *Networking) stopPortal() error {
 	if n.webServer != nil {
 		err = n.webServer.Close()
 	}
-
-	n.portalData.mu.Lock()
-	defer n.portalData.mu.Unlock()
-	if n.portalData.cancel != nil {
-		n.portalData.cancel()
-	}
-	n.portalData.workers.Wait()
-	n.portalData = &portalData{input: &userInput{}}
-
 	return err
 }
 
@@ -204,6 +194,5 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()
 	}
-	n.portalData.Updated = time.Now()
-	n.portalData.sendInput(n.connState)
+	n.portalData.sendInput()
 }

@@ -32,6 +32,7 @@ type networkState struct {
 	activeConn  map[string]gnm.ActiveConnection
 	ethDevice   map[string]gnm.DeviceWired
 	wifiDevice  map[string]gnm.DeviceWireless
+	btDevice    map[string]gnm.Device
 }
 
 func NewNetworkState(logger logging.Logger) *networkState {
@@ -43,6 +44,7 @@ func NewNetworkState(logger logging.Logger) *networkState {
 		lastSSID:    make(map[string]string),
 		ethDevice:   make(map[string]gnm.DeviceWired),
 		wifiDevice:  make(map[string]gnm.DeviceWireless),
+		btDevice:    make(map[string]gnm.Device),
 		activeConn:  make(map[string]gnm.ActiveConnection),
 	}
 }
@@ -117,12 +119,18 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 	if !ok {
 		net = &lockingNetwork{}
 		n.network[id] = net
-		if ssid != "" {
+
+		switch {
+		case iface == "bluetooth":
+			net.ssid = ssid
+			net.netType = NetworkTypeBluetooth
+		case ssid != "":
 			net.ssid = ssid
 			net.netType = NetworkTypeWifi
-		} else {
+		default:
 			net.netType = NetworkTypeWired
 		}
+
 		net.interfaceName = iface
 		n.logger.Debugf("found new network %s (%s)", id, net.netType)
 	}
@@ -246,7 +254,6 @@ func (n *networkState) ActiveConn(iface string) gnm.ActiveConnection {
 
 	conn, ok := n.activeConn[iface]
 	if !ok {
-		n.logger.Errorf("cannot find active connection for %s", iface)
 		return nil
 	}
 
@@ -304,6 +311,25 @@ func (n *networkState) SetWifiDevice(iface string, dev gnm.DeviceWireless) {
 	n.wifiDevice[iface] = dev
 }
 
+func (n *networkState) BTDevice(iface string) gnm.Device {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	dev, ok := n.btDevice[iface]
+	if !ok {
+		n.logger.Errorf("cannot find bluetooth device for %s", iface)
+		return nil
+	}
+
+	return dev
+}
+
+func (n *networkState) SetBTDevice(iface string, dev gnm.Device) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.btDevice[iface] = dev
+}
+
 func (n *networkState) Devices() map[string]gnm.Device {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -314,6 +340,9 @@ func (n *networkState) Devices() map[string]gnm.Device {
 		allDevices[ifName] = dev
 	}
 	for ifName, dev := range n.ethDevice {
+		allDevices[ifName] = dev
+	}
+	for ifName, dev := range n.btDevice {
 		allDevices[ifName] = dev
 	}
 	return allDevices

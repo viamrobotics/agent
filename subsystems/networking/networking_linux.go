@@ -42,7 +42,7 @@ type Networking struct {
 
 	mainLoopHealth *health
 	bgLoopHealth   *health
-	btLoopHealth   *health
+	btHealthy      bool
 
 	// locking for config updates
 	dataMu sync.Mutex
@@ -52,7 +52,7 @@ type Networking struct {
 	// portal
 	webServer  *http.Server
 	grpcServer *grpc.Server
-	portalData *portalData
+	portalData *userInputData
 
 	// bluetooth
 	noBT   bool
@@ -63,7 +63,7 @@ type Networking struct {
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
-	return &Networking{
+	subsys := &Networking{
 		cfg:    cfg.NetworkConfiguration,
 		nets:   cfg.AdditionalNetworks,
 		logger: logger,
@@ -71,16 +71,15 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		connState: NewConnectionState(logger),
 		netState:  NewNetworkState(logger),
 
-		errors:     &errorList{},
-		banner:     &banner{},
-		portalData: &portalData{},
-
-		btChar: newBTCharacteristics(logger),
+		errors: &errorList{},
+		banner: &banner{},
 
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
-		btLoopHealth:   &health{},
 	}
+	subsys.portalData = &userInputData{connState: subsys.connState}
+	subsys.btChar = newBTCharacteristics(logger, subsys.portalData)
+	return subsys
 }
 
 func (n *Networking) getNM() (gnm.NetworkManager, error) {
@@ -205,6 +204,9 @@ func (n *Networking) Start(ctx context.Context) error {
 	if n.running || n.noNM {
 		return nil
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	n.logger.Debugf("Starting networking")
 
 	if n.nm == nil || n.settings == nil {
@@ -217,13 +219,9 @@ func (n *Networking) Start(ctx context.Context) error {
 		n.logger.Error(errw.Wrap(err, "applying wifi power save configuration"))
 	}
 
-	if err := n.writeBTDisableDiscovery(ctx); err != nil {
-		n.logger.Error(errw.Wrap(err, "applying bluetooth configuration"))
-	}
-
 	n.processAdditionalnetworks(ctx)
 
-	if err := n.checkOnline(true); err != nil {
+	if err := n.checkOnline(ctx, true); err != nil {
 		n.logger.Error(err)
 	}
 
@@ -269,7 +267,9 @@ func (n *Networking) Stop(ctx context.Context) error {
 func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
-
+	if ctx.Err() != nil {
+		return false
+	}
 	if n.noNM {
 		return needRestart
 	}
@@ -309,12 +309,15 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 func (n *Networking) HealthCheck(ctx context.Context) error {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if n.noNM || (n.Config().DisableBTProvisioning && n.Config().DisableWifiProvisioning) {
 		return nil
 	}
 
 	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
-		(n.noBT || n.btAdv == nil || n.btChar.health.IsHealthy()) {
+		(n.noBT || n.btAdv == nil || n.btHealthy) {
 		return nil
 	}
 
