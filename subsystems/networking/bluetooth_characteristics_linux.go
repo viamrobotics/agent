@@ -80,11 +80,15 @@ func (b *btCharacteristics) initCharacteristics() []bluetooth.CharacteristicConf
 func (b *btCharacteristics) initCrypto() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return err
+
+	if b.privKey == nil {
+		privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return err
+		}
+
+		b.privKey = privKey
 	}
-	b.privKey = privKey
 
 	// write the public crypto key
 	pubKey, err := x509.MarshalPKIXPublicKey(&b.privKey.PublicKey)
@@ -216,6 +220,8 @@ func (b *btCharacteristics) decrypt(ciphertext []byte) ([]byte, error) {
 func (b *btCharacteristics) recordInput(cName, value string) {
 	b.userInputData.mu.Lock()
 	defer b.userInputData.mu.Unlock()
+
+	b.userInputData.connState.setLastInteraction()
 
 	switch cName {
 	case ssidKey:

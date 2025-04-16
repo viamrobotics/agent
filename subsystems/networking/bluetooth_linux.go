@@ -71,6 +71,10 @@ func (n *Networking) stopProvisioningBluetooth() error {
 		return err
 	}
 
+	if err := n.removeServices(); err != nil {
+		return err
+	}
+
 	n.btHealthy = false
 	n.logger.Debug("Stopped advertising bluetooth service.")
 	return nil
@@ -87,6 +91,7 @@ func (n *Networking) initializeBluetoothService(deviceName string, characteristi
 	if err := adapter.AddService(&bluetooth.Service{UUID: serviceUUID, Characteristics: characteristics}); err != nil {
 		return fmt.Errorf("unable to add bluetooth service to default adapter: %w", err)
 	}
+
 	adv := adapter.DefaultAdvertisement()
 	opts := bluetooth.AdvertisementOptions{
 		LocalName:    deviceName,
@@ -199,4 +204,29 @@ func getBluetoothDBus() (*dbus.Conn, dbus.BusObject, error) {
 		return nil, nil, errw.Wrap(err, "getting bluetooth adapter")
 	}
 	return conn, hci0Adapter, nil
+}
+
+func (n *Networking) removeServices() error {
+	_, adapter, err := getBluetoothDBus()
+	if err != nil {
+		return err
+	}
+
+	// TODO(APP-8081) tinygo/bluetooth only has a AddService() method, no RemoveService() and doesn't expose the service path
+	// As it sequentially names them, we'll just iterate over 10000 of them to make sure we reasonably have cleaned up
+	// This takes about one realtime second on a pi5, so not THAT expensive
+	var ok bool
+	for id := range 10000 {
+		path := dbus.ObjectPath(fmt.Sprintf("/org/tinygo/bluetooth/service%d", id))
+		err := adapter.Call("org.bluez.GattManager1.UnregisterApplication", 0, path).Err
+		if err == nil {
+			n.logger.Debugf("removed gatt service %s", path)
+			ok = true
+		}
+	}
+
+	if ok {
+		return nil
+	}
+	return errors.New("could not find previous gatt service to remove")
 }
