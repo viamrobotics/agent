@@ -265,20 +265,20 @@ func (n *Networking) updateKnownConnections(ctx context.Context) error {
 	return nil
 }
 
+// this will look backwards, because autoconnect is "true" by default (when absent).
 func getAutoConnectFromSettings(settings gnm.ConnectionSettings) bool {
 	connection, ok := settings["connection"]
 	if !ok {
-		return false
+		return true
 	}
-
 	autoRaw, ok := connection["autoconnect"]
 	if !ok {
-		return false
+		return true
 	}
 
 	auto, ok := autoRaw.(bool)
 	if !ok {
-		return false
+		return true
 	}
 	return auto
 }
