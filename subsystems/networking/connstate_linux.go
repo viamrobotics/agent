@@ -126,6 +126,12 @@ func (c *connectionState) setLastInteraction() {
 	c.lastInteraction = time.Now()
 }
 
+func (c *connectionState) resetLastInteraction() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastInteraction = time.Time{}
+}
+
 func (c *connectionState) getLastInteraction() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()

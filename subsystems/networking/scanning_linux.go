@@ -140,7 +140,7 @@ func (n *Networking) networkScan(ctx context.Context) error {
 		}
 		nw.mu.Lock()
 		// if a network isn't visible, reset the times so we'll retry if it comes back
-		if nw.lastSeen.Before(time.Now().Add(VisibleNetworkTimeout * -1)) {
+		if nw.netType == NetworkTypeWifi && nw.lastSeen.Before(time.Now().Add(VisibleNetworkTimeout*-1)) {
 			nw.firstSeen = time.Time{}
 			nw.lastTried = time.Time{}
 		}
