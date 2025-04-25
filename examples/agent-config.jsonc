@@ -27,7 +27,9 @@
 		"offline_before_starting_hotspot_minutes": 2,
 		"user_idle_minutes": 5,
 		"retry_connection_timeout_minutes": 10,
-		"device_reboot_after_offline_minutes": 0 // does nothing when set to zero
+		"device_reboot_after_offline_minutes": 0, // does nothing when set to zero
+		"disable_bt_provisioning": false,
+		"disable_wifi_provisioning": false
 	},
 	"additional_networks": {
 		"myNetwork1": {

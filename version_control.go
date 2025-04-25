@@ -84,7 +84,7 @@ func (c *VersionCache) ViamServerVersion() string {
 func (c *VersionCache) ViamServerRunningVersion() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.ViamServer.PreviousVersion
+	return c.ViamServer.runningVersion
 }
 
 func (c *VersionCache) MarkViamServerRunningVersion() {
