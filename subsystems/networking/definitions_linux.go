@@ -188,11 +188,13 @@ func (u *userInputData) sendInput() {
 		u.input.AppAddr = ""
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	select {
 	case u.inputChan <- inputSnapshot:
+		u.connState.resetLastInteraction()
 	case <-ctx.Done():
+		u.connState.logger.Warn("user input not received by main loop after 60 seconds")
 	}
 }
 

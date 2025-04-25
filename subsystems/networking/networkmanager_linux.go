@@ -308,13 +308,9 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 	var netDev gnm.Device
 	switch nw.netType {
 	case NetworkTypeWifi:
-		fallthrough
+		n.netState.SetLastSSID(ifName, ssid)
+		netDev = n.netState.WifiDevice(ifName)
 	case NetworkTypeHotspot:
-		// wifi
-		if nw.netType != NetworkTypeHotspot {
-			nw.lastTried = now
-			n.netState.SetLastSSID(ifName, ssid)
-		}
 		netDev = n.netState.WifiDevice(ifName)
 	case NetworkTypeBluetooth:
 		netDev = n.netState.BTDevice(ifName)
@@ -580,12 +576,10 @@ func (n *Networking) checkConfigured() {
 
 func (n *Networking) tryBluetoothTether(ctx context.Context) bool {
 	for _, nw := range n.netState.Networks() {
-		if nw.netType != NetworkTypeBluetooth {
+		if nw.netType != NetworkTypeBluetooth || nw.connected {
 			continue
 		}
-		if nw.connected {
-			continue
-		}
+
 		if !time.Now().After(nw.lastTried.Add(VisibleNetworkTimeout)) {
 			continue
 		}
@@ -751,18 +745,25 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					continue
 				}
 				userInputReceived = true
-				// newSSID = cfg.SSID
 			}
 
 			// wait 5 seconds so responses can be sent to/seen by user, or additional input can be queued
 			if !n.mainLoopHealth.Sleep(ctx, time.Second*5) {
 				return
 			}
-			continue
-		case <-scanChan:
-		case <-time.After((scanLoopDelay + scanTimeout) * 2):
-			// safety fallback if something hangs
-			n.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
+			// loop again to see if there's more data coming
+			if userInputReceived {
+				continue
+			}
+		default:
+			select {
+			case <-ctx.Done():
+				return
+			case <-scanChan:
+			case <-time.After((scanLoopDelay + scanTimeout) * 2):
+				// safety fallback if something hangs
+				n.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
+			}
 		}
 
 		n.mainLoopHealth.MarkGood()
@@ -813,7 +814,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			// complex logic, so wasting some variables for readability
 
 			// portal interaction time is updated when a user loads a page or makes a grpc request
-			inactivePortal := now.After(n.connState.getLastInteraction().Add(time.Duration(n.Config().UserIdleMinutes))) || userInputReceived
+			inactivePortal := now.After(n.connState.getLastInteraction().Add(time.Duration(n.Config().UserIdleMinutes)))
 
 			// exit/retry to test networks only if there's no recent user interaction AND configuration is present
 			haveCandidates := len(n.getCandidates(n.Config().HotspotInterface)) > 0 && inactivePortal && isConfigured
