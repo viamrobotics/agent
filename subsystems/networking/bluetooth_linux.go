@@ -233,6 +233,7 @@ func (n *Networking) removeServices() error {
 
 func (n *Networking) bluetoothEnabled() bool {
 	n.dataMu.Lock()
-	defer n.dataMu.Unlock()
-	return !n.noBT && !n.Config().DisableBTProvisioning
+	noBT := n.noBT
+	n.dataMu.Unlock()
+	return !noBT && !n.Config().DisableBTProvisioning
 }
