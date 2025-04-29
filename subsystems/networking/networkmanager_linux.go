@@ -797,14 +797,16 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 		if pMode {
 			// Update bluetooth read-only characteristics
-			if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
-				n.logger.Warn("could not update BT status characteristic")
-			}
-			if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
-				n.logger.Warn("could not update BT networks characteristic")
-			}
-			if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
-				n.logger.Warn("could not update BT errors characteristic")
+			if n.btChar != nil {
+				if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
+					n.logger.Warn("could not update BT status characteristic")
+				}
+				if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
+					n.logger.Warn("could not update BT networks characteristic")
+				}
+				if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
+					n.logger.Warn("could not update BT errors characteristic")
+				}
 			}
 
 			if !hasConnectivity && n.tryBluetoothTether(ctx) {
