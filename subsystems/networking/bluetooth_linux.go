@@ -21,7 +21,7 @@ const (
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
 func (n *Networking) startProvisioningBluetooth() error {
-	if n.Config().DisableBTProvisioning || n.noBT {
+	if !n.bluetoothEnabled() {
 		return nil
 	}
 	if n.btAdv != nil {
@@ -229,4 +229,11 @@ func (n *Networking) removeServices() error {
 		return nil
 	}
 	return errors.New("could not find previous gatt service to remove")
+}
+
+func (n *Networking) bluetoothEnabled() bool {
+	n.dataMu.Lock()
+	noBT := n.noBT
+	n.dataMu.Unlock()
+	return !noBT && !n.Config().DisableBTProvisioning
 }

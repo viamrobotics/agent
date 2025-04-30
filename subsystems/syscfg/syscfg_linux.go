@@ -116,7 +116,7 @@ func (s *syscfg) Stop(ctx context.Context) error {
 func (s *syscfg) HealthCheck(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.healthy && s.logHealth.IsHealthy() {
+	if s.healthy && (s.journalCmd == nil || s.logHealth.IsHealthy()) {
 		return nil
 	}
 	return errors.New("healthcheck failed")

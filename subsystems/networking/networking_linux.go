@@ -317,7 +317,7 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	}
 
 	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
-		(n.noBT || n.btAdv == nil || n.btHealthy) {
+		(!n.bluetoothEnabled() || n.btAdv == nil || n.btHealthy) {
 		return nil
 	}
 
