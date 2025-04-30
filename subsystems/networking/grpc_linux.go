@@ -26,12 +26,12 @@ func (n *Networking) startGRPC() error {
 	go func() {
 		defer utils.Recover(n.logger, func(_ any) {
 			if err := n.stopProvisioning(); err != nil {
-				n.logger.Error(err)
+				n.logger.Warn(err)
 			}
 		})
 		defer n.portalData.workers.Done()
 		if err := n.grpcServer.Serve(lis); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 	}()
 	return nil

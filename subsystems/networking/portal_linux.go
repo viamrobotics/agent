@@ -63,13 +63,13 @@ func (n *Networking) startWeb() error {
 	go func() {
 		defer utils.Recover(n.logger, func(_ any) {
 			if err := n.stopProvisioning(); err != nil {
-				n.logger.Error(err)
+				n.logger.Warn(err)
 			}
 		})
 		defer n.portalData.workers.Done()
 		err := n.webServer.Serve(lis)
 		if !errors.Is(err, http.ErrServerClosed) {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 	}()
 	return nil
@@ -91,7 +91,7 @@ func (n *Networking) stopPortal() error {
 func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := req.Body.Close(); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 	}()
 	n.connState.setLastInteraction()
@@ -112,7 +112,7 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 
 	t, err := template.ParseFS(templates, "templates/*.html")
 	if err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 	}
 
@@ -126,7 +126,7 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 
 	err = t.Execute(resp, data)
 	if err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 	}
 
@@ -138,7 +138,7 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := req.Body.Close(); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 	}()
 	defer http.Redirect(resp, req, "/", http.StatusSeeOther)

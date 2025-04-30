@@ -277,7 +277,7 @@ func (n *networkState) EthDevice(iface string) gnm.DeviceWired {
 
 	dev, ok := n.ethDevice[iface]
 	if !ok {
-		n.logger.Errorf("cannot find eth device for %s", iface)
+		n.logger.Warnf("cannot find eth device for %s", iface)
 		return nil
 	}
 
@@ -297,7 +297,7 @@ func (n *networkState) WifiDevice(iface string) gnm.DeviceWireless {
 
 	dev, ok := n.wifiDevice[iface]
 	if !ok {
-		n.logger.Errorf("cannot find wifi device for %s", iface)
+		n.logger.Warnf("cannot find wifi device for %s", iface)
 		return nil
 	}
 
@@ -317,7 +317,7 @@ func (n *networkState) BTDevice(iface string) gnm.Device {
 
 	dev, ok := n.btDevice[iface]
 	if !ok {
-		n.logger.Errorf("cannot find bluetooth device for %s", iface)
+		n.logger.Warnf("cannot find bluetooth device for %s", iface)
 		return nil
 	}
 

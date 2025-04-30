@@ -21,7 +21,7 @@ func PlatformProcSettings(cmd *exec.Cmd) {
 func KillIfAvailable(logger logging.Logger, cmd *exec.Cmd) {
 	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	if err != nil {
-		logger.Error(err)
+		logger.Warn(err)
 	}
 }
 

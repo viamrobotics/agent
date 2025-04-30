@@ -103,13 +103,13 @@ func (c *VersionCache) load() {
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			c.logger.Error(err)
+			c.logger.Warn(err)
 			return
 		}
 	} else {
 		err = json.Unmarshal(cacheBytes, c)
 		if err != nil {
-			c.logger.Error(errw.Wrap(err, "parsing version cache"))
+			c.logger.Warn(errw.Wrap(err, "parsing version cache"))
 			return
 		}
 	}
@@ -200,7 +200,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	if err == nil {
 		goodBytes = bytes.Equal(shasum, verData.UnpackedSHA)
 	} else {
-		c.logger.Error(err)
+		c.logger.Warn(err)
 	}
 
 	if data.TargetVersion == data.CurrentVersion {
