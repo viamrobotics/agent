@@ -184,7 +184,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		return false, errw.Errorf("unknown binary name for update request: %s", binary)
 	}
 
-	var needRestart bool
+	var needRestart, goodBytes bool
 
 	if data.brokenTarget {
 		return needRestart, nil
@@ -196,6 +196,12 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	}
 
 	isCustomURL := strings.HasPrefix(verData.Version, "customURL+")
+	shasum, err := utils.GetFileSum(verData.UnpackedPath)
+	if err == nil {
+		goodBytes = bytes.Equal(shasum, verData.UnpackedSHA)
+	} else {
+		c.logger.Error(err)
+	}
 
 	if data.TargetVersion == data.CurrentVersion {
 		// if a known version, make sure the symlink is correct
@@ -216,12 +222,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			}
 		}
 
-		shasum, err := utils.GetFileSum(verData.UnpackedPath)
-		if err == nil && bytes.Equal(shasum, verData.UnpackedSHA) {
+		if goodBytes {
 			return false, nil
-		}
-		if err != nil {
-			c.logger.Error(err)
 		}
 
 		// if we're here, we have a mismatched checksum, as likely the URL changed, so wipe it and recompute later
@@ -233,50 +235,53 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	// this is a new version
 	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
 
-	// download and record the sha of the download itself
-	var err error
-	verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
-	if err != nil {
-		if isCustomURL {
-			data.brokenTarget = true
-		}
-		return needRestart, errw.Wrapf(err, "downloading %s", binary)
-	}
-	actualSha, err := utils.GetFileSum(verData.DlPath)
-	if err != nil {
-		return needRestart, errw.Wrap(err, "getting file shasum")
-	}
-
-	// TODO handle compressed formats, for now, the raw download is the same file
-	verData.UnpackedPath = verData.DlPath
-	verData.DlSHA = actualSha
-
-	if len(verData.UnpackedSHA) <= 1 && isCustomURL {
-		// new custom download, so need to check the file is an executable binary and use locally generated sha
-		mtype, err := mimetype.DetectFile(verData.UnpackedPath)
+	if !goodBytes {
+		// download and record the sha of the download itself
+		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
 		if err != nil {
-			return needRestart, errw.Wrapf(err, "determining file type of download")
-		}
-		expectedMimes := []string{"application/x-elf", "application/x-executable"}
-		if runtime.GOOS == "windows" {
-			expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
+			if isCustomURL {
+				data.brokenTarget = true
+			}
+			return needRestart, errw.Wrapf(err, "downloading %s", binary)
 		}
 
-		if !mimeIsAny(mtype, expectedMimes) {
-			data.brokenTarget = true
-			return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
+		actualSha, err := utils.GetFileSum(verData.DlPath)
+		if err != nil {
+			return needRestart, errw.Wrap(err, "getting file shasum")
 		}
-		verData.UnpackedSHA = actualSha
-	}
 
-	if len(verData.UnpackedSHA) > 1 && !bytes.Equal(verData.UnpackedSHA, actualSha) {
-		//nolint:goerr113
-		return needRestart, fmt.Errorf(
-			"sha256 (%s) of downloaded file (%s) does not match provided (%s)",
-			base64.StdEncoding.EncodeToString(actualSha),
-			verData.UnpackedPath,
-			base64.StdEncoding.EncodeToString(verData.UnpackedSHA),
-		)
+		// TODO handle compressed formats, for now, the raw download is the same file
+		verData.UnpackedPath = verData.DlPath
+		verData.DlSHA = actualSha
+
+		if len(verData.UnpackedSHA) <= 1 && isCustomURL {
+			// new custom download, so need to check the file is an executable binary and use locally generated sha
+			mtype, err := mimetype.DetectFile(verData.UnpackedPath)
+			if err != nil {
+				return needRestart, errw.Wrapf(err, "determining file type of download")
+			}
+
+			expectedMimes := []string{"application/x-elf", "application/x-executable"}
+			if runtime.GOOS == "windows" {
+				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
+			}
+
+			if !mimeIsAny(mtype, expectedMimes) {
+				data.brokenTarget = true
+				return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
+			}
+			verData.UnpackedSHA = actualSha
+		}
+
+		if len(verData.UnpackedSHA) > 1 && !bytes.Equal(verData.UnpackedSHA, actualSha) {
+			//nolint:goerr113
+			return needRestart, fmt.Errorf(
+				"sha256 (%s) of downloaded file (%s) does not match provided (%s)",
+				base64.StdEncoding.EncodeToString(actualSha),
+				verData.UnpackedPath,
+				base64.StdEncoding.EncodeToString(verData.UnpackedSHA),
+			)
+		}
 	}
 
 	// chmod with execute permissions if the file is executable
