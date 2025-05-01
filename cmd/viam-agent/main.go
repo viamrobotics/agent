@@ -132,7 +132,7 @@ func commonMain() {
 
 	cfg, err := utils.LoadConfigFromCache()
 	if err != nil {
-		globalLogger.Errorf("error loading config from cache: %w", err)
+		globalLogger.Warnf("error loading config from cache: %w", err)
 	}
 
 	cfg = utils.ApplyCLIArgs(cfg)
@@ -152,7 +152,7 @@ func commonMain() {
 	// valid viam.json from this point forward
 	netAppender, err := manager.CreateNetAppender()
 	if err != nil {
-		globalLogger.Errorf("error creating NetAppender: %s", err)
+		globalLogger.Warnf("error creating NetAppender: %s", err)
 	} else {
 		globalLogger.AddAppender(netAppender)
 	}
@@ -169,7 +169,7 @@ func commonMain() {
 		// Check for self-update and restart if needed.
 		needRestart, err := manager.SelfUpdate(ctx)
 		if err != nil {
-			globalLogger.Error(err)
+			globalLogger.Warn(err)
 		}
 		if needRestart {
 			manager.CloseAll()

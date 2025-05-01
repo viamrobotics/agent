@@ -188,12 +188,12 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	// Agent
 	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
 	if err != nil {
-		m.logger.Error(err)
+		m.logger.Warn(err)
 	}
 	if needRestart {
 		_, err := InstallNewVersion(ctx, m.logger)
 		if err != nil {
-			m.logger.Errorw("running install of new agent version", "error", err)
+			m.logger.Warnw("running install of new agent version", "error", err)
 		}
 		restartCmd := "using 'systemctl restart viam-agent'"
 		if runtime.GOOS == "windows" {
@@ -205,19 +205,19 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	// Viam Server
 	if m.cfg.AdvancedSettings.DisableViamServer {
 		if err := m.viamServer.Stop(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	} else {
 		needRestart, err := m.cache.UpdateBinary(ctx, viamserver.SubsysName)
 		if err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 		m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || m.viamServerNeedsRestart {
 			if m.viamServer.(viamserver.RestartCheck).SafeToRestart(ctx) {
 				if err := m.viamServer.Stop(ctx); err != nil {
-					m.logger.Error(err)
+					m.logger.Warn(err)
 				} else {
 					m.viamServerNeedsRestart = false
 				}
@@ -227,41 +227,41 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		}
 		m.cache.MarkViamServerRunningVersion()
 		if err := m.viamServer.Start(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	}
 
 	// System Configuration
 	if m.cfg.AdvancedSettings.GetDisableSystemConfiguration() {
 		if err := m.sysConfig.Stop(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	} else {
 		needRestart = m.sysConfig.Update(ctx, m.cfg)
 		if needRestart {
 			if err := m.sysConfig.Stop(ctx); err != nil {
-				m.logger.Error(err)
+				m.logger.Warn(err)
 			}
 		}
 		if err := m.sysConfig.Start(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	}
 
 	// Network
 	if m.cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
 		if err := m.networking.Stop(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	} else {
 		needRestart = m.networking.Update(ctx, m.cfg)
 		if needRestart {
 			if err := m.networking.Stop(ctx); err != nil {
-				m.logger.Error(err)
+				m.logger.Warn(err)
 			}
 		}
 		if err := m.networking.Start(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	}
 }
@@ -288,7 +288,7 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 	interval = utils.FuzzTime(interval, 0.05)
 
 	if err != nil {
-		m.logger.Error(err)
+		m.logger.Warn(err)
 		return interval
 	}
 
@@ -342,7 +342,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 
 		// Start should return near-instantly if already started.
 		if err := entry.sub.Start(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 
 		if err := entry.sub.HealthCheck(ctxTimeout); err != nil {
@@ -351,7 +351,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			}
 			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", entry.name))
 			if err := entry.sub.Stop(ctx); err != nil {
-				m.logger.Error(errw.Wrapf(err, "stopping subsystem %s", entry.name))
+				m.logger.Warn(errw.Wrapf(err, "stopping subsystem %s", entry.name))
 			}
 			if ctx.Err() != nil {
 				return
@@ -361,7 +361,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 				m.cache.MarkViamServerRunningVersion()
 			}
 			if err := entry.sub.Start(ctx); err != nil {
-				m.logger.Error(errw.Wrapf(err, "restarting subsystem %s", entry.name))
+				m.logger.Warn(errw.Wrapf(err, "restarting subsystem %s", entry.name))
 			}
 		} else {
 			m.logger.Debugf("Subsystem healthcheck succeeded for %s", entry.name)
@@ -377,7 +377,7 @@ func (m *Manager) CloseAll() {
 	// close all subsystems
 	for _, sub := range []subsystems.Subsystem{m.viamServer, m.sysConfig, m.networking} {
 		if err := sub.Stop(ctx); err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	}
 	m.activeBackgroundWorkers.Wait()
@@ -393,7 +393,7 @@ func (m *Manager) CloseAll() {
 	if m.conn != nil {
 		err := m.conn.Close()
 		if err != nil {
-			m.logger.Error(err)
+			m.logger.Warn(err)
 		}
 	}
 
@@ -505,7 +505,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	defer cancelFunc()
 
 	if err := m.dial(timeoutCtx); err != nil {
-		m.logger.Error(errw.Wrapf(err, "fetching %s config", SubsystemName))
+		m.logger.Warn(errw.Wrapf(err, "fetching %s config", SubsystemName))
 		return minimalCheckInterval, err
 	}
 
@@ -516,28 +516,28 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	}
 	resp, err := m.client.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
-		m.logger.Error(errw.Wrapf(err, "fetching %s config", SubsystemName))
+		m.logger.Warn(errw.Wrapf(err, "fetching %s config", SubsystemName))
 		return minimalCheckInterval, err
 	}
 
 	// Store update data in cache, actual binaries are updated later
 	err = m.cache.Update(resp.GetAgentUpdateInfo(), SubsystemName)
 	if err != nil {
-		m.logger.Error(errw.Wrapf(err, "processing update data for %s", SubsystemName))
+		m.logger.Warn(errw.Wrapf(err, "processing update data for %s", SubsystemName))
 	}
 
 	err = m.cache.Update(resp.GetViamServerUpdateInfo(), viamserver.SubsysName)
 	if err != nil {
-		m.logger.Error(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
+		m.logger.Warn(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
 	}
 
 	cfg, err := utils.StackConfigs(resp)
 	if err != nil {
-		m.logger.Error(errw.Wrap(err, "processing config"))
+		m.logger.Warn(errw.Wrap(err, "processing config"))
 	}
 
 	if err := utils.SaveConfigToCache(cfg); err != nil {
-		m.logger.Error(err)
+		m.logger.Warn(err)
 	}
 
 	cfg = utils.ApplyCLIArgs(cfg)

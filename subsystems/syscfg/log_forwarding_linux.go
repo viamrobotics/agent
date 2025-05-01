@@ -28,7 +28,7 @@ func (s *syscfg) startLogForwarding() error {
 	}
 
 	if _, err := exec.LookPath("journalctl"); err != nil {
-		s.logger.Error("journalctl not available, kernel log forwarding disabled")
+		s.logger.Warn("journalctl not available, kernel log forwarding disabled")
 		s.noJournald = true
 		return nil
 	}
@@ -70,7 +70,7 @@ func (s *syscfg) startLogForwarding() error {
 				if !strings.Contains(err.Error(), "signal: terminated") {
 					s.logger.Info("stopped journalctl")
 				} else {
-					s.logger.Error(errw.Wrap(err, "stopping journalctl"))
+					s.logger.Warn(errw.Wrap(err, "stopping journalctl"))
 				}
 			}
 			s.logMu.Lock()
@@ -100,7 +100,7 @@ func (s *syscfg) startLogForwarding() error {
 				if !s.logHealth.Sleep(ctx, time.Second) {
 					return
 				}
-				s.logger.Errorf("unexpected error output from journalctl: %s", stderr.String())
+				s.logger.Warnf("unexpected error output from journalctl: %s", stderr.String())
 			}
 
 			if decoder.More() {
@@ -110,7 +110,7 @@ func (s *syscfg) startLogForwarding() error {
 					if err == io.EOF {
 						continue
 					}
-					s.logger.Error(errw.Wrap(err, "decoding journalctl output"))
+					s.logger.Warn(errw.Wrap(err, "decoding journalctl output"))
 					continue
 				}
 
@@ -126,7 +126,7 @@ func (s *syscfg) startLogForwarding() error {
 				}
 
 				if err := appender.Write(logEntry, nil); err != nil {
-					s.logger.Error(err)
+					s.logger.Warn(err)
 				}
 			}
 		}

@@ -85,13 +85,13 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 		return nil, ErrNM
 	}
 
 	ver, err := nm.GetPropertyVersion()
 	if err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 		return nil, ErrNM
 	}
 
@@ -99,7 +99,7 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 
 	sv, err := semver.NewVersion(ver)
 	if err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 		return nil, ErrNM
 	}
 
@@ -112,7 +112,7 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	if sv.GreaterThanEqual(semver.MustParse("1.38.0")) {
 		flags, err := nm.GetPropertyRadioFlags()
 		if err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 			return nil, ErrNoWifi
 		}
 
@@ -163,10 +163,10 @@ func (n *Networking) init(ctx context.Context) error {
 
 	n.checkConfigured()
 	if err := n.networkScan(ctx); err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 	}
 	if err := n.updateKnownConnections(ctx); err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 	}
 
 	n.warnIfMultiplePrimaryNetworks()
@@ -182,7 +182,7 @@ func (n *Networking) init(ctx context.Context) error {
 	}
 
 	if err := n.checkConnections(); err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 	}
 
 	// Is there a configured wifi network? If so, set last times to now so we use normal timeouts.
@@ -216,13 +216,13 @@ func (n *Networking) Start(ctx context.Context) error {
 	}
 
 	if err := n.writeWifiPowerSave(ctx); err != nil {
-		n.logger.Error(errw.Wrap(err, "applying wifi power save configuration"))
+		n.logger.Warn(errw.Wrap(err, "applying wifi power save configuration"))
 	}
 
 	n.processAdditionalnetworks(ctx)
 
 	if err := n.checkOnline(ctx, true); err != nil {
-		n.logger.Error(err)
+		n.logger.Warn(err)
 	}
 
 	if !n.Config().DisableBTProvisioning || !n.Config().DisableWifiProvisioning {
@@ -252,7 +252,7 @@ func (n *Networking) Stop(ctx context.Context) error {
 	if n.connState.getProvisioning() {
 		err := n.stopProvisioning()
 		if err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 	}
 	if n.cancel != nil {
@@ -276,7 +276,7 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 
 	if n.nm == nil || n.settings == nil {
 		if err := n.init(ctx); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 			return needRestart
 		}
 	}
@@ -299,7 +299,7 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	n.nets = cfg.AdditionalNetworks
 
 	if err := n.writeDNSMasq(); err != nil {
-		n.logger.Error(errw.Wrap(err, "writing dnsmasq configuration"))
+		n.logger.Warn(errw.Wrap(err, "writing dnsmasq configuration"))
 	}
 
 	return needRestart
@@ -344,12 +344,12 @@ func (n *Networking) processAdditionalnetworks(ctx context.Context) {
 	for _, network := range n.Nets() {
 		_, err := n.addOrUpdateConnection(network)
 		if err != nil {
-			n.logger.Error(errw.Wrapf(err, "adding network %s", network.SSID))
+			n.logger.Warn(errw.Wrapf(err, "adding network %s", network.SSID))
 			continue
 		}
 		if network.Interface != "" {
 			if err := n.activateConnection(ctx, network.Interface, network.SSID); err != nil {
-				n.logger.Error(err)
+				n.logger.Warn(err)
 			}
 		}
 	}

@@ -69,34 +69,30 @@ func (s *syscfg) Start(ctx context.Context) error {
 	s.started = true
 	var healthyLog, healthyUpgrades bool
 	defer func() {
-		// if something panicked, log it and allow things to continue
-		r := recover()
-		if r != nil {
-			s.logger.Error("syscfg subsystem encountered a panic")
-			s.logger.Error(r)
-		}
-
 		s.healthy = healthyLog && healthyUpgrades
 	}()
+	defer utils.Recover(s.logger, nil)
 
 	// set journald max size limits
 	err := s.EnforceLogging()
 	if err != nil {
-		s.logger.Error(errw.Wrap(err, "configuring journald logging"))
+		s.logger.Warn(errw.Wrap(err, "configuring journald logging"))
+	} else {
+		healthyLog = true
 	}
-	healthyLog = true
 
 	// set unattended upgrades
 	err = s.EnforceUpgrades(ctx)
 	if err != nil {
-		s.logger.Error(errw.Wrap(err, "configuring unattended upgrades"))
+		s.logger.Warn(errw.Wrap(err, "configuring unattended upgrades"))
+	} else {
+		healthyUpgrades = true
 	}
-	healthyUpgrades = true
 
 	// start kernel log forwarding
 	err = s.startLogForwarding()
 	if err != nil {
-		s.logger.Error(errw.Wrap(err, "starting kernel log forwarding"))
+		s.logger.Warn(errw.Wrap(err, "starting kernel log forwarding"))
 	}
 
 	return nil
@@ -107,10 +103,7 @@ func (s *syscfg) Stop(ctx context.Context) error {
 	defer s.mu.Unlock()
 	s.started = false
 
-	if err := s.stopLogForwarding(); err != nil {
-		s.logger.Error(errw.Wrap(err, "stopping kernel log forwarding"))
-	}
-	return nil
+	return errw.Wrap(s.stopLogForwarding(), "stopping kernel log forwarding")
 }
 
 func (s *syscfg) HealthCheck(ctx context.Context) error {

@@ -31,7 +31,7 @@ func waitOnline(logger logging.Logger, timeoutCtx context.Context) {
 
 		if e := (&exec.ExitError{}); !errors.As(err, &e) {
 			// if it's not an ExitError, that means it didn't even start, so bail out
-			globalLogger.Error(errors.Wrap(err, "running 'systemctl is-active network-online.target'"))
+			globalLogger.Warn(errors.Wrap(err, "running 'systemctl is-active network-online.target'"))
 			break
 		}
 		if !goutils.SelectContextOrWait(timeoutCtx, time.Second) {

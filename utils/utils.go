@@ -524,7 +524,7 @@ func downloadProgressSetup(ctx context.Context,
 	writer := &progressMultiWriter{progressBar: bar, outFile: outWriter}
 	barCtx, cancel := context.WithCancel(ctx)
 	if err := bar.RenderBlank(); err != nil {
-		logger.Error(err)
+		logger.Warn(err)
 	}
 	workers.Add(1)
 	go func() {

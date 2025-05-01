@@ -82,7 +82,7 @@ func (n *Networking) getLastNetworkTried() NetworkInfo {
 func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	if force {
 		if err := n.nm.CheckConnectivity(); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 	}
 
@@ -159,7 +159,7 @@ func (n *Networking) checkConnections() error {
 		state, err := activeConnection.GetPropertyState()
 		nw.mu.Lock()
 		if err != nil {
-			n.logger.Error(errw.Wrapf(err, "getting state of active connection: %s", n.netState.GenNetKey(ifName, ssid)))
+			n.logger.Warn(errw.Wrapf(err, "getting state of active connection: %s", n.netState.GenNetKey(ifName, ssid)))
 			n.netState.SetActiveConn(ifName, nil)
 			n.netState.SetActiveSSID(ifName, "")
 			nw.connected = false
@@ -325,7 +325,7 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 		// we're trying to activate something on a missing adapter, perhaps it was hotplugged, so re-init devices for future retries
 		n.dataMu.Lock()
 		if err := n.initDevices(); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 		n.dataMu.Unlock()
 		return errw.Errorf("cannot activate connection due to missing interface: %s", ifName)
@@ -610,7 +610,7 @@ func (n *Networking) tryCandidates(ctx context.Context) bool {
 	for _, ssid := range n.getCandidates(n.Config().HotspotInterface) {
 		err := n.ActivateConnection(ctx, n.Config().HotspotInterface, ssid)
 		if err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 			continue
 		}
 
@@ -681,16 +681,16 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 
 		n.checkConfigured()
 		if err := n.networkScan(ctx); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 		if err := n.updateKnownConnections(ctx); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 		if err := n.checkConnections(); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 		if err := n.checkOnline(ctx, false); err != nil {
-			n.logger.Error(err)
+			n.logger.Warn(err)
 		}
 		select {
 		case scanChan <- true:
@@ -722,7 +722,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
 				if err != nil {
 					n.errors.Add(err)
-					n.logger.Error(err)
+					n.logger.Warn(err)
 					continue
 				}
 				n.checkConfigured()
@@ -745,7 +745,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				_, err = n.AddOrUpdateConnection(cfg)
 				if err != nil {
 					n.errors.Add(err)
-					n.logger.Error(err)
+					n.logger.Warn(err)
 					continue
 				}
 				userInputReceived = true
@@ -839,7 +839,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 			if shouldExit {
 				if err := n.StopProvisioning(); err != nil {
-					n.logger.Error(err)
+					n.logger.Warn(err)
 				} else {
 					pMode = n.connState.getProvisioning()
 					pModeChange = n.connState.getProvisioningChange()
@@ -886,7 +886,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
 		if !isConfigured || hitOfflineTimeout {
 			if err := n.StartProvisioning(ctx, inputChan); err != nil {
-				n.logger.Error(err)
+				n.logger.Warn(err)
 			}
 		}
 	}
@@ -897,7 +897,7 @@ func (n *Networking) doReboot(ctx context.Context) bool {
 	cmd := exec.Command("systemctl", "reboot")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		n.logger.Error(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
+		n.logger.Warn(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
 	}
 	if !n.mainLoopHealth.Sleep(ctx, time.Minute*5) {
 		return true
@@ -927,7 +927,7 @@ func (n *Networking) CheckInternetViaSOCKS(ctx context.Context) (bool, error) {
 	defer func() {
 		err := resp.Body.Close()
 		if err != nil {
-			n.logger.Error(errw.Wrap(err, "closing connection test request"))
+			n.logger.Warn(errw.Wrap(err, "closing connection test request"))
 		}
 	}()
 

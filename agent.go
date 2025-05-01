@@ -105,7 +105,7 @@ func Install(logger logging.Logger) error {
 		logger.Warn("Removing system service file %s in favor of vendor file at %s", oldPath, serviceFilePath)
 		logger.Warn("If you customized this file, please run 'systemctl edit viam-agent' and create overrides there")
 		if err := os.RemoveAll(oldPath); err != nil {
-			logger.Error(errw.Wrapf(err, "removing old service file %s, please delete manually", oldPath))
+			logger.Warn(errw.Wrapf(err, "removing old service file %s, please delete manually", oldPath))
 		}
 	}
 
@@ -144,7 +144,7 @@ func inSystemdPath(path string, logger logging.Logger) bool {
 	cmd := exec.Command("systemd-path", "systemd-search-system-unit")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		logger.Error(errw.Wrapf(err, "running 'systemd-path systemd-search-system-unit' output: %s", output))
+		logger.Warn(errw.Wrapf(err, "running 'systemd-path systemd-search-system-unit' output: %s", output))
 		return false
 	}
 	searchPaths := strings.Split(strings.TrimSpace(string(output)), ":")

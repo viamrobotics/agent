@@ -176,7 +176,7 @@ func (n *Networking) disablePairing() error {
 	obj := conn.Object(BluezDBusService, "/org/bluez")
 	call := obj.Call("org.bluez.AgentManager1.UnregisterAgent", 0, dbus.ObjectPath(BluezAgentPath))
 	if err := call.Err; err != nil {
-		n.logger.Errorf("failed to unregister a bluez agent: %v", err)
+		n.logger.Warnf("failed to unregister a bluez agent: %v", err)
 	}
 
 	n.logger.Debug("setting bluetooth to NOT discoverable")

@@ -93,7 +93,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	}
 
 	stdio := utils.NewMatchingLogger(s.logger, false, false)
-	stderr := utils.NewMatchingLogger(s.logger, true, false)
+	stderr := utils.NewMatchingLogger(s.logger, false, false)
 	//nolint:gosec
 	s.cmd = exec.Command(binPath, "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs["viam"]
@@ -196,7 +196,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	err := s.cmd.Process.Signal(syscall.SIGTERM)
 	if err != nil {
-		s.logger.Error(errw.Wrap(err, "terminating"))
+		s.logger.Warn(errw.Wrap(err, "terminating"))
 	}
 
 	if s.waitForExit(ctx, stopTermTimeout) {
@@ -363,7 +363,7 @@ func (s *viamServer) SafeToRestart(ctx context.Context) bool {
 	// endpoint.
 	restartAllowed, err := s.isRestartAllowed(ctx)
 	if err != nil {
-		s.logger.Error(err)
+		s.logger.Warn(err)
 		return restartAllowed
 	}
 	if restartAllowed {
