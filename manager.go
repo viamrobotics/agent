@@ -70,7 +70,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		networking: networking.NewSubsystem(ctx, logger, cfg),
 		cache:      NewVersionCache(logger),
 	}
-
+	manager.setDebug(cfg.AdvancedSettings.Debug)
 	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
 
 	return manager
@@ -276,14 +276,6 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 		interval = minimalCheckInterval
 	}
 
-	m.cfgMu.RLock()
-	if m.cfg.AdvancedSettings.Debug {
-		m.logger.SetLevel(logging.DEBUG)
-	} else {
-		m.logger.SetLevel(logging.INFO)
-	}
-	m.cfgMu.RUnlock()
-
 	// randomly fuzz the interval by +/- 5%
 	interval = utils.FuzzTime(interval, 0.05)
 
@@ -296,6 +288,14 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 	m.SubsystemUpdates(ctx)
 
 	return interval
+}
+
+func (m *Manager) setDebug(debug bool) {
+	if debug {
+		m.logger.SetLevel(logging.DEBUG)
+	} else {
+		m.logger.SetLevel(logging.INFO)
+	}
 }
 
 // SubsystemHealthChecks makes sure all subsystems are responding, and restarts them if not.
@@ -541,6 +541,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	}
 
 	cfg = utils.ApplyCLIArgs(cfg)
+	m.setDebug(cfg.AdvancedSettings.Debug)
 
 	m.cfgMu.Lock()
 	defer m.cfgMu.Unlock()
