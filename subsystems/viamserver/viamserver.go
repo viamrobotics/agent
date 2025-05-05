@@ -77,6 +77,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	}
 	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
 	if runtime.GOOS == "windows" {
+		// SMURF
 		binPath += ".exe"
 	}
 	if pathMissing(binPath) {
@@ -186,6 +187,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	s.logger.Infof("Stopping %s", SubsysName)
 
 	if runtime.GOOS == "windows" {
+		// SMURF
 		// note: Signal(SIGTERM) returns 'not supported on windows' error on windows
 		// note: this kills all subprocesses, not just RDK
 		if err := utils.KillTree(-1); err != nil {
@@ -244,10 +246,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("%s not running", SubsysName)
 	}
 	if s.checkURL == "" {
-		if runtime.GOOS == "windows" {
-			// note: the log matcher works when running in cmd.exe but not as a service.
-			return nil
-		}
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
@@ -291,10 +289,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
 // both accessed.
 func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
-	if runtime.GOOS == "windows" {
-		// note: this throws 'unsupported protocol scheme', probably because checkURL is missing
-		return true, nil
-	}
 	for _, url := range []string{s.checkURL, s.checkURLAlt} {
 		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
 
