@@ -1,6 +1,4 @@
 // Package viamserver contains the viam-server agent subsystem.
-//
-//nolint:goconst
 package viamserver
 
 import (
@@ -77,7 +75,6 @@ func (s *viamServer) Start(ctx context.Context) error {
 	}
 	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
 	if runtime.GOOS == "windows" {
-		// SMURF
 		binPath += ".exe"
 	}
 	if pathMissing(binPath) {

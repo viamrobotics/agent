@@ -52,3 +52,7 @@ func checkPathOwner(uid int, info fs.FileInfo) error {
 
 // KillTree kills the process tree on windows (because other signaling doesn't work).
 func KillTree(pid int) error { return nil }
+
+func writePlatformOutput(p []byte) (int, error) {
+	return os.Stdout.Write(p)
+}

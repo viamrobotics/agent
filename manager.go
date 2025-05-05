@@ -519,6 +519,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		m.logger.Warn(errw.Wrapf(err, "fetching %s config", SubsystemName))
 		return minimalCheckInterval, err
 	}
+	fixWindowsPaths(resp)
 
 	// Store update data in cache, actual binaries are updated later
 	err = m.cache.Update(resp.GetAgentUpdateInfo(), SubsystemName)
@@ -548,6 +549,19 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	m.cfg = cfg
 
 	return resp.GetCheckInterval().AsDuration(), nil
+}
+
+// fixWindowsPaths adds the .exe extension if missing.
+func fixWindowsPaths(resp *pb.DeviceAgentConfigResponse) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	if resp.GetAgentUpdateInfo() != nil && !strings.HasSuffix(resp.GetAgentUpdateInfo().GetFilename(), ".exe") {
+		resp.AgentUpdateInfo.Filename += ".exe"
+	}
+	if resp.GetViamServerUpdateInfo() != nil && !strings.HasSuffix(resp.GetViamServerUpdateInfo().GetFilename(), ".exe") {
+		resp.ViamServerUpdateInfo.Filename += ".exe"
+	}
 }
 
 func (m *Manager) getHostInfo() *pb.HostInfo {

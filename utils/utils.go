@@ -113,11 +113,12 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	logger.Infof("Starting download of %s", rawURL)
 
 	parsedPath := parsedURL.Path
-	if runtime.GOOS == "windows" && !strings.HasSuffix(parsedPath, ".exe") {
-		parsedPath += ".exe"
-	}
 
 	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedPath))
+
+	if runtime.GOOS == "windows" && !strings.HasSuffix(outPath, ".exe") {
+		outPath += ".exe"
+	}
 
 	//nolint:nestif
 	if parsedURL.Scheme == "file" {

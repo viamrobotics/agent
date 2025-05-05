@@ -11,6 +11,7 @@ import (
 
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
+	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
 )
 
@@ -90,4 +91,13 @@ func KillTree(pid int) error {
 		goutils.UncheckedError(elog.Info(1, "KillTree finished"))
 	}
 	return nil
+}
+
+func writePlatformOutput(p []byte) (int, error) {
+	if inService, err := svc.IsWindowsService(); err != nil {
+		return len(p), err
+	} else if inService {
+		return len(p), nil
+	}
+	return os.Stdout.Write(p)
 }

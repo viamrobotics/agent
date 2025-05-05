@@ -3,9 +3,7 @@ package utils
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +12,6 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
 	"go.viam.com/rdk/logging"
-	"golang.org/x/sys/windows/svc"
 )
 
 var (
@@ -126,17 +123,8 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		entry := parseLog(p).entry()
 		l.logger.Write(&logging.LogEntry{Entry: entry})
 	} else {
-		// windows background services have no STDIO, so we just drop the writes
-		if runtime.GOOS == "windows" {
-			if inService, err := svc.IsWindowsService(); err != nil {
-				return len(p), err
-			} else if inService {
-				return len(p), nil
-			}
-		}
-
 		// this case is already-structured logging from non-uploadAll; we print it but don't upload it.
-		return os.Stdout.Write(p)
+		return writePlatformOutput(p)
 	}
 	// note: this return isn't quite right; we don't know how many bytes we wrote, it can be greater
 	// than len(p) in some cases, and we don't know if the write succeeded (to stderr or network).
