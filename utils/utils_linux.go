@@ -56,3 +56,7 @@ func KillTree(pid int) error { return nil }
 func writePlatformOutput(p []byte) (int, error) {
 	return os.Stdout.Write(p)
 }
+
+func SendInterrupt(pid int) error {
+	return nil
+}

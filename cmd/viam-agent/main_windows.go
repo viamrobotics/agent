@@ -9,6 +9,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
@@ -47,6 +48,11 @@ func main() {
 		globalLogger.Info("no service detected -- running as normal process")
 		commonMain()
 		return
+	}
+
+	// in service mode we have to alloc our own console to be able to send interrupts
+	if r, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("AllocConsole").Call(); r == 0 {
+		panic(err)
 	}
 
 	var err error

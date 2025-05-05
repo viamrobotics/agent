@@ -11,11 +11,16 @@ import (
 
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
 )
 
-func PlatformProcSettings(cmd *exec.Cmd) {}
+func PlatformProcSettings(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
+	}
+}
 
 func KillIfAvailable(logger logging.Logger, cmd *exec.Cmd) {}
 
@@ -38,6 +43,10 @@ func SyncFS(syncPath string) error {
 		return err
 	}
 	return nil
+}
+
+func SendInterrupt(pid int) error {
+	return windows.GenerateConsoleCtrlEvent(syscall.CTRL_BREAK_EVENT, uint32(pid)) //nolint:gosec
 }
 
 // KillTree kills the process tree on windows (because other signaling doesn't work).
