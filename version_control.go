@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -263,7 +264,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 			}
 
-			if !mimeIsAny(mtype, expectedMimes) {
+			if slices.ContainsFunc(expectedMimes, mtype.Is) {
 				data.brokenTarget = true
 				return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
 			}
@@ -305,14 +306,4 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 
 	// record the cache
 	return needRestart, c.save()
-}
-
-// returns true if mtype is any of expected strings.
-func mimeIsAny(mtype *mimetype.MIME, expected []string) bool {
-	for _, expectedType := range expected {
-		if mtype.Is(expectedType) {
-			return true
-		}
-	}
-	return false
 }
