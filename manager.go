@@ -51,7 +51,9 @@ type Manager struct {
 	cfg   utils.AgentConfig
 
 	// also guarded by cfgMu
+	viamAgentNeedsRestart  bool
 	viamServerNeedsRestart bool
+	globalCancel           context.CancelFunc
 
 	viamServer subsystems.Subsystem
 	networking subsystems.Subsystem
@@ -61,10 +63,12 @@ type Manager struct {
 }
 
 // NewManager returns a new Manager.
-func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) *Manager {
+func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig, globalCancel context.CancelFunc) *Manager {
 	manager := &Manager{
 		logger: logger,
 		cfg:    cfg,
+
+		globalCancel: globalCancel,
 
 		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
 		networking: networking.NewSubsystem(ctx, logger, cfg),
@@ -195,17 +199,20 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		if err != nil {
 			m.logger.Warnw("running install of new agent version", "error", err)
 		}
-		restartCmd := "using 'systemctl restart viam-agent'"
-		if runtime.GOOS == "windows" {
-			restartCmd = "the viam-agent windows service"
-		}
-		m.logger.Infof("viam-agent update complete, please restart %s", restartCmd)
+	}
+
+	if needRestart {
+		m.viamAgentNeedsRestart = true
 	}
 
 	// Viam Server
 	if m.cfg.AdvancedSettings.DisableViamServer {
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
+		}
+		if m.viamAgentNeedsRestart {
+			m.Exit()
+			return
 		}
 	} else {
 		needRestart, err := m.cache.UpdateBinary(ctx, viamserver.SubsysName)
@@ -214,12 +221,16 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		}
 		m.viamServer.Update(ctx, m.cfg)
 
-		if needRestart || m.viamServerNeedsRestart {
+		if needRestart || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
 			if m.viamServer.(viamserver.RestartCheck).SafeToRestart(ctx) {
 				if err := m.viamServer.Stop(ctx); err != nil {
 					m.logger.Warn(err)
 				} else {
 					m.viamServerNeedsRestart = false
+				}
+				if m.viamAgentNeedsRestart {
+					m.Exit()
+					return
 				}
 			} else {
 				m.viamServerNeedsRestart = true
@@ -402,7 +413,7 @@ func (m *Manager) CloseAll() {
 }
 
 // StartBackgroundChecks kicks off a go routine that loops on a timer to check for updates and health checks.
-func (m *Manager) StartBackgroundChecks(ctx context.Context, globalCancel context.CancelFunc) {
+func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -413,7 +424,7 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context, globalCancel contex
 		defer utils.Recover(m.logger, func(_ any) {
 			// if panic escalates to this height, we should let it crash and get restarted from systemd
 			m.logger.Error("serious panic discovered, exiting for clean restart")
-			globalCancel()
+			m.globalCancel()
 		})
 		defer m.activeBackgroundWorkers.Done()
 
@@ -617,4 +628,9 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	}
 
 	return vers
+}
+
+func (m *Manager) Exit() {
+	m.logger.Info("A new viam-agent has been installed. Will now exit to be restarted by service manager.")
+	m.globalCancel()
 }
