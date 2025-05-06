@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -182,13 +181,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Infof("Stopping %s", SubsysName)
-	var err error
-	if runtime.GOOS == "windows" {
-		err = utils.SendInterrupt(s.cmd.Process.Pid)
-	} else {
-		err = s.cmd.Process.Signal(syscall.SIGTERM)
-	}
-	if err != nil {
+	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 	}
 
@@ -198,7 +191,9 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
-	utils.KillIfAvailable(s.logger, s.cmd)
+	if err := utils.KillTree(s.cmd.Process.Pid); err != nil {
+		s.logger.Warn(err)
+	}
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
