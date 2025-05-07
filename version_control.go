@@ -323,16 +323,16 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 
 	// this can be set to the number of days to keep, ex: "VIAM_AGENT_FORCE_CLEAN=5"
 	forceVal := os.Getenv("VIAM_AGENT_FORCE_CLEAN")
-	minAgeDays, err := strconv.Atoi(forceVal)
+	maxAgeDays, err := strconv.Atoi(forceVal)
 	if err != nil {
-		minAgeDays = 30
+		maxAgeDays = 30
 	}
-	if minAgeDays < 1 {
-		minAgeDays = 1
+	if maxAgeDays < 1 {
+		maxAgeDays = 1
 	}
 
 	// only do this once every 24 hours
-	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && os.Getenv("VIAM_AGENT_FORCE_CLEAN") == "" {
+	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && forceVal == "" {
 		return
 	}
 	c.logger.Info("Starting cache cleanup")
@@ -366,7 +366,7 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 				ver == system.TargetVersion ||
 				ver == system.runningVersion ||
 				// protect the last 30 days worth of updates in case of rollbacks
-				info.Installed.After(time.Now().Add(time.Hour*-24*time.Duration(minAgeDays))) {
+				info.Installed.After(time.Now().Add(time.Hour*-24*time.Duration(maxAgeDays))) {
 				protectedFiles = append(protectedFiles, filepath.Base(info.UnpackedPath))
 				continue
 			}
