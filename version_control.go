@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -272,7 +273,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 			}
 
-			if slices.ContainsFunc(expectedMimes, mtype.Is) {
+			if !slices.ContainsFunc(expectedMimes, mtype.Is) {
 				data.brokenTarget = true
 				return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
 			}
@@ -320,8 +321,18 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// this can be set to the number of days to keep, ex: "VIAM_AGENT_FORCE_CLEAN=5"
+	forceVal := os.Getenv("VIAM_AGENT_FORCE_CLEAN")
+	minAgeDays, err := strconv.Atoi(forceVal)
+	if err != nil {
+		minAgeDays = 30
+	}
+	if minAgeDays < 1 {
+		minAgeDays = 1
+	}
+
 	// only do this once every 24 hours
-	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && os.Getenv("VIAM_AGENT_FORCE_CLEAN") != "" {
+	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && os.Getenv("VIAM_AGENT_FORCE_CLEAN") == "" {
 		return
 	}
 	c.logger.Info("Starting cache cleanup")
@@ -355,7 +366,7 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 				ver == system.TargetVersion ||
 				ver == system.runningVersion ||
 				// protect the last 30 days worth of updates in case of rollbacks
-				info.Installed.After(time.Now().Add(time.Hour*-24*30)) {
+				info.Installed.After(time.Now().Add(time.Hour*-24*time.Duration(minAgeDays))) {
 				protectedFiles = append(protectedFiles, filepath.Base(info.UnpackedPath))
 				continue
 			}
@@ -384,7 +395,7 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 				c.logger.Debugf("cache cleanup skipping: %s", f.Name())
 				continue
 			}
-			c.logger.Info("cache cleanup removing: %s", f.Name())
+			c.logger.Infof("cache cleanup removing: %s", f.Name())
 			if err := os.Remove(filepath.Join(dir, f.Name())); err != nil {
 				c.logger.Error(errw.Wrapf(err, "removing file %s", f.Name()))
 			}

@@ -137,7 +137,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		if s.cmd.ProcessState != nil {
 			s.lastExit = s.cmd.ProcessState.ExitCode()
 			if s.lastExit != 0 {
-				s.logger.Error("non-zero exit code: %d", s.lastExit)
+				s.logger.Errorf("non-zero exit code: %d", s.lastExit)
 			}
 		}
 		if s.shouldRun {
