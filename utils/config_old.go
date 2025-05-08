@@ -100,10 +100,19 @@ func LoadOldProvisioningConfig() (*NetworkConfiguration, error) {
 		DeviceRebootAfterOfflineMinutes:     oldCfg.DeviceRebootAfterOfflineMinutes,
 	}
 
-	nc.DisableCaptivePortalRedirect.Set(oldCfg.DisableDNSRedirect)
-	nc.TurnOnHotspotIfWifiHasNoInternet.Set(oldCfg.RoamingMode)
+	// explicit conversions to Tribool
+	if oldCfg.DisableDNSRedirect {
+		nc.DisableCaptivePortalRedirect = 1
+	}
+	if oldCfg.RoamingMode {
+		nc.TurnOnHotspotIfWifiHasNoInternet = 1
+	}
 	if oldCfg.WifiPowerSave != nil {
-		nc.WifiPowerSave.Set(*oldCfg.WifiPowerSave)
+		if *oldCfg.WifiPowerSave {
+			nc.WifiPowerSave = 1
+		} else {
+			nc.WifiPowerSave = -1
+		}
 	}
 	return nc, nil
 }

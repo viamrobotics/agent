@@ -546,11 +546,6 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		m.logger.Warn(errw.Wrap(err, "processing config"))
 	}
 
-	cfg, err = utils.ValidateConfig(cfg)
-	if err != nil {
-		m.logger.Warn(errw.Wrap(err, "processing config"))
-	}
-
 	if err := utils.SaveConfigToCache(cfg); err != nil {
 		m.logger.Warn(err)
 	}
