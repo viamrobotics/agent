@@ -317,27 +317,9 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	return needRestart, c.save()
 }
 
-func (c *VersionCache) CleanCache(ctx context.Context) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// this can be set to the number of days to keep, ex: "VIAM_AGENT_FORCE_CLEAN=5"
-	forceVal := os.Getenv("VIAM_AGENT_FORCE_CLEAN")
-	maxAgeDays, err := strconv.Atoi(forceVal)
-	if err != nil {
-		maxAgeDays = 30
-	}
-	if maxAgeDays < 1 {
-		maxAgeDays = 1
-	}
-
-	// only do this once every 24 hours
-	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && forceVal == "" {
-		return
-	}
-	c.logger.Info("Starting cache cleanup")
-	c.LastCleaned = time.Now()
-
+// Creates a list of files to not delete, and removes unprotected files
+// from the Versions lists.
+func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, maxAgeDays int) []string {
 	// files we will always refuse to delete
 	protectedFiles := []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
 
@@ -359,7 +341,7 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	for _, system := range []*Versions{c.ViamAgent, c.ViamServer} {
 		for ver, info := range system.Versions {
 			if ctx.Err() != nil {
-				return
+				return nil
 			}
 			if ver == system.CurrentVersion ||
 				ver == system.PreviousVersion ||
@@ -373,6 +355,34 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 			// not protecting, remove from the cache
 			delete(system.Versions, ver)
 		}
+	}
+	return protectedFiles
+}
+
+func (c *VersionCache) CleanCache(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// this can be set to the number of days to keep, ex: "VIAM_AGENT_FORCE_CLEAN=5"
+	forceVal := os.Getenv("VIAM_AGENT_FORCE_CLEAN")
+	maxAgeDays, err := strconv.Atoi(forceVal)
+	if err != nil {
+		maxAgeDays = 30
+	}
+	if maxAgeDays < 1 {
+		maxAgeDays = 1
+	}
+
+	// only do this once every 24 hours
+	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && forceVal == "" {
+		return
+	}
+	c.logger.Info("Starting cache cleanup")
+	c.LastCleaned = time.Now()
+
+	protectedFiles := c.getProtectedFilesAndCleanVersions(ctx, maxAgeDays)
+	if ctx.Err() != nil {
+		return
 	}
 
 	// save the cleaned cache
