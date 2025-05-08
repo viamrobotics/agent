@@ -317,6 +317,51 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	return needRestart, c.save()
 }
 
+// files we will always refuse to delete.
+var baseProtectedFiles = []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
+
+// Creates a list of files to not delete, and removes unprotected files
+// from the Versions lists.
+func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, maxAgeDays int) []string {
+	protectedFiles := make([]string, len(baseProtectedFiles))
+	copy(protectedFiles, baseProtectedFiles)
+
+	// add protection for the current symlinked binaries
+	for _, path := range []string{"viam-agent", "viam-server"} {
+		if runtime.GOOS == "windows" {
+			path += ".exe"
+		}
+
+		destPath, err := filepath.EvalSymlinks(filepath.Join(utils.ViamDirs["bin"], path))
+		if err != nil {
+			c.logger.Warn(err)
+			continue
+		}
+		protectedFiles = append(protectedFiles, filepath.Base(destPath))
+	}
+
+	// add protection for recent/new/etc
+	for _, system := range []*Versions{c.ViamAgent, c.ViamServer} {
+		for ver, info := range system.Versions {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if ver == system.CurrentVersion ||
+				ver == system.PreviousVersion ||
+				ver == system.TargetVersion ||
+				ver == system.runningVersion ||
+				// protect the last N days worth of updates in case of rollbacks
+				info.Installed.After(time.Now().Add(time.Hour*-24*time.Duration(maxAgeDays))) {
+				protectedFiles = append(protectedFiles, filepath.Base(info.UnpackedPath))
+				continue
+			}
+			// not protecting, remove from the cache
+			delete(system.Versions, ver)
+		}
+	}
+	return protectedFiles
+}
+
 func (c *VersionCache) CleanCache(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -338,41 +383,9 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	c.logger.Info("Starting cache cleanup")
 	c.LastCleaned = time.Now()
 
-	// files we will always refuse to delete
-	protectedFiles := []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
-
-	// add protection for the current symlinked binaries
-	for _, path := range []string{"viam-agent", "viam-server"} {
-		if runtime.GOOS == "windows" {
-			path += ".exe"
-		}
-
-		destPath, err := filepath.EvalSymlinks(filepath.Join(utils.ViamDirs["bin"], path))
-		if err != nil {
-			c.logger.Warn(err)
-			continue
-		}
-		protectedFiles = append(protectedFiles, filepath.Base(destPath))
-	}
-
-	// add protection for recent/new/etc
-	for _, system := range []*Versions{c.ViamAgent, c.ViamServer} {
-		for ver, info := range system.Versions {
-			if ctx.Err() != nil {
-				return
-			}
-			if ver == system.CurrentVersion ||
-				ver == system.PreviousVersion ||
-				ver == system.TargetVersion ||
-				ver == system.runningVersion ||
-				// protect the last 30 days worth of updates in case of rollbacks
-				info.Installed.After(time.Now().Add(time.Hour*-24*time.Duration(maxAgeDays))) {
-				protectedFiles = append(protectedFiles, filepath.Base(info.UnpackedPath))
-				continue
-			}
-			// not protecting, remove from the cache
-			delete(system.Versions, ver)
-		}
+	protectedFiles := c.getProtectedFilesAndCleanVersions(ctx, maxAgeDays)
+	if ctx.Err() != nil {
+		return
 	}
 
 	// save the cleaned cache

@@ -5,7 +5,10 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"github.com/viamrobotics/agent/utils"
@@ -93,4 +96,68 @@ func testExists(t *testing.T, path string) {
 	t.Helper()
 	_, err := os.Stat(path)
 	test.That(t, err, test.ShouldBeNil)
+}
+
+func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
+	t.Run("symlinks", func(t *testing.T) {
+		mockViamDirs(t)
+		vc := VersionCache{
+			logger:     logging.NewTestLogger(t),
+			ViamAgent:  &Versions{},
+			ViamServer: &Versions{},
+		}
+
+		expected := make([]string, len(baseProtectedFiles))
+		copy(expected, baseProtectedFiles)
+		// create symlinks
+		for _, name := range []string{"viam-server", "viam-agent"} {
+			path := filepath.Join(utils.ViamDirs["cache"], name)
+			expected = append(expected, name)
+			f, err := os.Create(path)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, f.Close(), test.ShouldBeNil)
+			linkPath := filepath.Join(utils.ViamDirs["bin"], name)
+			if runtime.GOOS == "windows" {
+				linkPath += ".exe"
+			}
+			utils.ForceSymlink(path, linkPath)
+		}
+		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		slices.Sort(expected)
+		slices.Sort(protected)
+		test.That(t, protected, test.ShouldResemble, expected)
+	})
+
+	t.Run("expired", func(t *testing.T) {
+		mockViamDirs(t)
+		vc := VersionCache{
+			logger:    logging.NewTestLogger(t),
+			ViamAgent: &Versions{},
+			ViamServer: &Versions{
+				PreviousVersion: "prev",
+				TargetVersion:   "target",
+				runningVersion:  "running",
+				Versions: map[string]*VersionInfo{
+					"prev":    {UnpackedPath: "prev"},
+					"target":  {UnpackedPath: "target"},
+					"running": {UnpackedPath: "running"},
+					"recent":  {UnpackedPath: "recent", Installed: time.Now().Add(time.Hour * -23)},
+					"stale":   {UnpackedPath: "stale", Installed: time.Now().Add(time.Hour * -25)},
+				},
+			},
+		}
+
+		expected := make([]string, len(baseProtectedFiles))
+		copy(expected, baseProtectedFiles)
+		expected = append(expected, "prev", "target", "running", "recent") // not "stale" though
+
+		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		slices.Sort(expected)
+		slices.Sort(protected)
+		test.That(t, protected, test.ShouldResemble, expected)
+
+		// confirm that 'stale' was removed from versions list
+		test.That(t, vc.ViamServer.Versions, test.ShouldHaveLength, 4)
+		test.That(t, vc.ViamServer.Versions["stale"], test.ShouldBeNil)
+	})
 }
