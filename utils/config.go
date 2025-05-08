@@ -83,13 +83,10 @@ func (b Tribool) IsSet() bool {
 }
 
 func (b Tribool) MarshalJSON() ([]byte, error) {
-	switch b {
-	case 1:
+	if b == 1 {
 		return []byte("true"), nil
-	case -1:
-		return []byte("false"), nil
 	}
-	return nil, nil
+	return []byte("false"), nil
 }
 
 func (b *Tribool) UnmarshalJSON(data []byte) error {
