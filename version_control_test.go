@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"github.com/viamrobotics/agent/utils"
@@ -128,6 +129,31 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 	})
 
 	t.Run("expired", func(t *testing.T) {
-		t.Skip()
+		mockViamDirs(t)
+		vc := VersionCache{
+			logger:    logging.NewTestLogger(t),
+			ViamAgent: &Versions{},
+			ViamServer: &Versions{
+				PreviousVersion: "prev",
+				TargetVersion:   "target",
+				runningVersion:  "running",
+				Versions: map[string]*VersionInfo{
+					"prev":    {UnpackedPath: "prev"},
+					"target":  {UnpackedPath: "target"},
+					"running": {UnpackedPath: "running"},
+					"recent":  {UnpackedPath: "recent", Installed: time.Now().Add(time.Hour * -23)},
+					"stale":   {UnpackedPath: "stale", Installed: time.Now().Add(time.Hour * -25)},
+				},
+			},
+		}
+
+		expected := make([]string, len(baseProtectedFiles))
+		copy(expected, baseProtectedFiles)
+		expected = append(expected, "prev", "target", "running", "recent") // not "stale" though
+
+		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		slices.Sort(expected)
+		slices.Sort(protected)
+		test.That(t, protected, test.ShouldResemble, expected)
 	})
 }
