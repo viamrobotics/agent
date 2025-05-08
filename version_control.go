@@ -317,7 +317,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	return needRestart, c.save()
 }
 
-// files we will always refuse to delete
+// files we will always refuse to delete.
 var baseProtectedFiles = []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
 
 // Creates a list of files to not delete, and removes unprotected files
