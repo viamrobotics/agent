@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/viamrobotics/agent/subsystems/viamserver"
@@ -93,4 +95,39 @@ func testExists(t *testing.T, path string) {
 	t.Helper()
 	_, err := os.Stat(path)
 	test.That(t, err, test.ShouldBeNil)
+}
+
+func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
+	t.Run("symlinks", func(t *testing.T) {
+		mockViamDirs(t)
+		vc := VersionCache{
+			logger:     logging.NewTestLogger(t),
+			ViamAgent:  &Versions{},
+			ViamServer: &Versions{},
+		}
+
+		expected := make([]string, len(baseProtectedFiles))
+		copy(expected, baseProtectedFiles)
+		// create symlinks
+		for _, name := range []string{"viam-server", "viam-agent"} {
+			path := filepath.Join(utils.ViamDirs["cache"], name)
+			expected = append(expected, name)
+			f, err := os.Create(path)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, f.Close(), test.ShouldBeNil)
+			linkPath := filepath.Join(utils.ViamDirs["bin"], name)
+			if runtime.GOOS == "windows" {
+				linkPath += ".exe"
+			}
+			utils.ForceSymlink(path, linkPath)
+		}
+		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		slices.Sort(expected)
+		slices.Sort(protected)
+		test.That(t, protected, test.ShouldResemble, expected)
+	})
+
+	t.Run("expired", func(t *testing.T) {
+		t.Skip()
+	})
 }

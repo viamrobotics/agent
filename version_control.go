@@ -317,11 +317,14 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	return needRestart, c.save()
 }
 
+// files we will always refuse to delete
+var baseProtectedFiles = []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
+
 // Creates a list of files to not delete, and removes unprotected files
 // from the Versions lists.
 func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, maxAgeDays int) []string {
-	// files we will always refuse to delete
-	protectedFiles := []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
+	protectedFiles := make([]string, len(baseProtectedFiles))
+	copy(protectedFiles, baseProtectedFiles)
 
 	// add protection for the current symlinked binaries
 	for _, path := range []string{"viam-agent", "viam-server"} {
@@ -347,7 +350,7 @@ func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, ma
 				ver == system.PreviousVersion ||
 				ver == system.TargetVersion ||
 				ver == system.runningVersion ||
-				// protect the last 30 days worth of updates in case of rollbacks
+				// protect the last N days worth of updates in case of rollbacks
 				info.Installed.After(time.Now().Add(time.Hour*-24*time.Duration(maxAgeDays))) {
 				protectedFiles = append(protectedFiles, filepath.Base(info.UnpackedPath))
 				continue
