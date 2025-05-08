@@ -12,6 +12,8 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,14 +37,22 @@ func NewVersionCache(logger logging.Logger) *VersionCache {
 		logger:     logger,
 	}
 	cache.load()
+
+	// avoid cleanup during the first fifteen minutes after startup
+	// 1425 = (24*60)-15
+	if cache.LastCleaned.Add(time.Minute * 1425).Before(time.Now()) {
+		cache.LastCleaned = time.Now().Add(time.Minute * -1425)
+	}
+
 	return cache
 }
 
 type VersionCache struct {
-	mu         sync.Mutex
-	ViamAgent  *Versions `json:"viam_agent"`
-	ViamServer *Versions `json:"viam_server"`
-	logger     logging.Logger
+	mu          sync.Mutex
+	ViamAgent   *Versions `json:"viam_agent"`
+	ViamServer  *Versions `json:"viam_server"`
+	LastCleaned time.Time `json:"last_cleaned"`
+	logger      logging.Logger
 }
 
 // Versions stores VersionInfo and the current/previous versions for (TODO) rollback.
@@ -263,7 +273,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 			}
 
-			if !mimeIsAny(mtype, expectedMimes) {
+			if !slices.ContainsFunc(expectedMimes, mtype.Is) {
 				data.brokenTarget = true
 				return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
 			}
@@ -307,12 +317,90 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	return needRestart, c.save()
 }
 
-// returns true if mtype is any of expected strings.
-func mimeIsAny(mtype *mimetype.MIME, expected []string) bool {
-	for _, expectedType := range expected {
-		if mtype.Is(expectedType) {
-			return true
+func (c *VersionCache) CleanCache(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// this can be set to the number of days to keep, ex: "VIAM_AGENT_FORCE_CLEAN=5"
+	forceVal := os.Getenv("VIAM_AGENT_FORCE_CLEAN")
+	maxAgeDays, err := strconv.Atoi(forceVal)
+	if err != nil {
+		maxAgeDays = 30
+	}
+	if maxAgeDays < 1 {
+		maxAgeDays = 1
+	}
+
+	// only do this once every 24 hours
+	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && forceVal == "" {
+		return
+	}
+	c.logger.Info("Starting cache cleanup")
+	c.LastCleaned = time.Now()
+
+	// files we will always refuse to delete
+	protectedFiles := []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
+
+	// add protection for the current symlinked binaries
+	for _, path := range []string{"viam-agent", "viam-server"} {
+		if runtime.GOOS == "windows" {
+			path += ".exe"
+		}
+
+		destPath, err := filepath.EvalSymlinks(filepath.Join(utils.ViamDirs["bin"], path))
+		if err != nil {
+			c.logger.Warn(err)
+			continue
+		}
+		protectedFiles = append(protectedFiles, filepath.Base(destPath))
+	}
+
+	// add protection for recent/new/etc
+	for _, system := range []*Versions{c.ViamAgent, c.ViamServer} {
+		for ver, info := range system.Versions {
+			if ctx.Err() != nil {
+				return
+			}
+			if ver == system.CurrentVersion ||
+				ver == system.PreviousVersion ||
+				ver == system.TargetVersion ||
+				ver == system.runningVersion ||
+				// protect the last 30 days worth of updates in case of rollbacks
+				info.Installed.After(time.Now().Add(time.Hour*-24*time.Duration(maxAgeDays))) {
+				protectedFiles = append(protectedFiles, filepath.Base(info.UnpackedPath))
+				continue
+			}
+			// not protecting, remove from the cache
+			delete(system.Versions, ver)
 		}
 	}
-	return false
+
+	// save the cleaned cache
+	if err := c.save(); err != nil {
+		c.logger.Error(err)
+	}
+
+	// actually remove files
+	for _, dir := range []string{utils.ViamDirs["cache"], utils.ViamDirs["tmp"]} {
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			c.logger.Error(err)
+			continue
+		}
+		for _, f := range files {
+			if ctx.Err() != nil {
+				return
+			}
+			if slices.Contains(protectedFiles, f.Name()) {
+				c.logger.Debugf("cache cleanup skipping: %s", f.Name())
+				continue
+			}
+			c.logger.Infof("cache cleanup removing: %s", f.Name())
+			if err := os.Remove(filepath.Join(dir, f.Name())); err != nil {
+				c.logger.Error(errw.Wrapf(err, "removing file %s", f.Name()))
+			}
+		}
+	}
+
+	c.logger.Info("Finished cache cleanup")
 }
