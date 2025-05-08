@@ -17,11 +17,7 @@ func TestConvertJson(t *testing.T) {
 	},
 	"advanced_settings": {
 		"debug": false,
-		"wait_for_update_check": false,
-		"viam_server_start_timeout_minutes": 10,
-		"disable_viam_server": false,
-		"disable_network_configuration": false,
-		"disable_system_configuration": false
+		"viam_server_start_timeout_minutes": 10
 	},
 	"network_configuration": {
 		"manufacturer": "viam",
@@ -33,7 +29,6 @@ func TestConvertJson(t *testing.T) {
 		"offline_before_starting_hotspot_minutes": 2,
 		"user_idle_minutes": 5,
 		"retry_connection_timeout_minutes": 10,
-		"turn_on_hotspot_if_wifi_has_no_internet": false,
 		"wifi_power_save": null
 	},
 	"additional_networks": {
@@ -81,6 +76,9 @@ func TestConvertJson(t *testing.T) {
 			PSK:  "cow",
 		},
 	}
+	// these are explicitly false, rather than the "unset" for missing fields
+	testConfig.AdvancedSettings.Debug = -1
+	testConfig.NetworkConfiguration.DisableCaptivePortalRedirect = -1
 
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)
