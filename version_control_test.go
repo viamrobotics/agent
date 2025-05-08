@@ -155,5 +155,9 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 		slices.Sort(expected)
 		slices.Sort(protected)
 		test.That(t, protected, test.ShouldResemble, expected)
+
+		// confirm that 'stale' was removed from versions list
+		test.That(t, vc.ViamServer.Versions, test.ShouldHaveLength, 4)
+		test.That(t, vc.ViamServer.Versions["stale"], test.ShouldBeNil)
 	})
 }
