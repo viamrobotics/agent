@@ -35,12 +35,13 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 		c := <-r
 		if c.Cmd == svc.Stop || c.Cmd == svc.Shutdown {
 			goutils.UncheckedError(elog.Info(1, fmt.Sprintf("%s service stopping", serviceName)))
+			changes <- svc.Status{State: svc.StopPending}
+			globalCancel()
 			break
 		} else {
 			goutils.UncheckedError(elog.Error(1, fmt.Sprintf("unexpected control request #%d", c)))
 		}
 	}
-	changes <- svc.Status{State: svc.StopPending}
 	return
 }
 
@@ -68,21 +69,15 @@ func main() {
 	}()
 
 	goutils.UncheckedError(elog.Info(1, fmt.Sprintf("starting %s service", serviceName)))
-	go commonMain()
-	// note: svc.Run hangs until windows terminates the service. Then we manually call
-	// globalCancel, which stops the go commonMain goroutine, then we wait for the waitgroup.
-	err = svc.Run(serviceName, &agentService{})
-	if err != nil {
-		goutils.UncheckedError(elog.Error(1, fmt.Sprintf("%s service failed: %v", serviceName, err)))
-		return
-	}
-	if globalCancel == nil {
-		goutils.UncheckedError(elog.Error(1, "globalCancel is nil, shutdown will be unclean"))
-	} else {
-		globalCancel()
-	}
-	// wait first so viam-server doesn't try to restart
-	activeBackgroundWorkers.Wait()
+
+	go func() {
+		// note: svc.Run() hangs until windows terminates the service via Execute()
+		if err := svc.Run(serviceName, &agentService{}); err != nil {
+			goutils.UncheckedError(elog.Error(1, fmt.Sprintf("%s service failed: %v", serviceName, err)))
+		}
+	}()
+
+	commonMain()
 	if err := zapChildren(); err != nil {
 		goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error killing subtree %s", err)))
 	}
@@ -123,7 +118,8 @@ func zapChildren() error {
 		goutils.UncheckedError(elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(lines), pid)))
 	}
 	for _, line := range lines[1:] {
-		if line == "" {
+		line = strings.TrimSpace(line)
+		if _, err := strconv.Atoi(line); err != nil {
 			continue
 		}
 		var childPID int

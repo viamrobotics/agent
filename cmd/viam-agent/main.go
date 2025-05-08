@@ -138,7 +138,7 @@ func commonMain() {
 	cfg = utils.ApplyCLIArgs(cfg)
 
 	// main manager structure
-	manager := agent.NewManager(ctx, globalLogger, cfg)
+	manager := agent.NewManager(ctx, globalLogger, cfg, globalCancel)
 
 	err = manager.LoadAppConfig()
 	//nolint:nestif
@@ -178,7 +178,7 @@ func commonMain() {
 		}
 	}
 
-	manager.StartBackgroundChecks(ctx, globalCancel)
+	manager.StartBackgroundChecks(ctx)
 	<-ctx.Done()
 	manager.CloseAll()
 }

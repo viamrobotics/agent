@@ -20,7 +20,7 @@ func main() {
 	commonMain()
 }
 
-func waitOnline(logger logging.Logger, timeoutCtx context.Context) {
+func waitOnline(_ logging.Logger, timeoutCtx context.Context) {
 	for {
 		cmd := exec.CommandContext(timeoutCtx, "systemctl", "is-active", "network-online.target")
 		_, err := cmd.CombinedOutput()
