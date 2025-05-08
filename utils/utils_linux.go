@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	errw "github.com/pkg/errors"
-	"go.viam.com/rdk/logging"
 	"golang.org/x/sys/unix"
 )
 
@@ -17,12 +16,12 @@ func PlatformProcSettings(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// KillIfAvailable does SIGKILL if available for the platform.
-func KillIfAvailable(logger logging.Logger, cmd *exec.Cmd) {
-	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	if err != nil {
-		logger.Warn(err)
+// KillTree sends SIGKILL to the process group.
+func KillTree(pid int) error {
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
+		return errw.Wrapf(err, "killing PID %d", pid)
 	}
+	return nil
 }
 
 func SyncFS(syncPath string) (errRet error) {
@@ -50,5 +49,13 @@ func checkPathOwner(uid int, info fs.FileInfo) error {
 	return nil
 }
 
-// KillTree kills the process tree on windows (because other signaling doesn't work).
-func KillTree(pid int) error { return nil }
+func writePlatformOutput(p []byte) (int, error) {
+	return os.Stdout.Write(p)
+}
+
+func SignalForTermination(pid int) error {
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		return errw.Wrapf(err, "signaling PID %d", pid)
+	}
+	return nil
+}

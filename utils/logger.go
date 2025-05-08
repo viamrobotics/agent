@@ -3,7 +3,6 @@ package utils
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -125,7 +124,7 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		l.logger.Write(&logging.LogEntry{Entry: entry})
 	} else {
 		// this case is already-structured logging from non-uploadAll; we print it but don't upload it.
-		return os.Stdout.Write(p)
+		return writePlatformOutput(p)
 	}
 	// note: this return isn't quite right; we don't know how many bytes we wrote, it can be greater
 	// than len(p) in some cases, and we don't know if the write succeeded (to stderr or network).

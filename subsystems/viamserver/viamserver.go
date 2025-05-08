@@ -1,6 +1,4 @@
 // Package viamserver contains the viam-server agent subsystem.
-//
-//nolint:goconst
 package viamserver
 
 import (
@@ -16,7 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -184,19 +181,8 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Infof("Stopping %s", SubsysName)
-
-	if runtime.GOOS == "windows" {
-		// note: Signal(SIGTERM) returns 'not supported on windows' error on windows
-		// note: this kills all subprocesses, not just RDK
-		if err := utils.KillTree(-1); err != nil {
-			return errw.Wrap(err, "stopping viam-server process tree")
-		}
-		return nil
-	}
-
-	err := s.cmd.Process.Signal(syscall.SIGTERM)
-	if err != nil {
-		s.logger.Warn(errw.Wrap(err, "terminating"))
+	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
+		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 	}
 
 	if s.waitForExit(ctx, stopTermTimeout) {
@@ -205,7 +191,9 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
-	utils.KillIfAvailable(s.logger, s.cmd)
+	if err := utils.KillTree(s.cmd.Process.Pid); err != nil {
+		s.logger.Warn(err)
+	}
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
@@ -244,10 +232,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("%s not running", SubsysName)
 	}
 	if s.checkURL == "" {
-		if runtime.GOOS == "windows" {
-			// note: the log matcher works when running in cmd.exe but not as a service.
-			return nil
-		}
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
@@ -291,10 +275,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
 // both accessed.
 func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
-	if runtime.GOOS == "windows" {
-		// note: this throws 'unsupported protocol scheme', probably because checkURL is missing
-		return true, nil
-	}
 	for _, url := range []string{s.checkURL, s.checkURLAlt} {
 		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
 

@@ -1,22 +1,34 @@
 package utils
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"syscall"
 
-	"go.viam.com/rdk/logging"
+	errw "github.com/pkg/errors"
 	goutils "go.viam.com/utils"
-	"golang.org/x/sys/windows/svc/eventlog"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 )
 
-func PlatformProcSettings(cmd *exec.Cmd) {}
+func PlatformProcSettings(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
+	}
+}
 
-func KillIfAvailable(logger logging.Logger, cmd *exec.Cmd) {}
+// KillTree kills the process group.
+func KillTree(pid int) error {
+	//nolint:gosec
+	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return errw.Wrapf(err, "killing PID %d: %s", pid, out)
+	}
+	return nil
+}
 
 // platform-specific UID check.
 func checkPathOwner(_ int, _ fs.FileInfo) error {
@@ -39,55 +51,15 @@ func SyncFS(syncPath string) error {
 	return nil
 }
 
-// KillTree kills the process tree on windows (because other signaling doesn't work).
-func KillTree(pid int) error {
-	elog, err := eventlog.Open("viam-agent")
-	if err != nil {
-		// Check error but continue since we want this to work
-		elog = nil
-	}
+func SignalForTermination(pid int) error {
+	return windows.GenerateConsoleCtrlEvent(syscall.CTRL_BREAK_EVENT, uint32(pid)) //nolint:gosec
+}
 
-	if pid == -1 {
-		pid = os.Getpid()
+func writePlatformOutput(p []byte) (int, error) {
+	if inService, err := svc.IsWindowsService(); err != nil {
+		return len(p), err
+	} else if inService {
+		return len(p), nil
 	}
-
-	// Use a fixed command string to prevent injection
-	//nolint:gosec // WMIC.exe is a fixed command
-	cmd := exec.Command("WMIC.exe", "process", "where", fmt.Sprintf("ParentProcessId=%d", pid), "get", "ProcessId")
-	output, err := cmd.Output()
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(string(output), "\r\n")
-	if elog != nil {
-		goutils.UncheckedError(elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(lines), pid)))
-	}
-	for _, line := range lines[1:] {
-		if line == "" {
-			continue
-		}
-		var childPID int
-		_, err := fmt.Sscan(line, &childPID)
-		if err != nil {
-			if elog != nil {
-				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("not a valid childProcess line %q, #%s", line, err)))
-			}
-			continue
-		}
-
-		//nolint:gosec // taskkill is a fixed command
-		cmd = exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(childPID))
-		err = cmd.Run()
-		if elog != nil {
-			if err != nil {
-				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error running taskkill pid %d: #%s", childPID, err)))
-			} else {
-				goutils.UncheckedError(elog.Info(1, fmt.Sprintf("killed pid %d", childPID)))
-			}
-		}
-	}
-	if elog != nil {
-		goutils.UncheckedError(elog.Info(1, "KillTree finished"))
-	}
-	return nil
+	return os.Stdout.Write(p)
 }

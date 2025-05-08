@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
@@ -49,6 +53,11 @@ func main() {
 		return
 	}
 
+	// in service mode we have to alloc our own console to be able to send interrupts
+	if r, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("AllocConsole").Call(); r == 0 {
+		panic(err)
+	}
+
 	var err error
 	elog, err = eventlog.Open(serviceName)
 	if err != nil {
@@ -74,8 +83,7 @@ func main() {
 	}
 	// wait first so viam-server doesn't try to restart
 	activeBackgroundWorkers.Wait()
-	// KillTree to catch any stragglers
-	if err := utils.KillTree(-1); err != nil {
+	if err := zapChildren(); err != nil {
 		goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error killing subtree %s", err)))
 	}
 	goutils.UncheckedError(elog.Info(1, fmt.Sprintf("%s service stopped", serviceName)))
@@ -91,4 +99,55 @@ func waitOnline(logger logging.Logger, _ context.Context) {
 
 func runPlatformProvisioning(_ context.Context, _ utils.AgentConfig, _ *agent.Manager, _ error) bool {
 	return false
+}
+
+// zapChildren kills any stray processes we might have upon exit.
+func zapChildren() error {
+	elog, err := eventlog.Open("viam-agent")
+	if err != nil {
+		// Check error but continue since we want this to work
+		elog = nil
+	}
+
+	pid := os.Getpid()
+
+	// Use a fixed command string to prevent injection
+	//nolint:gosec // WMIC.exe is a fixed command
+	cmd := exec.Command("WMIC.exe", "process", "where", fmt.Sprintf("ParentProcessId=%d", pid), "get", "ProcessId")
+	output, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(output), "\r\n")
+	if elog != nil {
+		goutils.UncheckedError(elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(lines), pid)))
+	}
+	for _, line := range lines[1:] {
+		if line == "" {
+			continue
+		}
+		var childPID int
+		_, err := fmt.Sscan(line, &childPID)
+		if err != nil {
+			if elog != nil {
+				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("not a valid childProcess line %q, #%s", line, err)))
+			}
+			continue
+		}
+
+		//nolint:gosec // taskkill is a fixed command
+		cmd = exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(childPID))
+		err = cmd.Run()
+		if elog != nil {
+			if err != nil {
+				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error running taskkill pid %d: #%s", childPID, err)))
+			} else {
+				goutils.UncheckedError(elog.Info(1, fmt.Sprintf("killed pid %d", childPID)))
+			}
+		}
+	}
+	if elog != nil {
+		goutils.UncheckedError(elog.Info(1, "KillTree finished"))
+	}
+	return nil
 }
