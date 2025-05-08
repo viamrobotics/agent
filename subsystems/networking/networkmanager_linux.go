@@ -27,7 +27,7 @@ const (
 )
 
 func (n *Networking) warnIfMultiplePrimaryNetworks() {
-	if n.Config().TurnOnHotspotIfWifiHasNoInternet {
+	if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 		return
 	}
 	var primaryCandidates []string
@@ -176,12 +176,12 @@ func (n *Networking) checkConnections() error {
 		}
 
 		// in roaming mode, we don't care WHAT network is connected
-		if n.Config().TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated && ssid != n.Config().HotspotSSID {
+		if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() && state == gnm.NmActiveConnectionStateActivated && ssid != n.Config().HotspotSSID {
 			connected = true
 		}
 
 		// in normal (single) mode, we need to be connected to the primary (highest priority) network
-		if !n.Config().TurnOnHotspotIfWifiHasNoInternet && state == gnm.NmActiveConnectionStateActivated &&
+		if !n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() && state == gnm.NmActiveConnectionStateActivated &&
 			ssid == n.netState.PrimarySSID(n.Config().HotspotInterface) {
 			connected = true
 		}
@@ -223,7 +223,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
 func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
-	if n.Config().DisableWifiProvisioning {
+	if n.Config().DisableWifiProvisioning.Get() {
 		return nil
 	}
 
@@ -353,7 +353,8 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 
 	if nw.netType != NetworkTypeHotspot {
 		n.netState.SetActiveSSID(ifName, ssid)
-		if ifName == n.Config().HotspotInterface && (n.Config().TurnOnHotspotIfWifiHasNoInternet || n.netState.PrimarySSID(ifName) == ssid) {
+		if ifName == n.Config().HotspotInterface &&
+			(n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() || n.netState.PrimarySSID(ifName) == ssid) {
 			n.connState.setConnected(true)
 		}
 		return n.checkOnline(ctx, true)
@@ -487,7 +488,7 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 		}
 	}
 
-	if cfg.Type == NetworkTypeWifi && !n.Config().TurnOnHotspotIfWifiHasNoInternet && cfg.Priority == 999 {
+	if cfg.Type == NetworkTypeWifi && !n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() && cfg.Priority == 999 {
 		// lower the priority of any existing/prior primary network
 		n.lowerMaxNetPriorities(cfg.SSID)
 		n.netState.SetPrimarySSID(n.Config().HotspotInterface, cfg.SSID)
@@ -593,7 +594,7 @@ func (n *Networking) tryBluetoothTether(ctx context.Context) bool {
 		}
 
 		// in single mode we just need a connection
-		if !n.Config().TurnOnHotspotIfWifiHasNoInternet {
+		if !n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 			return true
 		}
 
@@ -615,7 +616,7 @@ func (n *Networking) tryCandidates(ctx context.Context) bool {
 		}
 
 		// in single mode we just need a connection
-		if !n.Config().TurnOnHotspotIfWifiHasNoInternet {
+		if !n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 			return true
 		}
 
@@ -650,7 +651,7 @@ func (n *Networking) getCandidates(ifName string) []string {
 		}
 	}
 
-	if !n.Config().TurnOnHotspotIfWifiHasNoInternet {
+	if !n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 		for _, nw := range candidates {
 			if nw.ssid == n.netState.PrimarySSID(n.Config().HotspotInterface) {
 				return []string{nw.ssid}
@@ -732,7 +733,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			if userInput.SSID != "" {
 				n.logger.Infof("Wifi settings received for %s", userInput.SSID)
 				priority := int32(999)
-				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
+				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 					priority = 100
 				}
 				cfg := utils.NetworkDefinition{
@@ -783,7 +784,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		}
 		isConfigured := n.connState.getConfigured()
 		allGood := isConfigured && (isConnected || isOnline)
-		if n.Config().TurnOnHotspotIfWifiHasNoInternet {
+		if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 			allGood = isOnline && isConfigured
 			hasConnectivity = isOnline
 			lastConnectivity = lastOnline
@@ -860,14 +861,14 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			if n.tryCandidates(ctx) || n.tryBluetoothTether(ctx) {
 				hasConnectivity = n.connState.getConnected() || n.connState.getOnline()
 				// if we're roaming or this network was JUST added, it must have internet
-				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
+				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 					hasConnectivity = n.connState.getOnline()
 				}
 				if hasConnectivity {
 					continue
 				}
 				lastConnectivity = n.connState.getLastConnected()
-				if n.Config().TurnOnHotspotIfWifiHasNoInternet {
+				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 					lastConnectivity = n.connState.getLastOnline()
 				}
 			}

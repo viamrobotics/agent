@@ -20,7 +20,7 @@ var (
 
 func (n *Networking) writeDNSMasq() error {
 	DNSMasqContents := DNSMasqContentsRedirect
-	if n.cfg.DisableCaptivePortalRedirect {
+	if n.cfg.DisableCaptivePortalRedirect.Get() {
 		DNSMasqContents = DNSMasqContentsSetupOnly
 	}
 

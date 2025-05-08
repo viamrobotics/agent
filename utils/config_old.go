@@ -87,19 +87,23 @@ func LoadOldProvisioningConfig() (*NetworkConfiguration, error) {
 		return nil, err
 	}
 
-	return &NetworkConfiguration{
+	nc := &NetworkConfiguration{
 		Manufacturer:                        oldCfg.Manufacturer,
 		Model:                               oldCfg.Model,
 		FragmentID:                          oldCfg.FragmentID,
 		HotspotInterface:                    oldCfg.HotspotInterface,
 		HotspotPrefix:                       oldCfg.HotspotPrefix,
 		HotspotPassword:                     oldCfg.HotspotPassword,
-		DisableCaptivePortalRedirect:        oldCfg.DisableDNSRedirect,
-		TurnOnHotspotIfWifiHasNoInternet:    oldCfg.RoamingMode,
-		WifiPowerSave:                       oldCfg.WifiPowerSave,
 		OfflineBeforeStartingHotspotMinutes: oldCfg.OfflineTimeout,
 		UserIdleMinutes:                     oldCfg.UserTimeout,
 		RetryConnectionTimeoutMinutes:       oldCfg.FallbackTimeout,
 		DeviceRebootAfterOfflineMinutes:     oldCfg.DeviceRebootAfterOfflineMinutes,
-	}, nil
+	}
+
+	nc.DisableCaptivePortalRedirect.Set(oldCfg.DisableDNSRedirect)
+	nc.TurnOnHotspotIfWifiHasNoInternet.Set(oldCfg.RoamingMode)
+	if oldCfg.WifiPowerSave != nil {
+		nc.WifiPowerSave.Set(*oldCfg.WifiPowerSave)
+	}
+	return nc, nil
 }

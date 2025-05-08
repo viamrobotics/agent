@@ -74,7 +74,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		networking: networking.NewSubsystem(ctx, logger, cfg),
 		cache:      NewVersionCache(logger),
 	}
-	manager.setDebug(cfg.AdvancedSettings.Debug)
+	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
 
 	return manager
@@ -203,7 +203,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	}
 
 	// Viam Server
-	if m.cfg.AdvancedSettings.DisableViamServer {
+	if m.cfg.AdvancedSettings.DisableViamServer.Get() {
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
 		}
@@ -333,7 +333,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 
 		switch entry.name {
 		case "viam-server":
-			if m.cfg.AdvancedSettings.DisableViamServer {
+			if m.cfg.AdvancedSettings.DisableViamServer.Get() {
 				continue
 			}
 		case "sysconfig":
@@ -428,7 +428,7 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 
 		checkInterval := minimalCheckInterval
 		m.cfgMu.RLock()
-		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck
+		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck.Get()
 		m.cfgMu.RUnlock()
 		if wait {
 			checkInterval = m.CheckUpdates(ctx)
@@ -546,12 +546,17 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		m.logger.Warn(errw.Wrap(err, "processing config"))
 	}
 
+	cfg, err = utils.ValidateConfig(cfg)
+	if err != nil {
+		m.logger.Warn(errw.Wrap(err, "processing config"))
+	}
+
 	if err := utils.SaveConfigToCache(cfg); err != nil {
 		m.logger.Warn(err)
 	}
 
 	cfg = utils.ApplyCLIArgs(cfg)
-	m.setDebug(cfg.AdvancedSettings.Debug)
+	m.setDebug(cfg.AdvancedSettings.Debug.Get())
 
 	m.cfgMu.Lock()
 	defer m.cfgMu.Unlock()

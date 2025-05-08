@@ -22,11 +22,11 @@ import (
 var (
 	DefaultConfiguration = AgentConfig{
 		AdvancedSettings{
-			Debug:                         false,
-			WaitForUpdateCheck:            false,
-			DisableViamServer:             false,
-			DisableNetworkConfiguration:   false,
-			DisableSystemConfiguration:    false,
+			Debug:                         nil,
+			WaitForUpdateCheck:            nil,
+			DisableViamServer:             nil,
+			DisableNetworkConfiguration:   nil,
+			DisableSystemConfiguration:    nil,
 			ViamServerStartTimeoutMinutes: Timeout(time.Minute * 10),
 		},
 		SystemConfiguration{
@@ -42,16 +42,16 @@ var (
 			HotspotInterface:                    "",
 			HotspotPrefix:                       "viam-setup",
 			HotspotPassword:                     "viamsetup",
-			DisableCaptivePortalRedirect:        false,
-			TurnOnHotspotIfWifiHasNoInternet:    false,
+			DisableCaptivePortalRedirect:        nil,
+			TurnOnHotspotIfWifiHasNoInternet:    nil,
 			WifiPowerSave:                       nil,
 			OfflineBeforeStartingHotspotMinutes: Timeout(time.Minute * 2),
 			UserIdleMinutes:                     Timeout(time.Minute * 5),
 			RetryConnectionTimeoutMinutes:       Timeout(time.Minute * 10),
 			DeviceRebootAfterOfflineMinutes:     Timeout(0),
 			HotspotSSID:                         "",
-			DisableBTProvisioning:               false,
-			DisableWifiProvisioning:             false,
+			DisableBTProvisioning:               nil,
+			DisableWifiProvisioning:             nil,
 		},
 		AdditionalNetworks{},
 	}
@@ -71,6 +71,30 @@ func init() {
 	}
 }
 
+type Tribool bool
+
+func (b *Tribool) Get() bool {
+	if b != nil {
+		return bool(*b)
+	}
+	return false
+}
+
+func (b *Tribool) Set(val bool) {
+	if b == nil {
+		b = new(Tribool)
+	}
+	*b = Tribool(val)
+}
+
+func (b *Tribool) IsSet() bool {
+	return b != nil
+}
+
+func (b *Tribool) Unset() {
+	b = nil
+}
+
 type AgentConfig struct {
 	AdvancedSettings     AdvancedSettings     `json:"advanced_settings,omitempty"`
 	SystemConfiguration  SystemConfiguration  `json:"system_configuration,omitempty"`
@@ -79,12 +103,12 @@ type AgentConfig struct {
 }
 
 type AdvancedSettings struct {
-	Debug                         bool    `json:"debug,omitempty"`
-	WaitForUpdateCheck            bool    `json:"wait_for_update_check,omitempty"`
-	DisableViamServer             bool    `json:"disable_viam_server,omitempty"`
-	DisableNetworkConfiguration   bool    `json:"disable_network_configuration,omitempty"`
-	DisableSystemConfiguration    bool    `json:"disable_system_configuration,omitempty"`
-	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes,omitempty"`
+	Debug                         *Tribool `json:"debug,omitempty"`
+	WaitForUpdateCheck            *Tribool `json:"wait_for_update_check,omitempty"`
+	DisableViamServer             *Tribool `json:"disable_viam_server,omitempty"`
+	DisableNetworkConfiguration   *Tribool `json:"disable_network_configuration,omitempty"`
+	DisableSystemConfiguration    *Tribool `json:"disable_system_configuration,omitempty"`
+	ViamServerStartTimeoutMinutes Timeout  `json:"viam_server_start_timeout_minutes,omitempty"`
 }
 
 // GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes.
@@ -92,7 +116,7 @@ func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	if runtime.GOOS == "windows" {
 		return true
 	}
-	return as.DisableNetworkConfiguration
+	return as.DisableNetworkConfiguration.Get()
 }
 
 // GetDisableSystemConfiguration is a wrapper which force-disables on some OSes.
@@ -100,7 +124,7 @@ func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 	if runtime.GOOS == "windows" {
 		return true
 	}
-	return as.DisableSystemConfiguration
+	return as.DisableSystemConfiguration.Get()
 }
 
 type SystemConfiguration struct {
@@ -138,14 +162,14 @@ type NetworkConfiguration struct {
 	// Password required to connect to the hotspot.
 	HotspotPassword string `json:"hotspot_password,omitempty"`
 	// If true, mobile (phone) users connecting to the hotspot won't be automatically redirected to the web portal.
-	DisableCaptivePortalRedirect bool `json:"disable_captive_portal_redirect,omitempty"`
+	DisableCaptivePortalRedirect *Tribool `json:"disable_captive_portal_redirect,omitempty"`
 
 	// When true, will try all known networks looking for internet (global) connectivity.
 	// Otherwise, will only try the primary wifi network and consider that sufficient if connected (regardless of global connectivity.)
-	TurnOnHotspotIfWifiHasNoInternet bool `json:"turn_on_hotspot_if_wifi_has_no_internet,omitempty"`
+	TurnOnHotspotIfWifiHasNoInternet *Tribool `json:"turn_on_hotspot_if_wifi_has_no_internet,omitempty"`
 
 	// If set, will explicitly enable or disable power save for all wifi connections managed by NetworkManager.
-	WifiPowerSave *bool `json:"wifi_power_save,omitempty"`
+	WifiPowerSave *Tribool `json:"wifi_power_save,omitempty"`
 
 	// How long without a connection before starting provisioning (hotspot) mode.
 	OfflineBeforeStartingHotspotMinutes Timeout `json:"offline_before_starting_hotspot_minutes,omitempty"`
@@ -161,8 +185,8 @@ type NetworkConfiguration struct {
 	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes,omitempty"`
 
 	// Disable flags for provisioning types.
-	DisableBTProvisioning   bool `json:"disable_bt_provisioning,omitempty"`
-	DisableWifiProvisioning bool `json:"disable_wifi_provisioning,omitempty"`
+	DisableBTProvisioning   *Tribool `json:"disable_bt_provisioning,omitempty"`
+	DisableWifiProvisioning *Tribool `json:"disable_wifi_provisioning,omitempty"`
 }
 
 type AdditionalNetworks map[string]NetworkDefinition
@@ -246,15 +270,15 @@ func LoadConfigFromCache() (AgentConfig, error) {
 		}
 	}
 
-	return cfg, nil
+	return ValidateConfig(cfg)
 }
 
 func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
 	if CLIDebug {
-		cfg.AdvancedSettings.Debug = true
+		cfg.AdvancedSettings.Debug.Set(true)
 	}
 	if CLIWaitForUpdateCheck {
-		cfg.AdvancedSettings.WaitForUpdateCheck = true
+		cfg.AdvancedSettings.WaitForUpdateCheck.Set(true)
 	}
 	return cfg
 }
@@ -300,16 +324,12 @@ func StackConfigs(proto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {
 		}
 	}
 
-	// validate/enforce/limit values
-	validatedCfg, err := validateConfig(cfg)
-	errOut = errors.Join(errOut, err)
-
-	return validatedCfg, errOut
+	return cfg, errOut
 }
 
-// validateConfig enforces min/max values, returning a "corrected" config and error(s) for each issue encountered.
+// ValidateConfig enforces min/max values, returning a "corrected" config and error(s) for each issue encountered.
 // Should only be called where input will NEVER be reused due to direct modification of struct fields.
-func validateConfig(cfg AgentConfig) (AgentConfig, error) {
+func ValidateConfig(cfg AgentConfig) (AgentConfig, error) {
 	var errOut error
 
 	// AdvancedSettings

@@ -171,7 +171,7 @@ func (n *Networking) init(ctx context.Context) error {
 
 	n.warnIfMultiplePrimaryNetworks()
 
-	if n.Config().TurnOnHotspotIfWifiHasNoInternet {
+	if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 		n.logger.Info("Wifi internet checking enabled. Will try all connections for global internet connectivity.")
 	} else {
 		primarySSID := n.netState.PrimarySSID(n.Config().HotspotInterface)
@@ -225,7 +225,7 @@ func (n *Networking) Start(ctx context.Context) error {
 		n.logger.Warn(err)
 	}
 
-	if !n.Config().DisableBTProvisioning || !n.Config().DisableWifiProvisioning {
+	if !n.Config().DisableBTProvisioning.Get() || !n.Config().DisableWifiProvisioning.Get() {
 		cancelCtx, cancel := context.WithCancel(ctx)
 		n.cancel = cancel // This will loop indefinitely until context cancellation or serious error
 		n.monitorWorkers.Add(1)
@@ -312,7 +312,7 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if n.noNM || (n.Config().DisableBTProvisioning && n.Config().DisableWifiProvisioning) {
+	if n.noNM || (n.Config().DisableBTProvisioning.Get() && n.Config().DisableWifiProvisioning.Get()) {
 		return nil
 	}
 
@@ -337,7 +337,7 @@ func (n *Networking) Nets() utils.AdditionalNetworks {
 }
 
 func (n *Networking) processAdditionalnetworks(ctx context.Context) {
-	if !n.Config().TurnOnHotspotIfWifiHasNoInternet && len(n.Nets()) > 0 {
+	if !n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() && len(n.Nets()) > 0 {
 		n.logger.Warn("Additional networks configured, but internet checking is not enabled. Additional networks may be unused.")
 	}
 
@@ -358,8 +358,8 @@ func (n *Networking) processAdditionalnetworks(ctx context.Context) {
 // must be run inside dataMu lock.
 func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 	contents := wifiPowerSaveContentsDefault
-	if n.Config().WifiPowerSave != nil {
-		if *n.Config().WifiPowerSave {
+	if n.Config().WifiPowerSave.IsSet() {
+		if n.Config().WifiPowerSave.Get() {
 			contents = wifiPowerSaveContentsEnable
 		} else {
 			contents = wifiPowerSaveContentsDisable
