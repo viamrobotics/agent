@@ -199,9 +199,6 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		if err != nil {
 			m.logger.Warnw("running install of new agent version", "error", err)
 		}
-	}
-
-	if needRestart {
 		m.viamAgentNeedsRestart = true
 	}
 

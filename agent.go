@@ -135,7 +135,7 @@ func Install(logger logging.Logger) error {
 		}
 	}
 
-	logger.Info("Install complete. Please (re)start the service with 'systemctl restart viam-agent' when ready.")
+	logger.Info("Install complete.")
 
 	return errors.Join(utils.SyncFS("/etc"), utils.SyncFS(serviceFilePath), utils.SyncFS(utils.ViamDirs["viam"]))
 }
