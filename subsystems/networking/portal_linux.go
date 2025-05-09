@@ -94,7 +94,6 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 			n.logger.Warn(err)
 		}
 	}()
-	n.connState.setLastInteraction()
 
 	cfg := n.Config()
 
