@@ -22,11 +22,11 @@ import (
 var (
 	DefaultConfiguration = AgentConfig{
 		AdvancedSettings{
-			Debug:                         false,
-			WaitForUpdateCheck:            false,
-			DisableViamServer:             false,
-			DisableNetworkConfiguration:   false,
-			DisableSystemConfiguration:    false,
+			Debug:                         Tribool(0),
+			WaitForUpdateCheck:            Tribool(0),
+			DisableViamServer:             Tribool(0),
+			DisableNetworkConfiguration:   Tribool(0),
+			DisableSystemConfiguration:    Tribool(0),
 			ViamServerStartTimeoutMinutes: Timeout(time.Minute * 10),
 		},
 		SystemConfiguration{
@@ -42,16 +42,16 @@ var (
 			HotspotInterface:                    "",
 			HotspotPrefix:                       "viam-setup",
 			HotspotPassword:                     "viamsetup",
-			DisableCaptivePortalRedirect:        false,
-			TurnOnHotspotIfWifiHasNoInternet:    false,
-			WifiPowerSave:                       nil,
+			DisableCaptivePortalRedirect:        Tribool(0),
+			TurnOnHotspotIfWifiHasNoInternet:    Tribool(0),
+			WifiPowerSave:                       Tribool(0),
 			OfflineBeforeStartingHotspotMinutes: Timeout(time.Minute * 2),
 			UserIdleMinutes:                     Timeout(time.Minute * 5),
 			RetryConnectionTimeoutMinutes:       Timeout(time.Minute * 10),
 			DeviceRebootAfterOfflineMinutes:     Timeout(0),
 			HotspotSSID:                         "",
-			DisableBTProvisioning:               false,
-			DisableWifiProvisioning:             false,
+			DisableBTProvisioning:               Tribool(0),
+			DisableWifiProvisioning:             Tribool(0),
 		},
 		AdditionalNetworks{},
 	}
@@ -71,6 +71,36 @@ func init() {
 	}
 }
 
+//nolint:recvcheck
+type Tribool int
+
+func (b Tribool) Get() bool {
+	return b > 0
+}
+
+func (b Tribool) IsSet() bool {
+	return b != 0
+}
+
+func (b Tribool) MarshalJSON() ([]byte, error) {
+	if b == 1 {
+		return []byte("true"), nil
+	}
+	return []byte("false"), nil
+}
+
+func (b *Tribool) UnmarshalJSON(data []byte) error {
+	switch string(data) {
+	case "true":
+		*b = 1
+	case "false":
+		*b = -1
+	default:
+		*b = 0
+	}
+	return nil
+}
+
 type AgentConfig struct {
 	AdvancedSettings     AdvancedSettings     `json:"advanced_settings,omitempty"`
 	SystemConfiguration  SystemConfiguration  `json:"system_configuration,omitempty"`
@@ -79,11 +109,11 @@ type AgentConfig struct {
 }
 
 type AdvancedSettings struct {
-	Debug                         bool    `json:"debug,omitempty"`
-	WaitForUpdateCheck            bool    `json:"wait_for_update_check,omitempty"`
-	DisableViamServer             bool    `json:"disable_viam_server,omitempty"`
-	DisableNetworkConfiguration   bool    `json:"disable_network_configuration,omitempty"`
-	DisableSystemConfiguration    bool    `json:"disable_system_configuration,omitempty"`
+	Debug                         Tribool `json:"debug,omitempty"`
+	WaitForUpdateCheck            Tribool `json:"wait_for_update_check,omitempty"`
+	DisableViamServer             Tribool `json:"disable_viam_server,omitempty"`
+	DisableNetworkConfiguration   Tribool `json:"disable_network_configuration,omitempty"`
+	DisableSystemConfiguration    Tribool `json:"disable_system_configuration,omitempty"`
 	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes,omitempty"`
 }
 
@@ -92,7 +122,7 @@ func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	if runtime.GOOS == "windows" {
 		return true
 	}
-	return as.DisableNetworkConfiguration
+	return as.DisableNetworkConfiguration.Get()
 }
 
 // GetDisableSystemConfiguration is a wrapper which force-disables on some OSes.
@@ -100,7 +130,7 @@ func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 	if runtime.GOOS == "windows" {
 		return true
 	}
-	return as.DisableSystemConfiguration
+	return as.DisableSystemConfiguration.Get()
 }
 
 type SystemConfiguration struct {
@@ -138,14 +168,14 @@ type NetworkConfiguration struct {
 	// Password required to connect to the hotspot.
 	HotspotPassword string `json:"hotspot_password,omitempty"`
 	// If true, mobile (phone) users connecting to the hotspot won't be automatically redirected to the web portal.
-	DisableCaptivePortalRedirect bool `json:"disable_captive_portal_redirect,omitempty"`
+	DisableCaptivePortalRedirect Tribool `json:"disable_captive_portal_redirect,omitempty"`
 
 	// When true, will try all known networks looking for internet (global) connectivity.
 	// Otherwise, will only try the primary wifi network and consider that sufficient if connected (regardless of global connectivity.)
-	TurnOnHotspotIfWifiHasNoInternet bool `json:"turn_on_hotspot_if_wifi_has_no_internet,omitempty"`
+	TurnOnHotspotIfWifiHasNoInternet Tribool `json:"turn_on_hotspot_if_wifi_has_no_internet,omitempty"`
 
 	// If set, will explicitly enable or disable power save for all wifi connections managed by NetworkManager.
-	WifiPowerSave *bool `json:"wifi_power_save,omitempty"`
+	WifiPowerSave Tribool `json:"wifi_power_save,omitempty"`
 
 	// How long without a connection before starting provisioning (hotspot) mode.
 	OfflineBeforeStartingHotspotMinutes Timeout `json:"offline_before_starting_hotspot_minutes,omitempty"`
@@ -161,8 +191,8 @@ type NetworkConfiguration struct {
 	DeviceRebootAfterOfflineMinutes Timeout `json:"device_reboot_after_offline_minutes,omitempty"`
 
 	// Disable flags for provisioning types.
-	DisableBTProvisioning   bool `json:"disable_bt_provisioning,omitempty"`
-	DisableWifiProvisioning bool `json:"disable_wifi_provisioning,omitempty"`
+	DisableBTProvisioning   Tribool `json:"disable_bt_provisioning,omitempty"`
+	DisableWifiProvisioning Tribool `json:"disable_wifi_provisioning,omitempty"`
 }
 
 type AdditionalNetworks map[string]NetworkDefinition
@@ -246,15 +276,15 @@ func LoadConfigFromCache() (AgentConfig, error) {
 		}
 	}
 
-	return cfg, nil
+	return validateConfig(cfg)
 }
 
 func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
 	if CLIDebug {
-		cfg.AdvancedSettings.Debug = true
+		cfg.AdvancedSettings.Debug = 1
 	}
 	if CLIWaitForUpdateCheck {
-		cfg.AdvancedSettings.WaitForUpdateCheck = true
+		cfg.AdvancedSettings.WaitForUpdateCheck = 1
 	}
 	return cfg
 }

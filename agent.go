@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	errw "github.com/pkg/errors"
@@ -148,12 +149,7 @@ func inSystemdPath(path string, logger logging.Logger) bool {
 		return false
 	}
 	searchPaths := strings.Split(strings.TrimSpace(string(output)), ":")
-	for _, searchPath := range searchPaths {
-		if searchPath == path {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(searchPaths, path)
 }
 
 func getServiceFilePath(logger logging.Logger) (string, bool, error) {

@@ -160,7 +160,7 @@ func commonMain() {
 	// wait until now when we (potentially) have a network logger to record this
 	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
 
-	if cfg.AdvancedSettings.WaitForUpdateCheck {
+	if cfg.AdvancedSettings.WaitForUpdateCheck.Get() {
 		// wait to be online
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()

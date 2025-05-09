@@ -235,5 +235,5 @@ func (n *Networking) bluetoothEnabled() bool {
 	n.dataMu.Lock()
 	noBT := n.noBT
 	n.dataMu.Unlock()
-	return !noBT && !n.Config().DisableBTProvisioning
+	return !noBT && !n.Config().DisableBTProvisioning.Get()
 }
