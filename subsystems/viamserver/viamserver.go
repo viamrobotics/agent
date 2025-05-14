@@ -242,7 +242,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 		return err
 	}
 
-	resultChan := make(chan error)
+	resultChan := make(chan error, len(urls))
 
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
 	defer cancelFunc()
@@ -281,19 +281,13 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 		}()
 	}
 
-	var isGood bool
 	var combinedErr error
 	for i := 1; i <= len(urls); i++ {
 		result := <-resultChan
 		if result == nil {
-			isGood = true
-			continue
+			return nil
 		}
 		combinedErr = errors.Join(combinedErr, result)
-	}
-
-	if isGood {
-		return nil
 	}
 	return combinedErr
 }
@@ -306,7 +300,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	resultChan := make(chan error)
+	resultChan := make(chan error, len(urls))
 
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
 	defer cancelFunc()
@@ -358,21 +352,15 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 			resultChan <- errors.New("viam-server reports it is unsafe to restart")
 		}()
 	}
-	var isGood bool
 	var combinedErr error
 	for i := 1; i <= len(urls); i++ {
 		result := <-resultChan
 		if result == nil {
-			isGood = true
-			continue
+			return true, nil
 		}
 		combinedErr = errors.Join(combinedErr, result)
 	}
-
-	if isGood {
-		return isGood, nil
-	}
-	return isGood, combinedErr
+	return false, combinedErr
 }
 
 func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
