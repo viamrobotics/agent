@@ -225,8 +225,6 @@ func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) boo
 	}
 }
 
-// SMURF dedupe this function and isRestartAllowed()
-
 func (s *viamServer) HealthCheck(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
@@ -245,7 +243,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	}
 
 	resultChan := make(chan error)
-	// SMURF log actual LIST
 
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
 	defer cancelFunc()
@@ -256,7 +253,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 
 			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, url, nil)
 			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking %s status", SubsysName)
+				resultChan <- errw.Wrapf(err, "checking %s status via %s", SubsysName, url)
 				return
 			}
 
@@ -266,7 +263,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 
 			resp, err := client.Do(req)
 			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking %s status", SubsysName)
+				resultChan <- errw.Wrapf(err, "checking %s status via %s", SubsysName, url)
 				return
 			}
 
@@ -275,7 +272,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 			}()
 
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				resultChan <- errw.Wrapf(err, "checking %s status, got code: %d", SubsysName, resp.StatusCode)
+				resultChan <- errw.Wrapf(err, "checking %s status via %s, got code: %d", SubsysName, url, resp.StatusCode)
 				return
 			}
 
@@ -322,7 +319,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 
 			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)
 			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
+				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
 				return
 			}
 
@@ -332,11 +329,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 
 			resp, err := client.Do(req)
 			if err != nil {
-				if url == s.checkURL {
-					// if this is only the first URL, we want to continue, not return, so log the error
-					s.logger.Warn(errw.Wrapf(err, "checking whether %s allows restart", SubsysName))
-				}
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
+				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
 				return
 			}
 
@@ -349,13 +342,13 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 				// non-successful HTTP response status code, as the `restart_status`
 				// endpoint will not be available. Continue to next URL in this
 				// case.
-				resultChan <- errw.Wrapf(err, "checking %s status, got code: %d", SubsysName, resp.StatusCode)
+				resultChan <- errw.Wrapf(err, "checking %s status via %s, got code: %d", SubsysName, restartURL, resp.StatusCode)
 				return
 			}
 
 			var restartStatusResponse RestartStatusResponse
 			if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
+				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
 				return
 			}
 			if restartStatusResponse.RestartAllowed {
