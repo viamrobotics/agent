@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -416,7 +417,7 @@ func (s *viamServer) makeTestURLs() ([]string, error) {
 		s.logger.Debugf("using port %s for healthchecks", port)
 	}
 
-	ips, err := goutils.GetAllLocalIPv4s()
+	ips, err := GetAllLocalIPv4s()
 	if err != nil {
 		return []string{}, err
 	}
@@ -427,4 +428,38 @@ func (s *viamServer) makeTestURLs() ([]string, error) {
 	}
 
 	return urls, nil
+}
+
+// GetAllLocalIPv4s is copied from goutils, but removed the loopback checks, as we DO want loopback adapters.
+func GetAllLocalIPv4s() ([]string, error) {
+	allInterfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	all := []string{}
+
+	for _, i := range allInterfaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, addr := range addrs {
+			switch v := addr.(type) {
+			case *net.IPNet:
+				_, bits := v.Mask.Size()
+				if bits != 32 {
+					// this is what limits to ipv4
+					continue
+				}
+
+				all = append(all, v.IP.String())
+			default:
+				return nil, fmt.Errorf("unknow address type: %T", v)
+			}
+		}
+	}
+
+	return all, nil
 }
