@@ -31,6 +31,8 @@ const (
 	stopTermTimeout = time.Minute * 2
 	stopKillTimeout = time.Second * 10
 	SubsysName      = "viam-server"
+
+	healthMaxFailCount = 3
 )
 
 // RestartStatusResponse is the http/json response from viam_server's /health_check URL
@@ -51,6 +53,7 @@ type viamServer struct {
 	startTimeout time.Duration
 	checkURL     string
 	checkURLAlt  string
+	failCount    int
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -290,11 +293,16 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	for i := 1; i <= len(urls); i++ {
 		result := <-resultChan
 		if result == nil {
+			s.failCount = 0
 			return nil
 		}
 		combinedErr = errors.Join(combinedErr, result)
 	}
-	return combinedErr
+	s.failCount++
+	if s.failCount >= healthMaxFailCount {
+		return combinedErr
+	}
+	return nil
 }
 
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
