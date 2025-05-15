@@ -456,7 +456,7 @@ func GetAllLocalIPv4s() ([]string, error) {
 
 				all = append(all, v.IP.String())
 			default:
-				return nil, fmt.Errorf("unknow address type: %T", v)
+				return nil, fmt.Errorf("unknown address type: %T", v)
 			}
 		}
 	}
