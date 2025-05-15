@@ -6,7 +6,10 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -223,7 +226,7 @@ func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) boo
 	}
 }
 
-func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
+func (s *viamServer) HealthCheck(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
 	s.mu.Lock()
@@ -235,92 +238,130 @@ func (s *viamServer) HealthCheck(ctx context.Context) (errRet error) {
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
 
-	for _, url := range []string{s.checkURL, s.checkURLAlt} {
-		s.logger.Debugf("starting healthcheck for %s using %s", SubsysName, url)
-
-		timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
-		defer cancelFunc()
-
-		req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, url, nil)
-		if err != nil {
-			errRet = errors.Join(errRet, errw.Wrapf(err, "checking %s status", SubsysName))
-			continue
-		}
-
-		// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
-		//nolint:gosec
-		client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			errRet = errors.Join(errRet, errw.Wrapf(err, "checking %s status", SubsysName))
-			continue
-		}
-
-		defer func() {
-			goutils.UncheckedError(resp.Body.Close())
-		}()
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			errRet = errors.Join(errRet, errw.Wrapf(err, "checking %s status, got code: %d", SubsysName, resp.StatusCode))
-			continue
-		}
-		s.logger.Debugf("healthcheck for %s is good", SubsysName)
-		return nil
+	urls, err := s.makeTestURLs()
+	if err != nil {
+		return err
 	}
 
-	return errRet
+	resultChan := make(chan error, len(urls))
+
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
+	defer cancelFunc()
+
+	for _, url := range urls {
+		go func() {
+			s.logger.Debugf("starting healthcheck for %s using %s", SubsysName, url)
+
+			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, url, nil)
+			if err != nil {
+				resultChan <- errw.Wrapf(err, "checking %s status via %s", SubsysName, url)
+				return
+			}
+
+			// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
+			//nolint:gosec
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				resultChan <- errw.Wrapf(err, "checking %s status via %s", SubsysName, url)
+				return
+			}
+
+			defer func() {
+				goutils.UncheckedError(resp.Body.Close())
+			}()
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				resultChan <- errw.Wrapf(err, "checking %s status via %s, got code: %d", SubsysName, url, resp.StatusCode)
+				return
+			}
+
+			s.logger.Debugf("healthcheck for %s is good per %s", SubsysName, url)
+			resultChan <- nil
+		}()
+	}
+
+	var combinedErr error
+	for i := 1; i <= len(urls); i++ {
+		result := <-resultChan
+		if result == nil {
+			return nil
+		}
+		combinedErr = errors.Join(combinedErr, result)
+	}
+	return combinedErr
 }
 
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
 // both accessed.
 func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
-	for _, url := range []string{s.checkURL, s.checkURLAlt} {
-		s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
-
-		ctx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
-		defer cancelFunc()
-
-		restartURL := url + "/restart_status"
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, restartURL, nil)
-		if err != nil {
-			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
-		}
-
-		// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
-		//nolint:gosec
-		client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			if url == s.checkURL {
-				// if this is only the first URL, we want to continue, not return, so log the error
-				s.logger.Warn(errw.Wrapf(err, "checking whether %s allows restart", SubsysName))
-				continue
-			}
-			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
-		}
-
-		defer func() {
-			goutils.UncheckedError(resp.Body.Close())
-		}()
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			// Interacting with older viam-server instances will result in a
-			// non-successful HTTP response status code, as the `restart_status`
-			// endpoint will not be available. Continue to next URL in this
-			// case.
-			continue
-		}
-
-		var restartStatusResponse RestartStatusResponse
-		if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
-			return false, errw.Wrapf(err, "checking whether %s allows restart", SubsysName)
-		}
-		return restartStatusResponse.RestartAllowed, nil
+	urls, err := s.makeTestURLs()
+	if err != nil {
+		return false, err
 	}
-	return false, nil
+
+	resultChan := make(chan error, len(urls))
+
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
+	defer cancelFunc()
+
+	for _, url := range urls {
+		go func() {
+			s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
+
+			restartURL := url + "/restart_status"
+
+			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)
+			if err != nil {
+				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
+				return
+			}
+
+			// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
+			//nolint:gosec
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
+				return
+			}
+
+			defer func() {
+				goutils.UncheckedError(resp.Body.Close())
+			}()
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				// Interacting with older viam-server instances will result in a
+				// non-successful HTTP response status code, as the `restart_status`
+				// endpoint will not be available. Continue to next URL in this
+				// case.
+				resultChan <- errw.Wrapf(err, "checking %s status via %s, got code: %d", SubsysName, restartURL, resp.StatusCode)
+				return
+			}
+
+			var restartStatusResponse RestartStatusResponse
+			if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
+				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
+				return
+			}
+			if restartStatusResponse.RestartAllowed {
+				resultChan <- nil
+				return
+			}
+			resultChan <- errors.New("viam-server reports it is unsafe to restart")
+		}()
+	}
+	var combinedErr error
+	for i := 1; i <= len(urls); i++ {
+		result := <-resultChan
+		if result == nil {
+			return true, nil
+		}
+		combinedErr = errors.Join(combinedErr, result)
+	}
+	return false, combinedErr
 }
 
 func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
@@ -363,4 +404,62 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 
 type RestartCheck interface {
 	SafeToRestart(ctx context.Context) bool
+}
+
+// must be called with s.mu locked.
+func (s *viamServer) makeTestURLs() ([]string, error) {
+	port := "8080"
+	mainURL, err := url.Parse(s.checkURL)
+	if err != nil {
+		s.logger.Warnf("cannot determine port for healthcheck, using default of 8080")
+	} else {
+		port = mainURL.Port()
+		s.logger.Debugf("using port %s for healthchecks", port)
+	}
+
+	ips, err := GetAllLocalIPv4s()
+	if err != nil {
+		return []string{}, err
+	}
+
+	urls := []string{s.checkURL, s.checkURLAlt}
+	for _, ip := range ips {
+		urls = append(urls, fmt.Sprintf("https://%s:%s", ip, port))
+	}
+
+	return urls, nil
+}
+
+// GetAllLocalIPv4s is copied from goutils, but removed the loopback checks, as we DO want loopback adapters.
+func GetAllLocalIPv4s() ([]string, error) {
+	allInterfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	all := []string{}
+
+	for _, i := range allInterfaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, addr := range addrs {
+			switch v := addr.(type) {
+			case *net.IPNet:
+				_, bits := v.Mask.Size()
+				if bits != 32 {
+					// this is what limits to ipv4
+					continue
+				}
+
+				all = append(all, v.IP.String())
+			default:
+				return nil, fmt.Errorf("unknown address type: %T", v)
+			}
+		}
+	}
+
+	return all, nil
 }
