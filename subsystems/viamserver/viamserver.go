@@ -79,7 +79,6 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	}
 	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
-	//nolint:goconst
 	if runtime.GOOS == "windows" {
 		binPath += ".exe"
 	}
@@ -241,9 +240,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	if s.checkURL == "" {
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
-	if runtime.GOOS == "windows" {
-		return nil
-	}
 
 	urls, err := s.makeTestURLs()
 	if err != nil {
@@ -388,7 +384,7 @@ func (s *viamServer) SafeToRestart(ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.running || runtime.GOOS == "windows" {
+	if !s.running {
 		return true
 	}
 
