@@ -299,6 +299,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 		combinedErr = errors.Join(combinedErr, result)
 	}
 	s.failCount++
+	// don't let a single failure cause a restart, as the network can hang during suspend/resume or early startup/shutdown scenarios
 	if s.failCount >= healthMaxFailCount {
 		return combinedErr
 	}
