@@ -106,6 +106,8 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.cmd.Stderr = stderr
 
 	if len(s.extraEnvVars) > 0 {
+		s.logger.Infof("Adding environment variables from config to viam-server startup %v", s.extraEnvVars)
+
 		// if s.cmd.Env is not explicitly specified (nil), viam-server would inherit all env vars in Agent's environment
 		s.cmd.Env = s.cmd.Environ()
 		for k, v := range s.extraEnvVars {
