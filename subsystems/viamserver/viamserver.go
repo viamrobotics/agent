@@ -111,7 +111,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		for k, v := range s.extraEnvVars {
 			s.cmd.Env = append(s.cmd.Env, k+"="+v)
 		}
-		s.logger.Debugf("Starting viam-server with envrionment variables %v", s.cmd.Env)
+		s.logger.Debugf("Starting viam-server with environment variables %v", s.cmd.Env)
 	}
 
 	// watch for this line in the logs to indicate successful startup
