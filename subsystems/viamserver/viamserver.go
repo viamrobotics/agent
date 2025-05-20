@@ -386,6 +386,7 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.startTimeout = time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes)
+	s.extraEnvVars = cfg.AdvancedSettings.ViamServerExtraEnvVars
 	return false
 }
 

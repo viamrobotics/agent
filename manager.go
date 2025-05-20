@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -47,8 +48,9 @@ type Manager struct {
 	logger      logging.Logger
 	netAppender *logging.NetAppender
 
-	cfgMu sync.RWMutex
-	cfg   utils.AgentConfig
+	cfgMu   sync.RWMutex
+	cfg     utils.AgentConfig
+	prevCfg utils.AgentConfig
 
 	// also guarded by cfgMu
 	viamAgentNeedsRestart  bool
@@ -215,6 +217,12 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestart, err := m.cache.UpdateBinary(ctx, viamserver.SubsysName)
 		if err != nil {
 			m.logger.Warn(err)
+		}
+		if !reflect.DeepEqual(m.cfg.AdvancedSettings.ViamServerExtraEnvVars, m.prevCfg.AdvancedSettings.ViamServerExtraEnvVars) {
+			m.logger.Infow("Detected changed environment variables. Restarting viam-server at next opportunity.",
+				"current", m.cfg.AdvancedSettings.ViamServerExtraEnvVars,
+				"previous", m.prevCfg.AdvancedSettings.ViamServerExtraEnvVars)
+			needRestart = true
 		}
 		m.viamServer.Update(ctx, m.cfg)
 
@@ -555,6 +563,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 
 	m.cfgMu.Lock()
 	defer m.cfgMu.Unlock()
+	m.prevCfg = m.cfg
 	m.cfg = cfg
 
 	return resp.GetCheckInterval().AsDuration(), nil
