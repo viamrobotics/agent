@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -386,7 +387,14 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.startTimeout = time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes)
-	s.extraEnvVars = cfg.AdvancedSettings.ViamServerExtraEnvVars
+
+	if !reflect.DeepEqual(cfg.AdvancedSettings.ViamServerExtraEnvVars, s.extraEnvVars) {
+		s.logger.Infow("Detected changed environment variables. Restarting viam-server at next opportunity.",
+			"current", cfg.AdvancedSettings.ViamServerExtraEnvVars,
+			"previous", s.extraEnvVars)
+		s.extraEnvVars = cfg.AdvancedSettings.ViamServerExtraEnvVars
+		return true
+	}
 	return false
 }
 
