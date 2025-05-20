@@ -52,6 +52,9 @@ type viamServer struct {
 	checkURL     string
 	checkURLAlt  string
 
+	// extra environment variables to set before launching server
+	extraEnvVars map[string]string
+
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
 
@@ -101,6 +104,15 @@ func (s *viamServer) Start(ctx context.Context) error {
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
+
+	if len(s.extraEnvVars) > 0 {
+		// if s.cmd.Env is not explicitly specified (nil), viam-server would inherit all env vars in Agent's environment
+		s.cmd.Env = s.cmd.Environ()
+		for k, v := range s.extraEnvVars {
+			s.cmd.Env = append(s.cmd.Env, k+"="+v)
+		}
+		s.logger.Debugf("Starting viam-server with envrionment variables %v", s.cmd.Env)
+	}
 
 	// watch for this line in the logs to indicate successful startup
 	c, err := stdio.AddMatcher(
@@ -403,6 +415,7 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 	return &viamServer{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
+		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
 }
 
