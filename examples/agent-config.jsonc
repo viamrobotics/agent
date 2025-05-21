@@ -12,7 +12,10 @@
 		"viam_server_start_timeout_minutes": 10,
 		"disable_viam_server": false,
 		"disable_network_configuration": false,
-		"disable_system_configuration": false
+		"disable_system_configuration": false,
+		"viam_server_env": {
+			"MODULE1_DEBUG": "1"
+		}
 	},
 	"network_configuration": {
 		"manufacturer": "viam",
