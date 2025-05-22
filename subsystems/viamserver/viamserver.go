@@ -32,6 +32,8 @@ const (
 	stopTermTimeout = time.Minute * 2
 	stopKillTimeout = time.Second * 10
 	SubsysName      = "viam-server"
+
+	healthMaxFailCount = 3
 )
 
 // RestartStatusResponse is the http/json response from viam_server's /health_check URL
@@ -52,6 +54,7 @@ type viamServer struct {
 	startTimeout time.Duration
 	checkURL     string
 	checkURLAlt  string
+	failCount    int
 
 	// extra environment variables to set before launching server
 	extraEnvVars map[string]string
@@ -80,7 +83,6 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	}
 	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
-	//nolint:goconst
 	if runtime.GOOS == "windows" {
 		binPath += ".exe"
 	}
@@ -253,9 +255,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	if s.checkURL == "" {
 		return errw.Errorf("can't find listening URL for %s", SubsysName)
 	}
-	if runtime.GOOS == "windows" {
-		return nil
-	}
 
 	urls, err := s.makeTestURLs()
 	if err != nil {
@@ -305,11 +304,17 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	for i := 1; i <= len(urls); i++ {
 		result := <-resultChan
 		if result == nil {
+			s.failCount = 0
 			return nil
 		}
 		combinedErr = errors.Join(combinedErr, result)
 	}
-	return combinedErr
+	s.failCount++
+	// don't let a single failure cause a restart, as the network can hang during suspend/resume or early startup/shutdown scenarios
+	if s.failCount >= healthMaxFailCount {
+		return combinedErr
+	}
+	return nil
 }
 
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
@@ -402,7 +407,7 @@ func (s *viamServer) SafeToRestart(ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.running || runtime.GOOS == "windows" {
+	if !s.running {
 		return true
 	}
 
