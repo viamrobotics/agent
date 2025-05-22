@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -51,6 +52,9 @@ type viamServer struct {
 	startTimeout time.Duration
 	checkURL     string
 	checkURLAlt  string
+
+	// extra environment variables to set before launching server
+	extraEnvVars map[string]string
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
@@ -101,6 +105,17 @@ func (s *viamServer) Start(ctx context.Context) error {
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
+
+	if len(s.extraEnvVars) > 0 {
+		s.logger.Infow("Adding environment variables from config to viam-server startup", "extraEnvVars", s.extraEnvVars)
+
+		// if s.cmd.Env is not explicitly specified (nil), viam-server would inherit all env vars in Agent's environment
+		s.cmd.Env = s.cmd.Environ()
+		for k, v := range s.extraEnvVars {
+			s.cmd.Env = append(s.cmd.Env, k+"="+v)
+		}
+		s.logger.Debugw("Starting viam-server with environment variables", "cmd.Env", s.cmd.Env)
+	}
 
 	// watch for this line in the logs to indicate successful startup
 	c, err := stdio.AddMatcher(
@@ -372,6 +387,14 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.startTimeout = time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes)
+
+	if !reflect.DeepEqual(cfg.AdvancedSettings.ViamServerExtraEnvVars, s.extraEnvVars) {
+		s.logger.Infow("Detected changed environment variables. Restarting viam-server at next opportunity.",
+			"current", cfg.AdvancedSettings.ViamServerExtraEnvVars,
+			"previous", s.extraEnvVars)
+		s.extraEnvVars = cfg.AdvancedSettings.ViamServerExtraEnvVars
+		return true
+	}
 	return false
 }
 
@@ -403,6 +426,7 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 	return &viamServer{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
+		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
 }
 

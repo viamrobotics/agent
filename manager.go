@@ -216,9 +216,10 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		if err != nil {
 			m.logger.Warn(err)
 		}
-		m.viamServer.Update(ctx, m.cfg)
 
-		if needRestart || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
+		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
+
+		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
 			if m.viamServer.(viamserver.RestartCheck).SafeToRestart(ctx) {
 				if err := m.viamServer.Stop(ctx); err != nil {
 					m.logger.Warn(err)

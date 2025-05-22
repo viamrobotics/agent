@@ -28,6 +28,7 @@ var (
 			DisableNetworkConfiguration:   Tribool(0),
 			DisableSystemConfiguration:    Tribool(0),
 			ViamServerStartTimeoutMinutes: Timeout(time.Minute * 10),
+			ViamServerExtraEnvVars:        nil,
 		},
 		SystemConfiguration{
 			LoggingJournaldSystemMaxUseMegabytes:  512,
@@ -109,12 +110,13 @@ type AgentConfig struct {
 }
 
 type AdvancedSettings struct {
-	Debug                         Tribool `json:"debug,omitempty"`
-	WaitForUpdateCheck            Tribool `json:"wait_for_update_check,omitempty"`
-	DisableViamServer             Tribool `json:"disable_viam_server,omitempty"`
-	DisableNetworkConfiguration   Tribool `json:"disable_network_configuration,omitempty"`
-	DisableSystemConfiguration    Tribool `json:"disable_system_configuration,omitempty"`
-	ViamServerStartTimeoutMinutes Timeout `json:"viam_server_start_timeout_minutes,omitempty"`
+	Debug                         Tribool           `json:"debug,omitempty"`
+	WaitForUpdateCheck            Tribool           `json:"wait_for_update_check,omitempty"`
+	DisableViamServer             Tribool           `json:"disable_viam_server,omitempty"`
+	DisableNetworkConfiguration   Tribool           `json:"disable_network_configuration,omitempty"`
+	DisableSystemConfiguration    Tribool           `json:"disable_system_configuration,omitempty"`
+	ViamServerStartTimeoutMinutes Timeout           `json:"viam_server_start_timeout_minutes,omitempty"`
+	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
 
 // GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes.
