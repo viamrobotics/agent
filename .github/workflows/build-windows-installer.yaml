@@ -5,7 +5,7 @@ on:
 
 jobs:
   validate:
-    runs-on: windows-2019
+    runs-on: windows-2022
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
 
   build:
     needs: validate
-    runs-on: windows-2019
+    runs-on: windows-2022
     permissions:
       contents: 'read'
       id-token: 'write'
