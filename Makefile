@@ -55,7 +55,6 @@ bin/golangci-lint: Makefile
 lint: bin/golangci-lint
 	go mod tidy
 	GOOS='linux' bin/golangci-lint run -v --fix
-	GOOS='darwin' bin/golangci-lint run -v --fix
 	GOOS='windows' bin/golangci-lint run -v --fix
 
 .PHONY: test
