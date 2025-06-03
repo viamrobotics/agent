@@ -65,7 +65,7 @@ func newBTCharacteristics(logger logging.Logger, userInputData *userInputData, p
 		logger:        logger,
 		writables:     map[string]*bluetooth.Characteristic{},
 		userInputData: userInputData,
-		PSK: psk,
+		PSK:           psk,
 	}
 }
 
