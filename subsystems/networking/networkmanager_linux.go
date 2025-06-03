@@ -707,7 +707,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 	defer n.monitorWorkers.Done()
 
 	scanChan := make(chan bool, 16)
-	inputChan := make(chan userInput, 1)
+	inputChan := make(chan userInput, 10)
 
 	n.monitorWorkers.Add(1)
 	go n.backgroundLoop(ctx, scanChan)
