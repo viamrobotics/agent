@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -56,13 +57,15 @@ type btCharacteristics struct {
 	userInputData *userInputData
 
 	privKey *rsa.PrivateKey
+	PSK     string
 }
 
-func newBTCharacteristics(logger logging.Logger, userInputData *userInputData) *btCharacteristics {
+func newBTCharacteristics(logger logging.Logger, userInputData *userInputData, psk string) *btCharacteristics {
 	return &btCharacteristics{
 		logger:        logger,
 		writables:     map[string]*bluetooth.Characteristic{},
 		userInputData: userInputData,
+		PSK: psk,
 	}
 }
 
@@ -130,7 +133,7 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 			if err != nil {
 				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
 			}
-			b.recordInput(ctx, cName, string(plaintext))
+			b.recordInput(ctx, cName, plaintext)
 			b.logger.Debugf("Received %s: %s (cipher/plain sizes: %d/%d)", cName, plaintext, len(value), len(plaintext))
 		},
 	}
@@ -216,12 +219,26 @@ func (b *btCharacteristics) updateErrors(errList []string) error {
 	return b.writeCharacteristic(errorsKey, msg)
 }
 
-func (b *btCharacteristics) decrypt(ciphertext []byte) ([]byte, error) {
+func (b *btCharacteristics) decrypt(ciphertext []byte) (string, error) {
 	if b.privKey == nil {
-		return nil, errors.New("private key not initialized")
+		return "", errors.New("private key not initialized")
 	}
 	// using sha256 for the hash, OAEP allows for messages up to 190 bytes
-	return rsa.DecryptOAEP(sha256.New(), nil, b.privKey, ciphertext, nil)
+	plaintext, err := rsa.DecryptOAEP(sha256.New(), nil, b.privKey, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+
+	splits := strings.SplitN(string(plaintext), ":", 2)
+	if len(splits) != 2 {
+		return "", errors.New("decrypted characteristic is missing pre-shared key")
+	}
+
+	if splits[0] != b.PSK {
+		return "", errors.New("decrypted characteristic has invalid pre-shared key")
+	}
+
+	return splits[1], nil
 }
 
 func (b *btCharacteristics) recordInput(ctx context.Context, cName, value string) {
