@@ -208,7 +208,7 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	if hotspotErr != nil {
 		n.logger.Errorw("failed to start hotspot provisioning", "error", hotspotErr)
 	}
-	bluetoothErr := n.startProvisioningBluetooth()
+	bluetoothErr := n.startProvisioningBluetooth(ctx)
 	if bluetoothErr != nil {
 		n.logger.Errorw("failed to start bluetooth provisioning", "error", bluetoothErr)
 	}
