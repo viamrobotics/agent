@@ -718,6 +718,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case userInput := <-inputChan:
+			userInputReceived = true
 			if userInput.RawConfig != "" || userInput.PartID != "" {
 				n.logger.Info("Device config received")
 				err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
@@ -727,7 +728,6 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					continue
 				}
 				n.checkConfigured()
-				userInputReceived = true
 			}
 
 			if userInput.SSID != "" {
@@ -749,16 +749,6 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					n.logger.Warn(err)
 					continue
 				}
-				userInputReceived = true
-			}
-
-			// wait 5 seconds so responses can be sent to/seen by user, or additional input can be queued
-			if !n.mainLoopHealth.Sleep(ctx, time.Second*5) {
-				return
-			}
-			// loop again to see if there's more data coming
-			if userInputReceived {
-				continue
 			}
 		default:
 			select {
@@ -833,7 +823,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot
+			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
 				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
