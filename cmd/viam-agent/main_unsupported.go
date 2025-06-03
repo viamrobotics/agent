@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"runtime"
 
@@ -13,6 +14,11 @@ import (
 )
 
 func main() {
+	//nolint: forbidigo
+	fmt.Printf("viam-agent is not supported on %v\n", runtime.GOOS)
+	os.Exit(1)
+	// Call commonMain to avoid tripping a bunch of lints for unused code.
+	// Execution will never actually get here.
 	commonMain()
 }
 
