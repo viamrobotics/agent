@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -20,7 +21,7 @@ const (
 )
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningBluetooth() error {
+func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 	if !n.bluetoothEnabled() {
 		return nil
 	}
@@ -30,7 +31,7 @@ func (n *Networking) startProvisioningBluetooth() error {
 	n.btHealthy = false
 
 	// Create a bluetooth service comprised of the above configs.
-	if err := n.initializeBluetoothService(n.Config().HotspotSSID, n.btChar.initCharacteristics()); err != nil {
+	if err := n.initializeBluetoothService(n.Config().HotspotSSID, n.btChar.initCharacteristics(ctx)); err != nil {
 		n.noBT = true
 		return fmt.Errorf("failed to initialize bluetooth service: %w", err)
 	}
