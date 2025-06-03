@@ -5,5 +5,5 @@ import (
 )
 
 func syncfs(fd uintptr) error {
-	return unix.Syncfs(int(fd))
+	return unix.Fsync(int(fd))
 }
