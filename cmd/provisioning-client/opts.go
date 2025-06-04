@@ -21,6 +21,8 @@ var opts struct {
 	PartID  string `description:"PartID to set in viam.json"        long:"partID"`
 	Secret  string `description:"Device secret to set in viam.json" long:"secret"`
 
+	Exit bool `description:"Tell the device to exit provisioning mode" long:"exit" short:"e"`
+
 	Status   bool `description:"Get device status"      long:"status"   short:"s"`
 	Info     bool `description:"Get device info"        long:"info"     short:"i"`
 	Networks bool `description:"List networks"          long:"networks" short:"n"`
