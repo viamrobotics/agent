@@ -35,6 +35,8 @@ const (
 	fragmentKey              = "fragment_id"
 	errorsKey                = "errors"
 	cryptoKey                = "pub_key"
+	exitProvisioningKey      = "exit_provisioning"
+	agentVersionKey          = "agent_version"
 )
 
 var pubKey *rsa.PublicKey
@@ -88,6 +90,29 @@ func btClient() error {
 		if err := BTSetWifiCreds(chars); err != nil {
 			return err
 		}
+	}
+
+	if opts.Exit {
+		return ExitProvisioning(chars)
+	}
+
+	return nil
+}
+
+func ExitProvisioning(chars map[string]bluetooth.DeviceCharacteristic) error {
+	fmt.Println("Sending exit command...")
+	if err := initCrypto(chars); err != nil {
+		return err
+	}
+
+	cryptExit, err := encrypt([]byte("1"))
+	if err != nil {
+		return err
+	}
+
+	_, err = chars[exitProvisioningKey].WriteWithoutResponse(cryptExit)
+	if err != nil {
+		return errw.Wrap(err, "writing app address")
 	}
 	return nil
 }
