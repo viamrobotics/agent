@@ -42,6 +42,12 @@ func grpcClient() error {
 	if opts.SSID != "" {
 		return SetWifiCreds(ctx, client, opts.SSID, opts.PSK)
 	}
+
+	if opts.Exit {
+		_, err = client.ExitProvisioning(ctx, &pb.ExitProvisioningRequest{})
+		return err
+	}
+
 	return nil
 }
 
@@ -51,7 +57,8 @@ func GetStatus(ctx context.Context, client pb.ProvisioningServiceClient) error {
 		return err
 	}
 
-	fmt.Printf("Online: %t, Configured: %t, Provisioning: %v, Last: %v, Errors: %s\n",
+	fmt.Printf("Version: %s, Online: %t, Configured: %t, Provisioning: %v, Last: %v, Errors: %s\n",
+		resp.GetAgentVersion(),
 		resp.GetIsOnline(),
 		resp.GetHasSmartMachineCredentials(),
 		resp.GetProvisioningInfo(),
