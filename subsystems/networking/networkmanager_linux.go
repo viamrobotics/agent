@@ -454,6 +454,12 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 			cfg.Type, NetworkTypeWifi, NetworkTypeWired)
 	}
 
+	// If supplied PSK was literally "NONE", set it to empty. This is temporary until
+	// bluetooth provisioning is altered to avoid usage of the "NONE" keyword.
+	if cfg.PSK == "NONE" {
+		cfg.PSK = ""
+	}
+
 	if cfg.Type != NetworkTypeWired && cfg.PSK != "" && len(cfg.PSK) < 8 {
 		return changesMade, errors.New("wifi passwords must be at least 8 characters long, or completely empty (for unsecured networks)")
 	}
