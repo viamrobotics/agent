@@ -78,7 +78,7 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		bgLoopHealth:   &health{},
 	}
 	subsys.portalData = &userInputData{connState: subsys.connState}
-	subsys.btChar = newBTCharacteristics(logger, subsys.portalData)
+	subsys.btChar = newBTCharacteristics(logger, subsys.portalData, cfg.NetworkConfiguration.HotspotPassword)
 	return subsys
 }
 

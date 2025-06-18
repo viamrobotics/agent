@@ -35,6 +35,8 @@ const (
 	fragmentKey              = "fragment_id"
 	errorsKey                = "errors"
 	cryptoKey                = "pub_key"
+	exitProvisioningKey      = "exit_provisioning"
+	agentVersionKey          = "agent_version"
 )
 
 var pubKey *rsa.PublicKey
@@ -50,11 +52,11 @@ func btClient() error {
 		return BTScanOnly(adapter)
 	}
 
-	device, err := connect()
+	device, err := Connect()
 	if err != nil {
 		return errw.Wrap(err, "connecting")
 	}
-	defer disconnect(device)
+
 	chars, err := getCharicteristicsMap(device)
 	if err != nil {
 		return err
@@ -84,10 +86,39 @@ func btClient() error {
 		}
 	}
 
-	if opts.SSID != "" {
+	if opts.WifiSSID != "" {
 		if err := BTSetWifiCreds(chars); err != nil {
 			return err
 		}
+	}
+
+	if opts.PartID != "" || opts.WifiSSID != "" {
+		if err := BTExitProvisioning(chars); err != nil {
+			return err
+		}
+	}
+
+	if opts.Exit {
+		return ExitProvisioning(chars)
+	}
+
+	return nil
+}
+
+func ExitProvisioning(chars map[string]bluetooth.DeviceCharacteristic) error {
+	fmt.Println("Sending exit command...")
+	if err := initCrypto(chars); err != nil {
+		return err
+	}
+
+	cryptExit, err := encrypt([]byte("1"))
+	if err != nil {
+		return err
+	}
+
+	_, err = chars[exitProvisioningKey].WriteWithoutResponse(cryptExit)
+	if err != nil {
+		return errw.Wrap(err, "writing app address")
 	}
 	return nil
 }
@@ -158,9 +189,9 @@ func BTScan(adapter *bluetooth.Adapter) (bluetooth.Address, error) {
 
 func BTGetInfo(chars map[string]bluetooth.DeviceCharacteristic) error {
 	buf := make([]byte, 512)
-	var manufacturer, model, fragment string
-	for _, c := range []string{manufacturerKey, modelKey, fragmentKey} {
-		size, err := chars[statusKey].Read(buf)
+	var manufacturer, model, fragment, agentVersion string
+	for _, c := range []string{manufacturerKey, modelKey, fragmentKey, agentVersionKey} {
+		size, err := chars[c].Read(buf)
 		if err != nil {
 			return errw.Wrap(err, "reading status")
 		}
@@ -168,12 +199,14 @@ func BTGetInfo(chars map[string]bluetooth.DeviceCharacteristic) error {
 		case manufacturerKey:
 			manufacturer = string(buf[:size])
 		case modelKey:
-			manufacturer = string(buf[:size])
+			model = string(buf[:size])
 		case fragmentKey:
-			manufacturer = string(buf[:size])
+			fragment = string(buf[:size])
+		case agentVersionKey:
+			agentVersion = string(buf[:size])
 		}
 	}
-	fmt.Printf("Manufacturer: %s, Model: %s, Fragment: %s\n", manufacturer, model, fragment)
+	fmt.Printf("Manufacturer: %s, Model: %s, Fragment: %s, Agent Version: %s\n", manufacturer, model, fragment, agentVersion)
 	return nil
 }
 
@@ -278,12 +311,12 @@ func BTSetWifiCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	cryptSSID, err := encrypt([]byte(opts.SSID))
+	cryptSSID, err := encrypt([]byte(opts.WifiSSID))
 	if err != nil {
 		return err
 	}
 
-	cryptPSK, err := encrypt([]byte(opts.PSK))
+	cryptPSK, err := encrypt([]byte(opts.WifiPSK))
 	if err != nil {
 		return err
 	}
@@ -300,11 +333,29 @@ func BTSetWifiCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 	return nil
 }
 
+func BTExitProvisioning(chars map[string]bluetooth.DeviceCharacteristic) error {
+	fmt.Println("Sending exit command...")
+	if err := initCrypto(chars); err != nil {
+		return err
+	}
+
+	cryptExit, err := encrypt([]byte("1"))
+	if err != nil {
+		return err
+	}
+
+	_, err = chars[exitProvisioningKey].WriteWithoutResponse(cryptExit)
+	if err != nil {
+		return errw.Wrap(err, "writing exit command")
+	}
+	return nil
+}
+
 func getUUID(key string) bluetooth.UUID {
 	return bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(key)))
 }
 
-func connect() (*bluetooth.Device, error) {
+func Connect() (*bluetooth.Device, error) {
 	adapter := bluetooth.DefaultAdapter
 	addr, err := BTScan(adapter)
 	if err != nil {
@@ -318,7 +369,7 @@ func connect() (*bluetooth.Device, error) {
 	return &device, nil
 }
 
-func disconnect(device *bluetooth.Device) {
+func Disconnect(device *bluetooth.Device) {
 	fmt.Println("Disconnecting...")
 	err := device.Disconnect()
 	if err != nil {
@@ -378,6 +429,12 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 		case getUUID(fragmentKey):
 			key = fragmentKey
 			charMap[fragmentKey] = char
+		case getUUID(agentVersionKey):
+			key = agentVersionKey
+			charMap[agentVersionKey] = char
+		case getUUID(exitProvisioningKey):
+			key = exitProvisioningKey
+			charMap[exitProvisioningKey] = char
 
 		default:
 			fmt.Printf("Unknown characteristic discovered with UUID: %s", char.String())
@@ -389,7 +446,9 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 }
 
 func encrypt(plaintext []byte) ([]byte, error) {
-	// using sha256 for the hash, OAEP allows for messages up to 190 bytes
+	// append the PSK for security
+	plaintext = append([]byte(opts.PSK+":"), plaintext...)
+	// using sha256 for the hash, OAEP allows for messages up to 190 bytes (minus the PSK size+1)
 	crypttext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pubKey, plaintext, nil)
 	return crypttext, err
 }
@@ -402,7 +461,7 @@ func initCrypto(chars map[string]bluetooth.DeviceCharacteristic) error {
 	buf := make([]byte, 512)
 	size, err := chars[cryptoKey].Read(buf)
 	if err != nil {
-		return errw.Wrap(err, "reading network list")
+		return errw.Wrap(err, "reading crypto psk")
 	}
 
 	ifc, err := x509.ParsePKIXPublicKey(buf[:size])

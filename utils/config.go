@@ -165,7 +165,7 @@ type NetworkConfiguration struct {
 	HotspotInterface string `json:"hotspot_interface,omitempty"`
 	// The prefix to prepend to the hotspot name.
 	HotspotPrefix string `json:"hotspot_prefix,omitempty"`
-	// Normally left blank, and computed from HotspotPrefix and Manufacturer
+	// Normally left blank, and computed from HotspotPrefix and Hostname
 	HotspotSSID string `json:"hotspot_ssid,omitempty"`
 	// Password required to connect to the hotspot.
 	HotspotPassword string `json:"hotspot_password,omitempty"`
@@ -313,7 +313,7 @@ func StackConfigs(proto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {
 		}
 	} else {
 		if err := json.Unmarshal(jsonc.ToJSON(jsonBytes), &cfg); err != nil {
-			errOut = errors.Join(errOut, err)
+			errOut = errors.Join(errOut, errw.Wrapf(err, "parsing %s", DefaultsFilePath))
 		}
 	}
 
