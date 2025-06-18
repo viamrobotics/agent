@@ -40,7 +40,8 @@ func parseOpts() bool {
 		panic(err)
 	}
 
-	if (!opts.BTScan && !opts.BTMode) && (opts.Address == "" || (opts.PartID == "" && opts.WifiSSID == "" && !opts.Networks && !opts.Status)) {
+	if (!opts.BTScan && !opts.BTMode) &&
+		(opts.Address == "" || (opts.PartID == "" && opts.WifiSSID == "" && !opts.Networks && !opts.Status && !opts.Info)) {
 		opts.Help = true
 	}
 

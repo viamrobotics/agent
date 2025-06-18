@@ -27,7 +27,7 @@ func grpcClient() error {
 
 	client := pb.NewProvisioningServiceClient(conn)
 
-	if opts.Status {
+	if opts.Status || opts.Info {
 		if err := GetStatus(ctx, client); err != nil {
 			return err
 		}
