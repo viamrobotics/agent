@@ -28,24 +28,35 @@ func grpcClient() error {
 	client := pb.NewProvisioningServiceClient(conn)
 
 	if opts.Status {
-		return GetStatus(ctx, client)
+		if err := GetStatus(ctx, client); err != nil {
+			return err
+		}
 	}
 
 	if opts.Networks {
-		return GetNetworks(ctx, client)
+		if err := GetNetworks(ctx, client); err != nil {
+			return err
+		}
 	}
 
 	if opts.PartID != "" {
-		return SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr)
+		if err := SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr); err != nil {
+			return err
+		}
 	}
 
-	if opts.SSID != "" {
-		return SetWifiCreds(ctx, client, opts.SSID, opts.PSK)
+	if opts.WifiSSID != "" {
+		if err := SetWifiCreds(ctx, client, opts.WifiSSID, opts.WifiPSK); err != nil {
+			return err
+		}
 	}
 
-	if opts.Exit {
+	if opts.Exit || opts.WifiSSID != "" || opts.PartID != "" {
+		fmt.Println("Sending exit command...")
 		_, err = client.ExitProvisioning(ctx, &pb.ExitProvisioningRequest{})
-		return err
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -81,6 +92,7 @@ func GetNetworks(ctx context.Context, client pb.ProvisioningServiceClient) error
 }
 
 func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string) error {
+	fmt.Println("Writing device credentials...")
 	req := &pb.SetSmartMachineCredentialsRequest{
 		Cloud: &pb.CloudConfig{
 			Id:         id,
@@ -94,6 +106,7 @@ func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id
 }
 
 func SetWifiCreds(ctx context.Context, client pb.ProvisioningServiceClient, ssid, psk string) error {
+	fmt.Println("Writing wifi credentials...")
 	req := &pb.SetNetworkCredentialsRequest{
 		Type: networking.NetworkTypeWifi,
 		Ssid: ssid,

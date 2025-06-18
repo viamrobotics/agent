@@ -132,7 +132,7 @@ func commonMain() {
 
 	cfg, err := utils.LoadConfigFromCache()
 	if err != nil {
-		globalLogger.Warnf("error loading config from cache: %w", err)
+		globalLogger.Warn(errors.Wrap(err, "loading config from cache"))
 	}
 
 	cfg = utils.ApplyCLIArgs(cfg)
