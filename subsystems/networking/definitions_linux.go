@@ -168,7 +168,7 @@ type userInputData struct {
 func (u *userInputData) sendInput(always bool) {
 	inputSnapshot := *u.input
 
-	// always send user input is always is true
+	// always send user input if always is true and reset the entire user input
 	if always {
 		u.input = &userInput{}
 	} else {
