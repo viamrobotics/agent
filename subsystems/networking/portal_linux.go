@@ -193,5 +193,5 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()
 	}
-	n.portalData.sendInput()
+	n.portalData.sendInput(false)
 }
