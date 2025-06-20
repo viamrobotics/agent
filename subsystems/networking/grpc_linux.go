@@ -89,7 +89,7 @@ func (n *Networking) SetNetworkCredentials(ctx context.Context,
 		lastNetwork.mu.Unlock()
 	}
 
-	n.portalData.sendInput()
+	n.portalData.sendInput(true)
 
 	return &pb.SetNetworkCredentialsResponse{}, nil
 }
@@ -109,7 +109,7 @@ func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
 	n.portalData.input.Secret = cloud.GetSecret()
 	n.portalData.input.AppAddr = cloud.GetAppAddress()
 
-	n.portalData.sendInput()
+	n.portalData.sendInput(true)
 
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }

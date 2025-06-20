@@ -165,27 +165,32 @@ type userInputData struct {
 }
 
 // must be called with u.mu already locked!
-func (u *userInputData) sendInput() {
+func (u *userInputData) sendInput(always bool) {
 	inputSnapshot := *u.input
 
-	// send if we have a full/useful set of details, either complete wifi OR complete machine credentials
-	fullWifi := u.input.SSID != "" && u.input.PSK != ""
-	fullCreds := u.input.AppAddr != "" && u.input.PartID != "" && u.input.Secret != ""
+	// always send user input is always is true
+	if always {
+		u.input = &userInput{}
+	} else {
+		// send if we have a full/useful set of details, either complete wifi OR complete machine credentials
+		fullWifi := u.input.SSID != "" && u.input.PSK != ""
+		fullCreds := u.input.AppAddr != "" && u.input.PartID != "" && u.input.Secret != ""
 
-	if !fullWifi && !fullCreds {
-		return
-	}
+		if !fullWifi && !fullCreds {
+			return
+		}
 
-	// reset full set that we're about to send
-	if fullWifi {
-		u.input.SSID = ""
-		u.input.PSK = ""
-	}
+		// reset full set that we're about to send
+		if fullWifi {
+			u.input.SSID = ""
+			u.input.PSK = ""
+		}
 
-	if fullCreds {
-		u.input.PartID = ""
-		u.input.Secret = ""
-		u.input.AppAddr = ""
+		if fullCreds {
+			u.input.PartID = ""
+			u.input.Secret = ""
+			u.input.AppAddr = ""
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

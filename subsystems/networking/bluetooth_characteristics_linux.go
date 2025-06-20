@@ -236,5 +236,5 @@ func (b *btCharacteristics) recordInput(cName, value string) {
 		b.userInputData.input.AppAddr = value
 	}
 
-	b.userInputData.sendInput()
+	b.userInputData.sendInput(false)
 }
