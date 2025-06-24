@@ -80,7 +80,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	}
 	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
-	//nolint:goconst
+
 	if runtime.GOOS == "windows" {
 		binPath += ".exe"
 	}
