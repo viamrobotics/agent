@@ -392,6 +392,10 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 			errw.New("network_configuration.hotspot_password should not be empty, please omit empty fields entirely"))
 	}
 
+	if len(cfg.NetworkConfiguration.HotspotSSID) > 32 {
+		errOut = errors.Join(errOut, errw.New("network_configuration.hotspot_ssid is being truncated to 32 characters"))
+	}
+
 	if cfg.NetworkConfiguration.HotspotSSID == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
@@ -400,9 +404,9 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		}
 		cfg.NetworkConfiguration.HotspotSSID = cfg.NetworkConfiguration.HotspotPrefix + "-" + strings.ToLower(hostname)
 	}
+
 	if len(cfg.NetworkConfiguration.HotspotSSID) > 32 {
 		cfg.NetworkConfiguration.HotspotSSID = cfg.NetworkConfiguration.HotspotSSID[:32]
-		errOut = errors.Join(errOut, errw.New("network_configuration.hotspot_ssid is being truncated to 32 characters"))
 	}
 
 	var haveBadTimeout bool
