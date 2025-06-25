@@ -1,12 +1,14 @@
 package networking
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -33,11 +35,16 @@ const (
 	fragmentKey              = "fragment_id"
 	errorsKey                = "errors"
 	cryptoKey                = "pub_key"
+	exitProvisioningKey      = "exit_provisioning"
+	agentVersionKey          = "agent_version"
 )
 
 var (
-	characteristicsWriteOnly = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey}
-	characteristicsReadOnly  = []string{cryptoKey, statusKey, manufacturerKey, modelKey, fragmentKey, availableWiFiNetworksKey, errorsKey}
+	characteristicsWriteOnly = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey, exitProvisioningKey}
+	characteristicsReadOnly  = []string{
+		cryptoKey, statusKey, manufacturerKey, modelKey,
+		fragmentKey, availableWiFiNetworksKey, errorsKey, agentVersionKey,
+	}
 )
 
 type btCharacteristics struct {
@@ -50,22 +57,24 @@ type btCharacteristics struct {
 	userInputData *userInputData
 
 	privKey *rsa.PrivateKey
+	PSK     string
 }
 
-func newBTCharacteristics(logger logging.Logger, userInputData *userInputData) *btCharacteristics {
+func newBTCharacteristics(logger logging.Logger, userInputData *userInputData, psk string) *btCharacteristics {
 	return &btCharacteristics{
 		logger:        logger,
 		writables:     map[string]*bluetooth.Characteristic{},
 		userInputData: userInputData,
+		PSK:           psk,
 	}
 }
 
-func (b *btCharacteristics) initCharacteristics() []bluetooth.CharacteristicConfig {
+func (b *btCharacteristics) initCharacteristics(ctx context.Context) []bluetooth.CharacteristicConfig {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var charList []bluetooth.CharacteristicConfig
 	for _, char := range characteristicsWriteOnly {
-		charList = append(charList, b.initWriteOnlyCharacteristic(char))
+		charList = append(charList, b.initWriteOnlyCharacteristic(ctx, char))
 	}
 
 	for _, char := range characteristicsReadOnly {
@@ -104,11 +113,12 @@ func (b *btCharacteristics) initDevInfo(cfg utils.NetworkConfiguration) error {
 		b.writeCharacteristic(manufacturerKey, []byte(cfg.Manufacturer)),
 		b.writeCharacteristic(modelKey, []byte(cfg.Model)),
 		b.writeCharacteristic(fragmentKey, []byte(cfg.FragmentID)),
+		b.writeCharacteristic(agentVersionKey, []byte(utils.GetVersion())),
 	)
 }
 
 // initWriteOnlyCharacteristic returns a bluetooth characteristic config.
-func (b *btCharacteristics) initWriteOnlyCharacteristic(cName string) bluetooth.CharacteristicConfig {
+func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cName string) bluetooth.CharacteristicConfig {
 	// Generate predictable (v5) UUID from common namespace+cName
 	cUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(cName)))
 
@@ -123,7 +133,7 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(cName string) bluetooth.
 			if err != nil {
 				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
 			}
-			b.recordInput(cName, string(plaintext))
+			b.recordInput(ctx, cName, plaintext)
 			b.logger.Debugf("Received %s: %s (cipher/plain sizes: %d/%d)", cName, plaintext, len(value), len(plaintext))
 		},
 	}
@@ -209,15 +219,29 @@ func (b *btCharacteristics) updateErrors(errList []string) error {
 	return b.writeCharacteristic(errorsKey, msg)
 }
 
-func (b *btCharacteristics) decrypt(ciphertext []byte) ([]byte, error) {
+func (b *btCharacteristics) decrypt(ciphertext []byte) (string, error) {
 	if b.privKey == nil {
-		return nil, errors.New("private key not initialized")
+		return "", errors.New("private key not initialized")
 	}
 	// using sha256 for the hash, OAEP allows for messages up to 190 bytes
-	return rsa.DecryptOAEP(sha256.New(), nil, b.privKey, ciphertext, nil)
+	plaintext, err := rsa.DecryptOAEP(sha256.New(), nil, b.privKey, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+
+	splits := strings.SplitN(string(plaintext), ":", 2)
+	if len(splits) != 2 {
+		return "", errors.New("decrypted characteristic is missing pre-shared key")
+	}
+
+	if splits[0] != b.PSK {
+		return "", errors.New("decrypted characteristic has invalid pre-shared key")
+	}
+
+	return splits[1], nil
 }
 
-func (b *btCharacteristics) recordInput(cName, value string) {
+func (b *btCharacteristics) recordInput(ctx context.Context, cName, value string) {
 	b.userInputData.mu.Lock()
 	defer b.userInputData.mu.Unlock()
 
@@ -234,7 +258,7 @@ func (b *btCharacteristics) recordInput(cName, value string) {
 		b.userInputData.input.Secret = value
 	case appAddressKey:
 		b.userInputData.input.AppAddr = value
+	case exitProvisioningKey:
+		b.userInputData.sendInput(ctx)
 	}
-
-	b.userInputData.sendInput(false)
 }

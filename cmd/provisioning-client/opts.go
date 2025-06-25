@@ -14,12 +14,16 @@ var opts struct {
 
 	Address string `description:"GRPC address/port to dial (ex: 'localhost:4772')" long:"address" short:"a"`
 
-	SSID string `description:"SSID to set"           long:"ssid"`
-	PSK  string `description:"PSK/Password for wifi" long:"psk"`
+	WifiSSID string `description:"SSID to set"           long:"wifi-ssid"`
+	WifiPSK  string `description:"PSK/Password for wifi" long:"wifi-psk"`
 
-	AppAddr string `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"appaddr"`
-	PartID  string `description:"PartID to set in viam.json"        long:"partID"`
+	PSK string `description:"psk for bluetooth security" long:"psk"`
+
+	AppAddr string `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
+	PartID  string `description:"PartID to set in viam.json"        long:"part-id"`
 	Secret  string `description:"Device secret to set in viam.json" long:"secret"`
+
+	Exit bool `description:"Tell the device to exit provisioning mode" long:"exit" short:"e"`
 
 	Status   bool `description:"Get device status"      long:"status"   short:"s"`
 	Info     bool `description:"Get device info"        long:"info"     short:"i"`
@@ -36,7 +40,8 @@ func parseOpts() bool {
 		panic(err)
 	}
 
-	if (!opts.BTScan && !opts.BTMode) && (opts.Address == "" || (opts.PartID == "" && opts.SSID == "" && !opts.Networks && !opts.Status)) {
+	if (!opts.BTScan && !opts.BTMode) &&
+		(opts.Address == "" || (opts.PartID == "" && opts.WifiSSID == "" && !opts.Networks && !opts.Status && !opts.Info)) {
 		opts.Help = true
 	}
 

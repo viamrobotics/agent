@@ -165,39 +165,13 @@ type userInputData struct {
 }
 
 // must be called with u.mu already locked!
-func (u *userInputData) sendInput(always bool) {
-	inputSnapshot := *u.input
-
-	// always send user input if always is true and reset the entire user input
-	if always {
-		u.input = &userInput{}
-	} else {
-		// send if we have a full/useful set of details, either complete wifi OR complete machine credentials
-		fullWifi := u.input.SSID != "" && u.input.PSK != ""
-		fullCreds := u.input.AppAddr != "" && u.input.PartID != "" && u.input.Secret != ""
-
-		if !fullWifi && !fullCreds {
-			return
-		}
-
-		// reset full set that we're about to send
-		if fullWifi {
-			u.input.SSID = ""
-			u.input.PSK = ""
-		}
-
-		if fullCreds {
-			u.input.PartID = ""
-			u.input.Secret = ""
-			u.input.AppAddr = ""
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+func (u *userInputData) sendInput(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	select {
-	case u.inputChan <- inputSnapshot:
+	case u.inputChan <- *u.input:
 		u.connState.resetLastInteraction()
+		u.input = &userInput{}
 	case <-ctx.Done():
 		u.connState.logger.Warn("user input not received by main loop after 60 seconds")
 	}

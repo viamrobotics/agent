@@ -51,6 +51,7 @@ func (n *Networking) GetSmartMachineStatus(ctx context.Context,
 		HasSmartMachineCredentials: n.connState.getConfigured(),
 		IsOnline:                   n.connState.getOnline(),
 		Errors:                     n.errListAsStrings(),
+		AgentVersion:               utils.GetVersion(),
 	}
 
 	lastSSID := n.netState.LastSSID(n.Config().HotspotInterface)
@@ -89,9 +90,12 @@ func (n *Networking) SetNetworkCredentials(ctx context.Context,
 		lastNetwork.mu.Unlock()
 	}
 
-	n.portalData.sendInput(true)
-
 	return &pb.SetNetworkCredentialsResponse{}, nil
+}
+
+func (n *Networking) ExitProvisioning(ctx context.Context, req *pb.ExitProvisioningRequest) (*pb.ExitProvisioningResponse, error) {
+	n.portalData.sendInput(ctx)
+	return &pb.ExitProvisioningResponse{}, nil
 }
 
 func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
@@ -108,8 +112,6 @@ func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
 	n.portalData.input.PartID = cloud.GetId()
 	n.portalData.input.Secret = cloud.GetSecret()
 	n.portalData.input.AppAddr = cloud.GetAppAddress()
-
-	n.portalData.sendInput(true)
 
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }
