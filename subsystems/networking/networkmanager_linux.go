@@ -341,6 +341,10 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 	if err := n.waitForConnect(ctx, netDev); err != nil {
 		nw.lastError = err
 		nw.connected = false
+		if errors.Is(err, ErrBadPassword) {
+			// Bypass getCandidates' excluding recentlyTried networks (user may quickly correct password).
+			nw.lastTried = time.Time{}
+		}
 		return err
 	}
 
@@ -708,6 +712,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 	scanChan := make(chan bool, 16)
 	inputChan := make(chan userInput, 10)
+	var forceStayInPModeUntilRecvUserInput bool
 
 	n.monitorWorkers.Add(1)
 	go n.backgroundLoop(ctx, scanChan)
@@ -719,6 +724,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			return
 		case userInput := <-inputChan:
 			userInputReceived = true
+			forceStayInPModeUntilRecvUserInput = false
 			if userInput.RawConfig != "" || userInput.PartID != "" {
 				n.logger.Info("Device config received")
 				err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
@@ -750,15 +756,11 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					continue
 				}
 			}
-		default:
-			select {
-			case <-ctx.Done():
-				return
-			case <-scanChan:
-			case <-time.After((scanLoopDelay + scanTimeout) * 2):
-				// safety fallback if something hangs
-				n.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
-			}
+		case <-scanChan:
+			// Ticks scanLoopDelay seconds. See backgroundLoop
+		case <-time.After((scanLoopDelay + scanTimeout) * 2):
+			// safety fallback if something hangs
+			n.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
 		}
 
 		n.mainLoopHealth.MarkGood()
@@ -823,12 +825,18 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived
+			shouldExitPMode := (allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived) &&
+				!forceStayInPModeUntilRecvUserInput
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
 				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
 
-			if shouldExit {
+			if shouldExitPMode {
+				if userInputReceived {
+					// We could get to this point before the user receives our response (poor UX, but likely not critical)
+					// E.g. try to avoid "Not connected" web portal screen.
+					time.Sleep(3 * time.Second)
+				}
 				if err := n.StopProvisioning(); err != nil {
 					n.logger.Warn(err)
 				} else {
@@ -846,9 +854,12 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			continue
 		}
 
+		var forceStartPMode bool
 		// not in provisioning mode
 		if !hasConnectivity {
 			if n.tryCandidates(ctx) || n.tryBluetoothTether(ctx) {
+				// back to regular pMode activation flow (below checks could auto resolve later)
+				forceStayInPModeUntilRecvUserInput = false
 				hasConnectivity = n.connState.getConnected() || n.connState.getOnline()
 				// if we're roaming or this network was JUST added, it must have internet
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
@@ -861,13 +872,20 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 					lastConnectivity = n.connState.getLastOnline()
 				}
+			} else {
+				// Did not get what we need in previous provision (e.g. bad wifi password).
+				forceStartPMode = true
+				// Stay in pMode until user input.
+				// We get to this point with things like incorrect ssid or password that will likely not auto-resolve.
+				// in bad password case: haveCandidates condition for exiting pMode remains true (likely stale).
+				forceStayInPModeUntilRecvUserInput = true
 			}
 		}
 
-		shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
+		shouldRebootSystem := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 			lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-		if shouldReboot && n.doReboot(ctx) {
+		if shouldRebootSystem && n.doReboot(ctx) {
 			return
 		}
 
@@ -875,7 +893,8 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout {
+		if !isConfigured || hitOfflineTimeout || forceStartPMode {
+			forceStartPMode = false
 			if err := n.StartProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
