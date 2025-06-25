@@ -80,7 +80,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		return nil
 	}
 	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
-	//nolint:goconst
+
 	if runtime.GOOS == "windows" {
 		binPath += ".exe"
 	}
@@ -169,7 +169,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	case matches := <-c:
 		s.checkURL = matches[1]
 		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "localhost", 1)
-		s.logger.Infof("healthcheck URLs: %s %s", s.checkURL, s.checkURLAlt)
+		s.logger.Infof("viam-server restart allowed check URLs: %s %s", s.checkURL, s.checkURLAlt)
 		s.logger.Infof("%s started", SubsysName)
 		return nil
 	case <-ctx.Done():
@@ -242,74 +242,9 @@ func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) boo
 	}
 }
 
+// HealthCheck for viam server is unimplemented.
 func (s *viamServer) HealthCheck(ctx context.Context) error {
-	s.startStopMu.Lock()
-	defer s.startStopMu.Unlock()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.running {
-		return errw.Errorf("%s not running", SubsysName)
-	}
-	if s.checkURL == "" {
-		return errw.Errorf("can't find listening URL for %s", SubsysName)
-	}
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-
-	urls, err := s.makeTestURLs()
-	if err != nil {
-		return err
-	}
-
-	resultChan := make(chan error, len(urls))
-
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
-	defer cancelFunc()
-
-	for _, url := range urls {
-		go func() {
-			s.logger.Debugf("starting healthcheck for %s using %s", SubsysName, url)
-
-			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, url, nil)
-			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking %s status via %s", SubsysName, url)
-				return
-			}
-
-			// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
-			//nolint:gosec
-			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-
-			resp, err := client.Do(req)
-			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking %s status via %s", SubsysName, url)
-				return
-			}
-
-			defer func() {
-				goutils.UncheckedError(resp.Body.Close())
-			}()
-
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				resultChan <- errw.Wrapf(err, "checking %s status via %s, got code: %d", SubsysName, url, resp.StatusCode)
-				return
-			}
-
-			s.logger.Debugf("healthcheck for %s is good per %s", SubsysName, url)
-			resultChan <- nil
-		}()
-	}
-
-	var combinedErr error
-	for i := 1; i <= len(urls); i++ {
-		result := <-resultChan
-		if result == nil {
-			return nil
-		}
-		combinedErr = errors.Join(combinedErr, result)
-	}
-	return combinedErr
+	return nil
 }
 
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
@@ -439,10 +374,10 @@ func (s *viamServer) makeTestURLs() ([]string, error) {
 	port := "8080"
 	mainURL, err := url.Parse(s.checkURL)
 	if err != nil {
-		s.logger.Warnf("cannot determine port for healthcheck, using default of 8080")
+		s.logger.Warnf("cannot determine port for restart allowed check, using default of 8080")
 	} else {
 		port = mainURL.Port()
-		s.logger.Debugf("using port %s for healthchecks", port)
+		s.logger.Debugf("using port %s for restart allowed check", port)
 	}
 
 	ips, err := GetAllLocalIPv4s()
