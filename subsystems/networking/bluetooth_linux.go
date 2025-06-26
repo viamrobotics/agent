@@ -53,7 +53,9 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 		n.logger.Warn("could not update BT networks characteristic")
 	}
 
-	// TODO RSDK-10815: Enable pairing and tethering
+	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
+		return err
+	}
 
 	// Start advertising the bluetooth service.
 	if err := n.btAdv.Start(); err != nil {
@@ -76,7 +78,9 @@ func (n *Networking) stopProvisioningBluetooth() error {
 	}
 	n.btAdv = nil
 
-	// TODO RSDK-10815: Enable pairing and tethering
+	if err := n.disablePairing(); err != nil {
+		return err
+	}
 
 	if err := n.removeServices(); err != nil {
 		return err
