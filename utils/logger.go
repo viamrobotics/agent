@@ -1,11 +1,10 @@
 package utils
 
 import (
+	"bufio"
 	"bytes"
-	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -36,8 +35,13 @@ type matcher struct {
 }
 
 // NewMatchingLogger returns a MatchingLogger.
-func NewMatchingLogger(logger logging.Logger, isError, uploadAll bool) *MatchingLogger {
-	return &MatchingLogger{logger: logger, defaultError: isError, uploadAll: uploadAll}
+func NewMatchingLogger(logger logging.Logger, isError, uploadAll bool, unstructuredLoggerName string) *MatchingLogger {
+	return &MatchingLogger{
+		logger:                 logger,
+		defaultError:           isError,
+		uploadAll:              uploadAll,
+		unstructuredLoggerName: unstructuredLoggerName,
+	}
 }
 
 // MatchingLogger provides a logger that also allows sending regex matched lines to a channel.
@@ -47,7 +51,8 @@ type MatchingLogger struct {
 	matchers     map[string]matcher
 	defaultError bool
 	// if uploadAll is false, only send unstructured log lines to the logger, and just print structured ones.
-	uploadAll bool
+	uploadAll              bool
+	unstructuredLoggerName string
 }
 
 // AddMatcher adds a named regex to filter from results and return to a channel, optionally masking it from normal logging.
@@ -100,31 +105,33 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 
-	// TODO(RSDK-7895): the lines from subprocess stdout are sometimes multi-line.
-	dateMatched := dateRegex.Match(p)
-	if !dateMatched { //nolint:gocritic
-		// this case is the 'unstructured error' case; we were unable to parse a date.
-		lines := strings.ReplaceAll(strings.TrimSpace(string(p)), "\n", "\n\t")
-		entry := logging.LogEntry{Entry: zapcore.Entry{
-			Level:      zapcore.Level(logging.WARN),
-			Time:       time.Now().UTC(),
-			LoggerName: l.logger.Desugar().Name(),
-			Message:    fmt.Sprintf("unstructured output:\n\t%s", lines),
-			Caller:     zapcore.EntryCaller{Defined: false},
-		}}
-		if l.defaultError {
-			entry.Level = zapcore.Level(logging.ERROR)
+	scanner := bufio.NewScanner(bytes.NewReader(p))
+	for scanner.Scan() {
+		dateMatched := dateRegex.Match(scanner.Bytes())
+		if !dateMatched { //nolint:gocritic
+			// this case is the 'unstructured error' case; we were unable to parse a date.
+			entry := logging.LogEntry{Entry: zapcore.Entry{
+				Level:      zapcore.Level(logging.WARN),
+				Time:       time.Now().UTC(),
+				LoggerName: l.unstructuredLoggerName,
+				Message:    scanner.Text(),
+				Caller:     zapcore.EntryCaller{Defined: false},
+			}}
+			if l.defaultError {
+				entry.Level = zapcore.Level(logging.ERROR)
+			}
+			l.logger.Write(&entry)
+		} else if l.uploadAll {
+			// in this case, date matching succeeded and we think this is a parseable log message.
+			// we check uploadAll because some subprocesses have their own netlogger which will
+			// upload structured logs. (But won't upload unmatched logs).
+			entry := parseLog(scanner.Bytes()).entry()
+			l.logger.Write(&logging.LogEntry{Entry: entry})
+		} else {
+			// this case is already-structured logging from non-uploadAll; we print it but don't upload it.
+			writePlatformOutput(scanner.Bytes())
+			writePlatformOutput([]byte("\n"))
 		}
-		l.logger.Write(&entry)
-	} else if l.uploadAll {
-		// in this case, date matching succeeded and we think this is a parseable log message.
-		// we check uploadAll because some subprocesses have their own netlogger which will
-		// upload structured logs. (But won't upload unmatched logs).
-		entry := parseLog(p).entry()
-		l.logger.Write(&logging.LogEntry{Entry: entry})
-	} else {
-		// this case is already-structured logging from non-uploadAll; we print it but don't upload it.
-		return writePlatformOutput(p)
 	}
 	// note: this return isn't quite right; we don't know how many bytes we wrote, it can be greater
 	// than len(p) in some cases, and we don't know if the write succeeded (to stderr or network).

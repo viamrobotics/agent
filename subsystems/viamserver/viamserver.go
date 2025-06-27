@@ -97,8 +97,8 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.shouldRun = true
 	}
 
-	stdio := utils.NewMatchingLogger(s.logger, false, false)
-	stderr := utils.NewMatchingLogger(s.logger, false, false)
+	stdio := utils.NewMatchingLogger(s.logger, false, false, "viam-server.StdOut")
+	stderr := utils.NewMatchingLogger(s.logger, false, false, "viam-server.StdErr")
 	//nolint:gosec
 	s.cmd = exec.Command(binPath, "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs["viam"]
