@@ -153,8 +153,7 @@ func (n *Networking) removeServices() error {
 	var ok bool
 	for id := range 10000 {
 		path := dbus.ObjectPath(fmt.Sprintf("/org/tinygo/bluetooth/service%d", id))
-		err := adapter.Call("org.bluez.GattManager1.UnregisterApplication", 0, path).Err
-		if err == nil {
+		if adapter.Call("org.bluez.GattManager1.UnregisterApplication", 0, path).Err == nil {
 			n.logger.Debugf("removed gatt service %s", path)
 			ok = true
 		}
