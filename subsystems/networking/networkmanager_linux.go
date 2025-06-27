@@ -444,7 +444,7 @@ func (n *Networking) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
 	var changesMade bool
 
-	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired {
+	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired && cfg.Type != NetworkTypeBluetooth {
 		return changesMade, errw.Errorf("unspported network type %s, only %s, and %s currently supported",
 			cfg.Type, NetworkTypeWifi, NetworkTypeWired)
 	}

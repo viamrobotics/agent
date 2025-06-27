@@ -253,6 +253,9 @@ func (n *Networking) updateKnownConnections(ctx context.Context) error {
 		case NetworkTypeWifi:
 			fallthrough
 		case NetworkTypeBluetooth:
+			if n.btAgent != nil {
+				n.btAgent.TrustDevice(nw.ssid)
+			}
 			if n.netState.ActiveConn(nw.interfaceName) != nil && n.netState.ActiveSSID(ifName) == nw.ssid {
 				nw.connected = true
 			} else {
