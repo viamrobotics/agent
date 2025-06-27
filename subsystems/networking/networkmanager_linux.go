@@ -195,8 +195,8 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.pModeMu.Lock()
+	defer n.pModeMu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -249,8 +249,8 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 }
 
 func (n *Networking) StopProvisioning() error {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.pModeMu.Lock()
+	defer n.pModeMu.Unlock()
 	return n.stopProvisioning()
 }
 
