@@ -53,7 +53,9 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 		n.logger.Warn("could not update BT networks characteristic")
 	}
 
-	// TODO RSDK-10815: Enable pairing and tethering
+	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
+		return err
+	}
 
 	// Start advertising the bluetooth service.
 	if err := n.btAdv.Start(); err != nil {
@@ -76,7 +78,9 @@ func (n *Networking) stopProvisioningBluetooth() error {
 	}
 	n.btAdv = nil
 
-	// TODO RSDK-10815: Enable pairing and tethering
+	if err := n.disablePairing(); err != nil {
+		return err
+	}
 
 	if err := n.removeServices(); err != nil {
 		return err
@@ -149,8 +153,7 @@ func (n *Networking) removeServices() error {
 	var ok bool
 	for id := range 10000 {
 		path := dbus.ObjectPath(fmt.Sprintf("/org/tinygo/bluetooth/service%d", id))
-		err := adapter.Call("org.bluez.GattManager1.UnregisterApplication", 0, path).Err
-		if err == nil {
+		if adapter.Call("org.bluez.GattManager1.UnregisterApplication", 0, path).Err == nil {
 			n.logger.Debugf("removed gatt service %s", path)
 			ok = true
 		}

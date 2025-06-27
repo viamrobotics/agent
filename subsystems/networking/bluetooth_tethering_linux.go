@@ -1,0 +1,215 @@
+package networking
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	dbus "github.com/godbus/dbus/v5"
+	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
+	"go.viam.com/rdk/logging"
+)
+
+var errPairingRejected = &dbus.Error{Name: "org.bluez.Error.Rejected"}
+
+// this will be the bluetooth "agent" used for pairing requests.
+type basicAgent struct {
+	mu      sync.Mutex
+	conn    *dbus.Conn
+	logger  logging.Logger
+	trusted map[string]bool
+
+	workers sync.WaitGroup
+	cancel  context.CancelFunc
+
+	networking *Networking
+}
+
+func (b *basicAgent) TrustDevice(bdaddr string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.trusted[bdaddr] = true
+}
+
+func (b *basicAgent) Cancel() *dbus.Error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.cancel != nil {
+		b.cancel()
+	}
+	return nil
+}
+
+// passkey style requests (six digit number).
+func (b *basicAgent) RequestConfirmation(devicePath dbus.ObjectPath, passkey uint32) *dbus.Error {
+	return b.RequestAuthorization(devicePath)
+}
+
+// generic requests, we compare the HW address to accept/deny.
+func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Error {
+	conn, _, err := getBluetoothDBus()
+	if err != nil {
+		b.logger.Error(err)
+		return errPairingRejected
+	}
+
+	remoteDev := conn.Object(BluezDBusService, devicePath)
+
+	bdaddr, err := remoteDev.GetProperty("org.bluez.Device1.Address")
+	if err != nil {
+		b.logger.Error(err)
+		return errPairingRejected
+	}
+
+	bdaddrStr := bdaddr.Value().(string)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.logger.Infof("Bluetooth pairing request from: %s", bdaddrStr)
+
+	trusted, ok := b.trusted[bdaddrStr]
+	if !(ok && trusted) {
+		b.logger.Errorf("Bluetooth device pairing rejected for %s, device address must be added via provisioning first.", bdaddrStr)
+		return errPairingRejected
+	}
+
+	if err := remoteDev.SetProperty("org.bluez.Device1.Trusted", true); err != nil {
+		b.logger.Error(errw.Wrapf(err, "trusting bluetooth device %s", bdaddrStr))
+	} else {
+		b.logger.Infof("Bluetooth device paired/trusted: %s", bdaddrStr)
+	}
+
+	b.workers.Add(1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	b.cancel = cancel
+
+	go func() {
+		defer cancel()
+		defer b.workers.Done()
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			ret, err := remoteDev.GetProperty("org.bluez.Device1.Paired")
+			if err != nil {
+				b.logger.Warn(errw.Wrapf(err, "cannot get paired status for bluetooth device: %s", bdaddrStr))
+			}
+			if ret.Value().(bool) {
+				break
+			}
+			if !b.networking.mainLoopHealth.Sleep(ctx, time.Second) {
+				return
+			}
+		}
+		call := remoteDev.CallWithContext(ctx, "org.bluez.Device1.ConnectProfile", 0, "00001115-0000-1000-8000-00805f9b34fb")
+		if err := call.Err; err != nil {
+			b.logger.Error(errw.Wrapf(err, "connecting bluetooth device: %s", bdaddrStr))
+		}
+
+		tetherCfg := utils.NetworkDefinition{
+			Type: NetworkTypeBluetooth,
+			SSID: bdaddrStr,
+		}
+		_, err := b.networking.AddOrUpdateConnection(tetherCfg)
+		if err != nil {
+			b.logger.Error(errw.Wrapf(err, "adding tethering config for: %s", bdaddrStr))
+		} else {
+			b.logger.Infof("Added bluetooth device for tethering: %s", bdaddrStr)
+		}
+
+		if !b.networking.tryBluetoothTether(ctx) {
+			b.logger.Info("Bluetooth tethering may take a few moments to fully activate")
+		}
+	}()
+
+	return nil
+}
+
+func (n *Networking) enablePairing(deviceName string) error {
+	conn, adapter, err := getBluetoothDBus()
+	if err != nil {
+		return err
+	}
+
+	call := adapter.Call("org.bluez.Adapter1.StartDiscovery", 0)
+	if call.Err != nil {
+		return call.Err
+	}
+
+	err = adapter.SetProperty("org.bluez.Adapter1.Alias", dbus.MakeVariant(deviceName))
+	if err != nil {
+		return errw.Wrap(err, "setting bluetooth alias")
+	}
+
+	n.logger.Debug("setting bluetooth to discoverable")
+	err = adapter.SetProperty("org.bluez.Adapter1.Discoverable", dbus.MakeVariant(true))
+	if err != nil {
+		return errw.Wrap(err, "enabling bluetooth discovery")
+	}
+
+	discoveryTimeout := uint32(time.Duration(n.Config().RetryConnectionTimeoutMinutes * 2).Seconds())
+	err = adapter.SetProperty("org.bluez.Adapter1.DiscoverableTimeout", dbus.MakeVariant(discoveryTimeout))
+	if err != nil {
+		return errw.Wrap(err, "adjusting discovery timeout")
+	}
+
+	// SMURF remove trusted!
+	n.btAgent = &basicAgent{
+		logger:     n.logger,
+		conn:       conn,
+		networking: n,
+		trusted:    map[string]bool{"FC:41:16:BF:6D:98": true},
+	}
+
+	if err := conn.Export(n.btAgent, BluezAgentPath, BluezAgent); err != nil {
+		return errw.Wrap(err, "exporting custom agent object")
+	}
+
+	obj := conn.Object(BluezDBusService, "/org/bluez")
+	call = obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "DisplayYesNo")
+	if err := call.Err; err != nil {
+		return errw.Wrap(err, "registering custom agent")
+	}
+
+	call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
+	if err := call.Err; err != nil {
+		return fmt.Errorf("failed to set default agent: %w", err)
+	}
+
+	n.logger.Debug("bluetooth pairing enabled")
+	return nil
+}
+
+func (n *Networking) disablePairing() error {
+	conn, adapter, err := getBluetoothDBus()
+	if err != nil {
+		return err
+	}
+
+	call := adapter.Call("org.bluez.Adapter1.StopDiscovery", 0)
+	if call.Err != nil {
+		return call.Err
+	}
+
+	obj := conn.Object(BluezDBusService, "/org/bluez")
+	call = obj.Call("org.bluez.AgentManager1.UnregisterAgent", 0, dbus.ObjectPath(BluezAgentPath))
+	if err := call.Err; err != nil {
+		n.logger.Warnf("failed to unregister a bluez agent: %v", err)
+	}
+
+	n.logger.Debug("setting bluetooth to NOT discoverable")
+	err = adapter.SetProperty("org.bluez.Adapter1.Discoverable", dbus.MakeVariant(false))
+	if err != nil {
+		return errw.Wrap(err, "disabling bluetooth discovery")
+	}
+
+	//nolint:errcheck
+	n.btAgent.Cancel()
+	n.btAgent.workers.Wait()
+
+	n.logger.Debug("bluetooth pairing disabled")
+	return nil
+}

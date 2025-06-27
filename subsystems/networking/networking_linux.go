@@ -21,8 +21,10 @@ import (
 type Networking struct {
 	monitorWorkers sync.WaitGroup
 
-	// blocks start/stop/etc operations
-	opMu    sync.Mutex
+	// blocks networking wide start/stop/etc operations
+	opMu sync.Mutex
+	// blocks internal start/stop of provisioning mode itself
+	pModeMu sync.Mutex
 	running bool
 	noNM    bool
 
@@ -55,9 +57,10 @@ type Networking struct {
 	portalData *userInputData
 
 	// bluetooth
-	noBT   bool
-	btChar *btCharacteristics
-	btAdv  *bluetooth.Advertisement
+	noBT    bool
+	btChar  *btCharacteristics
+	btAdv   *bluetooth.Advertisement
+	btAgent *basicAgent
 
 	pb.UnimplementedProvisioningServiceServer
 }

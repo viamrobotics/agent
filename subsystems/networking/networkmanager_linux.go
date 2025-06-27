@@ -195,8 +195,8 @@ func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- use
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.pModeMu.Lock()
+	defer n.pModeMu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -249,8 +249,8 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 }
 
 func (n *Networking) StopProvisioning() error {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.pModeMu.Lock()
+	defer n.pModeMu.Unlock()
 	return n.stopProvisioning()
 }
 
@@ -449,7 +449,7 @@ func (n *Networking) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
 	var changesMade bool
 
-	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired {
+	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired && cfg.Type != NetworkTypeBluetooth {
 		return changesMade, errw.Errorf("unspported network type %s, only %s, and %s currently supported",
 			cfg.Type, NetworkTypeWifi, NetworkTypeWired)
 	}
