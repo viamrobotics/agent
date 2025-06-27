@@ -37,11 +37,15 @@ const (
 	cryptoKey                = "pub_key"
 	exitProvisioningKey      = "exit_provisioning"
 	agentVersionKey          = "agent_version"
+	tetherAddress            = "tether_address"
 )
 
 var (
-	characteristicsWriteOnly = []string{ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, appAddressKey, exitProvisioningKey}
-	characteristicsReadOnly  = []string{
+	characteristicsWriteOnly = []string{
+		ssidKey, pskKey, robotPartIDKey, robotPartSecretKey,
+		appAddressKey, exitProvisioningKey, tetherAddress,
+	}
+	characteristicsReadOnly = []string{
 		cryptoKey, statusKey, manufacturerKey, modelKey,
 		fragmentKey, availableWiFiNetworksKey, errorsKey, agentVersionKey,
 	}
