@@ -129,6 +129,7 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 			l.logger.Write(&logging.LogEntry{Entry: entry})
 		} else {
 			// this case is already-structured logging from non-uploadAll; we print it but don't upload it.
+			//nolint:errcheck
 			writePlatformOutput(scanner.Bytes())
 			writePlatformOutput([]byte("\n"))
 		}
