@@ -57,9 +57,10 @@ type Networking struct {
 	portalData *userInputData
 
 	// bluetooth
-	noBT   bool
-	btChar *btCharacteristics
-	btAdv  *bluetooth.Advertisement
+	noBT    bool
+	btChar  *btCharacteristics
+	btAdv   *bluetooth.Advertisement
+	btAgent *basicAgent
 
 	pb.UnimplementedProvisioningServiceServer
 }
