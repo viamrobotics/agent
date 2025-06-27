@@ -21,8 +21,10 @@ import (
 type Networking struct {
 	monitorWorkers sync.WaitGroup
 
-	// blocks start/stop/etc operations
-	opMu    sync.Mutex
+	// blocks networking wide start/stop/etc operations
+	opMu sync.Mutex
+	// blocks internal start/stop of provisioning mode itself
+	pModeMu sync.Mutex
 	running bool
 	noNM    bool
 
