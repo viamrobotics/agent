@@ -191,12 +191,10 @@ func (n *Networking) checkConnections() error {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- userInput) error {
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
-	n.pModeMu.Lock()
-	defer n.pModeMu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -246,12 +244,6 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 	}
 	n.logger.Info("Hotspot provisioning set up successfully.")
 	return nil
-}
-
-func (n *Networking) StopProvisioning() error {
-	n.pModeMu.Lock()
-	defer n.pModeMu.Unlock()
-	return n.stopProvisioning()
 }
 
 func (n *Networking) stopProvisioning() error {
@@ -705,6 +697,11 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
+	defer func() {
+		if err := n.stopProvisioning(); err != nil {
+			n.logger.Warn(err)
+		}
+	}()
 
 	scanChan := make(chan bool, 16)
 	inputChan := make(chan userInput, 10)
@@ -829,7 +826,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
 
 			if shouldExit {
-				if err := n.StopProvisioning(); err != nil {
+				if err := n.stopProvisioning(); err != nil {
 					n.logger.Warn(err)
 				} else {
 					pMode = n.connState.getProvisioning()
@@ -876,7 +873,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
 		if !isConfigured || hitOfflineTimeout {
-			if err := n.StartProvisioning(ctx, inputChan); err != nil {
+			if err := n.startProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
 		}

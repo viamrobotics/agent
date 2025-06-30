@@ -23,8 +23,7 @@ type Networking struct {
 
 	// blocks networking wide start/stop/etc operations
 	opMu sync.Mutex
-	// blocks internal start/stop of provisioning mode itself
-	pModeMu sync.Mutex
+
 	running bool
 	noNM    bool
 
@@ -252,12 +251,6 @@ func (n *Networking) Stop(ctx context.Context) error {
 	}
 
 	n.logger.Infof("%s subsystem exiting", SubsysName)
-	if n.connState.getProvisioning() {
-		err := n.stopProvisioning()
-		if err != nil {
-			n.logger.Warn(err)
-		}
-	}
 	if n.cancel != nil {
 		n.cancel()
 	}
