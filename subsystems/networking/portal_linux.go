@@ -97,6 +97,9 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 
 	cfg := n.Config()
 
+	// mu needed to show Errors from portalSave immediately
+	n.portalData.mu.Lock()
+	defer n.portalData.mu.Unlock()
 	data := templateData{
 		Manufacturer: cfg.Manufacturer,
 		Model:        cfg.Model,
