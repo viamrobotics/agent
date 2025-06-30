@@ -10,5 +10,8 @@ const (
 	NetworkTypeHotspot   = "hotspot"
 	NetworkTypeBluetooth = "bluetooth"
 
-	HealthCheckTimeout = time.Minute
+	HealthCheckTimeout      = time.Minute
+	BluetoothPairingTimeout = time.Second * 30
 )
+
+var NetworkTypesKnown = []string{NetworkTypeHotspot, NetworkTypeWifi, NetworkTypeWired, NetworkTypeBluetooth}
