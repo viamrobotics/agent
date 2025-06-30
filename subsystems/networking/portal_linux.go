@@ -82,11 +82,10 @@ func (n *Networking) stopPortal() error {
 		n.grpcServer = nil
 	}
 
-	var err error
 	if n.webServer != nil {
-		err = n.webServer.Close()
+		return n.webServer.Close()
 	}
-	return err
+	return nil
 }
 
 func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {

@@ -736,6 +736,11 @@ func (n *Networking) processUserInput(userInput userInput) bool {
 func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
+	defer func() {
+		if err := n.stopProvisioning(); err != nil {
+			n.logger.Warn(err)
+		}
+	}()
 
 	scanChan := make(chan bool, 16)
 	inputChan := make(chan userInput, 10)
