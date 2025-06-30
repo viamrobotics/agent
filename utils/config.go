@@ -200,7 +200,7 @@ type NetworkConfiguration struct {
 type AdditionalNetworks map[string]NetworkDefinition
 
 type NetworkDefinition struct {
-	// "wifi", "wired"
+	// "wifi", "wired", "bluetooth"
 	Type string `json:"type,omitempty"`
 
 	// name of interface, ex: "wlan0", "eth0", "enp14s0", etc.
@@ -209,6 +209,9 @@ type NetworkDefinition struct {
 	// Wifi Settings
 	SSID string `json:"ssid,omitempty"`
 	PSK  string `json:"psk,omitempty"`
+
+	// Bluetooth device address for tethering connections, uppercase hex, ex: "A1:B2:C3:11:22:3F"
+	BluetoothAddress string `json:"bluetooth_address,omitempty"`
 
 	// Autoconnect Priority (primarily for wifi)
 	// higher values are preferred/tried first

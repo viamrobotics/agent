@@ -92,9 +92,9 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 
 	// Handle bluetooth
 	if cfg.Type == NetworkTypeBluetooth {
-		macAddr, err := net.ParseMAC(cfg.SSID)
+		macAddr, err := net.ParseMAC(cfg.BluetoothAddress)
 		if err != nil {
-			return nil, errw.Wrapf(err, "parsing bluetooth device address for %s", cfg.SSID)
+			return nil, errw.Wrapf(err, "parsing bluetooth device address for %s", cfg.BluetoothAddress)
 		}
 
 		settings[NetworkTypeBluetooth] = map[string]any{

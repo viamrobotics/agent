@@ -57,71 +57,96 @@ func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Erro
 
 	remoteDev := conn.Object(BluezDBusService, devicePath)
 
-	bdaddr, err := remoteDev.GetProperty("org.bluez.Device1.Address")
+	ret, err := remoteDev.GetProperty("org.bluez.Device1.Address")
 	if err != nil {
 		b.logger.Error(err)
 		return errPairingRejected
 	}
+	bdaddr := ret.Value().(string)
 
-	bdaddrStr := bdaddr.Value().(string)
+	ret, err = remoteDev.GetProperty("org.bluez.Device1.Alias")
+	if err != nil {
+		b.logger.Error(err)
+	}
+	alias := ret.Value().(string)
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.logger.Infof("Bluetooth pairing request from: %s", bdaddrStr)
+	b.logger.Infof("Bluetooth pairing request from: %s", bdaddr)
 
-	trusted, ok := b.trusted[bdaddrStr]
+	trusted, ok := b.trusted[bdaddr]
 	if !(ok && trusted) {
-		b.logger.Errorf("Bluetooth device pairing rejected for %s, device address must be added via provisioning first.", bdaddrStr)
+		b.logger.Errorf("Bluetooth device pairing rejected for %s (%s), device address must be added via provisioning first.", bdaddr, alias)
 		return errPairingRejected
 	}
 
 	if err := remoteDev.SetProperty("org.bluez.Device1.Trusted", true); err != nil {
-		b.logger.Error(errw.Wrapf(err, "trusting bluetooth device %s", bdaddrStr))
+		b.logger.Error(errw.Wrapf(err, "trusting bluetooth device %s (%s)", bdaddr, alias))
 	} else {
-		b.logger.Infof("Bluetooth device paired/trusted: %s", bdaddrStr)
+		b.logger.Infof("Bluetooth device paired/trusted: %s (%s)", bdaddr, alias)
 	}
 
 	b.workers.Add(1)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	ctx, cancel := context.WithTimeout(context.Background(), BluetoothPairingTimeout)
 	b.cancel = cancel
-
 	go func() {
 		defer cancel()
 		defer b.workers.Done()
+		var allGood bool
+		defer func() {
+			if !allGood {
+				b.logger.Warnf("failed to fully set up bluetooth tethering for %s (%s)", bdaddr, alias)
+			}
+		}()
+
 		for {
+			// break if our context times out or is cancelled
 			if ctx.Err() != nil {
 				return
 			}
+
+			// want to be paired and services resolved
 			ret, err := remoteDev.GetProperty("org.bluez.Device1.Paired")
 			if err != nil {
-				b.logger.Warn(errw.Wrapf(err, "cannot get paired status for bluetooth device: %s", bdaddrStr))
+				b.logger.Warn(errw.Wrapf(err, "cannot get paired status for bluetooth device: %s (%s)", bdaddr, alias))
 			}
-			if ret.Value().(bool) {
+			paired := ret.Value().(bool)
+
+			ret, err = remoteDev.GetProperty("org.bluez.Device1.ServicesResolved")
+			if err != nil {
+				b.logger.Warn(errw.Wrapf(err, "cannot get service resolution status for bluetooth device: %s (%s)", bdaddr, alias))
+			}
+			resolved := ret.Value().(bool)
+
+			if paired && resolved {
 				break
 			}
+
 			if !b.networking.mainLoopHealth.Sleep(ctx, time.Second) {
+				b.logger.Warn("timed out waiting for bluetooth pairing and service discovery to complete")
 				return
 			}
 		}
 		call := remoteDev.CallWithContext(ctx, "org.bluez.Device1.ConnectProfile", 0, "00001115-0000-1000-8000-00805f9b34fb")
 		if err := call.Err; err != nil {
-			b.logger.Error(errw.Wrapf(err, "connecting bluetooth device: %s", bdaddrStr))
+			b.logger.Error(errw.Wrapf(err, "connecting bluetooth device: %s", bdaddr))
 		}
 
 		tetherCfg := utils.NetworkDefinition{
-			Type: NetworkTypeBluetooth,
-			SSID: bdaddrStr,
+			Type:             NetworkTypeBluetooth,
+			BluetoothAddress: bdaddr,
 		}
 		_, err := b.networking.AddOrUpdateConnection(tetherCfg)
 		if err != nil {
-			b.logger.Error(errw.Wrapf(err, "adding tethering config for: %s", bdaddrStr))
+			b.logger.Error(errw.Wrapf(err, "adding tethering config for: %s", bdaddr))
 		} else {
-			b.logger.Infof("Added bluetooth device for tethering: %s", bdaddrStr)
+			allGood = true
+			b.logger.Infof("Added bluetooth device for tethering: %s", bdaddr)
 		}
 
 		if !b.networking.tryBluetoothTether(ctx) {
-			b.logger.Info("Bluetooth tethering may take a few moments to fully activate")
+			b.logger.Info("Bluetooth tethering failed to immediately activate and will be retried. It may take one to two minutes in some cases.")
 		}
 	}()
 

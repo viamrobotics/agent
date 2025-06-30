@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"slices"
 	"sort"
 	"time"
 
@@ -206,11 +207,11 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 	n.portalData.resetInputData(inputChan)
 	hotspotErr := n.startProvisioningHotspot(ctx)
 	if hotspotErr != nil {
-		n.logger.Errorw("failed to start hotspot provisioning", "error", hotspotErr)
+		n.logger.Error(errw.Wrap(hotspotErr, "failed to start hotspot provisioning"))
 	}
 	bluetoothErr := n.startProvisioningBluetooth(ctx)
 	if bluetoothErr != nil {
-		n.logger.Errorw("failed to start bluetooth provisioning", "error", bluetoothErr)
+		n.logger.Error(errw.Wrap(bluetoothErr, "failed to start bluetooth provisioning"))
 	}
 
 	// Do not return an error if at least one provisioning method succeeds.
@@ -444,9 +445,8 @@ func (n *Networking) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
 	var changesMade bool
 
-	if cfg.Type != NetworkTypeWifi && cfg.Type != NetworkTypeHotspot && cfg.Type != NetworkTypeWired && cfg.Type != NetworkTypeBluetooth {
-		return changesMade, errw.Errorf("unspported network type %s, only %s, and %s currently supported",
-			cfg.Type, NetworkTypeWifi, NetworkTypeWired)
+	if !slices.Contains(NetworkTypesKnown, cfg.Type) {
+		return changesMade, errw.Errorf("network type (%s) not found, expected one of %v", cfg.Type, NetworkTypesKnown)
 	}
 
 	if cfg.Type != NetworkTypeWired && cfg.PSK != "" && len(cfg.PSK) < 8 {
