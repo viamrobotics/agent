@@ -15,7 +15,7 @@ import (
 func TestWebPortalJsonParse(t *testing.T) {
 	bindAddr := "localhost"
 	bindPort := 8080
-	httpSaveUrl := fmt.Sprintf("http://%s:%d/save", bindAddr, bindPort)
+	httpSaveURL := fmt.Sprintf("http://%s:%d/save", bindAddr, bindPort)
 
 	n := Networking{portalData: &userInputData{input: &userInput{}},
 		logger:    logging.NewTestLogger(t),
@@ -31,7 +31,7 @@ func TestWebPortalJsonParse(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 
 	// Test json missing cloud section
-	resp, err := http.PostForm(httpSaveUrl, url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{}"}})
+	resp, err := http.PostForm(httpSaveURL, url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{}"}})
 	test.That(t, resp.StatusCode, test.ShouldEqual, 200)
 	test.That(t, err, test.ShouldBeNil)
 	body, err := io.ReadAll(resp.Body)
@@ -39,7 +39,7 @@ func TestWebPortalJsonParse(t *testing.T) {
 	test.That(t, strings.Contains(string(body), "incomplete cloud config provided"), test.ShouldBeTrue)
 
 	// Test malformed json
-	resp, err = http.PostForm(httpSaveUrl, url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}})
+	resp, err = http.PostForm(httpSaveURL, url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}})
 	test.That(t, resp.StatusCode, test.ShouldEqual, 200)
 	test.That(t, err, test.ShouldBeNil)
 	body, err = io.ReadAll(resp.Body)
