@@ -24,7 +24,8 @@ func TestWebPortalJsonParse(t *testing.T) {
 		connState:  &connectionState{},
 		netState:   &networkState{},
 		banner:     &banner{},
-		errors:     &errorList{}}
+		errors:     &errorList{},
+	}
 	err := n.startWeb(bindAddr, bindPort)
 	defer func() {
 		err = n.webServer.Close()
