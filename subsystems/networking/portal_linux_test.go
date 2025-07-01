@@ -31,7 +31,12 @@ func TestWebPortalJsonParse(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 
 	// Test json missing cloud section
-	resp, err := http.PostForm(httpSaveURL, url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{}"}})
+	client := &http.Client{}
+	urlParams := url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{}"}}
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
+	test.That(t, err, test.ShouldBeNil)
+	resp, err := client.Do(req)
+	test.That(t, err, test.ShouldBeNil)
 	test.That(t, resp.StatusCode, test.ShouldEqual, 200)
 	test.That(t, err, test.ShouldBeNil)
 	body, err := io.ReadAll(resp.Body)
@@ -41,7 +46,12 @@ func TestWebPortalJsonParse(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 
 	// Test malformed json
-	resp, err = http.PostForm(httpSaveURL, url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}})
+	client = &http.Client{}
+	urlParams = url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}}
+	req, err = http.NewRequest("POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
+	test.That(t, err, test.ShouldBeNil)
+	resp, err = client.Do(req)
+	test.That(t, err, test.ShouldBeNil)
 	test.That(t, resp.StatusCode, test.ShouldEqual, 200)
 	test.That(t, err, test.ShouldBeNil)
 	body, err = io.ReadAll(resp.Body)
