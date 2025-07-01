@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,8 +33,9 @@ func TestWebPortalJsonParse(t *testing.T) {
 
 	// Test json missing cloud section
 	client := &http.Client{}
+	dummyCtx := context.Background()
 	urlParams := url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{}"}}
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
+	req, err := http.NewRequestWithContext(dummyCtx, "POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
 	test.That(t, err, test.ShouldBeNil)
 	resp, err := client.Do(req)
 	test.That(t, err, test.ShouldBeNil)
@@ -47,8 +49,9 @@ func TestWebPortalJsonParse(t *testing.T) {
 
 	// Test malformed json
 	client = &http.Client{}
+	dummyCtx = context.Background()
 	urlParams = url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}}
-	req, err = http.NewRequest("POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
+	req, err = http.NewRequestWithContext(dummyCtx, "POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
 	test.That(t, err, test.ShouldBeNil)
 	resp, err = client.Do(req)
 	test.That(t, err, test.ShouldBeNil)
