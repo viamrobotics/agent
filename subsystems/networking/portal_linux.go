@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net"
 	"net/http"
@@ -30,22 +31,22 @@ type templateData struct {
 //go:embed templates/*
 var templates embed.FS
 
-func (n *Networking) startPortal() error {
+func (n *Networking) startPortal(bindAddr string) error {
 	n.dataMu.Lock()
 	defer n.dataMu.Unlock()
 
-	if err := n.startGRPC(); err != nil {
+	if err := n.startGRPC(bindAddr, 4772); err != nil {
 		return errw.Wrap(err, "starting GRPC service")
 	}
 
-	if err := n.startWeb(); err != nil {
+	if err := n.startWeb(bindAddr, 80); err != nil {
 		return errw.Wrap(err, "starting web portal service")
 	}
 
 	return nil
 }
 
-func (n *Networking) startWeb() error {
+func (n *Networking) startWeb(bindAddr string, bindPort int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", n.portalIndex)
 	mux.HandleFunc("/save", n.portalSave)
@@ -53,7 +54,7 @@ func (n *Networking) startWeb() error {
 		Handler:     mux,
 		ReadTimeout: time.Second * 10,
 	}
-	bind := PortalBindAddr + ":80"
+	bind := fmt.Sprintf("%s:%d", bindAddr, bindPort)
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)

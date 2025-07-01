@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-func (n *Networking) startGRPC() error {
-	bind := PortalBindAddr + ":4772"
+func (n *Networking) startGRPC(bindAddr string, bindPort int) error {
+	bind := fmt.Sprintf("%s:%d", bindAddr, bindPort)
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)

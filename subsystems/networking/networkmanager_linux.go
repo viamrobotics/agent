@@ -240,7 +240,7 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 	}
 
 	// start portal with ssid list and known connections
-	if err := n.startPortal(); err != nil {
+	if err := n.startPortal(PortalBindAddr); err != nil {
 		err = errors.Join(err, n.deactivateConnection(n.Config().HotspotInterface, n.Config().HotspotSSID))
 		return errw.Wrap(err, "starting web/grpc portal")
 	}
