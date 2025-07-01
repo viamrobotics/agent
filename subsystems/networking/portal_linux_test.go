@@ -35,7 +35,7 @@ func TestWebPortalJsonParse(t *testing.T) {
 	client := &http.Client{}
 	dummyCtx := context.Background()
 	urlParams := url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{}"}}
-	req, err := http.NewRequestWithContext(dummyCtx, "POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
+	req, err := http.NewRequestWithContext(dummyCtx, http.MethodPost, fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
 	test.That(t, err, test.ShouldBeNil)
 	resp, err := client.Do(req)
 	test.That(t, err, test.ShouldBeNil)
@@ -51,7 +51,7 @@ func TestWebPortalJsonParse(t *testing.T) {
 	client = &http.Client{}
 	dummyCtx = context.Background()
 	urlParams = url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}}
-	req, err = http.NewRequestWithContext(dummyCtx, "POST", fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
+	req, err = http.NewRequestWithContext(dummyCtx, http.MethodPost, fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
 	test.That(t, err, test.ShouldBeNil)
 	resp, err = client.Do(req)
 	test.That(t, err, test.ShouldBeNil)
