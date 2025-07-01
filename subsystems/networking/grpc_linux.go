@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
@@ -13,7 +14,7 @@ import (
 )
 
 func (n *Networking) startGRPC(bindAddr string, bindPort int) error {
-	bind := fmt.Sprintf("%s:%d", bindAddr, bindPort)
+	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)

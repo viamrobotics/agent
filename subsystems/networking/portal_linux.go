@@ -4,11 +4,11 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"html/template"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -54,7 +54,7 @@ func (n *Networking) startWeb(bindAddr string, bindPort int) error {
 		Handler:     mux,
 		ReadTimeout: time.Second * 10,
 	}
-	bind := fmt.Sprintf("%s:%d", bindAddr, bindPort)
+	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,7 +18,7 @@ import (
 func TestWebPortalJsonParse(t *testing.T) {
 	bindAddr := "localhost"
 	bindPort := 8080
-	httpSaveURL := fmt.Sprintf("http://%s:%d/save", bindAddr, bindPort)
+	httpSaveURL := fmt.Sprintf("http://%s/save", net.JoinHostPort(bindAddr, strconv.Itoa(bindPort)))
 
 	n := Networking{
 		portalData: &userInputData{input: &userInput{}},
