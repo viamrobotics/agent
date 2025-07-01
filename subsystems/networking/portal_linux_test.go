@@ -18,12 +18,13 @@ func TestWebPortalJsonParse(t *testing.T) {
 	bindPort := 8080
 	httpSaveURL := fmt.Sprintf("http://%s:%d/save", bindAddr, bindPort)
 
-	n := Networking{portalData: &userInputData{input: &userInput{}},
-		logger:    logging.NewTestLogger(t),
-		connState: &connectionState{},
-		netState:  &networkState{},
-		banner:    &banner{},
-		errors:    &errorList{}}
+	n := Networking{
+		portalData: &userInputData{input: &userInput{}},
+		logger:     logging.NewTestLogger(t),
+		connState:  &connectionState{},
+		netState:   &networkState{},
+		banner:     &banner{},
+		errors:     &errorList{}}
 	err := n.startWeb(bindAddr, bindPort)
 	defer func() {
 		err = n.webServer.Close()
