@@ -37,6 +37,8 @@ func TestWebPortalJsonParse(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, strings.Contains(string(body), "incomplete cloud config provided"), test.ShouldBeTrue)
+	err = resp.Body.Close()
+	test.That(t, err, test.ShouldBeNil)
 
 	// Test malformed json
 	resp, err = http.PostForm(httpSaveURL, url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}})
@@ -45,6 +47,8 @@ func TestWebPortalJsonParse(t *testing.T) {
 	body, err = io.ReadAll(resp.Body)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, strings.Contains(string(body), "invalid json config contents"), test.ShouldBeTrue)
+	err = resp.Body.Close()
+	test.That(t, err, test.ShouldBeNil)
 
 	// TODO: test handling valid json
 }
