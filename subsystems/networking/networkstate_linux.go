@@ -157,7 +157,6 @@ func (n *networkState) Networks() []network {
 }
 
 func (n *networkState) LastNetwork(netType, iface string) network {
-	// SMURF maybe shouldn't hardcode type
 	return n.Network(GenNetKey(netType, iface, n.LastSSID(iface)))
 }
 
@@ -318,4 +317,21 @@ func (n *networkState) Devices() map[string]gnm.Device {
 		allDevices[ifName] = dev
 	}
 	return allDevices
+}
+
+// GetNetworkDevice returns the appropriate network device for the given network type and interface.
+func (n *networkState) GetNetworkDevice(netType, interfaceName string) gnm.Device {
+	switch netType {
+	case NetworkTypeWifi:
+		return n.WifiDevice(interfaceName)
+	case NetworkTypeHotspot:
+		return n.WifiDevice(interfaceName)
+	case NetworkTypeBluetooth:
+		return n.BTDevice(interfaceName)
+	case NetworkTypeWired:
+		fallthrough
+	default:
+		// wired
+		return n.EthDevice(interfaceName)
+	}
 }

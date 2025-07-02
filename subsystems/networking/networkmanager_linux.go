@@ -308,31 +308,27 @@ func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
 
 	n.logger.Infof("Activating connection: %s", id)
 
-	var netDev gnm.Device
-	switch nw.netType {
-	case NetworkTypeWifi:
+	// Track the last WiFi network that attempted activation
+	if nw.netType == NetworkTypeWifi {
 		n.netState.SetLastSSID(id.Interface(), id.SSID())
-		netDev = n.netState.WifiDevice(id.Interface())
-	case NetworkTypeHotspot:
-		netDev = n.netState.WifiDevice(id.Interface())
-	case NetworkTypeBluetooth:
-		netDev = n.netState.BTDevice(id.Interface())
-	case NetworkTypeWired:
-		fallthrough
-	default:
-		// wired
-		netDev = n.netState.EthDevice(id.Interface())
 	}
 
+	netDev := n.netState.GetNetworkDevice(nw.netType, id.Interface())
+
 	if netDev == nil {
-		// we're trying to activate something on a missing adapter, perhaps it was hotplugged, so re-init devices for future retries
+		// we're trying to activate something on a missing adapter, perhaps it was hotplugged, so re-init devices and retry
 		n.dataMu.Lock()
 		if err := n.initDevices(); err != nil {
 			n.logger.Warn(err)
 		}
 		n.dataMu.Unlock()
-		// SMURF need to retry not fail here
-		return errw.Errorf("cannot activate connection due to missing interface: %s", id.Interface())
+
+		// Retry getting the device after re-initializing
+		netDev = n.netState.GetNetworkDevice(nw.netType, id.Interface())
+
+		if netDev == nil {
+			return errw.Errorf("cannot activate connection due to missing interface: %s", id.Interface())
+		}
 	}
 
 	nw.lastTried = now
