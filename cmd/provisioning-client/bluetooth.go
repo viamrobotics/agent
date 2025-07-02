@@ -37,6 +37,7 @@ const (
 	cryptoKey                = "pub_key"
 	exitProvisioningKey      = "exit_provisioning"
 	agentVersionKey          = "agent_version"
+	tetherAddressKey         = "tether_address"
 )
 
 var pubKey *rsa.PublicKey
@@ -94,6 +95,12 @@ func btClient() error {
 
 	if opts.PartID != "" || opts.WifiSSID != "" {
 		if err := BTExitProvisioning(chars); err != nil {
+			return err
+		}
+	}
+
+	if opts.TetherAddr != "" {
+		if err := BTSetTetherAddress(chars); err != nil {
 			return err
 		}
 	}
@@ -190,7 +197,8 @@ func BTScan(adapter *bluetooth.Adapter) (bluetooth.Address, error) {
 func BTGetInfo(chars map[string]bluetooth.DeviceCharacteristic) error {
 	buf := make([]byte, 512)
 	var manufacturer, model, fragment, agentVersion string
-	for _, c := range []string{manufacturerKey, modelKey, fragmentKey, agentVersionKey} {
+	var errList []string
+	for _, c := range []string{manufacturerKey, modelKey, fragmentKey, agentVersionKey, errorsKey} {
 		size, err := chars[c].Read(buf)
 		if err != nil {
 			return errw.Wrap(err, "reading status")
@@ -204,9 +212,15 @@ func BTGetInfo(chars map[string]bluetooth.DeviceCharacteristic) error {
 			fragment = string(buf[:size])
 		case agentVersionKey:
 			agentVersion = string(buf[:size])
+		case errorsKey:
+			for _, devErr := range bytes.Split(buf[:size], []byte{0x0}) {
+				errList = append(errList, string(devErr))
+			}
 		}
 	}
-	fmt.Printf("Manufacturer: %s, Model: %s, Fragment: %s, Agent Version: %s\n", manufacturer, model, fragment, agentVersion)
+	fmt.Printf("Manufacturer: %s, Model: %s, Fragment: %s, Agent Version: %s, Errors: %v\n",
+		manufacturer, model, fragment, agentVersion, errList,
+	)
 	return nil
 }
 
@@ -333,6 +347,25 @@ func BTSetWifiCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 	return nil
 }
 
+func BTSetTetherAddress(chars map[string]bluetooth.DeviceCharacteristic) error {
+	fmt.Println("writing tethering address...")
+	if err := initCrypto(chars); err != nil {
+		return err
+	}
+
+	cryptAddr, err := encrypt([]byte(opts.TetherAddr))
+	if err != nil {
+		return err
+	}
+
+	_, err = chars[tetherAddressKey].WriteWithoutResponse(cryptAddr)
+	if err != nil {
+		return errw.Wrap(err, "writing ssid")
+	}
+
+	return nil
+}
+
 func BTExitProvisioning(chars map[string]bluetooth.DeviceCharacteristic) error {
 	fmt.Println("Sending exit command...")
 	if err := initCrypto(chars); err != nil {
@@ -435,6 +468,9 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 		case getUUID(exitProvisioningKey):
 			key = exitProvisioningKey
 			charMap[exitProvisioningKey] = char
+		case getUUID(tetherAddressKey):
+			key = tetherAddressKey
+			charMap[tetherAddressKey] = char
 
 		default:
 			fmt.Printf("Unknown characteristic discovered with UUID: %s", char.String())
