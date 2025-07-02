@@ -82,9 +82,13 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		bgLoopHealth:   &health{},
 	}
 	subsys.portalData = &userInputData{connState: subsys.connState}
-	subsys.btAgent = &basicAgent{logger: logger, networking: subsys, trusted: make(map[string]bool)}
+	subsys.btAgent = &basicAgent{
+		logger:     logger,
+		networking: subsys,
+		trusted:    make(map[string]bool),
+		trustAll:   cfg.NetworkConfiguration.BluetoothTrustAll.Get(),
+	}
 	subsys.btChar = newBTCharacteristics(logger, subsys.portalData, cfg.NetworkConfiguration.HotspotPassword, subsys.btAgent.TrustDevice)
-
 	return subsys
 }
 
@@ -332,6 +336,10 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	defer n.dataMu.Unlock()
 	n.cfg = cfg.NetworkConfiguration
 	n.nets = cfg.AdditionalNetworks
+
+	n.btAgent.mu.Lock()
+	defer n.btAgent.mu.Unlock()
+	n.btAgent.trustAll = cfg.NetworkConfiguration.BluetoothTrustAll.Get()
 
 	if err := n.writeDNSMasq(); err != nil {
 		n.logger.Warn(errw.Wrap(err, "writing dnsmasq configuration"))
