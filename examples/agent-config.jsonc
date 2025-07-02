@@ -32,7 +32,8 @@
 		"retry_connection_timeout_minutes": 10,
 		"device_reboot_after_offline_minutes": 0, // does nothing when set to zero
 		"disable_bt_provisioning": false,
-		"disable_wifi_provisioning": false
+		"disable_wifi_provisioning": false,
+		"bluetooth_trust_all": false // if true, accept all bluetooth pairing requests without requiring devices addr to be adding via provisioning
 	},
 	"additional_networks": {
 		"myNetwork1": {

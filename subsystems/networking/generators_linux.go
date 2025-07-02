@@ -61,6 +61,8 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 		netType = "802-11-wireless"
 	case NetworkTypeWired:
 		netType = "802-3-ethernet"
+	case NetworkTypeBluetooth:
+		netType = NetworkTypeBluetooth
 	default:
 		return nil, errw.Errorf("unknown network type: %s", cfg.Type)
 	}
@@ -73,7 +75,7 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 		"autoconnect-priority": cfg.Priority,
 	}
 
-	if cfg.Interface != "" {
+	if cfg.Type != NetworkTypeBluetooth && cfg.Interface != "" && cfg.Interface != HotspotInterface {
 		settings["connection"]["interface-name"] = cfg.Interface
 	}
 
@@ -85,6 +87,19 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 		}
 		if cfg.PSK != "" {
 			settings["802-11-wireless-security"] = map[string]any{"key-mgmt": "wpa-psk", "psk": cfg.PSK}
+		}
+	}
+
+	// Handle bluetooth
+	if cfg.Type == NetworkTypeBluetooth {
+		macAddr, err := net.ParseMAC(cfg.Interface)
+		if err != nil {
+			return nil, errw.Wrapf(err, "parsing bluetooth device address for %s", cfg.Interface)
+		}
+
+		settings[NetworkTypeBluetooth] = map[string]any{
+			"type":   "panu",
+			"bdaddr": macAddr,
 		}
 	}
 

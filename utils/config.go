@@ -53,6 +53,7 @@ var (
 			HotspotSSID:                         "",
 			DisableBTProvisioning:               Tribool(0),
 			DisableWifiProvisioning:             Tribool(0),
+			BluetoothTrustAll:                   Tribool(0),
 		},
 		AdditionalNetworks{},
 	}
@@ -195,15 +196,19 @@ type NetworkConfiguration struct {
 	// Disable flags for provisioning types.
 	DisableBTProvisioning   Tribool `json:"disable_bt_provisioning,omitempty"`
 	DisableWifiProvisioning Tribool `json:"disable_wifi_provisioning,omitempty"`
+
+	// Accepts all BT pairing requests (for tethering) without requiring devices to be added via provisioning.
+	BluetoothTrustAll Tribool `json:"bluetooth_trust_all,omitempty"`
 }
 
 type AdditionalNetworks map[string]NetworkDefinition
 
 type NetworkDefinition struct {
-	// "wifi", "wired"
+	// "wifi", "wired", "bluetooth"
 	Type string `json:"type,omitempty"`
 
 	// name of interface, ex: "wlan0", "eth0", "enp14s0", etc.
+	// for bluetooth tethering connections, uppercase hex, ex: "A1:B2:C3:11:22:3F"
 	Interface string `json:"interface,omitempty"`
 
 	// Wifi Settings
