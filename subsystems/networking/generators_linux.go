@@ -75,7 +75,7 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 		"autoconnect-priority": cfg.Priority,
 	}
 
-	if cfg.Interface != "" {
+	if cfg.Type != NetworkTypeBluetooth && cfg.Interface != "" && cfg.Interface != HotspotInterface {
 		settings["connection"]["interface-name"] = cfg.Interface
 	}
 
@@ -92,9 +92,9 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 
 	// Handle bluetooth
 	if cfg.Type == NetworkTypeBluetooth {
-		macAddr, err := net.ParseMAC(cfg.BluetoothAddress)
+		macAddr, err := net.ParseMAC(cfg.Interface)
 		if err != nil {
-			return nil, errw.Wrapf(err, "parsing bluetooth device address for %s", cfg.BluetoothAddress)
+			return nil, errw.Wrapf(err, "parsing bluetooth device address for %s", cfg.Interface)
 		}
 
 		settings[NetworkTypeBluetooth] = map[string]any{
