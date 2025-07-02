@@ -191,7 +191,7 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	if ssid == n.netState.LastSSID(n.Config().HotspotInterface) && ssid != "" {
-		lastNetwork := n.netState.LockingNetwork(n.Config().HotspotInterface, ssid)
+		lastNetwork := n.netState.LockingNetwork(GenNetKey(NetworkTypeWifi, HotspotInterface, ssid))
 		lastNetwork.mu.Lock()
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()

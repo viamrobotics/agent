@@ -12,6 +12,8 @@ var opts struct {
 	BTScan   bool   `description:"Bluetooth Scan" long:"scan"`
 	BTFilter string `default:"viam-setup"         description:"Bluetooth Device Name Prefix" long:"filter" short:"f"`
 
+	TetherAddr string `description:"Bluetooth hardware address to trust for tethering" long:"tether" short:"t"`
+
 	Address string `description:"GRPC address/port to dial (ex: 'localhost:4772')" long:"address" short:"a"`
 
 	WifiSSID string `description:"SSID to set"           long:"wifi-ssid"`

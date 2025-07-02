@@ -1,7 +1,6 @@
 package networking
 
 import (
-	"fmt"
 	"sync"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -22,8 +21,8 @@ type networkState struct {
 	// key is ssid@interface for wifi, ex: TestNetwork@wlan0
 	// interface may be "any" for no interface set, ex: TestNetwork@any
 	// wired networks are just interface, ex: eth0
-	// generate with genNetKey(ifname, ssid)
-	network map[string]*lockingNetwork
+	// generate with GenNetKey(ifname, ssid)
+	network map[NetKey]*lockingNetwork
 
 	// key is interface name, ex: wlan0
 	primarySSID map[string]string
@@ -38,7 +37,7 @@ type networkState struct {
 func NewNetworkState(logger logging.Logger) *networkState {
 	return &networkState{
 		logger:      logger,
-		network:     make(map[string]*lockingNetwork),
+		network:     make(map[NetKey]*lockingNetwork),
 		activeSSID:  make(map[string]string),
 		primarySSID: make(map[string]string),
 		lastSSID:    make(map[string]string),
@@ -90,48 +89,21 @@ func (n *networkState) SetHotspotInterface(iface string) {
 	n.hotspotInterface = iface
 }
 
-func (n *networkState) GenNetKey(ifName, ssid string) string {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.genNetKey(ifName, ssid)
-}
-
-func (n *networkState) genNetKey(ifName, ssid string) string {
-	if ifName == "" && ssid != "" {
-		ifName = n.hotspotInterface
-	}
-
-	if ssid == "" {
-		return ifName
-	}
-	return fmt.Sprintf("%s@%s", ssid, ifName)
-}
-
-// LockingNetwork returns a pointer to a network, wrapped in a lockable struct, so updates are persisted
 // Users must lock the returned network before updates. Use Network() instead for a read-only copy.
-func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
+func (n *networkState) LockingNetwork(id NetKey) *lockingNetwork {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-
-	id := n.genNetKey(iface, ssid)
 
 	net, ok := n.network[id]
 	if !ok {
-		net = &lockingNetwork{}
-		n.network[id] = net
-
-		switch {
-		case iface == "bluetooth":
-			net.ssid = ssid
-			net.netType = NetworkTypeBluetooth
-		case ssid != "":
-			net.ssid = ssid
-			net.netType = NetworkTypeWifi
-		default:
-			net.netType = NetworkTypeWired
+		net = &lockingNetwork{
+			network: network{
+				netType:       id.Type(),
+				interfaceName: id.Interface(),
+				ssid:          id.SSID(),
+			},
 		}
-
-		net.interfaceName = iface
+		n.network[id] = net
 		n.logger.Debugf("found new network %s (%s)", id, net.netType)
 	}
 
@@ -139,10 +111,9 @@ func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 }
 
 // Network returns a copy-by-value of a network, which should be considered read-only, and doesn't need locking.
-func (n *networkState) Network(iface, ssid string) network {
+func (n *networkState) Network(id NetKey) network {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	id := n.genNetKey(iface, ssid)
 	ln, ok := n.network[id]
 	if !ok {
 		return network{}
@@ -152,8 +123,8 @@ func (n *networkState) Network(iface, ssid string) network {
 	return ln.network
 }
 
-func (n *networkState) SetNetwork(iface, ssid string, net network) {
-	ln := n.LockingNetwork(iface, ssid)
+func (n *networkState) SetNetwork(id NetKey, net network) {
+	ln := n.LockingNetwork(id)
 	ln.mu.Lock()
 	ln.network = net
 	ln.mu.Unlock()
@@ -185,8 +156,9 @@ func (n *networkState) Networks() []network {
 	return nets
 }
 
-func (n *networkState) LastNetwork(iface string) network {
-	return n.Network(iface, n.LastSSID(iface))
+func (n *networkState) LastNetwork(netType, iface string) network {
+	// SMURF maybe shouldn't hardcode type
+	return n.Network(GenNetKey(netType, iface, n.LastSSID(iface)))
 }
 
 func (n *networkState) PrimarySSID(iface string) string {

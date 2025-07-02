@@ -3,6 +3,7 @@ package networking
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,7 +31,11 @@ type basicAgent struct {
 func (b *basicAgent) TrustDevice(bdaddr string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.trusted[bdaddr] = true
+	trusted, ok := b.trusted[bdaddr]
+	if !ok || !trusted {
+		b.logger.Infof("Adding %s to the list of trusted bluetooth devices for pairing/tethering", bdaddr)
+		b.trusted[bdaddr] = true
+	}
 }
 
 func (b *basicAgent) Cancel() *dbus.Error {
@@ -62,7 +67,7 @@ func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Erro
 		b.logger.Error(err)
 		return errPairingRejected
 	}
-	bdaddr := ret.Value().(string)
+	bdaddr := strings.ToUpper(ret.Value().(string))
 
 	ret, err = remoteDev.GetProperty("org.bluez.Device1.Alias")
 	if err != nil {
@@ -70,83 +75,87 @@ func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Erro
 	}
 	alias := ret.Value().(string)
 
+	b.logger.Infof("Bluetooth pairing request from: %s (%s)", bdaddr, alias)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
-	b.logger.Infof("Bluetooth pairing request from: %s", bdaddr)
-
 	trusted, ok := b.trusted[bdaddr]
 	if !(ok && trusted) {
 		b.logger.Errorf("Bluetooth device pairing rejected for %s (%s), device address must be added via provisioning first.", bdaddr, alias)
 		return errPairingRejected
 	}
 
-	if err := remoteDev.SetProperty("org.bluez.Device1.Trusted", true); err != nil {
-		b.logger.Error(errw.Wrapf(err, "trusting bluetooth device %s (%s)", bdaddr, alias))
+	tetherCfg := utils.NetworkDefinition{
+		Type:      NetworkTypeBluetooth,
+		Interface: bdaddr,
+	}
+	_, err = b.networking.AddOrUpdateConnection(tetherCfg)
+	if err != nil {
+		b.logger.Error(errw.Wrapf(err, "adding/updating tethering config for %s (%s)", bdaddr, alias))
 	} else {
-		b.logger.Infof("Bluetooth device paired/trusted: %s (%s)", bdaddr, alias)
+		b.logger.Infof("Added network manager profile for tethering with %s (%s)", bdaddr, alias)
+	}
+
+	if err := remoteDev.SetProperty("org.bluez.Device1.Trusted", true); err != nil {
+		b.logger.Error(errw.Wrapf(err, "setting trust property for bluetooth device %s (%s)", bdaddr, alias))
 	}
 
 	b.workers.Add(1)
-	ctx, cancel := context.WithTimeout(context.Background(), BluetoothPairingTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	b.cancel = cancel
 	go func() {
 		defer cancel()
 		defer b.workers.Done()
-		var allGood bool
+
+		var paired bool
 		defer func() {
-			if !allGood {
-				b.logger.Warnf("failed to fully set up bluetooth tethering for %s (%s)", bdaddr, alias)
+			switch {
+			case b.networking.connState.getOnline():
+				b.logger.Infof("Bluetooth tethering fully online.")
+			case paired:
+				b.logger.Warnf("Failed to fully connect to the internet via tethering. Will keep trying. " +
+					"Please retry pairing if not online in five minutes.")
+			default:
+				b.logger.Warnf("Failed to complete bluetooth pairing. Please retry the pairing process.")
 			}
 		}()
 
-		for {
+		for !paired {
 			// break if our context times out or is cancelled
-			if ctx.Err() != nil {
+			if !b.networking.mainLoopHealth.Sleep(ctx, time.Second) {
+				b.logger.Warn("timed out waiting for bluetooth pairing to complete")
 				return
 			}
 
-			// want to be paired and services resolved
 			ret, err := remoteDev.GetProperty("org.bluez.Device1.Paired")
 			if err != nil {
 				b.logger.Warn(errw.Wrapf(err, "cannot get paired status for bluetooth device: %s (%s)", bdaddr, alias))
 			}
-			paired := ret.Value().(bool)
+			paired = ret.Value().(bool)
+		}
 
-			ret, err = remoteDev.GetProperty("org.bluez.Device1.ServicesResolved")
-			if err != nil {
-				b.logger.Warn(errw.Wrapf(err, "cannot get service resolution status for bluetooth device: %s (%s)", bdaddr, alias))
+		// We have to connect something to make service discovery figure out tethering, so we'll just try an invalid service
+		call := remoteDev.CallWithContext(ctx, "org.bluez.Device1.ConnectProfile", 0, "deadbeef-cafe-0000-0000-cafedeadbeef")
+		if call.Err.Error() != "br-connection-profile-unavailable" {
+			b.logger.Warn(errw.Wrapf(err, "temporarily connecting bluetooth device %s (%s) resulted in unexpected error: %s",
+				bdaddr, alias, call.Err.Error()))
+		}
+
+		// every bluetooth device is new, so have to scan after a new pairing
+		b.networking.dataMu.Lock()
+		if err := b.networking.initDevices(); err != nil {
+			b.logger.Warn(err)
+		}
+		b.networking.dataMu.Unlock()
+		b.logger.Infof("Bluetooth tethering (setup phase) complete, may take up to 60 seconds to get online.")
+
+		for b.networking.mainLoopHealth.Sleep(ctx, time.Second) {
+			if err := b.networking.checkOnline(ctx, true); err != nil {
+				b.logger.Warn(err)
 			}
-			resolved := ret.Value().(bool)
-
-			if paired && resolved {
+			if b.networking.connState.getOnline() {
 				break
 			}
-
-			if !b.networking.mainLoopHealth.Sleep(ctx, time.Second) {
-				b.logger.Warn("timed out waiting for bluetooth pairing and service discovery to complete")
-				return
-			}
-		}
-		call := remoteDev.CallWithContext(ctx, "org.bluez.Device1.ConnectProfile", 0, "00001115-0000-1000-8000-00805f9b34fb")
-		if err := call.Err; err != nil {
-			b.logger.Error(errw.Wrapf(err, "connecting bluetooth device: %s", bdaddr))
-		}
-
-		tetherCfg := utils.NetworkDefinition{
-			Type:             NetworkTypeBluetooth,
-			BluetoothAddress: bdaddr,
-		}
-		_, err := b.networking.AddOrUpdateConnection(tetherCfg)
-		if err != nil {
-			b.logger.Error(errw.Wrapf(err, "adding tethering config for: %s", bdaddr))
-		} else {
-			allGood = true
-			b.logger.Infof("Added bluetooth device for tethering: %s", bdaddr)
-		}
-
-		if !b.networking.tryBluetoothTether(ctx) {
-			b.logger.Info("Bluetooth tethering failed to immediately activate and will be retried. It may take one to two minutes in some cases.")
 		}
 	}()
 
@@ -181,13 +190,9 @@ func (n *Networking) enablePairing(deviceName string) error {
 		return errw.Wrap(err, "adjusting discovery timeout")
 	}
 
-	// SMURF remove trusted!
-	n.btAgent = &basicAgent{
-		logger:     n.logger,
-		conn:       conn,
-		networking: n,
-		trusted:    map[string]bool{"FC:41:16:BF:6D:98": true},
-	}
+	n.btAgent.mu.Lock()
+	n.btAgent.conn = conn
+	n.btAgent.mu.Unlock()
 
 	if err := conn.Export(n.btAgent, BluezAgentPath, BluezAgent); err != nil {
 		return errw.Wrap(err, "exporting custom agent object")
