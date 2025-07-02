@@ -391,7 +391,7 @@ func (n *Networking) deactivateConnection(id NetKey) error {
 
 	n.logger.Infof("Successfully deactivated connection: %s", id)
 
-	// SMURF figure out what it means to be disconnected with bluetooth or multiple adapters
+	// TODO figure out what it means to be "disconnected" with bluetooth or multiple adapters
 	if id.Interface() == n.Config().HotspotInterface || id.Interface() == HotspotInterface {
 		n.connState.setConnected(false)
 	}
