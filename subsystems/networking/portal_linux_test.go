@@ -20,8 +20,9 @@ func TestWebPortalJsonParse(t *testing.T) {
 	bindPort := 8080
 	httpSaveURL := fmt.Sprintf("http://%s/save", net.JoinHostPort(bindAddr, strconv.Itoa(bindPort)))
 
+	inputChan := make(chan userInput, 1)
 	n := Networking{
-		portalData: &userInputData{input: &userInput{}},
+		portalData: &userInputData{input: &userInput{}, inputChan: inputChan, connState: &connectionState{}},
 		logger:     logging.NewTestLogger(t),
 		connState:  &connectionState{},
 		netState:   &networkState{},
@@ -67,5 +68,26 @@ func TestWebPortalJsonParse(t *testing.T) {
 	err = resp.Body.Close()
 	test.That(t, err, test.ShouldBeNil)
 
-	// TODO: test handling valid json
+	// Test valid json
+	client = &http.Client{}
+	dummyCtx = context.Background()
+	validConfig := "{\"cloud\":{\"app_address\":\"1\",\"id\":\"2\",\"secret\":\"3\"}}"
+	urlParams = url.Values{
+		"ssid":       {"notused"},
+		"password":   {"notused"},
+		"viamconfig": {validConfig},
+	}
+	req, err = http.NewRequestWithContext(dummyCtx, http.MethodPost, fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
+	test.That(t, err, test.ShouldBeNil)
+	resp, err = client.Do(req)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, resp.StatusCode, test.ShouldEqual, 200)
+	test.That(t, err, test.ShouldBeNil)
+	body, err = io.ReadAll(resp.Body)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, strings.Contains(string(body), "Saving device config."), test.ShouldBeTrue)
+	err = resp.Body.Close()
+	test.That(t, err, test.ShouldBeNil)
+	input := <-inputChan
+	test.That(t, input.RawConfig, test.ShouldEqual, validConfig)
 }
