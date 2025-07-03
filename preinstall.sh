@@ -23,6 +23,7 @@ RestartSec=5
 User=root
 TimeoutSec=240
 ExecStart=/opt/viam/bin/viam-agent --config /etc/viam.json
+KillMode=mixed
 FinalKillSignal=SIGQUIT
 
 [Install]
