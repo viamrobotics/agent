@@ -702,6 +702,41 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	}
 }
 
+func (n *Networking) processUserInput(userInput userInput) bool {
+	if userInput.RawConfig != "" || userInput.PartID != "" {
+		n.logger.Info("Device config received")
+		err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
+		if err != nil {
+			n.errors.Add(err)
+			n.logger.Warn(err)
+			return false
+		}
+		n.checkConfigured()
+	}
+
+	if userInput.SSID != "" {
+		n.logger.Infof("Wifi settings received for %s", userInput.SSID)
+		priority := int32(999)
+		if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
+			priority = 100
+		}
+		cfg := utils.NetworkDefinition{
+			Type:     NetworkTypeWifi,
+			SSID:     userInput.SSID,
+			PSK:      userInput.PSK,
+			Priority: priority,
+		}
+		var err error
+		_, err = n.AddOrUpdateConnection(cfg)
+		if err != nil {
+			n.errors.Add(err)
+			n.logger.Warn(err)
+			return false
+		}
+	}
+	return true
+}
+
 func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
@@ -719,42 +754,20 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			return
 		case userInput := <-inputChan:
 			userInputReceived = true
-			if userInput.RawConfig != "" || userInput.PartID != "" {
-				n.logger.Info("Device config received")
-				err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
-				if err != nil {
-					n.errors.Add(err)
-					n.logger.Warn(err)
-					continue
-				}
-				n.checkConfigured()
-			}
-
-			if userInput.SSID != "" {
-				n.logger.Infof("Wifi settings received for %s", userInput.SSID)
-				priority := int32(999)
-				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
-					priority = 100
-				}
-				cfg := utils.NetworkDefinition{
-					Type:     NetworkTypeWifi,
-					SSID:     userInput.SSID,
-					PSK:      userInput.PSK,
-					Priority: priority,
-				}
-				var err error
-				_, err = n.AddOrUpdateConnection(cfg)
-				if err != nil {
-					n.errors.Add(err)
-					n.logger.Warn(err)
-					continue
-				}
+			if !n.processUserInput(userInput) {
+				continue
 			}
 		default:
 			select {
 			case <-ctx.Done():
 				return
+			case userInput := <-inputChan:
+				userInputReceived = true
+				if !n.processUserInput(userInput) {
+					continue
+				}
 			case <-scanChan:
+				// ticks after every completed scan/update cycle (minimum of scanLoopDelay), see backgroundLoop()
 			case <-time.After((scanLoopDelay + scanTimeout) * 2):
 				// safety fallback if something hangs
 				n.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
@@ -823,12 +836,17 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived
+			shouldExitPMode := allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
 				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
 
-			if shouldExit {
+			if shouldExitPMode {
+				if userInputReceived {
+					// We could get to this point before the user receives our response (poor UX, but likely not critical)
+					// E.g. try to avoid "Not connected" web portal screen.
+					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
+				}
 				if err := n.StopProvisioning(); err != nil {
 					n.logger.Warn(err)
 				} else {
@@ -864,10 +882,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			}
 		}
 
-		shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
+		shouldRebootSystem := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 			lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-		if shouldReboot && n.doReboot(ctx) {
+		if shouldRebootSystem && n.doReboot(ctx) {
 			return
 		}
 
@@ -875,7 +893,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout {
+		if !isConfigured || hitOfflineTimeout || userInputReceived {
 			if err := n.StartProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
