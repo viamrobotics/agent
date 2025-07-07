@@ -756,6 +756,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			return
 		case userInput := <-inputChan:
 			userInputReceived = true
+			userInputSSID = userInput.SSID
 			if !n.processUserInput(userInput) {
 				continue
 			}
