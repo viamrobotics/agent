@@ -748,7 +748,9 @@ func (n *Networking) mainLoop(ctx context.Context) {
 	go n.backgroundLoop(ctx, scanChan)
 	for {
 		var userInputReceived bool
+		var userInputSSID string
 
+		// select on inputChan twice: it's unlikely but possible scanChan is always ready and gets selected.
 		select {
 		case <-ctx.Done():
 			return
@@ -763,6 +765,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				return
 			case userInput := <-inputChan:
 				userInputReceived = true
+				userInputSSID = userInput.SSID
 				if !n.processUserInput(userInput) {
 					continue
 				}
@@ -865,8 +868,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		}
 
 		// not in provisioning mode
+		var forceStartPMode bool
 		if !hasConnectivity {
-			if n.tryCandidates(ctx) || n.tryBluetoothTether(ctx) {
+			connectOk := n.tryCandidates(ctx)
+			if connectOk || n.tryBluetoothTether(ctx) {
 				hasConnectivity = n.connState.getConnected() || n.connState.getOnline()
 				// if we're roaming or this network was JUST added, it must have internet
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
@@ -878,6 +883,22 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				lastConnectivity = n.connState.getLastConnected()
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 					lastConnectivity = n.connState.getLastOnline()
+				}
+			} else if !connectOk && userInputReceived && userInputSSID != "" {
+				// Special case: received AP credentials and exited provisioning to try it, but it's unsuccessful.
+				// Most commonly a wrong password. In roaming mode, we can get here too if we're connected but offline.
+
+				// LockingNetwork is called with these same args in portalSave and tryCandidates; so should exist.
+				nw := n.netState.LockingNetwork(n.Config().HotspotInterface, userInputSSID)
+
+				// In normal mode, tryCandidates will only try a single AP, the PrimarySSID (set in the latest processUserInput).
+				// In roaming mode, all configured connections known to NetworkManager will be tried.
+				// In either case, if we're still offline and the most recent user-provided credentials are bad,
+				// assume it's a mistake and go back to pMode. The lastError will be visible to the user.
+				if nw != nil && nw.lastError != nil && errors.Is(nw.lastError, ErrBadPassword) {
+					n.logger.Warnw("Received incorrect password for AP. Reactivating provisioning mode.",
+						"ssid", userInputSSID, "err", nw.lastError)
+					forceStartPMode = true
 				}
 			}
 		}
@@ -893,7 +914,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout || userInputReceived {
+		if !isConfigured || hitOfflineTimeout || forceStartPMode {
 			if err := n.StartProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
