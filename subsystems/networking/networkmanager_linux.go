@@ -888,6 +888,9 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			} else if !connectOk && userInputReceived && userInputSSID != "" {
 				// Special case: received AP credentials and exited provisioning to try it, but it's unsuccessful.
 				// Most commonly a wrong password. In roaming mode, we can get here too if we're connected but offline.
+				// Note: the network tests of `allGood` are updated in the background loop, so we may not get here
+				// in the same iteration as when user input was actually received, but rather a future iteration -
+				// `userInputReceived` and `userInputSSID` will have already been wiped.
 
 				// LockingNetwork is called with these same args in portalSave and tryCandidates; so should exist.
 				nw := n.netState.LockingNetwork(n.Config().HotspotInterface, userInputSSID)
