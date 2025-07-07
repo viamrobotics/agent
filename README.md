@@ -19,3 +19,8 @@ Ex: `make all TAG_VERSION=0.1.2`
 
 ### DevMode
 Setting the environment variable `VIAM_AGENT_DEVMODE=1` will skip the self-location check for the binary, so you can run it directly during development, without installing to /opt/viam.
+
+### Systemd
+In production, Agent is designed to run as a systemd service. First-time setup is `sudo ./viam-agent --install` and it will automatically update itself when new updates are released.
+
+The service configration lives in both `viam-agent.service` and `preinstall.sh`, and the two should be kept in sync when making changes.
