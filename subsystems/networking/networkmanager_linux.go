@@ -833,10 +833,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			fallbackRemaining := pModeChange.Add(time.Duration(n.Config().RetryConnectionTimeoutMinutes)).Sub(now)
 			fallbackHit := fallbackRemaining <= 0 && inactivePortal
 
-			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
+			shouldRebootSystem := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExitPMode := allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived
+			shouldExitPMode := allGood || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
 				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
@@ -855,7 +855,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				}
 			}
 
-			if shouldReboot && n.doReboot(ctx) {
+			if shouldRebootSystem && n.doReboot(ctx) {
 				return
 			}
 		}
