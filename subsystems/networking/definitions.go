@@ -12,3 +12,5 @@ const (
 
 	HealthCheckTimeout = time.Minute
 )
+
+var NetworkTypesKnown = []string{NetworkTypeHotspot, NetworkTypeWifi, NetworkTypeWired, NetworkTypeBluetooth}
