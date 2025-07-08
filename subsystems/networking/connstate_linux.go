@@ -24,6 +24,8 @@ type connectionState struct {
 
 	lastInteraction time.Time
 
+	forceProvisioning time.Time
+
 	logger logging.Logger
 }
 
@@ -148,4 +150,16 @@ func (c *connectionState) getLastTested() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.lastTested
+}
+
+func (c *connectionState) setForceProvisioning() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.forceProvisioning = time.Now()
+}
+
+func (c *connectionState) getForceProvisioning() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.forceProvisioning
 }

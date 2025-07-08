@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"reflect"
 	"slices"
 	"sort"
@@ -720,6 +721,24 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	}
 }
 
+func (n *Networking) checkForceProvisioning() bool {
+	touchFile := path.Join(utils.ViamDirs["etc"], "force_provisioning_mode")
+
+	// Check if the touch file exists
+	if _, err := os.Stat(touchFile); err == nil {
+		// File exists, remove it and set force provisioning time
+		if err := os.Remove(touchFile); err != nil {
+			n.logger.Error(errw.Wrapf(err, "failed to remove force provisioning touch file: %s", touchFile))
+		} else {
+			n.logger.Infof("Force provisioning touch file %s found, will enter provisioning mode.", touchFile)
+		}
+		n.connState.setForceProvisioning()
+	}
+
+	// Check if the force was triggered less recently than the retry connection timeout
+	return time.Since(n.connState.getForceProvisioning()) < time.Duration(n.Config().RetryConnectionTimeoutMinutes)
+}
+
 func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
@@ -786,6 +805,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 		n.mainLoopHealth.MarkGood()
 
+		forceProvisioning := n.checkForceProvisioning()
 		isOnline := n.connState.getOnline()
 		lastOnline := n.connState.getLastOnline()
 		isConnected := n.connState.getConnected()
@@ -846,7 +866,9 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived
+			// only way for exit early when in forceProvisioning is userInput, otherwise the logic is any of the remaining conditions
+			shouldExit := (!forceProvisioning || userInputReceived) &&
+				(allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived)
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
 				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
@@ -898,7 +920,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout {
+		if !isConfigured || hitOfflineTimeout || forceProvisioning {
 			if err := n.startProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
