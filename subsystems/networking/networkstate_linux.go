@@ -108,7 +108,7 @@ func (n *networkState) genNetKey(ifName, ssid string) string {
 }
 
 // LockingNetwork returns a pointer to a network, wrapped in a lockable struct, so updates are persisted
-// Users must lock the returned network before updates.
+// Users must lock the returned network before updates. Use Network() instead for a read-only copy.
 func (n *networkState) LockingNetwork(iface, ssid string) *lockingNetwork {
 	n.mu.Lock()
 	defer n.mu.Unlock()

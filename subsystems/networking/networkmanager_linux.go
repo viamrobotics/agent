@@ -702,6 +702,42 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	}
 }
 
+// Process user input (viam.json and/or Wifi settings) and return true if everything succeeded without error, false otherwise.
+func (n *Networking) processUserInput(userInput userInput) bool {
+	if userInput.RawConfig != "" || userInput.PartID != "" {
+		n.logger.Info("Device config received")
+		err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
+		if err != nil {
+			n.errors.Add(err)
+			n.logger.Warn(err)
+			return false
+		}
+		n.checkConfigured()
+	}
+
+	if userInput.SSID != "" {
+		n.logger.Infof("Wifi settings received for %s", userInput.SSID)
+		priority := int32(999)
+		if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
+			priority = 100
+		}
+		cfg := utils.NetworkDefinition{
+			Type:     NetworkTypeWifi,
+			SSID:     userInput.SSID,
+			PSK:      userInput.PSK,
+			Priority: priority,
+		}
+		var err error
+		_, err = n.AddOrUpdateConnection(cfg)
+		if err != nil {
+			n.errors.Add(err)
+			n.logger.Warn(err)
+			return false
+		}
+	}
+	return true
+}
+
 func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
@@ -713,48 +749,30 @@ func (n *Networking) mainLoop(ctx context.Context) {
 	go n.backgroundLoop(ctx, scanChan)
 	for {
 		var userInputReceived bool
+		var userInputSSID string
 
+		// select on inputChan twice: it's unlikely but possible scanChan is always ready and gets selected.
 		select {
 		case <-ctx.Done():
 			return
 		case userInput := <-inputChan:
 			userInputReceived = true
-			if userInput.RawConfig != "" || userInput.PartID != "" {
-				n.logger.Info("Device config received")
-				err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
-				if err != nil {
-					n.errors.Add(err)
-					n.logger.Warn(err)
-					continue
-				}
-				n.checkConfigured()
-			}
-
-			if userInput.SSID != "" {
-				n.logger.Infof("Wifi settings received for %s", userInput.SSID)
-				priority := int32(999)
-				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
-					priority = 100
-				}
-				cfg := utils.NetworkDefinition{
-					Type:     NetworkTypeWifi,
-					SSID:     userInput.SSID,
-					PSK:      userInput.PSK,
-					Priority: priority,
-				}
-				var err error
-				_, err = n.AddOrUpdateConnection(cfg)
-				if err != nil {
-					n.errors.Add(err)
-					n.logger.Warn(err)
-					continue
-				}
+			userInputSSID = userInput.SSID
+			if !n.processUserInput(userInput) {
+				continue
 			}
 		default:
 			select {
 			case <-ctx.Done():
 				return
+			case userInput := <-inputChan:
+				userInputReceived = true
+				userInputSSID = userInput.SSID
+				if !n.processUserInput(userInput) {
+					continue
+				}
 			case <-scanChan:
+				// ticks after every completed scan/update cycle (minimum of scanLoopDelay), see backgroundLoop()
 			case <-time.After((scanLoopDelay + scanTimeout) * 2):
 				// safety fallback if something hangs
 				n.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
@@ -820,15 +838,20 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			fallbackRemaining := pModeChange.Add(time.Duration(n.Config().RetryConnectionTimeoutMinutes)).Sub(now)
 			fallbackHit := fallbackRemaining <= 0 && inactivePortal
 
-			shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
+			shouldRebootSystem := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExit := allGood || haveCandidates || fallbackHit || shouldReboot || userInputReceived
+			shouldExitPMode := allGood || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
 				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
 
-			if shouldExit {
+			if shouldExitPMode {
+				if userInputReceived {
+					// We could get to this point before the user receives our response (poor UX, but likely not critical)
+					// E.g. try to avoid "Not connected" web portal screen.
+					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
+				}
 				if err := n.StopProvisioning(); err != nil {
 					n.logger.Warn(err)
 				} else {
@@ -837,7 +860,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				}
 			}
 
-			if shouldReboot && n.doReboot(ctx) {
+			if shouldRebootSystem && n.doReboot(ctx) {
 				return
 			}
 		}
@@ -847,8 +870,10 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		}
 
 		// not in provisioning mode
+		var forceStartPMode bool
 		if !hasConnectivity {
-			if n.tryCandidates(ctx) || n.tryBluetoothTether(ctx) {
+			connectOk := n.tryCandidates(ctx)
+			if connectOk || n.tryBluetoothTether(ctx) {
 				hasConnectivity = n.connState.getConnected() || n.connState.getOnline()
 				// if we're roaming or this network was JUST added, it must have internet
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
@@ -861,13 +886,32 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 					lastConnectivity = n.connState.getLastOnline()
 				}
+			} else if !connectOk && userInputReceived && userInputSSID != "" {
+				// Special case: received AP credentials and exited provisioning to try it, but it's unsuccessful.
+				// Most commonly a wrong password. In roaming mode, we can get here too if we're connected but offline.
+				// Note: the network tests of `allGood` are updated in the background loop, so we may not get here
+				// in the same iteration as when user input was actually received, but rather a future iteration -
+				// `userInputReceived` and `userInputSSID` will have already been wiped.
+
+				// LockingNetwork is called with these same args in portalSave and tryCandidates; so should exist.
+				nw := n.netState.Network(n.Config().HotspotInterface, userInputSSID)
+
+				// In normal mode, tryCandidates will only try a single AP, the PrimarySSID (set in the latest processUserInput).
+				// In roaming mode, all configured connections known to NetworkManager will be tried.
+				// In either case, if we're still offline and the most recent user-provided credentials are bad,
+				// assume it's a mistake and go back to pMode. The lastError will be visible to the user.
+				if nw.lastError != nil && errors.Is(nw.lastError, ErrBadPassword) {
+					n.logger.Warnw("Received incorrect password for AP. Reactivating provisioning mode.",
+						"ssid", userInputSSID, "err", nw.lastError)
+					forceStartPMode = true
+				}
 			}
 		}
 
-		shouldReboot := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
+		shouldRebootSystem := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 			lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-		if shouldReboot && n.doReboot(ctx) {
+		if shouldRebootSystem && n.doReboot(ctx) {
 			return
 		}
 
@@ -875,7 +919,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout {
+		if !isConfigured || hitOfflineTimeout || forceStartPMode {
 			if err := n.StartProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
