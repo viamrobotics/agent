@@ -893,13 +893,13 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				// `userInputReceived` and `userInputSSID` will have already been wiped.
 
 				// LockingNetwork is called with these same args in portalSave and tryCandidates; so should exist.
-				nw := n.netState.LockingNetwork(n.Config().HotspotInterface, userInputSSID)
+				nw := n.netState.Network(n.Config().HotspotInterface, userInputSSID)
 
 				// In normal mode, tryCandidates will only try a single AP, the PrimarySSID (set in the latest processUserInput).
 				// In roaming mode, all configured connections known to NetworkManager will be tried.
 				// In either case, if we're still offline and the most recent user-provided credentials are bad,
 				// assume it's a mistake and go back to pMode. The lastError will be visible to the user.
-				if nw != nil && nw.lastError != nil && errors.Is(nw.lastError, ErrBadPassword) {
+				if nw.lastError != nil && errors.Is(nw.lastError, ErrBadPassword) {
 					n.logger.Warnw("Received incorrect password for AP. Reactivating provisioning mode.",
 						"ssid", userInputSSID, "err", nw.lastError)
 					forceStartPMode = true
