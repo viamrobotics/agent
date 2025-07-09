@@ -702,6 +702,7 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	}
 }
 
+// Process user input (viam.json and/or Wifi settings) and return true if everything succeeded without error, false otherwise.
 func (n *Networking) processUserInput(userInput userInput) bool {
 	if userInput.RawConfig != "" || userInput.PartID != "" {
 		n.logger.Info("Device config received")
