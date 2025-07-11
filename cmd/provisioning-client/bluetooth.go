@@ -37,7 +37,7 @@ const (
 	cryptoKey                = "pub_key"
 	exitProvisioningKey      = "exit_provisioning"
 	agentVersionKey          = "agent_version"
-	tetherAddressKey         = "tether_address"
+	unlockPairingKey         = "unlock_pairing"
 )
 
 var pubKey *rsa.PublicKey
@@ -99,8 +99,8 @@ func btClient() error {
 		}
 	}
 
-	if opts.TetherAddr != "" {
-		if err := BTSetTetherAddress(chars); err != nil {
+	if opts.UnlockPairing {
+		if err := BTUnlockPairing(chars); err != nil {
 			return err
 		}
 	}
@@ -347,20 +347,20 @@ func BTSetWifiCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 	return nil
 }
 
-func BTSetTetherAddress(chars map[string]bluetooth.DeviceCharacteristic) error {
-	fmt.Println("writing tethering address...")
+func BTUnlockPairing(chars map[string]bluetooth.DeviceCharacteristic) error {
+	fmt.Println("writing unlock pairing request...")
 	if err := initCrypto(chars); err != nil {
 		return err
 	}
 
-	cryptAddr, err := encrypt([]byte(opts.TetherAddr))
+	cryptAddr, err := encrypt([]byte("1"))
 	if err != nil {
 		return err
 	}
 
-	_, err = chars[tetherAddressKey].WriteWithoutResponse(cryptAddr)
+	_, err = chars[unlockPairingKey].WriteWithoutResponse(cryptAddr)
 	if err != nil {
-		return errw.Wrap(err, "writing ssid")
+		return errw.Wrap(err, "writing unlock pairing request")
 	}
 
 	return nil
@@ -468,9 +468,9 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 		case getUUID(exitProvisioningKey):
 			key = exitProvisioningKey
 			charMap[exitProvisioningKey] = char
-		case getUUID(tetherAddressKey):
-			key = tetherAddressKey
-			charMap[tetherAddressKey] = char
+		case getUUID(unlockPairingKey):
+			key = unlockPairingKey
+			charMap[unlockPairingKey] = char
 
 		default:
 			fmt.Printf("Unknown characteristic discovered with UUID: %s", char.String())
