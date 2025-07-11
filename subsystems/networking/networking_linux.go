@@ -88,7 +88,7 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		trusted:    make(map[string]bool),
 		trustAll:   cfg.NetworkConfiguration.BluetoothTrustAll.Get(),
 	}
-	subsys.btChar = newBTCharacteristics(logger, subsys.portalData, cfg.NetworkConfiguration.HotspotPassword, subsys.btAgent.TrustDevice)
+	subsys.btChar = newBTCharacteristics(logger, subsys.portalData, cfg.NetworkConfiguration.HotspotPassword, subsys.btAgent.TrustAll)
 	return subsys
 }
 

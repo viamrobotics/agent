@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -37,13 +38,13 @@ const (
 	cryptoKey                = "pub_key"
 	exitProvisioningKey      = "exit_provisioning"
 	agentVersionKey          = "agent_version"
-	tetherAddressKey         = "tether_address"
+	unlockPairingKey         = "unlock_pairing"
 )
 
 var (
 	characteristicsWriteOnly = []string{
 		ssidKey, pskKey, robotPartIDKey, robotPartSecretKey,
-		appAddressKey, exitProvisioningKey, tetherAddressKey,
+		appAddressKey, exitProvisioningKey, unlockPairingKey,
 	}
 	characteristicsReadOnly = []string{
 		cryptoKey, statusKey, manufacturerKey, modelKey,
@@ -62,10 +63,10 @@ type btCharacteristics struct {
 
 	privKey   *rsa.PrivateKey
 	PSK       string
-	trustFunc func(string)
+	trustFunc func(bool)
 }
 
-func newBTCharacteristics(logger logging.Logger, userInputData *userInputData, psk string, trustFunc func(string)) *btCharacteristics {
+func newBTCharacteristics(logger logging.Logger, userInputData *userInputData, psk string, trustFunc func(bool)) *btCharacteristics {
 	return &btCharacteristics{
 		logger:        logger,
 		writables:     map[string]*bluetooth.Characteristic{},
@@ -140,8 +141,13 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
 			}
 			b.logger.Debugf("Received %s: %s (cipher/plain sizes: %d/%d)", cName, plaintext, len(value), len(plaintext))
-			if cName == tetherAddressKey {
-				b.trustFunc(plaintext)
+			if cName == unlockPairingKey {
+				trustBool, err := strconv.ParseBool(plaintext)
+				if err != nil {
+					b.logger.Warn("invalid value received for pairing trust, expected boolean (0, 1, true, false), got: %s", plaintext)
+					return
+				}
+				b.trustFunc(trustBool)
 				return
 			}
 			b.recordInput(ctx, cName, plaintext)

@@ -17,16 +17,23 @@ var errPairingRejected = &dbus.Error{Name: "org.bluez.Error.Rejected"}
 
 // this will be the bluetooth "agent" used for pairing requests.
 type basicAgent struct {
-	mu       sync.Mutex
-	conn     *dbus.Conn
-	logger   logging.Logger
-	trusted  map[string]bool
-	trustAll bool
+	mu           sync.Mutex
+	conn         *dbus.Conn
+	logger       logging.Logger
+	trusted      map[string]bool
+	trustAll     bool
+	trustAllTemp bool
 
 	workers sync.WaitGroup
 	cancel  context.CancelFunc
 
 	networking *Networking
+}
+
+func (b *basicAgent) TrustAll(trust bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.trustAllTemp = trust
 }
 
 func (b *basicAgent) TrustDevice(bdaddr string) {
@@ -81,7 +88,7 @@ func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Erro
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	trusted, ok := b.trusted[bdaddr]
-	if !(ok && trusted) && !b.trustAll {
+	if !(ok && trusted) && !b.trustAll && !b.trustAllTemp {
 		b.logger.Errorf("Bluetooth device pairing rejected for %s (%s), device address must be added via provisioning first.", bdaddr, alias)
 		return errPairingRejected
 	}
@@ -193,6 +200,8 @@ func (n *Networking) enablePairing(deviceName string) error {
 
 	n.btAgent.mu.Lock()
 	n.btAgent.conn = conn
+	// remove temporary pairing approval if leftover from previous invocation
+	n.btAgent.trustAllTemp = false
 	n.btAgent.mu.Unlock()
 
 	if err := conn.Export(n.btAgent, BluezAgentPath, BluezAgent); err != nil {
