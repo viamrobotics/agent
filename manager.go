@@ -289,8 +289,9 @@ func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 	// randomly fuzz the interval by +/- 5%
 	interval = utils.FuzzTime(interval, 0.05)
 
+	// we already log in all error cases inside GetConfig, so
+	// no need to log again.
 	if err != nil {
-		m.logger.Warn(err)
 		return interval
 	}
 
@@ -509,7 +510,9 @@ func (m *Manager) dial(ctx context.Context) error {
 // GetConfig retrieves the configuration from the cloud.
 func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	if m.cloudConfig == nil {
-		return minimalCheckInterval, errors.New("can't GetConfig until successful LoadConfig")
+		err := errors.New("can't GetConfig until successful LoadConfig")
+		m.logger.Warn(err)
+		return minimalCheckInterval, err
 	}
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, defaultNetworkTimeout)
 	defer cancelFunc()
