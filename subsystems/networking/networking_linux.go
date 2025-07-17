@@ -354,7 +354,7 @@ func (n *Networking) processAdditionalnetworks(ctx context.Context) {
 			continue
 		}
 		if network.Interface != "" {
-			if err := n.activateConnection(ctx, GenNetKey(network.Type, network.Interface, network.SSID)); err != nil {
+			if err := n.activateConnection(ctx, n.netState.GenNetKey(network.Type, network.Interface, network.SSID)); err != nil {
 				n.logger.Warn(err)
 			}
 		}
@@ -386,7 +386,7 @@ func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 
 		ssid := n.netState.ActiveSSID(n.Config().HotspotInterface)
 		if n.connState.getConnected() && ssid != "" {
-			if err := n.activateConnection(ctx, GenNetKey(NetworkTypeWifi, HotspotInterface, ssid)); err != nil {
+			if err := n.activateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", ssid)); err != nil {
 				return errw.Wrapf(err, "reactivating %s to enforce powersave setting", ssid)
 			}
 		}

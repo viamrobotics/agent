@@ -118,7 +118,7 @@ func (n *Networking) networkScan(ctx context.Context) error {
 			continue
 		}
 
-		id := GenNetKey(NetworkTypeWifi, HotspotInterface, ssid)
+		id := n.netState.GenNetKey(NetworkTypeWifi, "", ssid)
 		if id == NetKeyUnknown {
 			continue
 		}
@@ -203,14 +203,14 @@ func (n *Networking) updateKnownConnections(ctx context.Context) error {
 			return err
 		}
 
-		id := getNetKeyFromSettings(settings)
+		id := n.getNetKeyFromSettings(settings)
 		if id == NetKeyUnknown {
 			// unknown network type, or broken network
 			continue
 		}
 
 		if id.Interface() == "" && id.Type() == NetworkTypeWifi {
-			id = GenNetKey(id.Type(), n.Config().HotspotInterface, id.SSID())
+			id = n.netState.GenNetKey(id.Type(), "", id.SSID())
 		}
 
 		_, ok := highestPriority[id.Interface()]
@@ -369,7 +369,7 @@ func formatHexWithColons(data []byte) string {
 	return strings.Join(hexValues, ":")
 }
 
-func getNetKeyFromSettings(settings gnm.ConnectionSettings) NetKey {
+func (n *Networking) getNetKeyFromSettings(settings gnm.ConnectionSettings) NetKey {
 	_, wired := settings["802-3-ethernet"]
 	_, wireless := settings["802-11-wireless"]
 	_, bluetooth := settings["bluetooth"]
@@ -390,20 +390,23 @@ func getNetKeyFromSettings(settings gnm.ConnectionSettings) NetKey {
 	}
 
 	if wired {
-		return GenNetKey(NetworkTypeWired, ifName, "")
+		return n.netState.GenNetKey(NetworkTypeWired, ifName, "")
 	}
 
 	if wireless {
 		ssid := getSSIDFromSettings(settings)
 		if ssid == "" {
-			GenNetKey("", "", "")
+			return n.netState.GenNetKey("", "", "")
 		}
-		return GenNetKey(NetworkTypeWifi, ifName, ssid)
+		if ssid == n.Config().HotspotSSID {
+			return n.netState.GenNetKey(NetworkTypeHotspot, "", ssid)
+		}
+		return n.netState.GenNetKey(NetworkTypeWifi, "", ssid)
 	}
 
 	if bluetooth {
-		return GenNetKey(NetworkTypeBluetooth, getBTAddrFromSettings(settings), "")
+		return n.netState.GenNetKey(NetworkTypeBluetooth, getBTAddrFromSettings(settings), "")
 	}
 
-	return GenNetKey("", "", "")
+	return n.netState.GenNetKey("", "", "")
 }
