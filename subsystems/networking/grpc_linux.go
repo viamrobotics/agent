@@ -57,7 +57,7 @@ func (n *Networking) GetSmartMachineStatus(ctx context.Context,
 
 	lastSSID := n.netState.LastSSID(n.Config().HotspotInterface)
 	if lastSSID != "" {
-		lastNetwork := n.netState.Network(n.Config().HotspotInterface, lastSSID)
+		lastNetwork := n.netState.Network(n.netState.GenNetKey(NetworkTypeWifi, "", lastSSID))
 		lastNetworkInfo := lastNetwork.getInfo()
 		ret.LatestConnectionAttempt = NetworkInfoToProto(&lastNetworkInfo)
 	}
@@ -85,7 +85,7 @@ func (n *Networking) SetNetworkCredentials(ctx context.Context,
 
 	lastSSID := n.netState.LastSSID(n.Config().HotspotInterface)
 	if req.GetSsid() == lastSSID && lastSSID != "" {
-		lastNetwork := n.netState.LockingNetwork(n.Config().HotspotInterface, lastSSID)
+		lastNetwork := n.netState.LockingNetwork(n.netState.GenNetKey(NetworkTypeWifi, "", lastSSID))
 		lastNetwork.mu.Lock()
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()
@@ -135,7 +135,9 @@ func (n *Networking) GetNetworkList(ctx context.Context,
 func (n *Networking) errListAsStrings() []string {
 	errList := []string{}
 
-	lastNetwork := n.netState.Network(n.Config().HotspotInterface, n.netState.LastSSID(n.Config().HotspotInterface))
+	lastNetwork := n.netState.Network(
+		n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.LastSSID(n.Config().HotspotInterface)),
+	)
 
 	if lastNetwork.lastError != nil {
 		errList = append(errList, fmt.Sprintf("SSID: %s: %s", lastNetwork.ssid, lastNetwork.lastError))

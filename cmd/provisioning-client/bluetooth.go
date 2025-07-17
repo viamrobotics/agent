@@ -37,6 +37,7 @@ const (
 	cryptoKey                = "pub_key"
 	exitProvisioningKey      = "exit_provisioning"
 	agentVersionKey          = "agent_version"
+	unlockPairingKey         = "unlock_pairing"
 )
 
 var pubKey *rsa.PublicKey
@@ -94,6 +95,12 @@ func btClient() error {
 
 	if opts.PartID != "" || opts.WifiSSID != "" {
 		if err := BTExitProvisioning(chars); err != nil {
+			return err
+		}
+	}
+
+	if opts.UnlockPairing {
+		if err := BTUnlockPairing(chars); err != nil {
 			return err
 		}
 	}
@@ -190,7 +197,8 @@ func BTScan(adapter *bluetooth.Adapter) (bluetooth.Address, error) {
 func BTGetInfo(chars map[string]bluetooth.DeviceCharacteristic) error {
 	buf := make([]byte, 512)
 	var manufacturer, model, fragment, agentVersion string
-	for _, c := range []string{manufacturerKey, modelKey, fragmentKey, agentVersionKey} {
+	var errList []string
+	for _, c := range []string{manufacturerKey, modelKey, fragmentKey, agentVersionKey, errorsKey} {
 		size, err := chars[c].Read(buf)
 		if err != nil {
 			return errw.Wrap(err, "reading status")
@@ -204,9 +212,15 @@ func BTGetInfo(chars map[string]bluetooth.DeviceCharacteristic) error {
 			fragment = string(buf[:size])
 		case agentVersionKey:
 			agentVersion = string(buf[:size])
+		case errorsKey:
+			for _, devErr := range bytes.Split(buf[:size], []byte{0x0}) {
+				errList = append(errList, string(devErr))
+			}
 		}
 	}
-	fmt.Printf("Manufacturer: %s, Model: %s, Fragment: %s, Agent Version: %s\n", manufacturer, model, fragment, agentVersion)
+	fmt.Printf("Manufacturer: %s, Model: %s, Fragment: %s, Agent Version: %s, Errors: %v\n",
+		manufacturer, model, fragment, agentVersion, errList,
+	)
 	return nil
 }
 
@@ -333,6 +347,25 @@ func BTSetWifiCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 	return nil
 }
 
+func BTUnlockPairing(chars map[string]bluetooth.DeviceCharacteristic) error {
+	fmt.Println("writing unlock pairing request...")
+	if err := initCrypto(chars); err != nil {
+		return err
+	}
+
+	cryptAddr, err := encrypt([]byte("1"))
+	if err != nil {
+		return err
+	}
+
+	_, err = chars[unlockPairingKey].WriteWithoutResponse(cryptAddr)
+	if err != nil {
+		return errw.Wrap(err, "writing unlock pairing request")
+	}
+
+	return nil
+}
+
 func BTExitProvisioning(chars map[string]bluetooth.DeviceCharacteristic) error {
 	fmt.Println("Sending exit command...")
 	if err := initCrypto(chars); err != nil {
@@ -435,6 +468,9 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 		case getUUID(exitProvisioningKey):
 			key = exitProvisioningKey
 			charMap[exitProvisioningKey] = char
+		case getUUID(unlockPairingKey):
+			key = unlockPairingKey
+			charMap[unlockPairingKey] = char
 
 		default:
 			fmt.Printf("Unknown characteristic discovered with UUID: %s", char.String())

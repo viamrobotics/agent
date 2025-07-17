@@ -82,11 +82,10 @@ func (n *Networking) stopPortal() error {
 		n.grpcServer = nil
 	}
 
-	var err error
 	if n.webServer != nil {
-		err = n.webServer.Close()
+		return n.webServer.Close()
 	}
-	return err
+	return nil
 }
 
 func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
@@ -192,7 +191,7 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	if ssid == n.netState.LastSSID(n.Config().HotspotInterface) && ssid != "" {
-		lastNetwork := n.netState.LockingNetwork(n.Config().HotspotInterface, ssid)
+		lastNetwork := n.netState.LockingNetwork(n.netState.GenNetKey(NetworkTypeWifi, "", ssid))
 		lastNetwork.mu.Lock()
 		lastNetwork.lastError = nil
 		lastNetwork.mu.Unlock()

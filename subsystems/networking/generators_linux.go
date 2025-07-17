@@ -15,7 +15,7 @@ import (
 
 // This file contains the wifi/hotspot setting generation functions.
 
-func generateHotspotSettings(id, ssid, psk, ifName string) gnm.ConnectionSettings {
+func generateHotspotSettings(id NetKey, psk string) gnm.ConnectionSettings {
 	IPAsUint32, err := generateAddress(PortalBindAddr)
 	if err != nil {
 		// BindAddr is a const, so should only ever fail if code itself is changed/broken
@@ -24,15 +24,15 @@ func generateHotspotSettings(id, ssid, psk, ifName string) gnm.ConnectionSetting
 
 	settings := gnm.ConnectionSettings{
 		"connection": map[string]any{
-			"id":             id,
+			"id":             string(id),
 			"uuid":           uuid.New().String(),
 			"type":           "802-11-wireless",
 			"autoconnect":    false,
-			"interface-name": ifName,
+			"interface-name": id.Interface(),
 		},
 		"802-11-wireless": map[string]any{
 			"mode": "ap",
-			"ssid": []byte(ssid),
+			"ssid": []byte(id.SSID()),
 		},
 		"802-11-wireless-security": map[string]any{
 			"key-mgmt": "wpa-psk",
@@ -49,20 +49,22 @@ func generateHotspotSettings(id, ssid, psk, ifName string) gnm.ConnectionSetting
 	return settings
 }
 
-func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.ConnectionSettings, error) {
+func generateNetworkSettings(id NetKey, cfg utils.NetworkDefinition) (gnm.ConnectionSettings, error) {
 	settings := gnm.ConnectionSettings{}
 	if id == "" {
 		return nil, errw.New("id cannot be empty")
 	}
 
 	var netType string
-	switch cfg.Type {
+	switch id.Type() {
 	case NetworkTypeWifi:
 		netType = "802-11-wireless"
 	case NetworkTypeWired:
 		netType = "802-3-ethernet"
+	case NetworkTypeBluetooth:
+		netType = NetworkTypeBluetooth
 	default:
-		return nil, errw.Errorf("unknown network type: %s", cfg.Type)
+		return nil, errw.Errorf("unknown network type: %s", id.Type())
 	}
 
 	settings["connection"] = map[string]any{
@@ -73,18 +75,31 @@ func generateNetworkSettings(id string, cfg utils.NetworkDefinition) (gnm.Connec
 		"autoconnect-priority": cfg.Priority,
 	}
 
-	if cfg.Interface != "" {
-		settings["connection"]["interface-name"] = cfg.Interface
+	if id.Type() != NetworkTypeBluetooth && id.Interface() != "" {
+		settings["connection"]["interface-name"] = id.Interface()
 	}
 
 	// Handle Wifi
-	if cfg.Type == NetworkTypeWifi {
+	if id.Type() == NetworkTypeWifi {
 		settings["802-11-wireless"] = map[string]any{
 			"mode": "infrastructure",
-			"ssid": []byte(cfg.SSID),
+			"ssid": []byte(id.SSID()),
 		}
 		if cfg.PSK != "" {
 			settings["802-11-wireless-security"] = map[string]any{"key-mgmt": "wpa-psk", "psk": cfg.PSK}
+		}
+	}
+
+	// Handle bluetooth
+	if id.Type() == NetworkTypeBluetooth {
+		macAddr, err := net.ParseMAC(id.Interface())
+		if err != nil {
+			return nil, errw.Wrapf(err, "parsing bluetooth device address for %s", id.Interface())
+		}
+
+		settings[NetworkTypeBluetooth] = map[string]any{
+			"type":   "panu",
+			"bdaddr": macAddr,
 		}
 	}
 
