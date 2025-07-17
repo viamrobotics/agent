@@ -61,7 +61,7 @@ type Networking struct {
 	noBT    bool
 	btChar  *btCharacteristics
 	btAdv   *bluetooth.Advertisement
-	btAgent *basicAgent
+	btAgent *pairingAgent
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -82,7 +82,7 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		bgLoopHealth:   &health{},
 	}
 	subsys.portalData = &userInputData{connState: subsys.connState}
-	subsys.btAgent = &basicAgent{
+	subsys.btAgent = &pairingAgent{
 		logger:     logger,
 		networking: subsys,
 		trusted:    make(map[string]bool),
