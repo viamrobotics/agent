@@ -191,12 +191,12 @@ func (n *Networking) checkConnections() error {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (n *Networking) StartProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- userInput) error {
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.internalOpMu.Lock()
+	defer n.internalOpMu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -248,12 +248,6 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 	return nil
 }
 
-func (n *Networking) StopProvisioning() error {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
-	return n.stopProvisioning()
-}
-
 func (n *Networking) stopProvisioning() error {
 	n.logger.Info("Stopping provisioning mode.")
 	n.errors.Clear()
@@ -285,8 +279,8 @@ func (n *Networking) ActivateConnection(ctx context.Context, ifName, ssid string
 	if n.connState.getProvisioning() && ifName == n.Config().HotspotInterface {
 		return errors.New("cannot activate another connection while in provisioning mode")
 	}
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.internalOpMu.Lock()
+	defer n.internalOpMu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -332,13 +326,8 @@ func (n *Networking) activateConnection(ctx context.Context, ifName, ssid string
 	}
 
 	nw.lastTried = now
-	activeConnection, err := n.nm.ActivateConnection(nw.conn, netDev, nil)
+	activeConnection, err := n.waitForConnect(ctx, nw, netDev)
 	if err != nil {
-		nw.lastError = err
-		return errw.Wrapf(err, "activating connection: %s", n.netState.GenNetKey(ifName, ssid))
-	}
-
-	if err := n.waitForConnect(ctx, netDev); err != nil {
 		nw.lastError = err
 		nw.connected = false
 		return err
@@ -368,8 +357,8 @@ func (n *Networking) DeactivateConnection(ifName, ssid string) error {
 		return errors.New("cannot deactivate another connection while in provisioning mode")
 	}
 
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.internalOpMu.Lock()
+	defer n.internalOpMu.Unlock()
 	return n.deactivateConnection(ifName, ssid)
 }
 
@@ -403,7 +392,8 @@ func (n *Networking) deactivateConnection(ifName, ssid string) error {
 	return nil
 }
 
-func (n *Networking) waitForConnect(ctx context.Context, device gnm.Device) error {
+// waitForConnect activates a network after subscribing to state changes to monitor. The nw object should already be locked.
+func (n *Networking) waitForConnect(ctx context.Context, nw *lockingNetwork, device gnm.Device) (gnm.ActiveConnection, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 
@@ -412,7 +402,12 @@ func (n *Networking) waitForConnect(ctx context.Context, device gnm.Device) erro
 	defer close(exitChan)
 
 	if err := device.SubscribeState(changeChan, exitChan); err != nil {
-		return errw.Wrap(err, "monitoring connection activation")
+		return nil, errw.Wrap(err, "monitoring connection activation")
+	}
+
+	activeConnection, err := n.nm.ActivateConnection(nw.conn, device, nil)
+	if err != nil {
+		return activeConnection, errw.Wrapf(err, "activating connection: %s", n.netState.GenNetKey(nw.interfaceName, nw.ssid))
 	}
 
 	for {
@@ -422,26 +417,26 @@ func (n *Networking) waitForConnect(ctx context.Context, device gnm.Device) erro
 			//nolint:exhaustive
 			switch update.NewState {
 			case gnm.NmDeviceStateActivated:
-				return nil
+				return activeConnection, nil
 			case gnm.NmDeviceStateFailed:
 				if update.Reason == gnm.NmDeviceStateReasonNoSecrets {
-					return ErrBadPassword
+					return activeConnection, ErrBadPassword
 				}
 				// custom error if it's some other reason for failure
-				return errw.Errorf("connection failed: %s", update.Reason)
+				return activeConnection, errw.Errorf("connection failed: %s", update.Reason)
 			default:
 			}
 		default:
 			if !n.mainLoopHealth.Sleep(timeoutCtx, time.Second) {
-				return errw.Wrap(ctx.Err(), "waiting for network activation")
+				return activeConnection, errw.Wrap(timeoutCtx.Err(), "waiting for network activation")
 			}
 		}
 	}
 }
 
 func (n *Networking) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	n.internalOpMu.Lock()
+	defer n.internalOpMu.Unlock()
 	return n.addOrUpdateConnection(cfg)
 }
 
@@ -852,7 +847,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					// E.g. try to avoid "Not connected" web portal screen.
 					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
 				}
-				if err := n.StopProvisioning(); err != nil {
+				if err := n.stopProvisioning(); err != nil {
 					n.logger.Warn(err)
 				} else {
 					pMode = n.connState.getProvisioning()
@@ -920,7 +915,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
 		if !isConfigured || hitOfflineTimeout || forceStartPMode {
-			if err := n.StartProvisioning(ctx, inputChan); err != nil {
+			if err := n.startProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
 		}
