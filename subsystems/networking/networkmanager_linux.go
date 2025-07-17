@@ -76,7 +76,7 @@ func (n *Networking) getVisibleNetworks() []NetworkInfo {
 }
 
 func (n *Networking) getLastNetworkTried() NetworkInfo {
-	lastNetwork := n.netState.LastNetwork(NetworkTypeWifi, HotspotInterface)
+	lastNetwork := n.netState.LastNetwork(NetworkTypeWifi, n.Config().HotspotInterface)
 	return lastNetwork.getInfo()
 }
 
@@ -154,7 +154,7 @@ func (n *Networking) checkConnections() error {
 			return err
 		}
 
-		id := getNetKeyFromSettings(settings)
+		id := n.getNetKeyFromSettings(settings)
 		if id == NetKeyUnknown {
 			n.logger.Warnf("unknown network, interface: %s, settings: %+v", ifName, settings)
 			continue
@@ -236,18 +236,18 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 
 	_, err := n.addOrUpdateConnection(utils.NetworkDefinition{
 		Type:      NetworkTypeHotspot,
-		Interface: HotspotInterface,
+		Interface: n.Config().HotspotInterface,
 		SSID:      n.Config().HotspotSSID,
 	})
 	if err != nil {
 		return err
 	}
-	if err := n.activateConnection(ctx, GenNetKey(NetworkTypeHotspot, HotspotInterface, n.Config().HotspotSSID)); err != nil {
+	if err := n.activateConnection(ctx, n.netState.GenNetKey(NetworkTypeHotspot, "", n.Config().HotspotSSID)); err != nil {
 		return errw.Wrap(err, "starting provisioning mode hotspot")
 	}
 
 	if err := n.startPortal(PortalBindAddr); err != nil {
-		err = errors.Join(err, n.deactivateConnection(GenNetKey(NetworkTypeHotspot, HotspotInterface, n.Config().HotspotSSID)))
+		err = errors.Join(err, n.deactivateConnection(n.netState.GenNetKey(NetworkTypeHotspot, "", n.Config().HotspotSSID)))
 		return errw.Wrap(err, "starting web/grpc portal")
 	}
 	n.logger.Info("Hotspot provisioning set up successfully.")
@@ -270,7 +270,7 @@ func (n *Networking) stopProvisioning() error {
 
 func (n *Networking) stopProvisioningHotspot() error {
 	err := n.stopPortal()
-	err2 := n.deactivateConnection(GenNetKey(NetworkTypeHotspot, n.Config().HotspotInterface, n.Config().HotspotSSID))
+	err2 := n.deactivateConnection(n.netState.GenNetKey(NetworkTypeHotspot, "", n.Config().HotspotSSID))
 	if errors.Is(err2, ErrNoActiveConnectionFound) {
 		return err
 	}
@@ -282,7 +282,7 @@ func (n *Networking) stopProvisioningHotspot() error {
 }
 
 func (n *Networking) ActivateConnection(ctx context.Context, id NetKey) error {
-	if n.connState.getProvisioning() && (id.Interface() == n.Config().HotspotInterface || id.Interface() == HotspotInterface) {
+	if n.connState.getProvisioning() && id.Interface() == n.Config().HotspotInterface {
 		return errors.New("cannot activate another connection while in provisioning mode")
 	}
 	n.internalOpMu.Lock()
@@ -295,9 +295,6 @@ func (n *Networking) ActivateConnection(ctx context.Context, id NetKey) error {
 
 func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
 	now := time.Now()
-	if id.Interface() == HotspotInterface {
-		id = GenNetKey(id.Type(), n.Config().HotspotInterface, id.SSID())
-	}
 	nw := n.netState.LockingNetwork(id)
 	nw.mu.Lock()
 	defer nw.mu.Unlock()
@@ -359,7 +356,7 @@ func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
 }
 
 func (n *Networking) DeactivateConnection(id NetKey) error {
-	if n.connState.getProvisioning() && (id.Interface() == n.Config().HotspotInterface || id.Interface() == HotspotInterface) {
+	if n.connState.getProvisioning() && id.Interface() == n.Config().HotspotInterface {
 		return errors.New("cannot deactivate another connection while in provisioning mode")
 	}
 
@@ -369,10 +366,6 @@ func (n *Networking) DeactivateConnection(id NetKey) error {
 }
 
 func (n *Networking) deactivateConnection(id NetKey) error {
-	if id.Interface() == HotspotInterface {
-		id = GenNetKey(id.Type(), n.Config().HotspotInterface, id.SSID())
-	}
-
 	activeConn := n.netState.ActiveConn(id.Interface())
 	if activeConn == nil {
 		return errw.Wrapf(ErrNoActiveConnectionFound, "interface: %s", id.Interface())
@@ -392,7 +385,7 @@ func (n *Networking) deactivateConnection(id NetKey) error {
 	n.logger.Infof("Successfully deactivated connection: %s", id)
 
 	// TODO figure out what it means to be "disconnected" with bluetooth or multiple adapters
-	if id.Interface() == n.Config().HotspotInterface || id.Interface() == HotspotInterface {
+	if id.Interface() == n.Config().HotspotInterface {
 		n.connState.setConnected(false)
 	}
 
@@ -463,10 +456,7 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 		return changesMade, errors.New("wifi passwords must be at least 8 characters long, or completely empty (for unsecured networks)")
 	}
 
-	if cfg.Interface == HotspotInterface {
-		cfg.Interface = n.Config().HotspotInterface
-	}
-	id := GenNetKey(cfg.Type, cfg.Interface, cfg.SSID)
+	id := n.netState.GenNetKey(cfg.Type, cfg.Interface, cfg.SSID)
 	nw := n.netState.LockingNetwork(id)
 	nw.mu.Lock()
 	nw.lastTried = time.Time{}
@@ -486,15 +476,9 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 		nw.mu.Lock()
 		nw.isHotspot = true
 		nw.mu.Unlock()
-		settings = generateHotspotSettings(
-			n.Config().HotspotPrefix,
-			n.Config().HotspotSSID,
-			n.Config().HotspotPassword,
-			n.Config().HotspotInterface,
-		)
+		settings = generateHotspotSettings(id, n.Config().HotspotPassword)
 	} else {
-		netID := n.Config().Manufacturer + "-" + string(id)
-		settings, err = generateNetworkSettings(netID, cfg)
+		settings, err = generateNetworkSettings(id, cfg)
 		if err != nil {
 			return changesMade, errw.Errorf("error generating network settings for %s: %v", id, err)
 		}
@@ -546,10 +530,10 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 // this doesn't error as it's not technically fatal if it fails.
 func (n *Networking) lowerMaxNetPriorities(skip NetKey) {
 	for _, nw := range n.netState.LockingNetworks() {
-		netKey := GenNetKey(NetworkTypeWifi, nw.interfaceName, nw.ssid)
-		if netKey == skip || netKey == GenNetKey(NetworkTypeWifi, n.Config().HotspotInterface, n.Config().HotspotSSID) ||
+		netKey := n.netState.GenNetKey(NetworkTypeWifi, nw.interfaceName, nw.ssid)
+		if netKey == skip || netKey == n.netState.GenNetKey(NetworkTypeWifi, "", n.Config().HotspotSSID) ||
 			nw.priority < 999 || nw.netType != NetworkTypeWifi ||
-			(nw.interfaceName != "" && nw.interfaceName != n.Config().HotspotInterface && nw.interfaceName != HotspotInterface) {
+			(nw.interfaceName != "" && nw.interfaceName != n.Config().HotspotInterface && nw.interfaceName != n.Config().HotspotInterface) {
 			continue
 		}
 
@@ -611,7 +595,7 @@ func (n *Networking) tryBluetoothTether(ctx context.Context) bool {
 			return true
 		}
 
-		if err := n.ActivateConnection(ctx, GenNetKey(nw.netType, nw.interfaceName, nw.ssid)); err != nil {
+		if err := n.ActivateConnection(ctx, n.netState.GenNetKey(nw.netType, nw.interfaceName, nw.ssid)); err != nil {
 			n.logger.Info(errw.Wrap(err, "activating bluetooth tether"))
 			continue
 		}
@@ -630,7 +614,7 @@ func (n *Networking) tryBluetoothTether(ctx context.Context) bool {
 // tryCandidates returns true if a network activated.
 func (n *Networking) tryCandidates(ctx context.Context) bool {
 	for _, ssid := range n.getCandidates(n.Config().HotspotInterface) {
-		err := n.ActivateConnection(ctx, GenNetKey(NetworkTypeWifi, HotspotInterface, ssid))
+		err := n.ActivateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", ssid))
 		if err != nil {
 			n.logger.Warn(err)
 			continue
@@ -829,7 +813,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 		n.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t",
 			isConnected,
-			GenNetKey(NetworkTypeWifi, n.Config().HotspotInterface, n.netState.ActiveSSID(n.Config().HotspotInterface)),
+			n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.ActiveSSID(n.Config().HotspotInterface)),
 			isOnline,
 			isConfigured,
 		)
@@ -899,7 +883,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		if !hasConnectivity {
 			var nwFound bool
 			if userInputReceived && userInputSSID != "" {
-				err := n.ActivateConnection(ctx, GenNetKey(NetworkTypeWifi, n.Config().HotspotInterface, userInputSSID))
+				err := n.ActivateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", userInputSSID))
 				if err != nil {
 					n.logger.Warn(errw.Wrapf(err, "Failed to connect to newly provided WiFi: %s", userInputSSID))
 					nwFound = n.tryCandidates(ctx) || n.tryBluetoothTether(ctx)

@@ -4,16 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
-	"go.viam.com/rdk/logging"
 )
 
 // This file contains type, const, and var definitions.
@@ -282,33 +279,7 @@ func (b *banner) Get() string {
 // bluetooth is "bluetooth@<ifname>" where ifname is the hardware address of the remote device, ex: "bluetooth@1A:2B:3C:11:22:33".
 type NetKey string
 
-const (
-	NetKeyUnknown    = NetKey("UNKNOWN")
-	HotspotInterface = "HotspotInterface"
-)
-
-func GenNetKey(netType, ifName, ssid string) NetKey {
-	switch netType {
-	case NetworkTypeHotspot:
-		fallthrough
-	case NetworkTypeWifi:
-		if ifName == "" {
-			ifName = HotspotInterface
-		}
-		return NetKey(fmt.Sprintf("%s@%s", ssid, ifName))
-	case NetworkTypeWired:
-		return NetKey(fmt.Sprintf("%s@%s", NetworkTypeWired, ifName))
-	case NetworkTypeBluetooth:
-		return NetKey(fmt.Sprintf("%s@%s", NetworkTypeBluetooth, ifName))
-	default:
-		logging.Global().Warnf("encountered unknown network type: %s, interface: %s, ssid: %s", netType, ifName, ssid)
-		_, file, no, ok := runtime.Caller(1)
-		if ok {
-			logging.Global().Warnf("called from %s#%d", file, no)
-		}
-		return NetKeyUnknown
-	}
-}
+const NetKeyUnknown = NetKey("UNKNOWN")
 
 func (n NetKey) Type() string {
 	if n == NetKeyUnknown {

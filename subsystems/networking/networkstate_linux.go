@@ -1,6 +1,8 @@
 package networking
 
 import (
+	"fmt"
+	"runtime"
 	"sync"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -157,7 +159,7 @@ func (n *networkState) Networks() []network {
 }
 
 func (n *networkState) LastNetwork(netType, iface string) network {
-	return n.Network(GenNetKey(netType, iface, n.LastSSID(iface)))
+	return n.Network(n.GenNetKey(netType, iface, n.LastSSID(iface)))
 }
 
 func (n *networkState) PrimarySSID(iface string) string {
@@ -333,5 +335,33 @@ func (n *networkState) GetNetworkDevice(netType, interfaceName string) gnm.Devic
 	default:
 		// wired
 		return n.EthDevice(interfaceName)
+	}
+}
+
+// GenNetKey creates a unique, indexable string based on the type of network, interface, and ssid.
+// If "ifName" is blank, and the type is wifi, it will use the hotspot interface (detected or set at runtime)
+// as a default.
+func (n *networkState) GenNetKey(netType, ifName, ssid string) NetKey {
+	switch netType {
+	case NetworkTypeHotspot:
+		fallthrough
+	case NetworkTypeWifi:
+		if ifName == "" {
+			n.mu.RLock()
+			ifName = n.hotspotInterface
+			n.mu.RUnlock()
+		}
+		return NetKey(fmt.Sprintf("%s@%s", ssid, ifName))
+	case NetworkTypeWired:
+		return NetKey(fmt.Sprintf("%s@%s", NetworkTypeWired, ifName))
+	case NetworkTypeBluetooth:
+		return NetKey(fmt.Sprintf("%s@%s", NetworkTypeBluetooth, ifName))
+	default:
+		n.logger.Warnf("encountered unknown network type: %s, interface: %s, ssid: %s", netType, ifName, ssid)
+		_, file, no, ok := runtime.Caller(1)
+		if ok {
+			n.logger.Warnf("called from %s#%d", file, no)
+		}
+		return NetKeyUnknown
 	}
 }
