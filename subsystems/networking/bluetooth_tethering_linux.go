@@ -16,13 +16,13 @@ import (
 var errPairingRejected = &dbus.Error{Name: "org.bluez.Error.Rejected"}
 
 // this will be the bluetooth "agent" used for pairing requests.
-type basicAgent struct {
-	mu           sync.Mutex
-	conn         *dbus.Conn
-	logger       logging.Logger
-	trusted      map[string]bool
-	trustAll     bool
-	trustAllTemp bool
+type pairingAgent struct {
+	mu       sync.Mutex
+	conn     *dbus.Conn
+	logger   logging.Logger
+	trusted  map[string]bool
+	trustAll bool
+	pairable bool
 
 	workers sync.WaitGroup
 	cancel  context.CancelFunc
@@ -30,13 +30,13 @@ type basicAgent struct {
 	networking *Networking
 }
 
-func (b *basicAgent) TrustAll(trust bool) {
+func (b *pairingAgent) TrustAll(trust bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.trustAllTemp = trust
+	b.pairable = trust
 }
 
-func (b *basicAgent) TrustDevice(bdaddr string) {
+func (b *pairingAgent) TrustDevice(bdaddr string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	trusted, ok := b.trusted[bdaddr]
@@ -46,7 +46,7 @@ func (b *basicAgent) TrustDevice(bdaddr string) {
 	}
 }
 
-func (b *basicAgent) Cancel() *dbus.Error {
+func (b *pairingAgent) Cancel() *dbus.Error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.cancel != nil {
@@ -56,12 +56,12 @@ func (b *basicAgent) Cancel() *dbus.Error {
 }
 
 // passkey style requests (six digit number).
-func (b *basicAgent) RequestConfirmation(devicePath dbus.ObjectPath, passkey uint32) *dbus.Error {
+func (b *pairingAgent) RequestConfirmation(devicePath dbus.ObjectPath, passkey uint32) *dbus.Error {
 	return b.RequestAuthorization(devicePath)
 }
 
 // generic requests, we compare the HW address to accept/deny.
-func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Error {
+func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Error {
 	conn, _, err := getBluetoothDBus()
 	if err != nil {
 		b.logger.Error(err)
@@ -88,7 +88,7 @@ func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Erro
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	trusted, ok := b.trusted[bdaddr]
-	if !(ok && trusted) && !b.trustAll && !b.trustAllTemp {
+	if !(ok && trusted) && !b.trustAll && !b.pairable {
 		b.logger.Errorf("Bluetooth device pairing rejected for %s (%s), device address must be added via provisioning first.", bdaddr, alias)
 		return errPairingRejected
 	}
@@ -142,7 +142,9 @@ func (b *basicAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Erro
 			paired = ret.Value().(bool)
 		}
 
-		// We have to connect something to make service discovery figure out tethering, so we'll just try an invalid service
+		// We have to connect something to make service discovery happen (this is a workaround probably specific to Bluez/Linux)
+		// We use a fake service UUID as we don't care about the actual connection, but the phone needs to see the request to
+		// not consider pairing as "failed"
 		call := remoteDev.CallWithContext(ctx, "org.bluez.Device1.ConnectProfile", 0, "deadbeef-cafe-0000-0000-cafedeadbeef")
 		if call.Err.Error() != "br-connection-profile-unavailable" {
 			b.logger.Warn(errw.Wrapf(err, "temporarily connecting bluetooth device %s (%s) resulted in unexpected error: %s",
@@ -201,7 +203,7 @@ func (n *Networking) enablePairing(deviceName string) error {
 	n.btAgent.mu.Lock()
 	n.btAgent.conn = conn
 	// remove temporary pairing approval if leftover from previous invocation
-	n.btAgent.trustAllTemp = false
+	n.btAgent.pairable = false
 	n.btAgent.mu.Unlock()
 
 	if err := conn.Export(n.btAgent, BluezAgentPath, BluezAgent); err != nil {
