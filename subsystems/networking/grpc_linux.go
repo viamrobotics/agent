@@ -20,7 +20,9 @@ func (n *Networking) startGRPC(bindAddr string, bindPort int) error {
 		return errw.Wrapf(err, "listening on: %s", bind)
 	}
 
+	n.dataMu.Lock()
 	n.grpcServer = grpc.NewServer(grpc.WaitForHandlers(true))
+	n.dataMu.Unlock()
 	pb.RegisterProvisioningServiceServer(n.grpcServer, n)
 
 	n.portalData.workers.Add(1)

@@ -32,9 +32,6 @@ type templateData struct {
 var templates embed.FS
 
 func (n *Networking) startPortal(bindAddr string) error {
-	n.dataMu.Lock()
-	defer n.dataMu.Unlock()
-
 	if err := n.startGRPC(bindAddr, 4772); err != nil {
 		return errw.Wrap(err, "starting GRPC service")
 	}
@@ -50,10 +47,13 @@ func (n *Networking) startWeb(bindAddr string, bindPort int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", n.portalIndex)
 	mux.HandleFunc("/save", n.portalSave)
+
+	n.dataMu.Lock()
 	n.webServer = &http.Server{
 		Handler:     mux,
 		ReadTimeout: time.Second * 10,
 	}
+	n.dataMu.Unlock()
 	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {

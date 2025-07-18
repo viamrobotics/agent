@@ -21,10 +21,13 @@ import (
 type Networking struct {
 	monitorWorkers sync.WaitGroup
 
-	// blocks start/stop/etc operations
-	opMu    sync.Mutex
-	running bool
-	noNM    bool
+	// blocks start/stop/update operations for the subsystem
+	externalOpMu sync.RWMutex
+	running      bool
+	noNM         bool
+
+	// blocks internal ops like activate/deactivate connections and provisioning mode
+	internalOpMu sync.Mutex
 
 	// used to stop main/bg loops
 	cancel context.CancelFunc
@@ -45,7 +48,7 @@ type Networking struct {
 	btHealthy      bool
 
 	// locking for config updates
-	dataMu sync.Mutex
+	dataMu sync.RWMutex
 	cfg    utils.NetworkConfiguration
 	nets   utils.AdditionalNetworks
 
@@ -80,6 +83,16 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 	subsys.portalData = &userInputData{connState: subsys.connState}
 	subsys.btChar = newBTCharacteristics(logger, subsys.portalData, cfg.NetworkConfiguration.HotspotPassword)
 	return subsys
+}
+
+func (n *Networking) IsRunning() bool {
+	n.externalOpMu.RLock()
+	defer n.externalOpMu.RUnlock()
+	return n.isRunning()
+}
+
+func (n *Networking) isRunning() bool {
+	return n.running || n.noNM
 }
 
 func (n *Networking) getNM() (gnm.NetworkManager, error) {
@@ -199,14 +212,24 @@ func (n *Networking) init(ctx context.Context) error {
 }
 
 func (n *Networking) Start(ctx context.Context) error {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
-	if n.running || n.noNM {
+	// don't hold the write lock if we'd basically do nothing
+	if n.IsRunning() {
 		return nil
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+
+	n.externalOpMu.Lock()
+	defer n.externalOpMu.Unlock()
+	// We may have blocked waiting for a lock, so check status again, using non-locking call
+	if n.isRunning() {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	n.logger.Debugf("Starting networking")
 
 	if n.nm == nil || n.settings == nil {
@@ -242,10 +265,22 @@ func (n *Networking) Start(ctx context.Context) error {
 }
 
 func (n *Networking) Stop(ctx context.Context) error {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
-	if !n.running {
+	// don't hold the write lock if we'd basically do nothing
+	if !n.IsRunning() {
 		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	n.externalOpMu.Lock()
+	defer n.externalOpMu.Unlock()
+	// We may have blocked waiting for a lock, so check status again, using non-locking call
+	if !n.isRunning() {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
 	n.logger.Infof("%s subsystem exiting", SubsysName)
@@ -265,8 +300,11 @@ func (n *Networking) Stop(ctx context.Context) error {
 
 // Update validates and/or updates a subsystem, returns true if subsystem should be restarted.
 func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
+	if ctx.Err() != nil {
+		return false
+	}
+	n.externalOpMu.Lock()
+	defer n.externalOpMu.Unlock()
 	if ctx.Err() != nil {
 		return false
 	}
@@ -307,32 +345,28 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 
 // HealthCheck reports if a subsystem is running correctly (it is restarted if not).
 func (n *Networking) HealthCheck(ctx context.Context) error {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if n.noNM || (n.Config().DisableBTProvisioning.Get() && n.Config().DisableWifiProvisioning.Get()) {
 		return nil
 	}
-
 	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
 		(!n.bluetoothEnabled() || n.btAdv == nil || n.btHealthy) {
 		return nil
 	}
-
 	return errw.New("networking system not responsive")
 }
 
 func (n *Networking) Config() utils.NetworkConfiguration {
-	n.dataMu.Lock()
-	defer n.dataMu.Unlock()
+	n.dataMu.RLock()
+	defer n.dataMu.RUnlock()
 	return n.cfg
 }
 
 func (n *Networking) Nets() utils.AdditionalNetworks {
-	n.dataMu.Lock()
-	defer n.dataMu.Unlock()
+	n.dataMu.RLock()
+	defer n.dataMu.RUnlock()
 	return n.nets
 }
 

@@ -144,9 +144,10 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	defer c.mu.Unlock()
 
 	var data *Versions
-	if binary == SubsystemName {
+	switch binary {
+	case SubsystemName:
 		data = c.ViamAgent
-	} else if binary == viamserver.SubsysName {
+	case viamserver.SubsysName:
 		data = c.ViamServer
 	}
 	newVersion := cfg.GetVersion()
