@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"math/rand"
@@ -112,9 +113,23 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 
 	logger.Infof("Starting download of %s", rawURL)
 	parsedPath := parsedURL.Path
-	outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedPath))
-	if runtime.GOOS == "windows" && !strings.HasSuffix(outPath, ".exe") {
-		outPath += ".exe"
+
+	// don't want to accidentally overwrite anything in the cache directory by accident
+	// old agent versions used a different cache format, so its possible we could be re-downloading ourself
+	for n := range 100 {
+		var suffix string
+		if n > 0 {
+			suffix = fmt.Sprintf(".duplicate-%03d", n)
+		}
+		outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedPath)+suffix)
+		if runtime.GOOS == "windows" && !strings.HasSuffix(outPath, ".exe") {
+			outPath += ".exe"
+		}
+
+		_, err = os.Stat(outPath)
+		if errors.Is(err, fs.ErrNotExist) {
+			break
+		}
 	}
 
 	//nolint:nestif
@@ -225,6 +240,10 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	}
 	errRet = errors.Join(errRet, out.Close())
 	closed = true
+
+	if errRet != nil {
+		return "", errRet
+	}
 
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 
@@ -479,26 +498,39 @@ func (sb *SafeBuffer) Reset() {
 
 // Simple io.WriteSeeker type for progress bar.
 type progressMultiWriter struct {
-	progressBar io.Writer
+	progressBar *progressbar.ProgressBar
 	outFile     io.WriteSeeker
+
+	// progressbar (as of 3.18.0) has a race bug, so we do our own locking to work around it
+	barMu sync.Mutex
 }
 
 func (pmw *progressMultiWriter) Write(p []byte) (n int, err error) {
-	for _, w := range []io.Writer{pmw.progressBar, pmw.outFile} {
-		n, err = w.Write(p)
-		if err != nil {
-			return
-		}
-		if n != len(p) {
-			err = io.ErrShortWrite
-			return
-		}
+	// Write to file first
+	n, err = pmw.outFile.Write(p)
+	if err != nil {
+		return
 	}
-	return len(p), nil
+	if n != len(p) {
+		err = io.ErrShortWrite
+		return
+	}
+
+	// Then write to progress bar with protection
+	pmw.barMu.Lock()
+	defer pmw.barMu.Unlock()
+	_, err = pmw.progressBar.Write(p)
+	return len(p), err
 }
 
 func (pmw *progressMultiWriter) Seek(offset int64, whence int) (int64, error) {
 	return pmw.outFile.Seek(offset, whence)
+}
+
+func (pmw *progressMultiWriter) GetBar() string {
+	pmw.barMu.Lock()
+	defer pmw.barMu.Unlock()
+	return pmw.progressBar.String()
 }
 
 func downloadProgressSetup(ctx context.Context,
@@ -519,6 +551,8 @@ func downloadProgressSetup(ctx context.Context,
 		progressbar.OptionShowCount(),
 		progressbar.OptionSpinnerType(0),
 	)
+
+	// Use a mutex to protect access to the progress bar
 	writer := &progressMultiWriter{progressBar: bar, outFile: outWriter}
 	barCtx, cancel := context.WithCancel(ctx)
 	if err := bar.RenderBlank(); err != nil {
@@ -527,14 +561,14 @@ func downloadProgressSetup(ctx context.Context,
 	workers.Add(1)
 	go func() {
 		defer workers.Done()
-		logger.Info(bar.String())
+		logger.Info(writer.GetBar())
 		for {
 			select {
 			case <-barCtx.Done():
-				logger.Info(bar.String())
+				logger.Info(writer.GetBar())
 				return
 			case <-time.After(time.Second * 10):
-				logger.Info(bar.String())
+				logger.Info(writer.GetBar())
 			}
 		}
 	}()
