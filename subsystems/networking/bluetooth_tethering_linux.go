@@ -138,8 +138,9 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 			ret, err := remoteDev.GetProperty("org.bluez.Device1.Paired")
 			if err != nil {
 				b.logger.Warn(errw.Wrapf(err, "cannot get paired status for bluetooth device: %s (%s)", bdaddr, alias))
+			} else if ret.Value() != nil {
+				paired = ret.Value().(bool)
 			}
-			paired = ret.Value().(bool)
 		}
 
 		// We have to connect something to make service discovery happen (this is a workaround probably specific to Bluez/Linux)
