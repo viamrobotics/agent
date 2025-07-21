@@ -10,5 +10,5 @@ const (
 	NetworkTypeHotspot   = "hotspot"
 	NetworkTypeBluetooth = "bluetooth"
 
-	HealthCheckTimeout = time.Minute
+	HealthCheckTimeout = time.Minute * 2
 )

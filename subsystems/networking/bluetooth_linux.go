@@ -163,8 +163,8 @@ func (n *Networking) removeServices() error {
 }
 
 func (n *Networking) bluetoothEnabled() bool {
-	n.dataMu.Lock()
+	n.dataMu.RLock()
 	noBT := n.noBT
-	n.dataMu.Unlock()
+	n.dataMu.RUnlock()
 	return !noBT && !n.Config().DisableBTProvisioning.Get()
 }
