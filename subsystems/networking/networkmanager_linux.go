@@ -424,7 +424,11 @@ func (n *Networking) waitForConnect(ctx context.Context, nw *lockingNetwork, dev
 				return activeConnection, nil
 			case gnm.NmDeviceStateFailed:
 				if update.Reason == gnm.NmDeviceStateReasonNoSecrets {
-					return activeConnection, errw.Wrapf(ErrBadPassword, "activating connection: %s", n.netState.GenNetKey(nw.netType, nw.interfaceName, nw.ssid))
+					return activeConnection, errw.Wrapf(
+						ErrBadPassword,
+						"activating connection: %s",
+						n.netState.GenNetKey(nw.netType, nw.interfaceName, nw.ssid),
+					)
 				}
 				// custom error if it's some other reason for failure
 				return activeConnection, errw.Errorf("connection failed: %s", update.Reason)
