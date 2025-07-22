@@ -886,10 +886,11 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				err := n.ActivateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", userInputSSID))
 				if err != nil {
 					n.logger.Warn(errw.Wrapf(err, "Failed to connect to newly provided WiFi: %s", userInputSSID))
-					nwFound = n.tryCandidates(ctx) || n.tryBluetoothTether(ctx)
 				} else {
 					nwFound = true
 				}
+			} else {
+				nwFound = n.tryCandidates(ctx) || n.tryBluetoothTether(ctx)
 			}
 
 			if nwFound {
