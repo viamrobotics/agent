@@ -411,7 +411,7 @@ func (n *Networking) waitForConnect(ctx context.Context, nw *lockingNetwork, dev
 
 	activeConnection, err := n.nm.ActivateConnection(nw.conn, device, nil)
 	if err != nil {
-		return activeConnection, errw.Wrapf(err, "activating connection: %s", GenNetKey(nw.netType, nw.interfaceName, nw.ssid))
+		return activeConnection, errw.Wrapf(err, "activating connection: %s", n.netState.GenNetKey(nw.netType, nw.interfaceName, nw.ssid))
 	}
 
 	for {
