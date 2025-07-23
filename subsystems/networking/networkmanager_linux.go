@@ -761,6 +761,7 @@ func (n *Networking) checkForceProvisioning() bool {
 			n.logger.Infof("Force provisioning touch file %s found, will enter provisioning mode.", touchFile)
 		}
 		n.connState.setForceProvisioning(true)
+		return true
 	}
 
 	// Check if the force was triggered less recently than the retry connection timeout
