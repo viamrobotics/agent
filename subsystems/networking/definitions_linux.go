@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -270,4 +271,59 @@ func (b *banner) Get() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.banner
+}
+
+// NetKey is used to uniquely index connections
+// wifi is <ssid>@<ifname>, ex: "myNetwork@wlan0"
+// wired is wired@<ifname>, ex: "wired@eth0"
+// bluetooth is "bluetooth@<ifname>" where ifname is the hardware address of the remote device, ex: "bluetooth@1A:2B:3C:11:22:33".
+type NetKey string
+
+const NetKeyUnknown = NetKey("UNKNOWN")
+
+func (n NetKey) Type() string {
+	if n == NetKeyUnknown {
+		return ""
+	}
+	splits := strings.Split(string(n), "@")
+	if len(splits) != 2 {
+		return ""
+	}
+	switch splits[0] {
+	case NetworkTypeWired:
+		return NetworkTypeWired
+	case NetworkTypeBluetooth:
+		return NetworkTypeBluetooth
+	default:
+		return NetworkTypeWifi
+	}
+}
+
+func (n NetKey) Interface() string {
+	if n == NetKeyUnknown {
+		return ""
+	}
+	splits := strings.Split(string(n), "@")
+	if len(splits) != 2 {
+		return ""
+	}
+	return splits[1]
+}
+
+func (n NetKey) SSID() string {
+	if n == NetKeyUnknown {
+		return ""
+	}
+	splits := strings.Split(string(n), "@")
+	if len(splits) != 2 {
+		return ""
+	}
+	switch splits[0] {
+	case NetworkTypeWired:
+		return ""
+	case NetworkTypeBluetooth:
+		return ""
+	default:
+		return splits[0]
+	}
 }

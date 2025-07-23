@@ -58,9 +58,10 @@ type Networking struct {
 	portalData *userInputData
 
 	// bluetooth
-	noBT   bool
-	btChar *btCharacteristics
-	btAdv  *bluetooth.Advertisement
+	noBT    bool
+	btChar  *btCharacteristics
+	btAdv   *bluetooth.Advertisement
+	btAgent *pairingAgent
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -81,7 +82,13 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		bgLoopHealth:   &health{},
 	}
 	subsys.portalData = &userInputData{connState: subsys.connState}
-	subsys.btChar = newBTCharacteristics(logger, subsys.portalData, cfg.NetworkConfiguration.HotspotPassword)
+	subsys.btAgent = &pairingAgent{
+		logger:     logger,
+		networking: subsys,
+		trusted:    make(map[string]bool),
+		trustAll:   cfg.NetworkConfiguration.BluetoothTrustAll.Get(),
+	}
+	subsys.btChar = newBTCharacteristics(logger, subsys.portalData, cfg.NetworkConfiguration.HotspotPassword, subsys.btAgent.TrustAll)
 	return subsys
 }
 
@@ -284,12 +291,6 @@ func (n *Networking) Stop(ctx context.Context) error {
 	}
 
 	n.logger.Infof("%s subsystem exiting", SubsysName)
-	if n.connState.getProvisioning() {
-		err := n.stopProvisioning()
-		if err != nil {
-			n.logger.Warn(err)
-		}
-	}
 	if n.cancel != nil {
 		n.cancel()
 	}
@@ -335,6 +336,10 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	defer n.dataMu.Unlock()
 	n.cfg = cfg.NetworkConfiguration
 	n.nets = cfg.AdditionalNetworks
+
+	n.btAgent.mu.Lock()
+	defer n.btAgent.mu.Unlock()
+	n.btAgent.trustAll = cfg.NetworkConfiguration.BluetoothTrustAll.Get()
 
 	if err := n.writeDNSMasq(); err != nil {
 		n.logger.Warn(errw.Wrap(err, "writing dnsmasq configuration"))
@@ -382,7 +387,7 @@ func (n *Networking) processAdditionalnetworks(ctx context.Context) {
 			continue
 		}
 		if network.Interface != "" {
-			if err := n.activateConnection(ctx, network.Interface, network.SSID); err != nil {
+			if err := n.activateConnection(ctx, n.netState.GenNetKey(network.Type, network.Interface, network.SSID)); err != nil {
 				n.logger.Warn(err)
 			}
 		}
@@ -414,7 +419,7 @@ func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 
 		ssid := n.netState.ActiveSSID(n.Config().HotspotInterface)
 		if n.connState.getConnected() && ssid != "" {
-			if err := n.activateConnection(ctx, n.Config().HotspotInterface, ssid); err != nil {
+			if err := n.activateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", ssid)); err != nil {
 				return errw.Wrapf(err, "reactivating %s to enforce powersave setting", ssid)
 			}
 		}

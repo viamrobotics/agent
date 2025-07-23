@@ -29,7 +29,8 @@ func TestConvertJson(t *testing.T) {
 		"offline_before_starting_hotspot_minutes": 2,
 		"user_idle_minutes": 5,
 		"retry_connection_timeout_minutes": 10,
-		"wifi_power_save": null
+		"wifi_power_save": null,
+		"bluetooth_trust_all": false
 	},
 	"additional_networks": {
 		"network1": {
@@ -79,6 +80,7 @@ func TestConvertJson(t *testing.T) {
 	// these are explicitly false, rather than the "unset" for missing fields
 	testConfig.AdvancedSettings.Debug = -1
 	testConfig.NetworkConfiguration.DisableCaptivePortalRedirect = -1
+	testConfig.NetworkConfiguration.BluetoothTrustAll = -1
 
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)

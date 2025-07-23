@@ -151,7 +151,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.running = false
 		s.logger.Infof("%s exited", SubsysName)
 		if err != nil {
-			s.logger.Errorw("error while getting process status", "error", err)
+			s.logger.Error(errw.Wrap(err, "error while getting process status"))
 		}
 		if s.cmd.ProcessState != nil {
 			s.lastExit = s.cmd.ProcessState.ExitCode()

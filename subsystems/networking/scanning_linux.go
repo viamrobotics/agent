@@ -118,7 +118,11 @@ func (n *Networking) networkScan(ctx context.Context) error {
 			continue
 		}
 
-		nw := n.netState.LockingNetwork(n.Config().HotspotInterface, ssid)
+		id := n.netState.GenNetKey(NetworkTypeWifi, "", ssid)
+		if id == NetKeyUnknown {
+			continue
+		}
+		nw := n.netState.LockingNetwork(id)
 		nw.mu.Lock()
 
 		nw.netType = NetworkTypeWifi
@@ -199,27 +203,27 @@ func (n *Networking) updateKnownConnections(ctx context.Context) error {
 			return err
 		}
 
-		ifName, ssid, netType := getIfNameSSIDTypeFromSettings(settings)
-		if netType == "" {
+		id := n.getNetKeyFromSettings(settings)
+		if id == NetKeyUnknown {
 			// unknown network type, or broken network
 			continue
 		}
 
-		if ifName == "" && netType == NetworkTypeWifi {
-			ifName = n.Config().HotspotInterface
+		if id.Interface() == "" && id.Type() == NetworkTypeWifi {
+			id = n.netState.GenNetKey(id.Type(), "", id.SSID())
 		}
 
-		_, ok := highestPriority[ifName]
+		_, ok := highestPriority[id.Interface()]
 		if !ok {
-			highestPriority[ifName] = -999
+			highestPriority[id.Interface()] = -999
 		}
 
-		if netType != NetworkTypeBluetooth && netType != NetworkTypeWired && ssid == "" {
-			n.logger.Warn("wifi network with no ssid detected, skipping")
+		if id.Type() != NetworkTypeBluetooth && id.Type() != NetworkTypeWired && id.SSID() == "" {
+			n.logger.Warnf("wifi network (%s) with no ssid detected, skipping: %v", id.Type(), settings)
 			continue
 		}
 
-		if netType == NetworkTypeBluetooth && !getAutoConnectFromSettings(settings) {
+		if id.Type() == NetworkTypeBluetooth && !getAutoConnectFromSettings(settings) {
 			settings["connection"]["autoconnect"] = true
 			delete(settings["ipv6"], "addresses")
 			delete(settings["ipv6"], "routes")
@@ -229,31 +233,36 @@ func (n *Networking) updateKnownConnections(ctx context.Context) error {
 		}
 
 		// actually record the network
-		nw := n.netState.LockingNetwork(ifName, ssid)
+		nw := n.netState.LockingNetwork(id)
 		nw.mu.Lock()
-		nw.netType = netType
+		nw.netType = id.Type()
 		nw.conn = conn
 		nw.priority = getPriorityFromSettings(settings)
 
 		if nw.ssid == n.Config().HotspotSSID {
 			nw.netType = NetworkTypeHotspot
 			nw.isHotspot = true
-		} else if nw.priority > highestPriority[ifName] {
-			highestPriority[ifName] = nw.priority
-			n.netState.SetPrimarySSID(ifName, nw.ssid)
+		} else if nw.priority > highestPriority[id.Interface()] {
+			highestPriority[id.Interface()] = nw.priority
+			n.netState.SetPrimarySSID(id.Interface(), nw.ssid)
 		}
 
-		switch netType {
+		switch id.Type() {
 		case NetworkTypeWired:
 			if n.netState.ActiveConn(nw.interfaceName) != nil {
 				nw.connected = true
 			} else {
 				nw.connected = false
 			}
-		case NetworkTypeWifi:
-			fallthrough
 		case NetworkTypeBluetooth:
-			if n.netState.ActiveConn(nw.interfaceName) != nil && n.netState.ActiveSSID(ifName) == nw.ssid {
+			n.btAgent.TrustDevice(nw.interfaceName)
+			// if this was JUST added, we dont want to force its activation before it is fully set up
+			if nw.lastTried.IsZero() {
+				nw.lastTried = time.Now()
+			}
+			fallthrough
+		case NetworkTypeWifi:
+			if n.netState.ActiveConn(nw.interfaceName) != nil && n.netState.ActiveSSID(id.Interface()) == nw.ssid {
 				nw.connected = true
 			} else {
 				nw.connected = false
@@ -355,17 +364,17 @@ func getBTAddrFromSettings(settings gnm.ConnectionSettings) string {
 func formatHexWithColons(data []byte) string {
 	hexValues := make([]string, len(data))
 	for i, b := range data {
-		hexValues[i] = fmt.Sprintf("%02x", b)
+		hexValues[i] = fmt.Sprintf("%02X", b)
 	}
 	return strings.Join(hexValues, ":")
 }
 
-func getIfNameSSIDTypeFromSettings(settings gnm.ConnectionSettings) (string, string, string) {
+func (n *Networking) getNetKeyFromSettings(settings gnm.ConnectionSettings) NetKey {
 	_, wired := settings["802-3-ethernet"]
 	_, wireless := settings["802-11-wireless"]
 	_, bluetooth := settings["bluetooth"]
 	if !wired && !wireless && !bluetooth {
-		return "", "", ""
+		return NetKeyUnknown
 	}
 
 	var ifName string
@@ -381,20 +390,23 @@ func getIfNameSSIDTypeFromSettings(settings gnm.ConnectionSettings) (string, str
 	}
 
 	if wired {
-		return ifName, "", NetworkTypeWired
+		return n.netState.GenNetKey(NetworkTypeWired, ifName, "")
 	}
 
 	if wireless {
 		ssid := getSSIDFromSettings(settings)
 		if ssid == "" {
-			return "", "", ""
+			return n.netState.GenNetKey("", "", "")
 		}
-		return ifName, ssid, NetworkTypeWifi
+		if ssid == n.Config().HotspotSSID {
+			return n.netState.GenNetKey(NetworkTypeHotspot, "", ssid)
+		}
+		return n.netState.GenNetKey(NetworkTypeWifi, "", ssid)
 	}
 
 	if bluetooth {
-		return "bluetooth", getBTAddrFromSettings(settings), NetworkTypeBluetooth
+		return n.netState.GenNetKey(NetworkTypeBluetooth, getBTAddrFromSettings(settings), "")
 	}
 
-	return "", "", ""
+	return n.netState.GenNetKey("", "", "")
 }
