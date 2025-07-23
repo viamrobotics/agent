@@ -816,7 +816,6 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 		n.mainLoopHealth.MarkGood()
 
-		forceProvisioning := n.checkForceProvisioning()
 		isOnline := n.connState.getOnline()
 		lastOnline := n.connState.getLastOnline()
 		isConnected := n.connState.getConnected()
@@ -837,11 +836,12 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		pModeChange := n.connState.getProvisioningChange()
 		now := time.Now()
 
-		n.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t",
+		n.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t, force provisioning: %t",
 			isConnected,
 			n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.ActiveSSID(n.Config().HotspotInterface)),
 			isOnline,
 			isConfigured,
+			n.checkForceProvisioning(),
 		)
 
 		if pMode {
@@ -878,11 +878,11 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
 			// only way for exit early when in forceProvisioning is userInput, otherwise the logic is any of the remaining conditions
-			shouldExitPMode := (!forceProvisioning || userInputReceived) &&
+			shouldExitPMode := (!n.checkForceProvisioning() || userInputReceived) &&
 				(allGood || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived)
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
-				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
+				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining.Truncate(time.Second))
 
 			if shouldExitPMode {
 				if userInputReceived {
@@ -905,7 +905,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			}
 		}
 
-		if allGood || pMode {
+		if pMode || (!n.checkForceProvisioning() && allGood) {
 			continue
 		}
 
@@ -950,7 +950,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout || userInputReceived || forceProvisioning {
+		if !isConfigured || hitOfflineTimeout || userInputReceived || n.checkForceProvisioning() {
 			if err := n.startProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
