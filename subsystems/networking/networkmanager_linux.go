@@ -760,12 +760,12 @@ func (n *Networking) checkForceProvisioning() bool {
 		} else {
 			n.logger.Infof("Force provisioning touch file %s found, will enter provisioning mode.", touchFile)
 		}
-		n.connState.setForceProvisioning(true)
+		n.connState.setForceProvisioningTime(true)
 		return true
 	}
 
 	// Check if the force was triggered less recently than the retry connection timeout
-	return time.Since(n.connState.getForceProvisioning()) < time.Duration(n.Config().RetryConnectionTimeoutMinutes)
+	return time.Since(n.connState.getForceProvisioningTime()) < time.Duration(n.Config().RetryConnectionTimeoutMinutes)
 }
 
 func (n *Networking) mainLoop(ctx context.Context) {
@@ -887,7 +887,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			if shouldExitPMode {
 				if userInputReceived {
 					// user theoretically finished their interaction, so reset the trigger timer
-					n.connState.setForceProvisioning(false)
+					n.connState.setForceProvisioningTime(false)
 					// We could get to this point before the user receives our response (poor UX, but likely not critical)
 					// E.g. try to avoid "Not connected" web portal screen.
 					n.mainLoopHealth.Sleep(ctx, 3*time.Second)

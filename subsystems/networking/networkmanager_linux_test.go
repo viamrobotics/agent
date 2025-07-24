@@ -102,13 +102,13 @@ func TestCheckForceProvisioning(t *testing.T) {
 			// Verify the force provisioning state
 			if tt.setupTouchFile {
 				// When touch file exists, force provisioning should be set to current time
-				forceProvisioningTime := n.connState.getForceProvisioning()
+				forceProvisioningTime := n.connState.getForceProvisioningTime()
 				test.That(t, forceProvisioningTime.IsZero(), test.ShouldBeFalse)
 				// Should be set to a recent time (within last 10 seconds)
 				test.That(t, time.Since(forceProvisioningTime), test.ShouldBeLessThan, time.Second*10)
 			} else {
 				// When no touch file exists, force provisioning should remain unchanged
-				forceProvisioningTime := n.connState.getForceProvisioning()
+				forceProvisioningTime := n.connState.getForceProvisioningTime()
 				if tt.setupForceProvisioning.IsZero() {
 					test.That(t, forceProvisioningTime.IsZero(), test.ShouldBeTrue)
 				} else {

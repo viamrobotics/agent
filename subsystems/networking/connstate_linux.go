@@ -152,7 +152,8 @@ func (c *connectionState) getLastTested() time.Time {
 	return c.lastTested
 }
 
-func (c *connectionState) setForceProvisioning(force bool) {
+// setForceProvisioningTime records the current time if passed true, and resets the time to the zero-value otherwise.
+func (c *connectionState) setForceProvisioningTime(force bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if force {
@@ -162,7 +163,8 @@ func (c *connectionState) setForceProvisioning(force bool) {
 	}
 }
 
-func (c *connectionState) getForceProvisioning() time.Time {
+// getForceProvisioningTime returns the stored timestamp for forcing provisioning mode.
+func (c *connectionState) getForceProvisioningTime() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.forceProvisioning
