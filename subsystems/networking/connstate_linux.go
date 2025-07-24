@@ -24,6 +24,8 @@ type connectionState struct {
 
 	lastInteraction time.Time
 
+	forceProvisioning time.Time
+
 	logger logging.Logger
 }
 
@@ -148,4 +150,22 @@ func (c *connectionState) getLastTested() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.lastTested
+}
+
+// setForceProvisioningTime records the current time if passed true, and resets the time to the zero-value otherwise.
+func (c *connectionState) setForceProvisioningTime(force bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if force {
+		c.forceProvisioning = time.Now()
+	} else {
+		c.forceProvisioning = time.Time{}
+	}
+}
+
+// getForceProvisioningTime returns the stored timestamp for forcing provisioning mode.
+func (c *connectionState) getForceProvisioningTime() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.forceProvisioning
 }

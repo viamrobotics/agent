@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"reflect"
 	"slices"
 	"sort"
@@ -747,6 +748,26 @@ func (n *Networking) processUserInput(userInput userInput) bool {
 	return true
 }
 
+func (n *Networking) checkForceProvisioning() bool {
+	touchFile := path.Join(utils.ViamDirs["etc"], "force_provisioning_mode")
+
+	// Check if the touch file exists
+	if _, err := os.Stat(touchFile); err == nil {
+		// File exists, remove it and set force provisioning time
+		if err := os.Remove(touchFile); err != nil {
+			n.logger.Error(errw.Wrapf(err, "failed to remove %s, ignoring it to avoid getting stuck in provisioning mode", touchFile))
+			return false
+		} else {
+			n.logger.Infof("Force provisioning touch file %s found, will enter provisioning mode.", touchFile)
+		}
+		n.connState.setForceProvisioningTime(true)
+		return true
+	}
+
+	// Check if the force was triggered less recently than the retry connection timeout
+	return time.Since(n.connState.getForceProvisioningTime()) < time.Duration(n.Config().RetryConnectionTimeoutMinutes)
+}
+
 func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
@@ -815,11 +836,12 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		pModeChange := n.connState.getProvisioningChange()
 		now := time.Now()
 
-		n.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t",
+		n.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t, force provisioning: %t",
 			isConnected,
 			n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.ActiveSSID(n.Config().HotspotInterface)),
 			isOnline,
 			isConfigured,
+			n.checkForceProvisioning(),
 		)
 
 		if pMode {
@@ -855,13 +877,17 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			shouldRebootSystem := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
-			shouldExitPMode := allGood || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived
+			// only way for exit early when in forceProvisioning is userInput, otherwise the logic is any of the remaining conditions
+			shouldExitPMode := (!n.checkForceProvisioning() || userInputReceived) &&
+				(allGood || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived)
 
 			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
-				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining)
+				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining.Truncate(time.Second))
 
 			if shouldExitPMode {
 				if userInputReceived {
+					// user theoretically finished their interaction, so reset the trigger timer
+					n.connState.setForceProvisioningTime(false)
 					// We could get to this point before the user receives our response (poor UX, but likely not critical)
 					// E.g. try to avoid "Not connected" web portal screen.
 					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
@@ -879,7 +905,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			}
 		}
 
-		if allGood || pMode {
+		if pMode || (!n.checkForceProvisioning() && allGood) {
 			continue
 		}
 
@@ -924,7 +950,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout || userInputReceived {
+		if !isConfigured || hitOfflineTimeout || userInputReceived || n.checkForceProvisioning() {
 			if err := n.startProvisioning(ctx, inputChan); err != nil {
 				n.logger.Warn(err)
 			}
