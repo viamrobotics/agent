@@ -98,7 +98,7 @@ func InitPaths() error {
 			return errw.Errorf("%s should be a directory, but is not", p)
 		}
 		if info.Mode().Perm() != expectedPerms {
-			return errw.Errorf("%s should be have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
+			return errw.Errorf("%s should have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
 		}
 	}
 	return nil
