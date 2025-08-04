@@ -305,6 +305,7 @@ func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
 	}
 
 	n.logger.Infof("Activating connection: %s", id)
+	nw.lastTried = now
 
 	// Track the last WiFi network that attempted activation
 	if nw.netType == NetworkTypeWifi {
@@ -329,7 +330,6 @@ func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
 		}
 	}
 
-	nw.lastTried = now
 	activeConnection, err := n.waitForConnect(ctx, nw, netDev)
 	if err != nil {
 		nw.lastError = err

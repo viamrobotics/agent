@@ -144,7 +144,7 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 			if cName == unlockPairingKey {
 				trustBool, err := strconv.ParseBool(plaintext)
 				if err != nil {
-					b.logger.Warn("invalid value received for pairing trust, expected boolean (0, 1, true, false), got: %s", plaintext)
+					b.logger.Warnf("invalid value received for pairing trust, expected boolean (0, 1, true, false), got: %s", plaintext)
 					return
 				}
 				b.trustFunc(trustBool)
