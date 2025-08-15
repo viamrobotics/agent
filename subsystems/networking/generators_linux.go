@@ -39,8 +39,9 @@ func generateHotspotSettings(id NetKey, psk string) gnm.ConnectionSettings {
 			"psk":      psk,
 		},
 		"ipv4": map[string]any{
-			"method":    "shared",
-			"addresses": [][]uint32{{IPAsUint32, 24, IPAsUint32}},
+			"method":        "shared",
+			"addresses":     [][]uint32{{IPAsUint32, 24, IPAsUint32}},
+			"never-default": true,
 		},
 		"ipv6": map[string]any{
 			"method": "disabled",
