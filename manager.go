@@ -386,12 +386,22 @@ func (m *Manager) CloseAll() {
 	defer cancelFunc()
 
 	// close all subsystems
-	for _, sub := range []subsystems.Subsystem{m.viamServer, m.sysConfig, m.networking} {
-		if err := sub.Stop(ctx); err != nil {
+	for _, entry := range []struct {
+		name string
+		sub  subsystems.Subsystem
+	}{
+		{"viam-server", m.viamServer},
+		{"sysconfig", m.sysConfig},
+		{"networking", m.networking},
+	} {
+		if err := entry.sub.Stop(ctx); err != nil {
 			m.logger.Warn(err)
+		} else {
+			m.logger.Infof("Subsystem %s exited successfully", entry.name)
 		}
 	}
 	m.activeBackgroundWorkers.Wait()
+	m.logger.Info("All viam agent subsystems and background workers exited")
 
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
