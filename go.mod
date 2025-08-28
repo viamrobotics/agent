@@ -14,7 +14,7 @@ require (
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/sergeymakinen/go-systemdconf/v2 v2.0.2
 	github.com/tidwall/jsonc v0.3.2
-	github.com/ulikunitz/xz v0.5.12
+	github.com/ulikunitz/xz v0.5.14
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.443
 	go.viam.com/rdk v0.73.0
