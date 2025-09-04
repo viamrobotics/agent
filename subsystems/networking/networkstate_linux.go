@@ -365,3 +365,22 @@ func (n *networkState) GenNetKey(netType, ifName, ssid string) NetKey {
 		return NetKeyUnknown
 	}
 }
+
+// RemoveDevice removes a device from all device maps and cleans up associated state.
+func (n *networkState) RemoveDevice(ifName string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// Remove from all device maps
+	delete(n.wifiDevice, ifName)
+	delete(n.ethDevice, ifName)
+	delete(n.btDevice, ifName)
+
+	// Clean up associated state
+	delete(n.activeConn, ifName)
+	delete(n.activeSSID, ifName)
+	delete(n.lastSSID, ifName)
+	delete(n.primarySSID, ifName)
+
+	n.logger.Debugf("removed device %s from network state", ifName)
+}

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	gnm "github.com/Otterverse/gonetworkmanager/v2"
@@ -128,6 +129,16 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	return nil
 }
 
+// isObjectNotExistError checks if the error indicates that an object no longer exists at the given path.
+func isObjectNotExistError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Fallback to string matching as dbus doesn't return "true" Go-like enumerated errors, and has it's own string-based error type.
+	return strings.Contains(err.Error(), "Object does not exist at path")
+}
+
 func (n *Networking) checkConnections() {
 	var connected bool
 	defer func() {
@@ -137,7 +148,12 @@ func (n *Networking) checkConnections() {
 	for ifName, dev := range n.netState.Devices() {
 		activeConnection, err := dev.GetPropertyActiveConnection()
 		if err != nil {
-			n.logger.Warnf("failed to get active connection for device %s: %v", ifName, err)
+			if isObjectNotExistError(err) {
+				n.logger.Warnf("device %s no longer exists, removing from network state: %v", ifName, err)
+				n.netState.RemoveDevice(ifName)
+			} else {
+				n.logger.Warnf("failed to get active connection for device %s: %v", ifName, err)
+			}
 			continue
 		}
 		if activeConnection == nil {
@@ -148,13 +164,23 @@ func (n *Networking) checkConnections() {
 
 		connection, err := activeConnection.GetPropertyConnection()
 		if err != nil {
-			n.logger.Warnf("failed to get connection property for device %s: %v", ifName, err)
+			if isObjectNotExistError(err) {
+				n.logger.Warnf("device %s no longer exists, removing from network state: %v", ifName, err)
+				n.netState.RemoveDevice(ifName)
+			} else {
+				n.logger.Warnf("failed to get connection property for device %s: %v", ifName, err)
+			}
 			continue
 		}
 
 		settings, err := connection.GetSettings()
 		if err != nil {
-			n.logger.Warnf("failed to get connection settings for device %s: %v", ifName, err)
+			if isObjectNotExistError(err) {
+				n.logger.Warnf("device %s no longer exists, removing from network state: %v", ifName, err)
+				n.netState.RemoveDevice(ifName)
+			} else {
+				n.logger.Warnf("failed to get connection settings for device %s: %v", ifName, err)
+			}
 			continue
 		}
 
