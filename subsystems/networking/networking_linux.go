@@ -201,9 +201,7 @@ func (n *Networking) init(ctx context.Context) error {
 		}
 	}
 
-	if err := n.checkConnections(); err != nil {
-		n.logger.Warn(err)
-	}
+	n.checkConnections()
 
 	// Is there a configured wifi network? If so, set last times to now so we use normal timeouts.
 	// Otherwise, hotspot will start immediately if not connected, while wifi network might still be booting.
