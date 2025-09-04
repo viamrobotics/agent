@@ -128,7 +128,7 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	return nil
 }
 
-func (n *Networking) checkConnections() error {
+func (n *Networking) checkConnections() {
 	var connected bool
 	defer func() {
 		n.connState.setConnected(connected)
@@ -137,7 +137,8 @@ func (n *Networking) checkConnections() error {
 	for ifName, dev := range n.netState.Devices() {
 		activeConnection, err := dev.GetPropertyActiveConnection()
 		if err != nil {
-			return err
+			n.logger.Warnf("failed to get active connection for device %s: %v", ifName, err)
+			continue
 		}
 		if activeConnection == nil {
 			n.netState.SetActiveConn(ifName, nil)
@@ -147,12 +148,14 @@ func (n *Networking) checkConnections() error {
 
 		connection, err := activeConnection.GetPropertyConnection()
 		if err != nil {
-			return err
+			n.logger.Warnf("failed to get connection property for device %s: %v", ifName, err)
+			continue
 		}
 
 		settings, err := connection.GetSettings()
 		if err != nil {
-			return err
+			n.logger.Warnf("failed to get connection settings for device %s: %v", ifName, err)
+			continue
 		}
 
 		id := n.getNetKeyFromSettings(settings)
@@ -194,8 +197,6 @@ func (n *Networking) checkConnections() error {
 			connected = true
 		}
 	}
-
-	return nil
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
@@ -697,9 +698,7 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 		if err := n.updateKnownConnections(ctx); err != nil {
 			n.logger.Warn(err)
 		}
-		if err := n.checkConnections(); err != nil {
-			n.logger.Warn(err)
-		}
+		n.checkConnections()
 		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Warn(err)
 		}
