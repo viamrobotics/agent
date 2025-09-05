@@ -148,8 +148,8 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 		// not consider pairing as "failed"
 		call := remoteDev.CallWithContext(ctx, "org.bluez.Device1.ConnectProfile", 0, "deadbeef-cafe-0000-0000-cafedeadbeef")
 		if call.Err.Error() != "br-connection-profile-unavailable" {
-			b.logger.Warn(errw.Wrapf(err, "temporarily connecting bluetooth device %s (%s) resulted in unexpected error: %s",
-				bdaddr, alias, call.Err.Error()))
+			b.logger.Warnf("temporarily connecting bluetooth device %s (%s) resulted in unexpected error: %s",
+				bdaddr, alias, call.Err.Error())
 		}
 
 		// every bluetooth device is new, so have to scan after a new pairing
