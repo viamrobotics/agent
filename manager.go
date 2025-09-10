@@ -416,7 +416,6 @@ func (m *Manager) CloseAll() {
 	case <-ctx.Done():
 		m.logger.Info("Subsystems shutdown completed normally")
 	case <-slowWatcher:
-		m.logger.Error("Subsystem shutdown timed out, proceeding to cleanup")
 	}
 
 	m.activeBackgroundWorkers.Wait()
