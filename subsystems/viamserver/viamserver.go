@@ -248,7 +248,7 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 }
 
 // errUnsafeToRestart is reported to a result channel in isRestartAllowed below when any
-// one of the viam-server test URLs explicitly report that it is unsafe to start
+// one of the viam-server test URLs explicitly reports that it is unsafe to restart
 // the viam-server instance.
 var errUnsafeToRestart = errors.New("viam-server reports it is unsafe to restart")
 
