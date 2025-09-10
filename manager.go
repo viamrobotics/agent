@@ -22,6 +22,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
+	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
 )
 
@@ -382,24 +383,42 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 
 // CloseAll stops all subsystems and closes the cloud connection.
 func (m *Manager) CloseAll() {
-	ctx, cancelFunc := context.WithTimeout(context.Background(), stopAllTimeout)
-	defer cancelFunc()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// close all subsystems
-	for _, entry := range []struct {
-		name string
-		sub  subsystems.Subsystem
-	}{
-		{"viam-server", m.viamServer},
-		{"sysconfig", m.sysConfig},
-		{"networking", m.networking},
-	} {
-		if err := entry.sub.Stop(ctx); err != nil {
-			m.logger.Warn(err)
-		} else {
-			m.logger.Infof("Subsystem %s exited successfully", entry.name)
+	// Use a slow goroutine watcher to log and continue if shutdown is taking too long.
+	slowWatcher, slowWatcherCancel := goutils.SlowGoroutineWatcher(
+		stopAllTimeout, "Subsystem shutdown timed out, proceeding to shutdown", m.logger)
+	defer slowWatcherCancel()
+
+	// Start a goroutine to close all subsystems
+	goutils.PanicCapturingGo(func() {
+		defer cancel()
+		defer slowWatcherCancel()
+
+		for _, entry := range []struct {
+			name string
+			sub  subsystems.Subsystem
+		}{
+			{"viam-server", m.viamServer},
+			{"sysconfig", m.sysConfig},
+			{"networking", m.networking},
+		} {
+			if err := entry.sub.Stop(ctx); err != nil {
+				m.logger.Warn(err)
+			} else {
+				m.logger.Infof("Subsystem %s exited successfully", entry.name)
+			}
 		}
+	})
+
+	select {
+	case <-ctx.Done():
+		m.logger.Info("Subsystems shutdown completed normally")
+	case <-slowWatcher:
+		m.logger.Error("Subsystem shutdown timed out, proceeding to cleanup")
 	}
+
 	m.activeBackgroundWorkers.Wait()
 	m.logger.Info("All viam agent subsystems and background workers exited")
 

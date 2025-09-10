@@ -182,6 +182,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 }
 
 func (s *viamServer) Stop(ctx context.Context) error {
+	time.Sleep(time.Minute*3 + time.Second*5)
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
 
