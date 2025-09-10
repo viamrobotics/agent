@@ -324,7 +324,7 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 		}
 		// If any test URL reports it is explicitly _unsafe_ to restart (errUnsafeToRestart),
 		// we can assume we should not restart viam-server.
-		if errors.Is(err, errUnsafeToRestart) {
+		if errors.Is(result, errUnsafeToRestart) {
 			return false, errUnsafeToRestart
 		}
 
