@@ -387,7 +387,7 @@ func (m *Manager) CloseAll() {
 
 	// Use a slow goroutine watcher to log and continue if shutdown is taking too long.
 	slowWatcher, slowWatcherCancel := goutils.SlowGoroutineWatcher(
-		stopAllTimeout, "Subsystems taking a while to shutdown,", m.logger)
+		stopAllTimeout, "Subsystems taking a while to exit,", m.logger)
 
 	slowTicker := time.NewTicker(10 * time.Second)
 	defer slowTicker.Stop()
@@ -425,11 +425,11 @@ func (m *Manager) CloseAll() {
 			// stopAllTimeout truly elapsed without shutdown completing.
 			case <-ctx.Done():
 				// Clean shutdown won the race
-				m.logger.Info("Shutdown subsystems successfully")
+				m.logger.Info("All subsystems exited successfully")
 				return true
 			default:
 				// Timeout truly elapsed without clean shutdown
-				m.logger.Warn("Subsystems shutdown timed out, proceeding with agent shutdown")
+				m.logger.Warn("Subsystems exit timed out, proceeding with agent shutdown")
 				return true
 			}
 		case <-ctx.Done():
@@ -447,13 +447,13 @@ func (m *Manager) CloseAll() {
 				shutdownComplete = true
 			}
 		case <-ctx.Done():
-			m.logger.Info("Shutdown subsystems successfully")
+			m.logger.Info("All subsystems exited successfully")
 			shutdownComplete = true
 		case <-slowTicker.C:
 			if checkDone() {
 				shutdownComplete = true
 			}
-			m.logger.Warnw("Waiting for subsystems to shutdown",
+			m.logger.Warnw("Waiting for subsystems to exit",
 				"time_elapsed", time.Since(shutdownStarted))
 		}
 	}
