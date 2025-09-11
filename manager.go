@@ -388,7 +388,7 @@ func (m *Manager) CloseAll() {
 
 	// Use a slow goroutine watcher to log and continue if shutdown is taking too long.
 	slowWatcher, slowWatcherCancel := goutils.SlowGoroutineWatcher(
-		stopAllTimeout, "Subsystem shutdown timed out, proceeding to shutdown", m.logger)
+		stopAllTimeout, "Subsystems shutdown timed out, proceeding to shutdown", m.logger)
 	defer slowWatcherCancel()
 
 	// Start a goroutine to close all subsystems
