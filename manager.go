@@ -384,17 +384,19 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 // CloseAll stops all subsystems and closes the cloud connection.
 func (m *Manager) CloseAll() {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Use a slow goroutine watcher to log and continue if shutdown is taking too long.
 	slowWatcher, slowWatcherCancel := goutils.SlowGoroutineWatcher(
-		stopAllTimeout, "Subsystems shutdown timed out, proceeding to shutdown", m.logger)
-	defer slowWatcherCancel()
+		stopAllTimeout, "Subsystems taking a while to shutdown,", m.logger)
 
-	// Start a goroutine to close all subsystems
+	slowTicker := time.NewTicker(10 * time.Second)
+	defer slowTicker.Stop()
+
+	shutdownStarted := time.Now()
+
 	goutils.PanicCapturingGo(func() {
-		defer cancel()
 		defer slowWatcherCancel()
+		defer cancel()
 
 		for _, entry := range []struct {
 			name string
@@ -412,14 +414,52 @@ func (m *Manager) CloseAll() {
 		}
 	})
 
-	select {
-	case <-ctx.Done():
-		m.logger.Info("Subsystems shutdown completed normally")
-	case <-slowWatcher:
+	checkDone := func() bool {
+		select {
+		case <-slowWatcher:
+			select {
+			// The successful shutdown case has us cancel() the context followed by slowWatcherCancel(),
+			// and there's also a chance we shutdown cleanly at the exact same time as the timeout fires,
+			// meaning we can select from either channel. If we select from slowWatcher channel, we need
+			// to check the context to see if it was cancelled, indicating clean shutdown, or if the
+			// stopAllTimeout truly elapsed without shutdown completing.
+			case <-ctx.Done():
+				// Clean shutdown won the race
+				m.logger.Info("Shutdown subsystems successfully")
+				return true
+			default:
+				// Timeout truly elapsed without clean shutdown
+				m.logger.Warn("Subsystems shutdown timed out, proceeding with agent shutdown")
+				return true
+			}
+		case <-ctx.Done():
+			return true
+		default:
+			return false
+		}
+	}
+
+	shutdownComplete := false
+	for !shutdownComplete {
+		select {
+		case <-slowWatcher:
+			if checkDone() {
+				shutdownComplete = true
+			}
+		case <-ctx.Done():
+			m.logger.Info("Shutdown subsystems successfully")
+			shutdownComplete = true
+		case <-slowTicker.C:
+			if checkDone() {
+				shutdownComplete = true
+			}
+			m.logger.Warnw("Waiting for subsystems to shutdown",
+				"time_elapsed", time.Since(shutdownStarted))
+		}
 	}
 
 	m.activeBackgroundWorkers.Wait()
-	m.logger.Info("All viam agent subsystems and background workers exited")
+	m.logger.Info("All background workers exited")
 
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
