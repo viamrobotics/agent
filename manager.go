@@ -425,7 +425,7 @@ func (m *Manager) CloseAll() {
 			// stopAllTimeout truly elapsed without shutdown completing.
 			case <-ctx.Done():
 				// Clean shutdown won the race
-				m.logger.Info("All subsystems exited successfully")
+				m.logger.Info("All subsystems exited")
 				return true
 			default:
 				// Timeout truly elapsed without clean shutdown
@@ -447,7 +447,7 @@ func (m *Manager) CloseAll() {
 				shutdownComplete = true
 			}
 		case <-ctx.Done():
-			m.logger.Info("All subsystems exited successfully")
+			m.logger.Info("All subsystems exited")
 			shutdownComplete = true
 		case <-slowTicker.C:
 			if checkDone() {
