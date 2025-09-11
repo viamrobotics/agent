@@ -5,7 +5,7 @@
 
 set -eux
 
-sudo service viam-agent stop
+sudo systemctl stop viam-agent
 
 if [ -z "$BLUETOOTH_MAC" ]; then
     echo '$BLUETOOTH_MAC not set, skipping bluetooth cleanup'
@@ -20,5 +20,4 @@ else
 fi
 
 sudo rm -fv /etc/viam.json
-sudo service viam-agent start
-
+sudo systemctl start viam-agent
