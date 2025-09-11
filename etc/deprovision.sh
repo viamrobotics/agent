@@ -8,6 +8,8 @@ set -eux
 sudo service viam-agent stop
 
 if [ -z "$BLUETOOTH_MAC" ]; then
+    echo '$BLUETOOTH_MAC not set, skipping bluetooth cleanup'
+else
     bluetoothctl remove $BLUETOOTH_MAC || echo "didn't remove bluetooth device"
     bluetoothctl power off
     sudo nmcli c delete bluetooth@$BLUETOOTH_MAC || echo "didn't remove nmcli network"
@@ -15,8 +17,6 @@ if [ -z "$BLUETOOTH_MAC" ]; then
     sleep 2
 
     bluetoothctl power on
-else
-    echo '$BLUETOOTH_MAC not set, skipping bluetooth cleanup'
 fi
 
 sudo rm -fv /etc/viam.json
