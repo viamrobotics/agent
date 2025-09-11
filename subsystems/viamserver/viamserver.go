@@ -247,6 +247,11 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
+// errUnsafeToRestart is reported to a result channel in isRestartAllowed below when any
+// one of the viam-server test URLs explicitly reports that it is unsafe to restart
+// the viam-server instance.
+var errUnsafeToRestart = errors.New("viam-server reports it is unsafe to restart")
+
 // Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
 // both accessed.
 func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
@@ -304,15 +309,25 @@ func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
 				resultChan <- nil
 				return
 			}
-			resultChan <- errors.New("viam-server reports it is unsafe to restart")
+			resultChan <- errUnsafeToRestart
 		}()
 	}
+
 	var combinedErr error
 	for i := 1; i <= len(urls); i++ {
 		result := <-resultChan
+
+		// If any test URL reports it is explicitly _safe_ to restart (nil value sent to
+		// resultChan), we can assume we can restart viam-server.
 		if result == nil {
 			return true, nil
 		}
+		// If any test URL reports it is explicitly _unsafe_ to restart (errUnsafeToRestart),
+		// we can assume we should not restart viam-server.
+		if errors.Is(result, errUnsafeToRestart) {
+			return false, errUnsafeToRestart
+		}
+
 		combinedErr = errors.Join(combinedErr, result)
 	}
 	return false, combinedErr
