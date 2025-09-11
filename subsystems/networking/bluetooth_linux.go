@@ -73,8 +73,14 @@ func (n *Networking) stopProvisioningBluetooth() error {
 		n.logger.Warnf("bluetooth already stopped")
 		return nil
 	}
+	// 'not started' is unexported but comes from here
+	// https://github.com/tinygo-org/bluetooth/blob/5c615298c3e4400150c44da3636f3d3b10967e3c/gap_linux.go#L48
 	if err := n.btAdv.Stop(); err != nil {
-		return fmt.Errorf("failed to stop BT advertising: %w", err)
+		if err.Error() == "bluetooth: advertisement is not started" {
+			n.logger.Warnf("ignoring %q from Stop()", err)
+		} else {
+			return fmt.Errorf("failed to stop BT advertising: %w", err)
+		}
 	}
 	n.btAdv = nil
 
