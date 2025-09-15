@@ -144,7 +144,7 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	return nm, nil
 }
 
-func (n *Networking) init(ctx context.Context) error {
+func (n *Networking) Init(ctx context.Context) error {
 	n.mainLoopHealth.MarkGood()
 	n.bgLoopHealth.MarkGood()
 
@@ -238,7 +238,7 @@ func (n *Networking) Start(ctx context.Context) error {
 	n.logger.Debugf("Starting networking")
 
 	if n.nm == nil || n.settings == nil {
-		if err := n.init(ctx); err != nil {
+		if err := n.Init(ctx); err != nil {
 			return err
 		}
 	}
@@ -312,7 +312,7 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	}
 
 	if n.nm == nil || n.settings == nil {
-		if err := n.init(ctx); err != nil {
+		if err := n.Init(ctx); err != nil {
 			n.logger.Warn(err)
 			return needRestart
 		}
