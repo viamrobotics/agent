@@ -412,6 +412,27 @@ func (m *Manager) CloseAll() {
 				m.logger.Infof("Subsystem %s exited successfully", entry.name)
 			}
 		}
+
+		m.activeBackgroundWorkers.Wait()
+		m.logger.Info("All background workers exited")
+
+		m.connMu.Lock()
+		defer m.connMu.Unlock()
+
+		if m.netAppender != nil {
+			m.netAppender.Close()
+			m.netAppender = nil
+		}
+
+		if m.conn != nil {
+			err := m.conn.Close()
+			if err != nil {
+				m.logger.Warn(err)
+			}
+		}
+
+		m.client = nil
+		m.conn = nil
 	})
 
 	checkDone := func() bool {
@@ -454,30 +475,9 @@ func (m *Manager) CloseAll() {
 				shutdownComplete = true
 			}
 			m.logger.Warnw("Waiting for subsystems to exit",
-				"time_elapsed", time.Since(shutdownStarted))
+				"time_elapsed", time.Since(shutdownStarted).String())
 		}
 	}
-
-	m.activeBackgroundWorkers.Wait()
-	m.logger.Info("All background workers exited")
-
-	m.connMu.Lock()
-	defer m.connMu.Unlock()
-
-	if m.netAppender != nil {
-		m.netAppender.Close()
-		m.netAppender = nil
-	}
-
-	if m.conn != nil {
-		err := m.conn.Close()
-		if err != nil {
-			m.logger.Warn(err)
-		}
-	}
-
-	m.client = nil
-	m.conn = nil
 }
 
 // StartBackgroundChecks kicks off a go routine that loops on a timer to check for updates and health checks.
