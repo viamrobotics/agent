@@ -387,7 +387,7 @@ func (m *Manager) CloseAll() {
 
 	// Use a slow goroutine watcher to log and continue if shutdown is taking too long.
 	slowWatcher, slowWatcherCancel := goutils.SlowGoroutineWatcher(
-		stopAllTimeout, "Agent is taking a while to exit,", m.logger)
+		stopAllTimeout, "Agent is taking a while to shut down,", m.logger)
 
 	slowTicker := time.NewTicker(10 * time.Second)
 	defer slowTicker.Stop()
@@ -409,12 +409,12 @@ func (m *Manager) CloseAll() {
 			if err := entry.sub.Stop(ctx); err != nil {
 				m.logger.Warn(err)
 			} else {
-				m.logger.Infof("Subsystem %s exited successfully", entry.name)
+				m.logger.Infof("Subsystem %s shut down successfully", entry.name)
 			}
 		}
 
 		m.activeBackgroundWorkers.Wait()
-		m.logger.Info("All background workers exited")
+		m.logger.Info("Background workers shut down successfully")
 
 		m.connMu.Lock()
 		defer m.connMu.Unlock()
@@ -446,11 +446,11 @@ func (m *Manager) CloseAll() {
 			// stopAllTimeout truly elapsed without shutdown completing.
 			case <-ctx.Done():
 				// Clean shutdown occurred by timeout
-				m.logger.Info("All viam agent subsystems and background workers exited")
+				m.logger.Info("All viam agent subsystems and background workers shut down")
 				return true
 			default:
 				// Timeout truly elapsed without clean shutdown
-				m.logger.Fatal("Clean exit timed out, proceeding to shutdown agent")
+				m.logger.Fatal("Shutdown timed out, agent exiting now")
 				return true
 			}
 		case <-ctx.Done():
@@ -468,7 +468,7 @@ func (m *Manager) CloseAll() {
 				shutdownComplete = true
 			}
 		case <-ctx.Done():
-			m.logger.Info("All viam agent subsystems and background workers exited")
+			m.logger.Info("All viam agent subsystems and background workers shut down")
 			shutdownComplete = true
 		case <-slowTicker.C:
 			if checkDone() {
