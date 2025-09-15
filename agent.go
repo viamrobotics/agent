@@ -7,6 +7,8 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -49,6 +51,40 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 	return true, nil
 }
 
+func goarchToOsArch(goarch string) string {
+	switch goarch {
+	case "arm64":
+		return "aarch64"
+	case "amd64":
+		return "x86_64"
+	}
+	return ""
+}
+
+func atomicCopy(dst, src string) error {
+	infile, err := os.Open(src)
+	if err != nil {
+		return errw.Wrap(err, "opening source file for atomic copy")
+	}
+	defer infile.Close()
+	tmpDst := dst + ".tmp"
+	tmpOutFile, err := os.OpenFile(tmpDst, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0755)
+	if err != nil {
+		return errw.Wrap(err, "opening temporary destination file for atomic copy")
+	}
+	_, err = io.Copy(tmpOutFile, infile)
+	tmpOutFile.Close()
+	if err != nil {
+		return errw.Wrap(err, "performing atomic copy")
+	}
+	tmpOutFile.Close()
+	err = os.Rename(tmpDst, dst)
+	if err != nil {
+		return errw.Wrap(err, "renaming copied file during atomic copy")
+	}
+	return nil
+}
+
 // Install is directly executed from main() when --install is passed.
 func Install(logger logging.Logger) error {
 	// Check for systemd
@@ -63,25 +99,35 @@ func Install(logger logging.Logger) error {
 		return err
 	}
 
-	// If this is a brand new install, we want to symlink ourselves into place temporarily.
-	expectedPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
+	// If this is a brand new install, we want to copy ourselves into the version
+	// cache and install a symlink.
+	expectedBinPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
+	arch := goarchToOsArch(runtime.GOARCH)
+	if arch == "" {
+		return fmt.Errorf("could not determine platform arch mapping for GOARCH %s", runtime.GOARCH)
+	}
+	expectedCachePath := filepath.Join(utils.ViamDirs["cache"], strings.Join([]string{SubsystemName, utils.Version, arch}, "-"))
 	curPath, err := os.Executable()
 	if err != nil {
 		return errw.Wrap(err, "getting path to self")
 	}
 
-	isSelf, err := utils.CheckIfSame(curPath, expectedPath)
+	isExpected, err := utils.CheckIfSame(expectedCachePath, expectedBinPath)
 	if err != nil {
 		return errw.Wrap(err, "checking if installed viam-agent is myself")
 	}
 
-	if !isSelf {
-		logger.Infof("adding a symlink to %s at %s", curPath, expectedPath)
-		if err := os.Remove(expectedPath); err != nil && !errw.Is(err, fs.ErrNotExist) {
-			return errw.Wrapf(err, "removing symlink/file at %s", expectedPath)
+	if !isExpected {
+		logger.Infof("installing to %s and adding a symlink at %s", expectedCachePath, expectedBinPath)
+		err := atomicCopy(expectedCachePath, curPath)
+		if err != nil {
+			return errw.Wrap(err, "installing self into cache directory")
 		}
-		if err := os.Symlink(curPath, expectedPath); err != nil {
-			return errw.Wrapf(err, "installing symlink at %s", expectedPath)
+		if err := os.Remove(expectedBinPath); err != nil && !errw.Is(err, fs.ErrNotExist) {
+			return errw.Wrapf(err, "removing symlink/file at %s", expectedBinPath)
+		}
+		if err := os.Symlink(expectedCachePath, expectedBinPath); err != nil {
+			return errw.Wrapf(err, "installing symlink at %s", expectedBinPath)
 		}
 	}
 
