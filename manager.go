@@ -445,7 +445,7 @@ func (m *Manager) CloseAll() {
 			// to check the context to see if it was cancelled, indicating clean shutdown, or if the
 			// stopAllTimeout truly elapsed without shutdown completing.
 			case <-ctx.Done():
-				// Clean shutdown occured by timeout
+				// Clean shutdown occurred by timeout
 				m.logger.Info("All viam agent subsystems and background workers exited")
 				return true
 			default:
