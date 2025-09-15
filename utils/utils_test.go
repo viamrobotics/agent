@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestDecompressFile(t *testing.T) {
 	// decompress
 	path, err := DecompressFile(orig + ".xz")
 	test.That(t, err, test.ShouldBeNil)
-	test.That(t, path, test.ShouldResemble, filepath.Join(ViamDirs["cache"], "plaintext"))
+	test.That(t, path, test.ShouldResemble, filepath.Join(ViamDirs.Cache, "plaintext"))
 }
 
 func TestGetFileSum(t *testing.T) {
@@ -154,7 +155,7 @@ func TestDownloadFile(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 
 		// Create an existing file in cache with same name
-		existingPath := filepath.Join(ViamDirs["cache"], "duplicate.txt")
+		existingPath := filepath.Join(ViamDirs.Cache, "duplicate.txt")
 		err = os.WriteFile(existingPath, []byte("existing content"), 0o644)
 		test.That(t, err, test.ShouldBeNil)
 
@@ -189,7 +190,7 @@ func TestDownloadFile(t *testing.T) {
 			if i > 0 {
 				suffix = fmt.Sprintf(".duplicate-%03d", i)
 			}
-			existingPath := filepath.Join(ViamDirs["cache"], "multidupe.txt"+suffix)
+			existingPath := filepath.Join(ViamDirs.Cache, "multidupe.txt"+suffix)
 			err = os.WriteFile(existingPath, []byte(fmt.Sprintf("existing content %d", i)), 0o644)
 			test.That(t, err, test.ShouldBeNil)
 		}
@@ -296,4 +297,47 @@ func TestDownloadFile(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, string(content), test.ShouldEqual, testContent)
 	})
+}
+
+// If either of the tests on ViamDirsData become outdated be sure there is at
+// least some test remaining on the ViamDirsData.Values method. As long as it
+// uses reflection it could break at runtime if we accidentally add a
+// non-string field and we want to be sure to catch that in testing.
+func TestViamDirsValuesCopy(t *testing.T) {
+	// Test that the iterator takes a copy at the time it is created and does not
+	// reflect changes made to the original value after that point.
+	backup := ViamDirs
+	t.Cleanup(func() {
+		ViamDirs = backup
+	})
+
+	ViamDirs.Bin = "TEST-foo"
+	seq := ViamDirs.Values()
+	ViamDirs.Cache = "TEST-bar"
+
+	testVals := []string{}
+	for val := range seq {
+		if !strings.HasPrefix(val, "TEST-") {
+			continue
+		}
+		val := strings.Split(val, "-")[1]
+		testVals = append(testVals, val)
+	}
+	test.That(t, testVals, test.ShouldResemble, []string{"foo"})
+}
+
+func TestViamDirsValuesEmpty(t *testing.T) {
+	// Test that the iterator does not include empty strings.
+	backup := ViamDirs
+	t.Cleanup(func() {
+		ViamDirs = backup
+	})
+
+	initialLen := len(slices.Collect(ViamDirs.Values()))
+	test.That(t, initialLen, test.ShouldBeGreaterThan, 2)
+
+	ViamDirs.Bin = ""
+	ViamDirs.Tmp = ""
+	newLen := len(slices.Collect(ViamDirs.Values()))
+	test.That(t, newLen, test.ShouldEqual, initialLen-2)
 }

@@ -108,7 +108,7 @@ func (c *VersionCache) load() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cacheFilePath := filepath.Join(utils.ViamDirs["cache"], versionCacheFilename)
+	cacheFilePath := filepath.Join(utils.ViamDirs.Cache, versionCacheFilename)
 	//nolint:gosec
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
@@ -127,7 +127,7 @@ func (c *VersionCache) load() {
 
 // save should only be run when protected by mutex locks. Use SaveCache() for normal use.
 func (c *VersionCache) save() error {
-	cacheFilePath := filepath.Join(utils.ViamDirs["cache"], versionCacheFilename)
+	cacheFilePath := filepath.Join(utils.ViamDirs.Cache, versionCacheFilename)
 
 	cacheData, err := json.Marshal(c)
 	if err != nil {
@@ -172,7 +172,7 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 
 	info.Version = newVersion
 	info.URL = cfg.GetUrl()
-	info.SymlinkPath = path.Join(utils.ViamDirs["bin"], cfg.GetFilename())
+	info.SymlinkPath = path.Join(utils.ViamDirs.Bin, cfg.GetFilename())
 	info.UnpackedSHA = cfg.GetSha256()
 
 	return c.save()
@@ -342,7 +342,7 @@ func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, ma
 			path += ".exe"
 		}
 
-		destPath, err := filepath.EvalSymlinks(filepath.Join(utils.ViamDirs["bin"], path))
+		destPath, err := filepath.EvalSymlinks(filepath.Join(utils.ViamDirs.Bin, path))
 		if err != nil {
 			c.logger.Warn(err)
 			continue
@@ -404,7 +404,7 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	}
 
 	// actually remove files
-	for _, dir := range []string{utils.ViamDirs["cache"], utils.ViamDirs["tmp"]} {
+	for _, dir := range []string{utils.ViamDirs.Cache, utils.ViamDirs.Tmp} {
 		files, err := os.ReadDir(dir)
 		if err != nil {
 			c.logger.Error(err)

@@ -791,7 +791,7 @@ func (n *Networking) processUserInput(userInput userInput) bool {
 }
 
 func (n *Networking) checkForceProvisioning() bool {
-	touchFile := path.Join(utils.ViamDirs["etc"], "force_provisioning_mode")
+	touchFile := path.Join(utils.ViamDirs.Etc, "force_provisioning_mode")
 
 	// Check if the touch file exists
 	if _, err := os.Stat(touchFile); err == nil {

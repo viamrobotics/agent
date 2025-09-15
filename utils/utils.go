@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -36,10 +38,37 @@ var (
 	Version     = ""
 	GitRevision = ""
 
-	ViamDirs = map[string]string{"viam": "/opt/viam"}
+	ViamDirs ViamDirsData
 
 	HealthCheckTimeout = time.Minute
 )
+
+type ViamDirsData struct {
+	Viam  string
+	Bin   string
+	Cache string
+	Tmp   string
+	Etc   string
+}
+
+// Values returns an [iter.Seq] over the field values in ViamDirsData at the
+// time it is called.
+func (v ViamDirsData) Values() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		refViamDirs := reflect.ValueOf(v)
+		numFields := refViamDirs.NumField()
+		for i := range numFields {
+			val := refViamDirs.Field(i)
+			strVal := val.Interface().(string)
+			if strVal == "" {
+				continue
+			}
+			if !yield(strVal) {
+				return
+			}
+		}
+	}
+}
 
 // GetVersion returns the version embedded at build time.
 func GetVersion() string {
@@ -59,18 +88,18 @@ func GetRevision() string {
 
 func init() {
 	if runtime.GOOS == "windows" {
-		ViamDirs["viam"] = "c:/opt/viam"
+		ViamDirs.Viam = "c:/opt/viam"
 		// note: forward slash isn't an abs path on windows, but resolves to one.
 		var err error
-		ViamDirs["viam"], err = filepath.Abs(ViamDirs["viam"])
+		ViamDirs.Viam, err = filepath.Abs(ViamDirs.Viam)
 		if err != nil {
 			panic(err)
 		}
 	}
-	ViamDirs["bin"] = filepath.Join(ViamDirs["viam"], "bin")
-	ViamDirs["cache"] = filepath.Join(ViamDirs["viam"], "cache")
-	ViamDirs["tmp"] = filepath.Join(ViamDirs["viam"], "tmp")
-	ViamDirs["etc"] = filepath.Join(ViamDirs["viam"], "etc")
+	ViamDirs.Bin = filepath.Join(ViamDirs.Viam, "bin")
+	ViamDirs.Cache = filepath.Join(ViamDirs.Viam, "cache")
+	ViamDirs.Tmp = filepath.Join(ViamDirs.Viam, "tmp")
+	ViamDirs.Etc = filepath.Join(ViamDirs.Viam, "etc")
 }
 
 func InitPaths() error {
@@ -79,7 +108,7 @@ func InitPaths() error {
 	if runtime.GOOS == "windows" {
 		expectedPerms = 0o777
 	}
-	for _, p := range ViamDirs {
+	for p := range ViamDirs.Values() {
 		info, err := os.Stat(p)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -121,7 +150,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		if n > 0 {
 			suffix = fmt.Sprintf(".duplicate-%03d", n)
 		}
-		outPath = filepath.Join(ViamDirs["cache"], path.Base(parsedPath)+suffix)
+		outPath = filepath.Join(ViamDirs.Cache, path.Base(parsedPath)+suffix)
 		if runtime.GOOS == "windows" && !strings.HasSuffix(outPath, ".exe") {
 			outPath += ".exe"
 		}
@@ -147,11 +176,11 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		}()
 
 		//nolint:gosec
-		if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {
+		if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
 			return "", err
 		}
 
-		outfd, err := os.CreateTemp(ViamDirs["tmp"], "*")
+		outfd, err := os.CreateTemp(ViamDirs.Tmp, "*")
 		if err != nil {
 			return "", err
 		}
@@ -206,11 +235,11 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	}
 
 	//nolint:gosec
-	if err := os.MkdirAll(ViamDirs["tmp"], 0o755); err != nil {
+	if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
 		return "", err
 	}
 
-	out, err := os.CreateTemp(ViamDirs["tmp"], "*")
+	out, err := os.CreateTemp(ViamDirs.Tmp, "*")
 	if err != nil {
 		return "", err
 	}
@@ -289,13 +318,13 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 		return "", err
 	}
 
-	out, err := os.CreateTemp(ViamDirs["tmp"], "*")
+	out, err := os.CreateTemp(ViamDirs.Tmp, "*")
 	if err != nil {
 		return "", err
 	}
 
 	defer func() {
-		errRet = errors.Join(errRet, out.Close(), SyncFS(ViamDirs["tmp"]))
+		errRet = errors.Join(errRet, out.Close(), SyncFS(ViamDirs.Tmp))
 		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
@@ -306,7 +335,7 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 		errRet = errors.Join(errRet, err)
 	}
 
-	outPath = filepath.Join(ViamDirs["cache"], strings.Replace(filepath.Base(inPath), ".xz", "", 1))
+	outPath = filepath.Join(ViamDirs.Cache, strings.Replace(filepath.Base(inPath), ".xz", "", 1))
 	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
 	return outPath, errRet
 }

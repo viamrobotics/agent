@@ -250,7 +250,7 @@ func DefaultConfig() AgentConfig {
 }
 
 func SaveConfigToCache(cfg AgentConfig) error {
-	cachePath := filepath.Join(ViamDirs["cache"], configCacheFilename)
+	cachePath := filepath.Join(ViamDirs.Cache, configCacheFilename)
 
 	js, err := json.Marshal(cfg)
 	if err != nil {
@@ -262,7 +262,7 @@ func SaveConfigToCache(cfg AgentConfig) error {
 }
 
 func LoadConfigFromCache() (AgentConfig, error) {
-	cachePath := filepath.Join(ViamDirs["cache"], configCacheFilename)
+	cachePath := filepath.Join(ViamDirs.Cache, configCacheFilename)
 
 	cfg := AgentConfig{}
 
