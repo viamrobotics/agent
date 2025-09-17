@@ -297,15 +297,32 @@ func (n *Networking) stopProvisioning() error {
 }
 
 func (n *Networking) stopProvisioningHotspot() error {
+	// Always attempt to stop the portal, if it's not running this is just a noop.
 	err := n.stopPortal()
-	err2 := n.deactivateConnection(n.netState.GenNetKey(NetworkTypeHotspot, "", n.Config().HotspotSSID))
-	if errors.Is(err2, ErrNoActiveConnectionFound) {
+
+	// Try to take down the wifi hotspot only if we're in provisioning mode. The
+	// dbus/NetworkManager request goes by wifi device and not connection id, so
+	// unconditionally calling deactivateConnection can disconnect a working wifi
+	// connection when the agent stops.
+	isProvisioning := n.connState.getProvisioning()
+	if isProvisioning {
+		err2 := n.deactivateConnection(n.netState.GenNetKey(NetworkTypeHotspot, "", n.Config().HotspotSSID))
+		if errors.Is(err2, ErrNoActiveConnectionFound) {
+			return err
+		}
+		err = errors.Join(err, err2)
+	} else {
+		n.logger.Debug("Not in provisioning mode, hotspot should not be active so will not modify wifi connections")
+	}
+
+	if err != nil {
 		return err
 	}
-	if err := errors.Join(err, err2); err != nil {
-		return err
+	// This makes the code a bit ugly but logging this when we haven't actually
+	// touched the wifi state could cause a lot of confusion.
+	if isProvisioning {
+		n.logger.Info("Stopped hotspot provisioning mode.")
 	}
-	n.logger.Info("Stopped hotspot provisioning mode.")
 	return nil
 }
 
