@@ -349,14 +349,13 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			}
 		}
 
-		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
-		defer cancelFunc()
-
 		// Start should return near-instantly if already started.
 		if err := entry.sub.Start(ctx); err != nil {
 			m.logger.Warn(err)
 		}
 
+		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
+		defer cancelFunc()
 		if err := entry.sub.HealthCheck(ctxTimeout); err != nil {
 			if ctx.Err() != nil {
 				return
