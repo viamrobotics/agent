@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
+	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 )
 
 var (

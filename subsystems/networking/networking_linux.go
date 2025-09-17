@@ -8,10 +8,10 @@ import (
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
-	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
+	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	"google.golang.org/grpc"

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	gnm "github.com/Otterverse/gonetworkmanager/v2"
+	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
 )
 

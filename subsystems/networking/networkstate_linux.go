@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"sync"
 
-	gnm "github.com/Otterverse/gonetworkmanager/v2"
+	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	"go.viam.com/rdk/logging"
 )
 

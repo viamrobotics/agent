@@ -7,9 +7,9 @@ import (
 	"errors"
 	"time"
 
-	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 )
 
 var (
