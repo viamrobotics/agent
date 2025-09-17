@@ -30,11 +30,11 @@ all: amd64 arm64 windows
 
 .PHONY: arm64
 arm64:
-	make GOARCH=arm64
+	make GOOS=linux GOARCH=arm64
 
 .PHONY: amd64
 amd64:
-	make GOARCH=amd64
+	make GOOS=linux GOARCH=amd64
 
 .PHONY: windows
 windows:
