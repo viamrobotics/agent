@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	gnm "github.com/Otterverse/gonetworkmanager/v2"
 	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 )
 
 // This file contains the wifi/hotspot setting generation functions.

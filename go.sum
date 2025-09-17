@@ -33,8 +33,6 @@ github.com/Masterminds/semver/v3 v3.3.1 h1:QtNSWtVZ3nBfk8mAOu/B6v7FMJ+NHTIgUPi7r
 github.com/Masterminds/semver/v3 v3.3.1/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/OpenPeeDeeP/depguard v1.0.1/go.mod h1:xsIw86fROiiwelg+jB2uM9PiKihMMmUx/1V+TNhjQvM=
-github.com/Otterverse/gonetworkmanager/v2 v2.2.2 h1:dMB1cEH+NTgrh9PtQ6DmUL8vJxCQPwF3fXB1hsI9MIA=
-github.com/Otterverse/gonetworkmanager/v2 v2.2.2/go.mod h1:C4DIH4n0H6mdK8gMlGv8OTpJfKjmd0QJPWjq2O7s64w=
 github.com/PuerkitoBio/goquery v1.6.0/go.mod h1:GsLWisAFVj4WgDibEWF4pvYnkVQBpKBKeU+7zCJoLcc=
 github.com/Shopify/sarama v1.19.0/go.mod h1:FVkBWblsNy7DGZRfXLU0O9RCGt5g3g3yEuWXgklEdEo=
 github.com/Shopify/toxiproxy v2.1.4+incompatible/go.mod h1:OXgGpZ6Cli1/URJOF1DMxUHB2q5Ap20/P/eIdh4G0pI=
@@ -692,6 +690,8 @@ github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyC
 github.com/valyala/fasthttp v1.16.0/go.mod h1:YOKImeEosDdBPnxc0gy7INqi3m1zK6A+xl6TwOBhHCA=
 github.com/valyala/quicktemplate v1.6.3/go.mod h1:fwPzK2fHuYEODzJ9pkw0ipCPNHZ2tD5KW4lOuSdPKzY=
 github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a/go.mod h1:v3UYOV9WzVtRmSR+PDvWpU/qWl4Wa5LApYYX4ZtKbio=
+github.com/viamrobotics/gonetworkmanager/v2 v2.2.3 h1:KDbNG6jk9tMg7ARJ5xK8gowzfpgLvc58lce90j1J46k=
+github.com/viamrobotics/gonetworkmanager/v2 v2.2.3/go.mod h1:lZ27pZxpPgNAVv9qs+rwcJdgZDYJVPfbluoPbYJr/Ac=
 github.com/viamrobotics/webrtc/v3 v3.99.10 h1:ykE14wm+HkqMD5Ozq4rvhzzfvnXAu14ak/HzA1OCzfY=
 github.com/viamrobotics/webrtc/v3 v3.99.10/go.mod h1:ziH7/S52IyYAeDdwUUl5ZTbuyKe47fWorAz+0z5w6NA=
 github.com/viamrobotics/zeroconf v1.0.12 h1:y0AaDnBmELvtKKzJlnRBivZ4KWYXWXyGv73SY16sXUw=
