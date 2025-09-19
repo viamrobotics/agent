@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
@@ -114,7 +115,7 @@ func Install(logger logging.Logger) error {
 
 	isExpected, err := utils.CheckIfSame(expectedCachePath, expectedBinPath)
 	if err != nil {
-		return errw.Wrap(err, "checking if installed viam-agent is myself")
+		return errw.Wrap(err, "checking if installed viam-agent is in expected state")
 	}
 
 	if !isExpected {
@@ -128,6 +129,19 @@ func Install(logger logging.Logger) error {
 		}
 		if err := os.Symlink(expectedCachePath, expectedBinPath); err != nil {
 			return errw.Wrapf(err, "installing symlink at %s", expectedBinPath)
+		}
+		versionCache := NewVersionCache(logger)
+		trimmedVersion, _ := strings.CutPrefix(utils.Version, "v")
+		versionCache.ViamAgent.CurrentVersion = trimmedVersion
+		versionCache.ViamAgent.Versions[trimmedVersion] = &VersionInfo{
+			Version:      trimmedVersion,
+			UnpackedPath: expectedCachePath,
+			DlPath:  expectedCachePath,
+			SymlinkPath:  expectedBinPath,
+			Installed:    time.Now(),
+		}
+		if err := versionCache.save(); err != nil {
+			return errw.Wrap(err, "writing version cache to disk")
 		}
 	}
 
