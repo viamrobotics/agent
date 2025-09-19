@@ -154,6 +154,9 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	if newVersion == "customURL" {
 		newVersion = "customURL+" + cfg.GetUrl()
 	}
+	if newVersion == "" {
+		return errw.Errorf("empty string given as version for %v", binary)
+	}
 
 	if newVersion == data.TargetVersion {
 		return nil
@@ -200,7 +203,13 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 
 	verData, ok := data.Versions[data.TargetVersion]
 	if !ok {
-		return needRestart, errw.Errorf("version data not found for %s %s", binary, data.TargetVersion)
+		// App has passed down "" as a target version in the past (see RSDK-11966 and linked
+		// tickets). Explicitly include that information in the error in that case.
+		targetVersion := data.TargetVersion
+		if targetVersion == "" {
+			targetVersion = "[empty string]"
+		}
+		return needRestart, errw.Errorf("version data %s not found for binary %s", targetVersion, binary)
 	}
 
 	isCustomURL := strings.HasPrefix(verData.Version, "customURL+")
