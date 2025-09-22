@@ -604,12 +604,12 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	// Store update data in cache, actual binaries are updated later
 	err = m.cache.Update(resp.GetAgentUpdateInfo(), SubsystemName)
 	if err != nil {
-		m.logger.Warn(errw.Wrapf(err, "processing update data for %s", SubsystemName))
+		m.logger.Error(errw.Wrapf(err, "processing update data for %s", SubsystemName))
 	}
 
 	err = m.cache.Update(resp.GetViamServerUpdateInfo(), viamserver.SubsysName)
 	if err != nil {
-		m.logger.Warn(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
+		m.logger.Error(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
 	}
 
 	cfg, err := utils.StackConfigs(resp)
