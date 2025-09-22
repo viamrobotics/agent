@@ -601,3 +601,16 @@ func AtomicCopy(dst, src string) error {
 	}
 	return nil
 }
+
+// GoArchToOSArch translates CPU architecture IDs used by Go such as "arm64" to
+// architucture IDs used by operating systems and their package managers, such
+// as "aarch64". It returns an empty string for unknown architectures.
+func GoarchToOSArch(goarch string) string {
+	switch goarch {
+	case "arm64":
+		return "aarch64"
+	case "amd64":
+		return "x86_64"
+	}
+	return ""
+}

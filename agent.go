@@ -51,16 +51,6 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 	return true, nil
 }
 
-func goarchToOsArch(goarch string) string {
-	switch goarch {
-	case "arm64":
-		return "aarch64"
-	case "amd64":
-		return "x86_64"
-	}
-	return ""
-}
-
 // Install is directly executed from main() when --install is passed.
 func Install(logger logging.Logger) error {
 	// Check for systemd
@@ -78,7 +68,7 @@ func Install(logger logging.Logger) error {
 	// If this is a brand new install, we want to copy ourselves into the version
 	// cache and install a symlink.
 	expectedBinPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
-	arch := goarchToOsArch(runtime.GOARCH)
+	arch := utils.GoarchToOSArch(runtime.GOARCH)
 	if arch == "" {
 		return fmt.Errorf("could not determine platform arch mapping for GOARCH %s", runtime.GOARCH)
 	}
