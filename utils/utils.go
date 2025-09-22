@@ -574,3 +574,30 @@ func downloadProgressSetup(ctx context.Context,
 	}()
 	return writer, cancel
 }
+
+// AtomicCopy implements a best effort to atomically copy the file at src to
+// dst. It does this by copying first to a temporary file in the same directory
+// as dst, then renaming that file to the final expected path.
+func AtomicCopy(dst, src string) error {
+	infile, err := os.Open(src)
+	if err != nil {
+		return errw.Wrap(err, "opening source file for atomic copy")
+	}
+	defer infile.Close()
+	tmpDst := dst + ".tmp"
+	tmpOutFile, err := os.OpenFile(tmpDst, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0755)
+	if err != nil {
+		return errw.Wrap(err, "opening temporary destination file for atomic copy")
+	}
+	_, err = io.Copy(tmpOutFile, infile)
+	tmpOutFile.Close()
+	if err != nil {
+		return errw.Wrap(err, "performing atomic copy")
+	}
+	tmpOutFile.Close()
+	err = os.Rename(tmpDst, dst)
+	if err != nil {
+		return errw.Wrap(err, "renaming copied file during atomic copy")
+	}
+	return nil
+}

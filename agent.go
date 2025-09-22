@@ -8,7 +8,6 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -62,30 +61,6 @@ func goarchToOsArch(goarch string) string {
 	return ""
 }
 
-func atomicCopy(dst, src string) error {
-	infile, err := os.Open(src)
-	if err != nil {
-		return errw.Wrap(err, "opening source file for atomic copy")
-	}
-	defer infile.Close()
-	tmpDst := dst + ".tmp"
-	tmpOutFile, err := os.OpenFile(tmpDst, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0755)
-	if err != nil {
-		return errw.Wrap(err, "opening temporary destination file for atomic copy")
-	}
-	_, err = io.Copy(tmpOutFile, infile)
-	tmpOutFile.Close()
-	if err != nil {
-		return errw.Wrap(err, "performing atomic copy")
-	}
-	tmpOutFile.Close()
-	err = os.Rename(tmpDst, dst)
-	if err != nil {
-		return errw.Wrap(err, "renaming copied file during atomic copy")
-	}
-	return nil
-}
-
 // Install is directly executed from main() when --install is passed.
 func Install(logger logging.Logger) error {
 	// Check for systemd
@@ -120,7 +95,7 @@ func Install(logger logging.Logger) error {
 
 	if !isExpected {
 		logger.Infof("installing to %s and adding a symlink at %s", expectedCachePath, expectedBinPath)
-		err := atomicCopy(expectedCachePath, curPath)
+		err := utils.AtomicCopy(expectedCachePath, curPath)
 		if err != nil {
 			return errw.Wrap(err, "installing self into cache directory")
 		}
