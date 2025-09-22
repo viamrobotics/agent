@@ -68,7 +68,7 @@ func Install(logger logging.Logger) error {
 	// If this is a brand new install, we want to copy ourselves into the version
 	// cache and install a symlink.
 	expectedBinPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
-	arch := utils.GoarchToOSArch(runtime.GOARCH)
+	arch := utils.GoArchToOSArch(runtime.GOARCH)
 	if arch == "" {
 		return fmt.Errorf("could not determine platform arch mapping for GOARCH %s", runtime.GOARCH)
 	}
@@ -101,7 +101,7 @@ func Install(logger logging.Logger) error {
 		versionCache.ViamAgent.Versions[trimmedVersion] = &VersionInfo{
 			Version:      trimmedVersion,
 			UnpackedPath: expectedCachePath,
-			DlPath:  expectedCachePath,
+			DlPath:       expectedCachePath,
 			SymlinkPath:  expectedBinPath,
 			Installed:    time.Now(),
 		}

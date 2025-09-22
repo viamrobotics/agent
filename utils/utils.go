@@ -579,21 +579,26 @@ func downloadProgressSetup(ctx context.Context,
 // dst. It does this by copying first to a temporary file in the same directory
 // as dst, then renaming that file to the final expected path.
 func AtomicCopy(dst, src string) error {
+	//nolint:gosec
 	infile, err := os.Open(src)
 	if err != nil {
 		return errw.Wrap(err, "opening source file for atomic copy")
 	}
+	//nolint:errcheck
 	defer infile.Close()
 	tmpDst := dst + ".tmp"
-	tmpOutFile, err := os.OpenFile(tmpDst, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0755)
+	//nolint:gosec
+	tmpOutFile, err := os.OpenFile(tmpDst, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o755)
 	if err != nil {
 		return errw.Wrap(err, "opening temporary destination file for atomic copy")
 	}
 	_, err = io.Copy(tmpOutFile, infile)
+	//nolint:errcheck,gosec
 	tmpOutFile.Close()
 	if err != nil {
 		return errw.Wrap(err, "performing atomic copy")
 	}
+	//nolint:errcheck,gosec
 	tmpOutFile.Close()
 	err = os.Rename(tmpDst, dst)
 	if err != nil {
@@ -605,7 +610,7 @@ func AtomicCopy(dst, src string) error {
 // GoArchToOSArch translates CPU architecture IDs used by Go such as "arm64" to
 // architucture IDs used by operating systems and their package managers, such
 // as "aarch64". It returns an empty string for unknown architectures.
-func GoarchToOSArch(goarch string) string {
+func GoArchToOSArch(goarch string) string {
 	switch goarch {
 	case "arm64":
 		return "aarch64"
