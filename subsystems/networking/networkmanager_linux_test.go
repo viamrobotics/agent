@@ -80,7 +80,7 @@ func TestCheckForceProvisioning(t *testing.T) {
 			}
 
 			// Set up the touch file if needed
-			touchFilePath := path.Join(utils.ViamDirs["etc"], "force_provisioning_mode")
+			touchFilePath := path.Join(utils.ViamDirs.Etc, "force_provisioning_mode")
 			if tt.setupTouchFile {
 				utils.Touch(t, touchFilePath)
 			}

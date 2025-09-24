@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,12 +26,15 @@ func mockViamDirs(t *testing.T) {
 		utils.ViamDirs = old
 	})
 	td := t.TempDir()
-	utils.ViamDirs = map[string]string{
-		"viam": td,
+	utils.ViamDirs = utils.ViamDirsData{
+		Viam: td,
 	}
-	for _, subdir := range []string{"bin", "cache", "tmp", "etc"} {
-		utils.ViamDirs[subdir] = filepath.Join(td, subdir)
-		os.Mkdir(utils.ViamDirs[subdir], 0o755)
+	for _, subdir := range []string{"Bin", "Cache", "Tmp", "Etc"} {
+		refViamDirs := reflect.ValueOf(&utils.ViamDirs)
+		field := refViamDirs.Elem().FieldByName(subdir)
+		path := filepath.Join(td, strings.ToLower(subdir))
+		field.Set(reflect.ValueOf(path))
+		os.Mkdir(field.Interface().(string), 0o755)
 	}
 }
 
@@ -39,7 +44,7 @@ func TestUpdateBinary(t *testing.T) {
 
 	vi := VersionInfo{
 		Version:     "0.70.0",
-		SymlinkPath: filepath.Join(utils.ViamDirs["bin"], "viam-server"),
+		SymlinkPath: filepath.Join(utils.ViamDirs.Bin, "viam-server"),
 	}
 	// sha of an empty file
 	var err error
@@ -72,8 +77,8 @@ func TestUpdateBinary(t *testing.T) {
 	needsRestart, err := vc.UpdateBinary(context.Background(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeTrue)
-	testExists(t, filepath.Join(utils.ViamDirs["bin"], "viam-server"))
-	testExists(t, filepath.Join(utils.ViamDirs["cache"], "source-binary-"+vi.Version))
+	testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-server"))
+	testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi.Version))
 	test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
 
 	// rerun with no change
@@ -86,7 +91,7 @@ func TestUpdateBinary(t *testing.T) {
 	needsRestart, err = vc.UpdateBinary(context.Background(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeTrue)
-	testExists(t, filepath.Join(utils.ViamDirs["cache"], "source-binary-"+vi2.Version))
+	testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
 
 	// todo: test custom URL
 }
@@ -111,12 +116,12 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 		copy(expected, baseProtectedFiles)
 		// create symlinks
 		for _, name := range []string{"viam-server", "viam-agent"} {
-			path := filepath.Join(utils.ViamDirs["cache"], name)
+			path := filepath.Join(utils.ViamDirs.Cache, name)
 			expected = append(expected, name)
 			f, err := os.Create(path)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, f.Close(), test.ShouldBeNil)
-			linkPath := filepath.Join(utils.ViamDirs["bin"], name)
+			linkPath := filepath.Join(utils.ViamDirs.Bin, name)
 			if runtime.GOOS == "windows" {
 				linkPath += ".exe"
 			}

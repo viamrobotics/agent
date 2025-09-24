@@ -100,12 +100,12 @@ func commonMain() {
 
 	if runtime.GOOS != "windows" && !opts.DevMode {
 		// confirm that we're running from a proper install
-		if !strings.HasPrefix(os.Args[0], utils.ViamDirs["viam"]) {
+		if !strings.HasPrefix(os.Args[0], utils.ViamDirs.Viam) {
 			//nolint:forbidigo
 			fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n"+
 				"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n"+
 				"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
-				utils.ViamDirs["viam"], os.Args[0])
+				utils.ViamDirs.Viam, os.Args[0])
 			return
 		}
 	}
@@ -239,7 +239,7 @@ func exitIfError(err error) {
 }
 
 func getLock() (lockfile.Lockfile, error) {
-	pidFile, err := lockfile.New(filepath.Join(utils.ViamDirs["tmp"], "viam-agent.pid"))
+	pidFile, err := lockfile.New(filepath.Join(utils.ViamDirs.Tmp, "viam-agent.pid"))
 	if err != nil {
 		return "", errors.Wrap(err, "init lockfile")
 	}

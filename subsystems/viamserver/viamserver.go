@@ -79,7 +79,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	binPath := path.Join(utils.ViamDirs["bin"], SubsysName)
+	binPath := path.Join(utils.ViamDirs.Bin, SubsysName)
 
 	if runtime.GOOS == "windows" {
 		binPath += ".exe"
@@ -101,7 +101,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stderr := utils.NewMatchingLogger(s.logger, false, false, "viam-server.StdErr")
 	//nolint:gosec
 	s.cmd = exec.Command(binPath, "-config", utils.AppConfigFilePath)
-	s.cmd.Dir = utils.ViamDirs["viam"]
+	s.cmd.Dir = utils.ViamDirs.Viam
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr

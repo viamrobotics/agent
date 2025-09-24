@@ -37,7 +37,7 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 		// windows doesn't have systemctl so we don't do a postinstall yet.
 		return true, nil
 	}
-	expectedPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
+	expectedPath := filepath.Join(utils.ViamDirs.Bin, SubsystemName)
 
 	// Run the newly updated version to install systemd and other service files.
 	//nolint:gosec
@@ -67,12 +67,12 @@ func Install(logger logging.Logger) error {
 
 	// If this is a brand new install, we want to copy ourselves into the version
 	// cache and install a symlink.
-	expectedBinPath := filepath.Join(utils.ViamDirs["bin"], SubsystemName)
+	expectedBinPath := filepath.Join(utils.ViamDirs.Bin, SubsystemName)
 	arch := utils.GoArchToOSArch(runtime.GOARCH)
 	if arch == "" {
 		return fmt.Errorf("could not determine platform arch mapping for GOARCH %s", runtime.GOARCH)
 	}
-	expectedCachePath := filepath.Join(utils.ViamDirs["cache"], strings.Join([]string{SubsystemName, utils.Version, arch}, "-"))
+	expectedCachePath := filepath.Join(utils.ViamDirs.Cache, strings.Join([]string{SubsystemName, utils.Version, arch}, "-"))
 	curPath, err := os.Executable()
 	if err != nil {
 		return errw.Wrap(err, "getting path to self")
@@ -163,7 +163,7 @@ func Install(logger logging.Logger) error {
 
 	logger.Info("Install complete.")
 
-	return errors.Join(utils.SyncFS("/etc"), utils.SyncFS(serviceFilePath), utils.SyncFS(utils.ViamDirs["viam"]))
+	return errors.Join(utils.SyncFS("/etc"), utils.SyncFS(serviceFilePath), utils.SyncFS(utils.ViamDirs.Viam))
 }
 
 func inSystemdPath(path string, logger logging.Logger) bool {
