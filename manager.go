@@ -382,7 +382,6 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool) {
 	m.logger.Debug("Checking cloud for forced restarts")
 	if m.cloudConfig == nil {
-		// No custom interval and no restart needed in the absence of cloud information.
 		m.logger.Warn("can't CheckIfNeedsRestart until successful config load")
 		return minimalNeedsRestartCheckInterval, false
 	}
