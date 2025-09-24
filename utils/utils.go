@@ -87,6 +87,7 @@ func GetRevision() string {
 }
 
 func init() {
+	ViamDirs.Viam = "/opt/viam"
 	if runtime.GOOS == "windows" {
 		ViamDirs.Viam = "c:/opt/viam"
 		// note: forward slash isn't an abs path on windows, but resolves to one.
