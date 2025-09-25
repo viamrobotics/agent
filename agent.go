@@ -72,7 +72,7 @@ func Install(logger logging.Logger) error {
 	if arch == "" {
 		return fmt.Errorf("could not determine platform arch mapping for GOARCH %s", runtime.GOARCH)
 	}
-	expectedCachePath := filepath.Join(utils.ViamDirs.Cache, strings.Join([]string{SubsystemName, utils.Version, arch}, "-"))
+	expectedCachePath := filepath.Join(utils.ViamDirs.Cache, strings.Join([]string{SubsystemName, "v" + utils.Version, arch}, "-"))
 	curPath, err := os.Executable()
 	if err != nil {
 		return errw.Wrap(err, "getting path to self")
