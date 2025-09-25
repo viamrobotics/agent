@@ -410,7 +410,7 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 		return minimalNeedsRestartCheckInterval, false
 	}
 
-	return res.RestartCheckInterval.AsDuration(), res.GetMustRestart()
+	return res.GetRestartCheckInterval().AsDuration(), res.GetMustRestart()
 }
 
 // CloseAll stops all subsystems and closes the cloud connection.
