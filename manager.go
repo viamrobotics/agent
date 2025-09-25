@@ -225,7 +225,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			if m.viamServer.(viamserver.RestartCheck).SafeToRestart(ctx) {
+			if m.viamServer.(viamserver.RestartPropertyGetter).RestartAllowed(ctx) {
 				if err := m.viamServer.Stop(ctx); err != nil {
 					m.logger.Warn(err)
 				} else {
@@ -380,11 +380,20 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 // CheckIfNeedsRestart returns the check restart interval and whether the agent (and
 // therefore all its subsystems) has been forcibly restarted by app.
 func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool) {
-	m.logger.Debug("Checking cloud for forced restarts")
 	if m.cloudConfig == nil {
 		m.logger.Warn("can't CheckIfNeedsRestart until successful config load")
 		return minimalNeedsRestartCheckInterval, false
 	}
+
+	// TODO(Benji): What do I do with old versions of agent running with new versions of
+	// viamserver? I guess restart part won't work in those scenarios?
+	//
+	// Only continue this check if viam-server does not handle restart checking itself.
+	if !m.viamServer.(viamserver.RestartPropertyGetter).DoesNotHandleNeedsRestart(ctx) {
+		return minimalNeedsRestartCheckInterval, false
+	}
+
+	m.logger.Debug("Checking cloud for forced restarts")
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, defaultNetworkTimeout)
 	defer cancelFunc()
 
