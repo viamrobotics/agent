@@ -3,13 +3,7 @@ package viamserver
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -24,7 +18,6 @@ import (
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
-	goutils "go.viam.com/utils"
 )
 
 const (
@@ -33,14 +26,6 @@ const (
 	stopKillTimeout = time.Second * 10
 	SubsysName      = "viam-server"
 )
-
-// RestartStatusResponse is the http/json response from viam_server's /health_check URL
-// This MUST remain in sync with RDK.
-type RestartStatusResponse struct {
-	// RestartAllowed represents whether this instance of the viam-server can be
-	// safely restarted.
-	RestartAllowed bool `json:"restart_allowed"`
-}
 
 type viamServer struct {
 	mu           sync.Mutex
@@ -247,92 +232,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// errUnsafeToRestart is reported to a result channel in isRestartAllowed below when any
-// one of the viam-server test URLs explicitly reports that it is unsafe to restart
-// the viam-server instance.
-var errUnsafeToRestart = errors.New("viam-server reports it is unsafe to restart")
-
-// Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
-// both accessed.
-func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
-	urls, err := s.makeTestURLs()
-	if err != nil {
-		return false, err
-	}
-
-	resultChan := make(chan error, len(urls))
-
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
-	defer cancelFunc()
-
-	for _, url := range urls {
-		go func() {
-			s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
-
-			restartURL := url + "/restart_status"
-
-			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)
-			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
-				return
-			}
-
-			// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
-			//nolint:gosec
-			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-
-			resp, err := client.Do(req)
-			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
-				return
-			}
-
-			defer func() {
-				goutils.UncheckedError(resp.Body.Close())
-			}()
-
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				// Interacting with older viam-server instances will result in a
-				// non-successful HTTP response status code, as the `restart_status`
-				// endpoint will not be available. Continue to next URL in this
-				// case.
-				resultChan <- errw.Wrapf(err, "checking %s status via %s, got code: %d", SubsysName, restartURL, resp.StatusCode)
-				return
-			}
-
-			var restartStatusResponse RestartStatusResponse
-			if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
-				return
-			}
-			if restartStatusResponse.RestartAllowed {
-				resultChan <- nil
-				return
-			}
-			resultChan <- errUnsafeToRestart
-		}()
-	}
-
-	var combinedErr error
-	for i := 1; i <= len(urls); i++ {
-		result := <-resultChan
-
-		// If any test URL reports it is explicitly _safe_ to restart (nil value sent to
-		// resultChan), we can assume we can restart viam-server.
-		if result == nil {
-			return true, nil
-		}
-		// If any test URL reports it is explicitly _unsafe_ to restart (errUnsafeToRestart),
-		// we can assume we should not restart viam-server.
-		if errors.Is(result, errUnsafeToRestart) {
-			return false, errUnsafeToRestart
-		}
-
-		combinedErr = errors.Join(combinedErr, result)
-	}
-	return false, combinedErr
-}
-
 func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -348,96 +247,10 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	return false
 }
 
-func (s *viamServer) SafeToRestart(ctx context.Context) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.running || runtime.GOOS == "windows" {
-		return true
-	}
-
-	// viam-server can be safely restarted even while running if the process
-	// has reported it is safe to do so through its `restart_status` HTTP
-	// endpoint.
-	restartAllowed, err := s.isRestartAllowed(ctx)
-	if err != nil {
-		s.logger.Warn(err)
-		return restartAllowed
-	}
-	if restartAllowed {
-		s.logger.Infof("will restart %s to run new version, as it has reported allowance of a restart", SubsysName)
-	} else {
-		s.logger.Infof("will not restart %s version to run new version, as it has not reported allowance of a restart", SubsysName)
-	}
-	return restartAllowed
-}
-
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
 	return &viamServer{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
-}
-
-type RestartCheck interface {
-	SafeToRestart(ctx context.Context) bool
-}
-
-// must be called with s.mu locked.
-func (s *viamServer) makeTestURLs() ([]string, error) {
-	port := "8080"
-	mainURL, err := url.Parse(s.checkURL)
-	if err != nil {
-		s.logger.Warnf("cannot determine port for restart allowed check, using default of 8080")
-	} else {
-		port = mainURL.Port()
-		s.logger.Debugf("using port %s for restart allowed check", port)
-	}
-
-	ips, err := GetAllLocalIPv4s()
-	if err != nil {
-		return []string{}, err
-	}
-
-	urls := []string{s.checkURL, s.checkURLAlt}
-	for _, ip := range ips {
-		urls = append(urls, fmt.Sprintf("https://%s:%s", ip, port))
-	}
-
-	return urls, nil
-}
-
-// GetAllLocalIPv4s is copied from goutils, but removed the loopback checks, as we DO want loopback adapters.
-func GetAllLocalIPv4s() ([]string, error) {
-	allInterfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	all := []string{}
-
-	for _, i := range allInterfaces {
-		addrs, err := i.Addrs()
-		if err != nil {
-			return nil, err
-		}
-
-		for _, addr := range addrs {
-			switch v := addr.(type) {
-			case *net.IPNet:
-				_, bits := v.Mask.Size()
-				if bits != 32 {
-					// this is what limits to ipv4
-					continue
-				}
-
-				all = append(all, v.IP.String())
-			default:
-				return nil, fmt.Errorf("unknown address type: %T", v)
-			}
-		}
-	}
-
-	return all, nil
 }
