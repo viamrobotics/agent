@@ -7,6 +7,7 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
@@ -63,25 +65,48 @@ func Install(logger logging.Logger) error {
 		return err
 	}
 
-	// If this is a brand new install, we want to symlink ourselves into place temporarily.
-	expectedPath := filepath.Join(utils.ViamDirs.Bin, SubsystemName)
+	// If this is a brand new install, we want to copy ourselves into the version
+	// cache and install a symlink.
+	expectedBinPath := filepath.Join(utils.ViamDirs.Bin, SubsystemName)
+	arch := utils.GoArchToOSArch(runtime.GOARCH)
+	if arch == "" {
+		return fmt.Errorf("could not determine platform arch mapping for GOARCH %s", runtime.GOARCH)
+	}
+	expectedCachePath := filepath.Join(utils.ViamDirs.Cache, strings.Join([]string{SubsystemName, utils.Version, arch}, "-"))
 	curPath, err := os.Executable()
 	if err != nil {
 		return errw.Wrap(err, "getting path to self")
 	}
 
-	isSelf, err := utils.CheckIfSame(curPath, expectedPath)
+	isExpected, err := utils.CheckIfSame(expectedCachePath, expectedBinPath)
 	if err != nil {
-		return errw.Wrap(err, "checking if installed viam-agent is myself")
+		return errw.Wrap(err, "checking if installed viam-agent is in expected state")
 	}
 
-	if !isSelf {
-		logger.Infof("adding a symlink to %s at %s", curPath, expectedPath)
-		if err := os.Remove(expectedPath); err != nil && !errw.Is(err, fs.ErrNotExist) {
-			return errw.Wrapf(err, "removing symlink/file at %s", expectedPath)
+	if !isExpected {
+		logger.Infof("installing to %s and adding a symlink at %s", expectedCachePath, expectedBinPath)
+		err := utils.AtomicCopy(expectedCachePath, curPath)
+		if err != nil {
+			return errw.Wrap(err, "installing self into cache directory")
 		}
-		if err := os.Symlink(curPath, expectedPath); err != nil {
-			return errw.Wrapf(err, "installing symlink at %s", expectedPath)
+		if err := os.Remove(expectedBinPath); err != nil && !errw.Is(err, fs.ErrNotExist) {
+			return errw.Wrapf(err, "removing symlink/file at %s", expectedBinPath)
+		}
+		if err := os.Symlink(expectedCachePath, expectedBinPath); err != nil {
+			return errw.Wrapf(err, "installing symlink at %s", expectedBinPath)
+		}
+		versionCache := NewVersionCache(logger)
+		trimmedVersion, _ := strings.CutPrefix(utils.Version, "v")
+		versionCache.ViamAgent.CurrentVersion = trimmedVersion
+		versionCache.ViamAgent.Versions[trimmedVersion] = &VersionInfo{
+			Version:      trimmedVersion,
+			UnpackedPath: expectedCachePath,
+			DlPath:       expectedCachePath,
+			SymlinkPath:  expectedBinPath,
+			Installed:    time.Now(),
+		}
+		if err := versionCache.save(); err != nil {
+			return errw.Wrap(err, "writing version cache to disk")
 		}
 	}
 
