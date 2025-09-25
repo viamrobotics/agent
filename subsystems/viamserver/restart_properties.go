@@ -47,7 +47,7 @@ type (
 
 const (
 	restartPropertyRestartAllowed            restartProperty = "restart allowed"
-	restartPropertyDoesNotHandleNeedsRestart                 = "does not handle need restart"
+	restartPropertyDoesNotHandleNeedsRestart restartProperty = "does not handle need restart"
 
 	restartURLSuffix = "/restart_status"
 
