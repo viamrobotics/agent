@@ -221,8 +221,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	shasum, err := utils.GetFileSum(verData.UnpackedPath)
 	if err == nil {
 		goodBytes = bytes.Equal(shasum, verData.UnpackedSHA)
-	} else {
-		c.logger.Warn(err)
+	} else if verData.UnpackedPath != "" { // custom file:// URLs with have an empty unpacked path; no need to warn
+		c.logger.Warnw("Could not calculate shasum", "path", verData.UnpackedPath, "error", err)
 	}
 
 	if data.TargetVersion == data.CurrentVersion {

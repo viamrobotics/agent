@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"regexp"
@@ -225,7 +226,8 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			if m.viamServer.(viamserver.RestartPropertyGetter).RestartAllowed(ctx) {
+			if m.viamServer.Property(ctx, viamserver.RestartPropertyRestartAllowed) {
+				m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
 				if err := m.viamServer.Stop(ctx); err != nil {
 					m.logger.Warn(err)
 				} else {
@@ -236,6 +238,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 					return
 				}
 			} else {
+				m.logger.Warnf("%s has NOT allowed a restart; will NOT restart", viamserver.SubsysName)
 				m.viamServerNeedsRestart = true
 			}
 		}
@@ -380,6 +383,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 // CheckIfNeedsRestart returns the check restart interval and whether the agent (and
 // therefore all its subsystems) has been forcibly restarted by app.
 func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool) {
+	m.logger.Debug("Checking cloud for forced restarts")
 	if m.cloudConfig == nil {
 		m.logger.Warn("can't CheckIfNeedsRestart until successful config load")
 		return minimalNeedsRestartCheckInterval, false
@@ -388,8 +392,9 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 	// TODO(Benji): What do I do with old versions of agent running with new versions of
 	// viamserver? I guess restart part won't work in those scenarios?
 	//
-	// Only continue this check if viam-server does not handle restart checking itself.
-	if !m.viamServer.(viamserver.RestartPropertyGetter).DoesNotHandleNeedsRestart(ctx) {
+	// Only continue this check if viam-server does not handle restart checking itself
+	// (return early if viamserver _does_ handle restart checking).
+	if !m.viamServer.Property(ctx, viamserver.RestartPropertyDoesNotHandleNeedsRestart) {
 		return minimalNeedsRestartCheckInterval, false
 	}
 
@@ -419,7 +424,10 @@ func (m *Manager) CloseAll() {
 
 	// Use a slow goroutine watcher to log and continue if shutdown is taking too long.
 	slowWatcher, slowWatcherCancel := goutils.SlowGoroutineWatcher(
-		stopAllTimeout, "Agent is taking a while to shut down,", m.logger)
+		stopAllTimeout,
+		fmt.Sprintf("Viam agent subsystems and/or background workers failed to shut down within %v", stopAllTimeout),
+		m.logger,
+	)
 
 	slowTicker := time.NewTicker(10 * time.Second)
 	defer slowTicker.Stop()
