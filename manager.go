@@ -583,7 +583,15 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 					needsRestartCheckInterval = minimalNeedsRestartCheckInterval
 				}
 				if needsRestart {
-					m.viamAgentNeedsRestart = true
+					m.logger.Infof("%s restart was requested from app; forcibly restarting now", SubsystemName)
+					// Instead of setting viamAgentNeedsRestart, we will send SIGQUIT to viam-server
+					// to instantly stop it (not wait for it to allow a restart in case it is hung)
+					// and get a stack trace. Then, we will exit ourselves.
+					ctx := context.WithValue(ctx, viamserver.CtxKeySendSIGQUITInsteadOfSIGTERM, struct{}{})
+					if err := m.viamServer.Stop(ctx); err != nil {
+						m.logger.Errorw("Unable to stop viam-server during forced restart", "error", err)
+					}
+					m.Exit()
 				}
 				// As with the device agent config check interval, randomly fuzz the interval by
 				// +/- 5%.
@@ -769,6 +777,6 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 }
 
 func (m *Manager) Exit() {
-	m.logger.Info("A new viam-agent has been installed. Will now exit to be restarted by service manager.")
+	m.logger.Infof("%s will now exit to be restarted by service manager", SubsystemName)
 	m.globalCancel()
 }

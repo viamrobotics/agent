@@ -41,6 +41,13 @@ func SignalForTermination(pid int) error {
 	return nil
 }
 
+func SignalForQuit(pid int) error {
+	if err := syscall.Kill(pid, syscall.SIGQUIT); err != nil {
+		return errw.Wrapf(err, "signaling PID %d", pid)
+	}
+	return nil
+}
+
 // KillTree sends SIGKILL to the process group.
 func KillTree(pid int) error {
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
