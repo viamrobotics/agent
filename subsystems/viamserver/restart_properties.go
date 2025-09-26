@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"runtime"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -17,16 +16,6 @@ import (
 )
 
 type (
-	// RestartPropertyGetter is a limited interface through which agent can access
-	// information about viamserver related to restarting.
-	RestartPropertyGetter interface {
-		// RestartAllowed checks whether viamserver is safe to restart.
-		RestartAllowed(ctx context.Context) bool
-		// DoesNotHandlesNeedsRestart checks whether viamserver does not itself check for the
-		// need to restart against app.
-		DoesNotHandleNeedsRestart(ctx context.Context) bool
-	}
-
 	// RestartStatusResponse is the http/json response from viamserver's /restart_status URL.
 	RestartStatusResponse struct {
 		// RestartAllowed represents whether this instance of the viamserver can be
@@ -42,12 +31,12 @@ type (
 
 	// restartProperty is a property related to restarting about which agent can query
 	// viamserver.
-	restartProperty string
+	restartProperty = string
 )
 
 const (
-	restartPropertyRestartAllowed            restartProperty = "restart allowed"
-	restartPropertyDoesNotHandleNeedsRestart restartProperty = "does not handle need restart"
+	RestartPropertyRestartAllowed            restartProperty = "restart allowed"
+	RestartPropertyDoesNotHandleNeedsRestart restartProperty = "does not handle needs restart"
 
 	restartURLSuffix = "/restart_status"
 
@@ -121,8 +110,12 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 		return false, err
 	}
 
+	// Create some buffered channels for errors and found property values. Sending to these
+	// should not block, as we'll only ever have len(urls) goroutines trying to send one
+	// value to each channel.
 	errorChan := make(chan error, len(urls))
 	propertyValueChan := make(chan bool, len(urls))
+
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, checkRestartPropertyTimeout)
 	defer cancelFunc()
 
@@ -157,9 +150,8 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 				// Interacting with older viam-server instances will result in a non-successful
 				// HTTP response status code, as the /restart_status endpoint will not be
-				// available. Report false (default) as the feature value and continue to next
-				// test URL in this case.
-				propertyValueChan <- false
+				// available. Report a nil error and continue to next test URL in this case.
+				errorChan <- nil
 				return
 			}
 
@@ -171,9 +163,9 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 			}
 
 			switch rp {
-			case restartPropertyRestartAllowed:
+			case RestartPropertyRestartAllowed:
 				propertyValueChan <- restartStatusResponse.RestartAllowed
-			case restartPropertyDoesNotHandleNeedsRestart:
+			case RestartPropertyDoesNotHandleNeedsRestart:
 				propertyValueChan <- restartStatusResponse.DoesNotHandleNeedsRestart
 			}
 
@@ -182,57 +174,24 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 	}
 
 	var combinedErr error
-	for err := range errorChan {
-		combinedErr = errors.Join(combinedErr, err)
+errorChanL:
+	for range urls {
+		select {
+		case err := <-errorChan:
+			combinedErr = errors.Join(combinedErr, err)
+		case <-timeoutCtx.Done():
+			// break the for loop, not the select.
+			break errorChanL
+		}
 	}
 
 	// We assume below that the first test URL through which we encountered the feature's
-	// value represents the actual value.
-	return <-propertyValueChan, combinedErr
-}
-
-// RestartAllowed checks whether viamserver is safe to restart.
-func (s *viamServer) RestartAllowed(ctx context.Context) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.running || runtime.GOOS == "windows" {
-		// Assume viamserver is "safe to restart" if not running at all or on Windows.
-		return true
+	// value represents the actual value. Only receive for one second in case no goroutine
+	// above managed to send to the channel.
+	var propertyValue bool
+	select {
+	case propertyValue = <-propertyValueChan:
+	case <-time.After(time.Second):
 	}
-
-	restartAllowed, err := s.checkRestartProperty(ctx, restartPropertyRestartAllowed)
-	if err != nil {
-		// Log any errors encountered while checking whether restart was allowed. Do not log
-		// whether viamserver has or has not reported allowance of a restart in this case, as
-		// we don't know, and will just assume it's unsafe to restart.
-		s.logger.Warn(err)
-		return restartAllowed
-	}
-	if restartAllowed {
-		s.logger.Infof("Will restart %s to run new version, as it has reported allowance of a restart", SubsysName)
-	} else {
-		s.logger.Infof("Will not restart %s version to run new version, as it has not reported allowance of a restart", SubsysName)
-	}
-	return restartAllowed
-}
-
-// DoesNotHandlesNeedsRestart checks whether viamserver does not itself check for the need
-// to restart against app.
-func (s *viamServer) DoesNotHandleNeedsRestart(ctx context.Context) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.running {
-		// Assume agent can handle the restart if viamserver isn't running.
-		return true
-	}
-
-	doesNotHandleNeedsRestart, err := s.checkRestartProperty(ctx,
-		restartPropertyDoesNotHandleNeedsRestart)
-	if err != nil {
-		// Log any errors encountered while checking whether needs restart is handled.
-		s.logger.Warn(err)
-	}
-	return doesNotHandleNeedsRestart
+	return propertyValue, combinedErr
 }

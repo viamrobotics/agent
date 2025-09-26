@@ -44,6 +44,12 @@ type viamServer struct {
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
 
+	// whether this viamserver instance handles needs restart checking itself; calculated
+	// and cached at startup; used by the manager to determine whether agent should handle
+	// needs restart checking on viamserver's behalf (this is the case for new viamserver
+	// versions)
+	doesNotHandleNeedsRestart bool
+
 	logger logging.Logger
 }
 
@@ -156,6 +162,21 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "localhost", 1)
 		s.logger.Infof("viam-server restart allowed check URLs: %s %s", s.checkURL, s.checkURLAlt)
 		s.logger.Infof("%s started", SubsysName)
+
+		// Once the subsystem has successfully started, check whether it handles needs restart
+		// logic. We can calculate this value only once at startup and cache it, with the
+		// assumption that it will not change over the course of the lifetime of the
+		// subsystem.
+		s.mu.Lock()
+		s.doesNotHandleNeedsRestart, err = s.checkRestartProperty(ctx, RestartPropertyDoesNotHandleNeedsRestart)
+		s.mu.Unlock()
+		if err != nil {
+			s.logger.Warn(err)
+		}
+		if !s.doesNotHandleNeedsRestart {
+			s.logger.Warnf("%s may already handle checking needs restart functionality; will not handle in agent",
+				SubsysName)
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -245,6 +266,34 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 		return true
 	}
 	return false
+}
+
+// Property returns a single property of the currently running viamserver.
+func (s *viamServer) Property(ctx context.Context, property string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch property {
+	case RestartPropertyRestartAllowed:
+		if !s.running || runtime.GOOS == "windows" {
+			// Assume agent can restart viamserver if the subsystem is not running or we are
+			// running on Windows.
+			return true
+		}
+
+		restartAllowed, err := s.checkRestartProperty(ctx, RestartPropertyRestartAllowed)
+		if err != nil {
+			s.logger.Warn(err)
+		}
+		return restartAllowed
+	case RestartPropertyDoesNotHandleNeedsRestart:
+		// We can use the cached value (calculated in Start) for handle needs restart
+		// property.
+		return s.doesNotHandleNeedsRestart
+	default:
+		s.logger.Errorw("Unknown property requested from viamserver", "property", property)
+		return false
+	}
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
