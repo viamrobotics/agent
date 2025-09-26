@@ -55,6 +55,11 @@ func SignalForTermination(pid int) error {
 	return windows.GenerateConsoleCtrlEvent(syscall.CTRL_BREAK_EVENT, uint32(pid)) //nolint:gosec
 }
 
+// SignalForQuit is the same as SignalForTermination on Windows for now.
+func SignalForQuit(pid int) error {
+	return SignalForTermination(pid)
+}
+
 func writePlatformOutput(p []byte) (int, error) {
 	if inService, err := svc.IsWindowsService(); err != nil {
 		return len(p), err
