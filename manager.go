@@ -214,7 +214,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 			m.logger.Warn(err)
 		}
 		if m.viamAgentNeedsRestart {
-			m.Exit()
+			m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
 			return
 		}
 	} else {
@@ -234,7 +234,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 					m.viamServerNeedsRestart = false
 				}
 				if m.viamAgentNeedsRestart {
-					m.Exit()
+					m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
 					return
 				}
 			} else {
@@ -598,7 +598,7 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 					if err := m.viamServer.Stop(ctx); err != nil {
 						m.logger.Errorw("Unable to stop viam-server during forced restart", "error", err)
 					}
-					m.Exit()
+					m.Exit(fmt.Sprintf("A restart of %s was requested from app", SubsystemName))
 				}
 				// As with the device agent config check interval, randomly fuzz the interval by
 				// +/- 5%.
@@ -783,7 +783,7 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	return vers
 }
 
-func (m *Manager) Exit() {
-	m.logger.Infof("%s will now exit to be restarted by service manager", SubsystemName)
+func (m *Manager) Exit(reason string) {
+	m.logger.Infof("%s. %s will now exit to be restarted by service manager", reason, SubsystemName)
 	m.globalCancel()
 }
