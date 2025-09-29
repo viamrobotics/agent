@@ -26,9 +26,14 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-const (
-	versionCacheFilename = "version_cache.json"
-)
+func getCacheFilePath() string {
+	return filepath.Join(utils.ViamDirs.Cache, "version_cache.json")
+}
+
+func VersionCacheExists() bool {
+	_, err := os.Stat(getCacheFilePath())
+	return !errors.Is(err, os.ErrNotExist)
+}
 
 func NewVersionCache(logger logging.Logger) *VersionCache {
 	cache := &VersionCache{
@@ -108,7 +113,7 @@ func (c *VersionCache) load() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cacheFilePath := filepath.Join(utils.ViamDirs.Cache, versionCacheFilename)
+	cacheFilePath := getCacheFilePath()
 	//nolint:gosec
 	cacheBytes, err := os.ReadFile(cacheFilePath)
 	if err != nil {
@@ -127,7 +132,7 @@ func (c *VersionCache) load() {
 
 // save should only be run when protected by mutex locks. Use SaveCache() for normal use.
 func (c *VersionCache) save() error {
-	cacheFilePath := filepath.Join(utils.ViamDirs.Cache, versionCacheFilename)
+	cacheFilePath := getCacheFilePath()
 
 	cacheData, err := json.Marshal(c)
 	if err != nil {

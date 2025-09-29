@@ -95,6 +95,16 @@ func Install(logger logging.Logger) error {
 		if err := os.Symlink(expectedCachePath, expectedBinPath); err != nil {
 			return errw.Wrapf(err, "installing symlink at %s", expectedBinPath)
 		}
+		if VersionCacheExists() {
+			// If a version cache already exists on disk assume we're being run as
+			// part of the self-update process and let the previous agent version
+			// manage the cache.
+			return nil
+		}
+
+		// Version cache doesn't exist, so assume this is a fresh install and write
+		// a minimal version cache to avoid downloading a copy of this same version
+		// on first run.
 		versionCache := NewVersionCache(logger)
 		trimmedVersion, _ := strings.CutPrefix(utils.Version, "v")
 		versionCache.ViamAgent.CurrentVersion = trimmedVersion

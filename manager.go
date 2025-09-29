@@ -175,7 +175,10 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 	}
 
 	if needRestart {
-		return InstallNewVersion(ctx, m.logger)
+		m.cache.mu.Lock()
+		defer m.cache.mu.Unlock()
+		result1, err := InstallNewVersion(ctx, m.logger)
+		return result1, err
 	}
 	return false, err
 }
