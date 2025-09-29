@@ -169,10 +169,10 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 		return false, ctx.Err()
 	}
 
-	// Ignore the returned check interval from GetConfig; we'll call GetConfig again
-	// repeatededly as part of background checks, and the check interval will be retained
-	// and used there.
-	_ = m.GetConfig(ctx)
+	_, err := m.GetConfig(ctx)
+	if err != nil {
+		return false, err
+	}
 
 	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
 	if err != nil {
@@ -288,13 +288,20 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 func (m *Manager) CheckUpdates(ctx context.Context) time.Duration {
 	defer utils.Recover(m.logger, nil)
 	m.logger.Debug("Checking cloud for device agent config updates")
-	deviceAgentConfigCheckInterval := m.GetConfig(ctx)
+	deviceAgentConfigCheckInterval, err := m.GetConfig(ctx)
+
 	if deviceAgentConfigCheckInterval < minimalDeviceAgentConfigCheckInterval {
 		deviceAgentConfigCheckInterval = minimalDeviceAgentConfigCheckInterval
 	}
 
 	// randomly fuzz the interval by +/- 5%
 	deviceAgentConfigCheckInterval = utils.FuzzTime(deviceAgentConfigCheckInterval, 0.05)
+
+	// we already log in all error cases inside GetConfig, so
+	// no need to log again.
+	if err != nil {
+		return deviceAgentConfigCheckInterval
+	}
 
 	// update and (re)start subsystems
 	m.SubsystemUpdates(ctx)
@@ -651,18 +658,18 @@ func (m *Manager) dial(ctx context.Context) error {
 }
 
 // GetConfig retrieves the configuration from the cloud.
-func (m *Manager) GetConfig(ctx context.Context) time.Duration {
+func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	if m.cloudConfig == nil {
 		err := errors.New("can't GetConfig until successful config load")
 		m.logger.Warn(err)
-		return minimalDeviceAgentConfigCheckInterval
+		return minimalDeviceAgentConfigCheckInterval, err
 	}
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, defaultNetworkTimeout)
 	defer cancelFunc()
 
 	if err := m.dial(timeoutCtx); err != nil {
 		m.logger.Warn(errw.Wrapf(err, "dialing to fetch %s config", SubsystemName))
-		return minimalDeviceAgentConfigCheckInterval
+		return minimalDeviceAgentConfigCheckInterval, err
 	}
 
 	agentDeviceServiceClient := pb.NewAgentDeviceServiceClient(m.conn)
@@ -674,7 +681,7 @@ func (m *Manager) GetConfig(ctx context.Context) time.Duration {
 	resp, err := agentDeviceServiceClient.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
 		m.logger.Warn(errw.Wrapf(err, "fetching %s config", SubsystemName))
-		return minimalDeviceAgentConfigCheckInterval
+		return minimalDeviceAgentConfigCheckInterval, err
 	}
 	fixWindowsPaths(resp)
 
@@ -705,7 +712,7 @@ func (m *Manager) GetConfig(ctx context.Context) time.Duration {
 	defer m.cfgMu.Unlock()
 	m.cfg = cfg
 
-	return resp.GetCheckInterval().AsDuration()
+	return resp.GetCheckInterval().AsDuration(), nil
 }
 
 // fixWindowsPaths adds the .exe extension if missing.
