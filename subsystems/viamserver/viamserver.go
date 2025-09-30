@@ -25,7 +25,15 @@ const (
 	stopTermTimeout = time.Minute * 2
 	stopQuitTimeout = time.Second * 10
 	stopKillTimeout = time.Second * 10
-	SubsysName      = "viam-server"
+
+	SubsysName = "viam-server"
+
+	// ViamAgentHandlesNeedsRestartChecking is the environment variable that viam-agent will
+	// set before starting viam-server to indicate that agent is a new enough version to
+	// have its own background loop that runs NeedsRestart against app.viam.com to determine
+	// if the system needs a restart. MUST be kept in line with the equivalent value in the
+	// rdk repo.
+	ViamAgentHandlesNeedsRestartChecking = "VIAM_AGENT_HANDLES_NEEDS_RESTART_CHECKING"
 )
 
 type viamServer struct {
@@ -105,15 +113,18 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
 
-	if len(s.extraEnvVars) > 0 {
-		s.logger.Infow("Adding environment variables from config to viam-server startup", "extraEnvVars", s.extraEnvVars)
+	// if s.cmd.Env is not explicitly specified (nil), viam-server would inherit all env vars in Agent's environment
+	s.cmd.Env = s.cmd.Environ()
+	// TODO(RSDK-12057): Stop setting this environment variable once we fully remove all
+	// NeedsRestart checking logic from viam-server.
+	s.cmd.Env = append(s.cmd.Env, ViamAgentHandlesNeedsRestartChecking+"=true")
 
-		// if s.cmd.Env is not explicitly specified (nil), viam-server would inherit all env vars in Agent's environment
-		s.cmd.Env = s.cmd.Environ()
+	if len(s.extraEnvVars) > 0 {
+		s.logger.Infow("Adding extra environment variables from config to viam-server startup", "extraEnvVars", s.extraEnvVars)
 		for k, v := range s.extraEnvVars {
 			s.cmd.Env = append(s.cmd.Env, k+"="+v)
 		}
-		s.logger.Debugw("Starting viam-server with environment variables", "cmd.Env", s.cmd.Env)
+		s.logger.Debugw("Starting viam-server with extra environment variables", "cmd.Env", s.cmd.Env)
 	}
 
 	// watch for this line in the logs to indicate successful startup
