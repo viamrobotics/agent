@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -340,4 +341,47 @@ func TestViamDirsValuesEmpty(t *testing.T) {
 	ViamDirs.Tmp = ""
 	newLen := len(slices.Collect(ViamDirs.Values()))
 	test.That(t, newLen, test.ShouldEqual, initialLen-2)
+}
+
+func TestInitPaths(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		MockViamDirs(t)
+		err := InitPaths()
+		test.That(t, err, test.ShouldBeNil)
+	})
+
+	t.Run("failure cannot create directory", func(t *testing.T) {
+		MockViamDirs(t)
+		err := os.Chmod(filepath.Dir(ViamDirs.Viam), 0o000)
+		test.That(t, err, test.ShouldBeNil)
+		err = InitPaths()
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "creating directory")
+	})
+
+	t.Run("failure not directory", func(t *testing.T) {
+		MockViamDirs(t)
+		err := os.MkdirAll(ViamDirs.Viam, os.ModePerm)
+		test.That(t, err, test.ShouldBeNil)
+		_, err = os.Create(ViamDirs.Bin)
+		test.That(t, err, test.ShouldBeNil)
+		err = InitPaths()
+		test.That(t, err, test.ShouldBeError, ViamDirs.Bin+" should be a directory, but is not")
+	})
+
+	t.Run("failure not directory", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			// Windows doesn't have Unix style file modes
+			t.SkipNow()
+		}
+		MockViamDirs(t)
+		err := os.MkdirAll(ViamDirs.Bin, os.ModePerm)
+		test.That(t, err, test.ShouldBeNil)
+		os.Chmod(ViamDirs.Bin, 0o700)
+		_, err = os.Create(ViamDirs.Bin)
+		test.That(t, err, test.ShouldBeNil)
+		err = InitPaths()
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
+	})
 }
