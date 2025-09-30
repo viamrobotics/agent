@@ -3,8 +3,6 @@ package utils
 import (
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
 
 	"go.viam.com/test"
@@ -19,14 +17,14 @@ func MockViamDirs(t *testing.T) {
 	})
 	td := t.TempDir()
 	ViamDirs = ViamDirsData{
-		Viam: td,
+		Viam:  td,
+		Bin:   filepath.Join(td, "bin"),
+		Cache: filepath.Join(td, "cache"),
+		Tmp:   filepath.Join(td, "tmp"),
+		Etc:   filepath.Join(td, "etc"),
 	}
-	for _, subdir := range []string{"Bin", "Cache", "Tmp", "Etc"} {
-		refViamDirs := reflect.ValueOf(&ViamDirs)
-		field := refViamDirs.Elem().FieldByName(subdir)
-		val := filepath.Join(td, strings.ToLower(subdir))
-		field.Set(reflect.ValueOf(val))
-		err := os.Mkdir(field.Interface().(string), 0o750)
+	for dir := range ViamDirs.Values() {
+		err := os.MkdirAll(dir, 0o750)
 		test.That(t, err, test.ShouldBeNil)
 	}
 }
