@@ -396,9 +396,6 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 		return minimalNeedsRestartCheckInterval, false
 	}
 
-	// TODO(Benji): What do I do with old versions of agent running with new versions of
-	// viamserver? I guess restart part won't work in those scenarios?
-	//
 	// Only continue this check if viam-server does not handle restart checking itself
 	// (return early if viamserver _does_ handle restart checking).
 	if !m.viamServer.Property(ctx, viamserver.RestartPropertyDoesNotHandleNeedsRestart) {
