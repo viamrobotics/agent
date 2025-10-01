@@ -20,6 +20,7 @@ import (
 	"github.com/viamrobotics/agent"
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/utils"
+	"github.com/viamrobotics/agent/utils/systemd"
 	"go.uber.org/zap"
 	"go.viam.com/rdk/logging"
 )
@@ -94,7 +95,8 @@ func commonMain() {
 	}
 
 	if opts.Install {
-		exitIfError(agent.Install(globalLogger))
+		sdmanager := systemd.NewSystemdManager(globalLogger.Sublogger("systemd"))
+		exitIfError(agent.Install(globalLogger, sdmanager))
 		return
 	}
 

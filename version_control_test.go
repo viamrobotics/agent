@@ -17,7 +17,7 @@ import (
 )
 
 func TestUpdateBinary(t *testing.T) {
-	utils.MockViamDirs(t)
+	utils.MockAndCreateViamDirs(t)
 	logger := logging.NewTestLogger(t)
 
 	vi := VersionInfo{
@@ -83,7 +83,7 @@ func testExists(t *testing.T, path string) {
 
 func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 	t.Run("symlinks", func(t *testing.T) {
-		utils.MockViamDirs(t)
+		utils.MockAndCreateViamDirs(t)
 		vc := VersionCache{
 			logger:     logging.NewTestLogger(t),
 			ViamAgent:  &Versions{},
@@ -112,7 +112,7 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 	})
 
 	t.Run("expired", func(t *testing.T) {
-		utils.MockViamDirs(t)
+		utils.MockAndCreateViamDirs(t)
 		vc := VersionCache{
 			logger:    logging.NewTestLogger(t),
 			ViamAgent: &Versions{},

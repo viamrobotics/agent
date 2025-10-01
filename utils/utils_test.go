@@ -19,7 +19,7 @@ import (
 )
 
 func TestDecompressFile(t *testing.T) {
-	MockViamDirs(t)
+	MockAndCreateViamDirs(t)
 	td := t.TempDir()
 	if _, err := exec.LookPath("xz"); err != nil {
 		t.Skip("no xz command")
@@ -106,7 +106,7 @@ func TestWriteFileIfNew(t *testing.T) {
 }
 
 func TestDownloadFile(t *testing.T) {
-	MockViamDirs(t)
+	MockAndCreateViamDirs(t)
 	logger := logging.NewTestLogger(t)
 
 	t.Run("file:// URL happy path", func(t *testing.T) {
@@ -351,8 +351,8 @@ func TestInitPaths(t *testing.T) {
 	})
 
 	t.Run("failure cannot create directory", func(t *testing.T) {
-		MockViamDirs(t)
-		err := os.Chmod(filepath.Dir(ViamDirs.Viam), 0o000)
+		td := MockViamDirs(t)
+		err := os.Chmod(td, 0o500)
 		test.That(t, err, test.ShouldBeNil)
 		err = InitPaths()
 		test.That(t, err, test.ShouldNotBeNil)
@@ -369,7 +369,7 @@ func TestInitPaths(t *testing.T) {
 		test.That(t, err, test.ShouldBeError, ViamDirs.Bin+" should be a directory, but is not")
 	})
 
-	t.Run("failure not directory", func(t *testing.T) {
+	t.Run("failure wrong mode", func(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			// Windows doesn't have Unix style file modes
 			t.SkipNow()
@@ -378,8 +378,6 @@ func TestInitPaths(t *testing.T) {
 		err := os.MkdirAll(ViamDirs.Bin, os.ModePerm)
 		test.That(t, err, test.ShouldBeNil)
 		os.Chmod(ViamDirs.Bin, 0o700)
-		_, err = os.Create(ViamDirs.Bin)
-		test.That(t, err, test.ShouldBeNil)
 		err = InitPaths()
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")

@@ -8,25 +8,39 @@ import (
 	"go.viam.com/test"
 )
 
-// MockViamDirs replaces utils.ViamDirs entries with t.TempDir for duration of test.
-func MockViamDirs(t *testing.T) {
+// MockAndCreateViamDirs calls [MockAndCreateViamDirs], then creates all those
+// directories. It returns the temporary directory that is the parent of the
+// viam directory.
+func MockAndCreateViamDirs(t *testing.T) string {
+	t.Helper()
+	td := MockViamDirs(t)
+	for dir := range ViamDirs.Values() {
+		//nolint: gosec
+		err := os.MkdirAll(dir, 0o755)
+		test.That(t, err, test.ShouldBeNil)
+	}
+	return td
+}
+
+// MockViamDirs replaces utils.ViamDirs members with paths in
+// t.TempDir for duration of test. It returns the temporary directory that is
+// the parent of the viam directory.
+func MockViamDirs(t *testing.T) string {
 	t.Helper()
 	old := ViamDirs
 	t.Cleanup(func() {
 		ViamDirs = old
 	})
 	td := t.TempDir()
+	viam := filepath.Join(td, "viam")
 	ViamDirs = ViamDirsData{
-		Viam:  td,
-		Bin:   filepath.Join(td, "bin"),
-		Cache: filepath.Join(td, "cache"),
-		Tmp:   filepath.Join(td, "tmp"),
-		Etc:   filepath.Join(td, "etc"),
+		Viam:  viam,
+		Bin:   filepath.Join(viam, "bin"),
+		Cache: filepath.Join(viam, "cache"),
+		Tmp:   filepath.Join(viam, "tmp"),
+		Etc:   filepath.Join(viam, "etc"),
 	}
-	for dir := range ViamDirs.Values() {
-		err := os.MkdirAll(dir, 0o750)
-		test.That(t, err, test.ShouldBeNil)
-	}
+	return td
 }
 
 // Touch is equivalent to unix touch; creates an empty file at path.

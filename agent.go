@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -23,13 +22,17 @@ import (
 )
 
 const (
-	serviceFileDir  = "/usr/local/lib/systemd/system"
-	fallbackFileDir = "/etc/systemd/system"
-	serviceFileName = "viam-agent.service"
+	serviceName = "viam-agent.service"
 )
 
 //go:embed viam-agent.service
 var serviceFileContents []byte
+
+type systemdManager interface {
+	IsAvailable() error
+	InstallService(serviceName string, serviceFileContents []byte) (string, bool, error)
+	Enable(serviceName string) error
+}
 
 // InstallNewVersion runs the newly downloaded binary's Install() for installation of systemd files and the like.
 func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error) {
@@ -52,12 +55,11 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 }
 
 // Install is directly executed from main() when --install is passed.
-func Install(logger logging.Logger) error {
+func Install(logger logging.Logger, sdManager systemdManager) error {
 	// Check for systemd
-	cmd := exec.Command("systemctl", "--version")
-	output, err := cmd.CombinedOutput()
+	err := sdManager.IsAvailable()
 	if err != nil {
-		return errw.Wrapf(err, "can only install on systems using systemd, but 'systemctl --version' returned errors %s", output)
+		return errw.Wrap(err, "can only install on systems using systemd")
 	}
 
 	// Create/check required folder structure exists.
@@ -95,70 +97,34 @@ func Install(logger logging.Logger) error {
 		if err := os.Symlink(expectedCachePath, expectedBinPath); err != nil {
 			return errw.Wrapf(err, "installing symlink at %s", expectedBinPath)
 		}
-		if VersionCacheExists() {
-			// If a version cache already exists on disk assume we're being run as
-			// part of the self-update process and let the previous agent version
-			// manage the cache.
-			return nil
-		}
 
-		// Version cache doesn't exist, so assume this is a fresh install and write
-		// a minimal version cache to avoid downloading a copy of this same version
-		// on first run.
-		versionCache := NewVersionCache(logger)
-		trimmedVersion, _ := strings.CutPrefix(utils.Version, "v")
-		versionCache.ViamAgent.CurrentVersion = trimmedVersion
-		versionCache.ViamAgent.Versions[trimmedVersion] = &VersionInfo{
-			Version:      trimmedVersion,
-			UnpackedPath: expectedCachePath,
-			DlPath:       expectedCachePath,
-			SymlinkPath:  expectedBinPath,
-			Installed:    time.Now(),
-		}
-		if err := versionCache.save(); err != nil {
-			return errw.Wrap(err, "writing version cache to disk")
+		if !VersionCacheExists() {
+			// Version cache doesn't exist, so assume this is a fresh install and write
+			// a minimal version cache to avoid downloading a copy of this same version
+			// on first run.
+			versionCache := NewVersionCache(logger)
+			trimmedVersion, _ := strings.CutPrefix(utils.Version, "v")
+			versionCache.ViamAgent.CurrentVersion = trimmedVersion
+			versionCache.ViamAgent.Versions[trimmedVersion] = &VersionInfo{
+				Version:      trimmedVersion,
+				UnpackedPath: expectedCachePath,
+				DlPath:       expectedCachePath,
+				SymlinkPath:  expectedBinPath,
+				Installed:    time.Now(),
+			}
+			if err := versionCache.save(); err != nil {
+				return errw.Wrap(err, "writing version cache to disk")
+			}
 		}
 	}
 
-	serviceFilePath, removeOldFile, err := getServiceFilePath(logger)
+	serviceFilePath, newInstall, err := sdManager.InstallService(serviceName, serviceFileContents)
 	if err != nil {
-		return errw.Wrap(err, "getting service file path")
+		return errw.Wrap(err, "installing systemd service")
 	}
-
-	// use this later to avoid re-enabling an existing agent service a user might have disabled
-	_, err = os.Stat(serviceFilePath)
-	newInstall := err != nil
-
-	logger.Infof("writing systemd service file to %s", serviceFilePath)
-
-	newFile, err := utils.WriteFileIfNew(serviceFilePath, serviceFileContents)
-	if err != nil {
-		return errw.Wrapf(err, "writing systemd service file %s", serviceFilePath)
-	}
-
-	if removeOldFile {
-		oldPath := filepath.Join(fallbackFileDir, serviceFileName)
-		logger.Warn("Removing system service file %s in favor of vendor file at %s", oldPath, serviceFilePath)
-		logger.Warn("If you customized this file, please run 'systemctl edit viam-agent' and create overrides there")
-		if err := os.RemoveAll(oldPath); err != nil {
-			logger.Warn(errw.Wrapf(err, "removing old service file %s, please delete manually", oldPath))
-		}
-	}
-
-	if newFile {
-		cmd = exec.Command("systemctl", "daemon-reload")
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return errw.Wrapf(err, "running 'systemctl daemon-reload' output: %s", output)
-		}
-	}
-
 	if newInstall {
-		logger.Infof("enabling systemd viam-agent service")
-		cmd = exec.Command("systemctl", "enable", "viam-agent")
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return errw.Wrapf(err, "running 'systemctl enable viam-agent' output: %s", output)
+		if err := sdManager.Enable("viam-agent"); err != nil {
+			return err
 		}
 	}
 
@@ -174,48 +140,4 @@ func Install(logger logging.Logger) error {
 	logger.Info("Install complete.")
 
 	return errors.Join(utils.SyncFS("/etc"), utils.SyncFS(serviceFilePath), utils.SyncFS(utils.ViamDirs.Viam))
-}
-
-func inSystemdPath(path string, logger logging.Logger) bool {
-	cmd := exec.Command("systemd-path", "systemd-search-system-unit")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		logger.Warn(errw.Wrapf(err, "running 'systemd-path systemd-search-system-unit' output: %s", output))
-		return false
-	}
-	searchPaths := strings.Split(strings.TrimSpace(string(output)), ":")
-	return slices.Contains(searchPaths, path)
-}
-
-func getServiceFilePath(logger logging.Logger) (string, bool, error) {
-	serviceFilePath := filepath.Join(serviceFileDir, serviceFileName)
-	_, err := os.Stat(serviceFilePath)
-	if err == nil {
-		// file is already in place, we should be good
-		return serviceFilePath, false, nil
-	}
-	if !errw.Is(err, fs.ErrNotExist) {
-		// unknown error
-		return "", false, err
-	}
-	oldFilePath := filepath.Join(fallbackFileDir, serviceFileName)
-
-	// see if we can migrate to the local path
-	if !inSystemdPath(serviceFileDir, logger) {
-		logger.Warnf("Systemd does not have %s in its unit search path, installing directly to %s", serviceFileDir, fallbackFileDir)
-		return oldFilePath, false, nil
-	}
-
-	// migrate old file if it exists
-	_, err = os.Stat(oldFilePath)
-	if err == nil {
-		return serviceFilePath, true, nil
-	}
-	if !errw.Is(err, fs.ErrNotExist) {
-		// unknown error when checking old service file path
-		return "", false, err
-	}
-
-	// new install, so there was nothing to migrate
-	return serviceFilePath, false, nil
 }
