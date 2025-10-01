@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -44,22 +45,26 @@ const (
 )
 
 // Creates test URLs for property checks. Must be called with s.mu locked.
-func (s *viamServer) makeTestURLs() ([]string, error) {
+func (s *viamServer) makeTestURLs(rp restartProperty) ([]string, error) {
+	urls := []string{s.checkURL, s.checkURLAlt}
+	// On Windows, the local IPV4 addresses created below this check will not be reachable.
+	if runtime.GOOS == "windows" {
+		return urls, nil
+	}
+
 	port := "8080"
 	mainURL, err := url.Parse(s.checkURL)
 	if err != nil {
-		s.logger.Warnf("cannot determine port for restart allowed check, using default of 8080")
+		s.logger.Warnf("Cannot determine port for %s check, using default of 8080", rp)
 	} else {
 		port = mainURL.Port()
-		s.logger.Debugf("using port %s for restart allowed check", port)
+		s.logger.Debugf("Using port %s for %s check", port, rp)
 	}
 
 	ips, err := getAllLocalIPv4s()
 	if err != nil {
 		return []string{}, err
 	}
-
-	urls := []string{s.checkURL, s.checkURLAlt}
 	for _, ip := range ips {
 		urls = append(urls, fmt.Sprintf("https://%s:%s", ip, port))
 	}
@@ -105,7 +110,7 @@ func getAllLocalIPv4s() ([]string, error) {
 // Returns the value of the requested restart property (false if not determined) and any
 // encountered errors. Must be called with s.mu held, as makeTestURLs is called.
 func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartProperty) (bool, error) {
-	urls, err := s.makeTestURLs()
+	urls, err := s.makeTestURLs(rp)
 	if err != nil {
 		return false, err
 	}

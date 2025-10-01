@@ -181,9 +181,9 @@ func (s *viamServer) Start(ctx context.Context) error {
 	select {
 	case matches := <-c:
 		s.checkURL = matches[1]
-		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "localhost", 1)
-		s.logger.Infof("viam-server restart allowed check URLs: %s %s", s.checkURL, s.checkURLAlt)
+		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "127.0.0.1", 1)
 		s.logger.Infof("%s started", SubsysName)
+		s.logger.Infof("%s found serving at the following URLs: %s %s", SubsysName, s.checkURL, s.checkURLAlt)
 
 		// Once the subsystem has successfully started, check whether it handles needs restart
 		// logic. We can calculate this value only once at startup and cache it, with the
@@ -228,12 +228,12 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	if ctx.Value(CtxKeySendSIGQUITInsteadOfSIGTERM) != nil {
-		s.logger.Infof("Stopping %s with SIGQUIT", SubsysName)
+		s.logger.Infof("Forcibly stopping %s", SubsysName)
 		if err := utils.SignalForQuit(s.cmd.Process.Pid); err != nil {
 			s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 		}
 		if s.waitForExit(ctx, stopQuitTimeout) {
-			s.logger.Infof("%s successfully forcibly quit", SubsysName)
+			s.logger.Infof("%s successfully forcibly stopped", SubsysName)
 			return nil
 		}
 	} else {
@@ -307,9 +307,8 @@ func (s *viamServer) Property(ctx context.Context, property string) bool {
 
 	switch property {
 	case RestartPropertyRestartAllowed:
-		if !s.running || runtime.GOOS == "windows" {
-			// Assume agent can restart viamserver if the subsystem is not running or we are
-			// running on Windows.
+		if !s.running {
+			// Assume agent can restart viamserver if the subsystem is not running.
 			return true
 		}
 
