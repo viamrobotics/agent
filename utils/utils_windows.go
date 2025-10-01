@@ -55,9 +55,12 @@ func SignalForTermination(pid int) error {
 	return windows.GenerateConsoleCtrlEvent(syscall.CTRL_BREAK_EVENT, uint32(pid)) //nolint:gosec
 }
 
-// SignalForQuit is the same as SignalForTermination on Windows for now.
 func SignalForQuit(pid int) error {
-	return SignalForTermination(pid)
+	// TODO(Benji): Grab a goroutine dump from "http://localhost:8080/debug/pprof/heap"
+	// but that only works when EnableWebProfile == true.
+	//
+	// SIGQUIT does not exist on Windows. Force kill the process' tree instead.
+	return KillTree(pid)
 }
 
 func writePlatformOutput(p []byte) (int, error) {
