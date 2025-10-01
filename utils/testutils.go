@@ -43,6 +43,17 @@ func MockViamDirs(t *testing.T) string {
 	return td
 }
 
+func MockBuildInfo(t *testing.T, version, revision string) {
+	originalVersion := Version
+	originalRevision := GitRevision
+	t.Cleanup(func() {
+		Version = originalVersion
+		GitRevision = originalRevision
+	})
+	Version = version
+	GitRevision = revision
+}
+
 // Touch is equivalent to unix touch; creates an empty file at path.
 func Touch(t *testing.T, path string) {
 	f, err := os.Create(path) //nolint:gosec
