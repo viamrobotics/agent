@@ -588,13 +588,6 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 				}
 				if needsRestart {
 					m.logger.Infof("%s restart was requested from app; forcibly restarting now", SubsystemName)
-					// Instead of setting viamAgentNeedsRestart, we will send SIGQUIT to viam-server
-					// to instantly stop it (not wait for it to allow a restart in case it is hung)
-					// and get a stack trace. Then, we will exit ourselves.
-					ctx := context.WithValue(ctx, viamserver.CtxKeySendSIGQUITInsteadOfSIGTERM, struct{}{})
-					if err := m.viamServer.Stop(ctx); err != nil {
-						m.logger.Errorw("Unable to stop viam-server during forced restart", "error", err)
-					}
 					m.Exit(fmt.Sprintf("A restart of %s was requested from app", SubsystemName))
 				}
 				// As with the device agent config check interval, randomly fuzz the interval by

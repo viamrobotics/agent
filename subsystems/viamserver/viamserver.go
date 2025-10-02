@@ -23,7 +23,6 @@ import (
 const (
 	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
 	stopTermTimeout = time.Minute * 2
-	stopQuitTimeout = time.Second * 10
 	stopKillTimeout = time.Second * 10
 
 	SubsysName = "viam-server"
@@ -61,13 +60,6 @@ type viamServer struct {
 
 	logger logging.Logger
 }
-
-type ctxKey int
-
-// CtxKeySendSIGQUITInsteadOfSIGTERM is used by manager to signal to the Stop method that
-// SIGQUIT should be sent instead of SIGTERM to get a goroutine dump and stop immediately
-// (when app has forcibly restarted agent).
-const CtxKeySendSIGQUITInsteadOfSIGTERM = ctxKey(iota)
 
 // Returns true if path is definitely missing,
 // false if file is present or something else is wrong.
@@ -161,7 +153,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.running = false
 		s.logger.Infof("%s exited", SubsysName)
 		// Only log errors from Wait() or the exit code of the process state if subsystem
-		// exited unexpectly (was not stopped by agent and is therfore still marked as
+		// exited unexpectedly (was not stopped by agent and is therefore still marked as
 		// shouldRun).
 		if s.shouldRun {
 			if err != nil {
@@ -227,24 +219,13 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	if ctx.Value(CtxKeySendSIGQUITInsteadOfSIGTERM) != nil {
-		s.logger.Infof("Forcibly stopping %s", SubsysName)
-		if err := utils.SignalForQuit(s.cmd.Process.Pid); err != nil {
-			s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
-		}
-		if s.waitForExit(ctx, stopQuitTimeout) {
-			s.logger.Infof("%s successfully forcibly stopped", SubsysName)
-			return nil
-		}
-	} else {
-		s.logger.Infof("Stopping %s", SubsysName)
-		if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
-			s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
-		}
-		if s.waitForExit(ctx, stopTermTimeout) {
-			s.logger.Infof("%s successfully stopped", SubsysName)
-			return nil
-		}
+	s.logger.Infof("Stopping %s", SubsysName)
+	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
+		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
+	}
+	if s.waitForExit(ctx, stopTermTimeout) {
+		s.logger.Infof("%s successfully stopped", SubsysName)
+		return nil
 	}
 
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
