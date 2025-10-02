@@ -587,7 +587,8 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 					needsRestartCheckInterval = minimalNeedsRestartCheckInterval
 				}
 				if needsRestart {
-					m.logger.Infof("%s restart was requested from app; forcibly restarting now", SubsystemName)
+					// Do not mark m.agentNeedsRestart and instead Exit immediately; we do not want
+					// to wait for viam-server to allow a restart as it may be in a bad state.
 					m.Exit(fmt.Sprintf("A restart of %s was requested from app", SubsystemName))
 				}
 				// As with the device agent config check interval, randomly fuzz the interval by
