@@ -56,7 +56,7 @@ func TestInstall(t *testing.T) {
 		binLinksToCache, err := utils.CheckIfSame(expectedBinPath, expectedCachePath)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, binLinksToCache, test.ShouldBeTrue)
-		
+
 		test.That(t, agent.VersionCacheExists(), test.ShouldBeTrue)
 		versionCache := agent.NewVersionCache(logger)
 		test.That(t, versionCache.ViamAgent.CurrentVersion, test.ShouldEqual, fakeVersion)
@@ -66,7 +66,7 @@ func TestInstall(t *testing.T) {
 		test.That(t, version.UnpackedPath, test.ShouldEqual, expectedCachePath)
 		test.That(t, version.DlPath, test.ShouldEqual, expectedCachePath)
 		test.That(t, version.SymlinkPath, test.ShouldEqual, expectedBinPath)
-		
+
 		test.That(t, systemdManager.enableCallCount, test.ShouldEqual, 1)
 	})
 
@@ -80,8 +80,7 @@ func TestInstall(t *testing.T) {
 		// version string here so we can verify the install function didn't
 		// overwrite it.
 		const altVersion = "0.22.0-alt"
-		const altRevision = "altGitSha"
-		const altUrl = "https://example.com/agent"
+		const altURL = "https://example.com/agent"
 		utils.MockAndCreateViamDirs(t)
 		utils.MockBuildInfo(t, fakeVersion, fakeRevision)
 		logger := logging.NewTestLogger(t)
@@ -89,11 +88,11 @@ func TestInstall(t *testing.T) {
 		oldVersionCache := agent.NewVersionCache(logger)
 		oldVersionCache.Update(&pb.UpdateInfo{
 			Version: altVersion,
-			Url: altUrl,
+			Url:     altURL,
 		}, "viam-agent")
 		// Sanity check to confirm the cache was written to disk.
 		test.That(t, agent.VersionCacheExists(), test.ShouldBeTrue)
-		
+
 		systemdManager := &fakeSystemdManager{}
 		err := agent.Install(logger, systemdManager)
 		test.That(t, err, test.ShouldBeNil)
@@ -115,15 +114,15 @@ func TestInstall(t *testing.T) {
 		binLinksToCache, err := utils.CheckIfSame(expectedBinPath, expectedCachePath)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, binLinksToCache, test.ShouldBeTrue)
-		
+
 		test.That(t, agent.VersionCacheExists(), test.ShouldBeTrue)
 		versionCache := agent.NewVersionCache(logger)
 		test.That(t, versionCache.ViamAgent.TargetVersion, test.ShouldEqual, altVersion)
 		test.That(t, versionCache.ViamAgent.Versions, test.ShouldHaveLength, 1)
 		version := versionCache.ViamAgent.Versions[altVersion]
 		test.That(t, version.Version, test.ShouldEqual, altVersion)
-		test.That(t, version.URL, test.ShouldEqual, altUrl)
-		
+		test.That(t, version.URL, test.ShouldEqual, altURL)
+
 		test.That(t, systemdManager.enableCallCount, test.ShouldEqual, 0)
 	})
 }
@@ -131,7 +130,7 @@ func TestInstall(t *testing.T) {
 type fakeSystemdManager struct {
 	unavailable     bool
 	enableCallCount int
-	isNewInstall bool
+	isNewInstall    bool
 }
 
 func (f *fakeSystemdManager) Enable(serviceName string) error {
