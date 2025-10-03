@@ -8,7 +8,7 @@ import (
 	"go.viam.com/test"
 )
 
-// MockAndCreateViamDirs calls [MockAndCreateViamDirs], then creates all those
+// MockAndCreateViamDirs calls [MockViamDirs], then creates all those
 // directories. It returns the temporary directory that is the parent of the
 // viam directory.
 func MockAndCreateViamDirs(t *testing.T) string {
