@@ -13,7 +13,7 @@ import (
 
 func TestCheckForceProvisioning(t *testing.T) {
 	// Mock ViamDirs to use temporary directory for testing
-	utils.MockViamDirs(t)
+	utils.MockAndCreateViamDirs(t)
 
 	tests := []struct {
 		name                   string

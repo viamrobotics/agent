@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ import (
 )
 
 func TestDecompressFile(t *testing.T) {
-	MockViamDirs(t)
+	MockAndCreateViamDirs(t)
 	td := t.TempDir()
 	if _, err := exec.LookPath("xz"); err != nil {
 		t.Skip("no xz command")
@@ -105,7 +106,7 @@ func TestWriteFileIfNew(t *testing.T) {
 }
 
 func TestDownloadFile(t *testing.T) {
-	MockViamDirs(t)
+	MockAndCreateViamDirs(t)
 	logger := logging.NewTestLogger(t)
 
 	t.Run("file:// URL happy path", func(t *testing.T) {
@@ -340,4 +341,45 @@ func TestViamDirsValuesEmpty(t *testing.T) {
 	ViamDirs.Tmp = ""
 	newLen := len(slices.Collect(ViamDirs.Values()))
 	test.That(t, newLen, test.ShouldEqual, initialLen-2)
+}
+
+func TestInitPaths(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		MockViamDirs(t)
+		err := InitPaths()
+		test.That(t, err, test.ShouldBeNil)
+	})
+
+	t.Run("failure cannot create directory", func(t *testing.T) {
+		td := MockViamDirs(t)
+		err := os.Chmod(td, 0o500)
+		test.That(t, err, test.ShouldBeNil)
+		err = InitPaths()
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "creating directory")
+	})
+
+	t.Run("failure not directory", func(t *testing.T) {
+		MockViamDirs(t)
+		err := os.MkdirAll(ViamDirs.Viam, os.ModePerm)
+		test.That(t, err, test.ShouldBeNil)
+		_, err = os.Create(ViamDirs.Bin)
+		test.That(t, err, test.ShouldBeNil)
+		err = InitPaths()
+		test.That(t, err, test.ShouldBeError, ViamDirs.Bin+" should be a directory, but is not")
+	})
+
+	t.Run("failure wrong mode", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			// Windows doesn't have Unix style file modes
+			t.SkipNow()
+		}
+		MockViamDirs(t)
+		err := os.MkdirAll(ViamDirs.Bin, os.ModePerm)
+		test.That(t, err, test.ShouldBeNil)
+		os.Chmod(ViamDirs.Bin, 0o700)
+		err = InitPaths()
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
+	})
 }
