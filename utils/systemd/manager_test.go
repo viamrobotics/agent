@@ -132,9 +132,6 @@ func TestSystemdManagerInstallService(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("new install", func(t *testing.T) {
-	})
 }
 
 type fakeExecutor struct {
