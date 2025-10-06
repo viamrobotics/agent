@@ -1,4 +1,4 @@
-package systemd_test
+package systemd
 
 import (
 	"os"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/viamrobotics/agent/utils"
-	"github.com/viamrobotics/agent/utils/systemd"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
 )
@@ -104,11 +103,12 @@ func TestSystemdManagerInstallService(t *testing.T) {
 					os.WriteFile(serviceFilePath, myServiceBytes, 0o644)
 				}
 			}
-			manager := systemd.NewSystemdManager(
-				logger,
-				systemd.WithExecutor(executor),
-				systemd.WithDirs(defaultServiceDir, fallbackServiceDir),
-			)
+			manager := NewSystemdManager(logger)
+			manager.privateExecutor = executor
+			manager.dirs = systemdDirs{
+				serviceFileDir:  defaultServiceDir,
+				fallbackFileDir: fallbackServiceDir,
+			}
 
 			serviceFile, newInstall, err := manager.InstallService("my-service", myServiceBytes)
 			test.That(t, err, test.ShouldBeNil)

@@ -35,29 +35,8 @@ type SystemdManager struct {
 	logger logging.Logger
 }
 
-// SystemdManagerOption is a type used to configure the [SystemdManager]
-// returned from [NewSystemdManager].
-type SystemdManagerOption func(*SystemdManager)
-
-// WithExecutor configures the created [SystemdManager] with a custom
-// [SystemdExecutor] implementation. Should only be used for testing.
-func WithExecutor(executor SystemdExecutor) SystemdManagerOption {
-	return func(manager *SystemdManager) {
-		manager.privateExecutor = executor
-	}
-}
-
-// WithDirs configures the created [SystemdManager] with custom service file
-// search paths. Should only be used for testing.
-func WithDirs(serviceFileDir, fallbackFileDir string) SystemdManagerOption {
-	return func(manager *SystemdManager) {
-		manager.dirs.serviceFileDir = serviceFileDir
-		manager.dirs.fallbackFileDir = fallbackFileDir
-	}
-}
-
-func NewSystemdManager(logger logging.Logger, opts ...SystemdManagerOption) *SystemdManager {
-	manager := &SystemdManager{
+func NewSystemdManager(logger logging.Logger) *SystemdManager {
+	return &SystemdManager{
 		logger:          logger,
 		privateExecutor: realSystemdExecutor{},
 		dirs: systemdDirs{
@@ -65,10 +44,6 @@ func NewSystemdManager(logger logging.Logger, opts ...SystemdManagerOption) *Sys
 			fallbackFileDir: defaultFallbackFileDir,
 		},
 	}
-	for _, opt := range opts {
-		opt(manager)
-	}
-	return manager
 }
 
 // InstallService creates or updates a service file. If a service file with the
