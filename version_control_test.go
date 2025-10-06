@@ -5,10 +5,8 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,28 +16,8 @@ import (
 	"go.viam.com/test"
 )
 
-// replace utils.ViamDirs with t.TempDir for duration of test.
-func mockViamDirs(t *testing.T) {
-	t.Helper()
-	old := utils.ViamDirs
-	t.Cleanup(func() {
-		utils.ViamDirs = old
-	})
-	td := t.TempDir()
-	utils.ViamDirs = utils.ViamDirsData{
-		Viam: td,
-	}
-	for _, subdir := range []string{"Bin", "Cache", "Tmp", "Etc"} {
-		refViamDirs := reflect.ValueOf(&utils.ViamDirs)
-		field := refViamDirs.Elem().FieldByName(subdir)
-		path := filepath.Join(td, strings.ToLower(subdir))
-		field.Set(reflect.ValueOf(path))
-		os.Mkdir(field.Interface().(string), 0o755)
-	}
-}
-
 func TestUpdateBinary(t *testing.T) {
-	mockViamDirs(t)
+	utils.MockAndCreateViamDirs(t)
 	logger := logging.NewTestLogger(t)
 
 	vi := VersionInfo{
@@ -105,7 +83,7 @@ func testExists(t *testing.T, path string) {
 
 func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 	t.Run("symlinks", func(t *testing.T) {
-		mockViamDirs(t)
+		utils.MockAndCreateViamDirs(t)
 		vc := VersionCache{
 			logger:     logging.NewTestLogger(t),
 			ViamAgent:  &Versions{},
@@ -134,7 +112,7 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 	})
 
 	t.Run("expired", func(t *testing.T) {
-		mockViamDirs(t)
+		utils.MockAndCreateViamDirs(t)
 		vc := VersionCache{
 			logger:    logging.NewTestLogger(t),
 			ViamAgent: &Versions{},
