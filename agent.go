@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	serviceName = "viam-agent.service"
+	serviceName = "viam-agent"
 )
 
 //go:embed viam-agent.service
