@@ -32,7 +32,7 @@ func getCacheFilePath() string {
 
 func VersionCacheExists() bool {
 	_, err := os.Stat(getCacheFilePath())
-	return !errors.Is(err, os.ErrNotExist)
+	return err == nil
 }
 
 func NewVersionCache(logger logging.Logger) *VersionCache {
