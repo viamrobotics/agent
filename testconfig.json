@@ -1,0 +1,18 @@
+{
+    "cloud": {
+        "id": "test-machine",
+        "secret": "test-secret",
+        "location_secret": "test-location-secret",
+        "machine_id": "test-machine-id",
+        "primary_org_id": "test-org",
+        "location_id": "test-location"
+    },
+    "modules": [
+      {
+        "module_id": "panic-module",
+        "name": "panic-module",
+        "type": "local",
+        "executable": "/netcode"
+      }
+    ]
+}
