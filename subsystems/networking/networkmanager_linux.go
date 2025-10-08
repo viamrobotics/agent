@@ -1001,16 +1001,17 @@ func (n *Networking) mainLoop(ctx context.Context) {
 }
 
 func (n *Networking) doReboot(ctx context.Context) bool {
-	n.logger.Infof("device has been offline for more than %s, rebooting", time.Duration(n.Config().DeviceRebootAfterOfflineMinutes))
+	n.logger.Infow("device has been offline tool long, rebooting", "configured_reboot_timeout", time.Duration(n.Config().DeviceRebootAfterOfflineMinutes))
 	cmd := exec.Command("systemctl", "reboot")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		n.logger.Warn(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
+		n.logger.Warnw("Error running systemctl reboot", "output", output, "err", err)
 	}
-	if !n.mainLoopHealth.Sleep(ctx, time.Minute*5) {
+	const rebootWaitDuration = time.Minute*5
+	if !n.mainLoopHealth.Sleep(ctx, rebootWaitDuration) {
 		return true
 	}
-	n.logger.Errorf("failed to reboot after %s time", time.Minute*5)
+	n.logger.Error("failed to reboot", "timeout", rebootWaitDuration)
 	return false
 }
 
