@@ -213,7 +213,8 @@ func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 			case syscall.SIGABRT:
 				fallthrough
 			case syscall.SIGTERM:
-				globalLogger.Info("exiting")
+				globalLogger.Infof("Signal %s was received. %s will now exit to be restarted by service manager",
+					sig, agent.SubsystemName)
 				signal.Ignore(os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // keeping SIGQUIT for stack trace debugging
 				return
 
