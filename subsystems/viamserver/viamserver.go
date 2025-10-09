@@ -129,6 +129,18 @@ func (s *viamServer) Start(ctx context.Context) error {
 	}
 	defer stdio.DeleteMatcher("checkURL")
 
+	// suppress specific panic patterns from stdout to prevent double logging
+	_, err = stdio.AddMatcher(
+		"panicSuppressor",
+		regexp.MustCompile(`^panic:`),
+		true,
+	)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	defer stdio.DeleteMatcher("panicSuppressor")
+
 	err = s.cmd.Start()
 	if err != nil {
 		s.mu.Unlock()
