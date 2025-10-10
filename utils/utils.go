@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -152,21 +153,25 @@ func DownloadWithPartial(ctx context.Context, url string, dest string, logger lo
 	// todo: include .part in DL cleanup logic
 	// todo: do we care if files have the same name but different abs URLs? sigh yes.
 	partialPath := dest + ".part"
-	etagsPath := dest + ".etags"
+	etagsPath := dest + ".etag"
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: rpc.SocksProxyFallbackDialContext(url, logger),
 	}}
 
 	// get headers
-	optionsReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	res, err := client.Do(optionsReq)
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	// ^ do I have to close either of these?
+	allowedStatuses := []int{http.StatusOK, http.StatusPartialContent}
+	if !slices.Contains(allowedStatuses, res.StatusCode) {
+		return fmt.Errorf("unexpected HTTP status %q, should be one of %+v", res.Status, allowedStatuses)
+	}
 	acceptRanges := res.Header.Get("Accept-Ranges")
 
 	var offset int64
@@ -175,21 +180,55 @@ func DownloadWithPartial(ctx context.Context, url string, dest string, logger lo
 		if prevEtag, err := os.ReadFile(etagsPath); err == nil {
 			etagMatch = string(prevEtag) == res.Header.Get("Etag")
 			offset = partialStat.Size()
-			logger.Debug("etag match %t, offset %d", etagMatch, offset)
+			logger.Debugf("etag match %t, offset %d", etagMatch, offset)
 		}
 	}
 
+	// todo: this is backwards; can blindly ask for range, branch on return value + etag
 	// todo: is 'bytes' the only value? can this have commas?
+	var out *os.File
 	if offset > 0 && etagMatch && acceptRanges == "bytes" {
 		logger.Debugf("resuming partial download at %d", offset)
-		return errors.New("todo: resume download")
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-", offset))
+		res, err = client.Do(req)
+		if err != nil {
+			return err
+		}
+		if res.StatusCode != http.StatusPartialContent {
+			return fmt.Errorf("expected status %d, got %q", http.StatusPartialContent, res.Status)
+		}
+		out, err = os.OpenFile(partialPath, os.O_APPEND|os.O_WRONLY, 0o755)
+		if err != nil {
+			return errw.Wrap(err, "opening file for downloading")
+		}
 	} else if acceptRanges == "bytes" {
 		logger.Debugf("starting a resumable download")
-		return errors.New("todo: resumable download")
+		if err := os.WriteFile(etagsPath, []byte(res.Header.Get("Etag")), 0o755); err != nil {
+			return errw.Wrap(err, "downloading")
+		}
+		out, err = os.Create(partialPath)
+		if err != nil {
+			return errw.Wrap(err, "downloading")
+		}
 	} else {
 		logger.Debugf("starting a normal download")
 		return errors.New("todo: normal download")
 	}
+	workers := &sync.WaitGroup{}
+	writer, cancelFunc := downloadProgressSetup(ctx, out, dest, res.ContentLength, logger, workers)
+	defer workers.Wait()
+	defer cancelFunc()
+	_, err = io.Copy(writer, res.Body)
+	if err != nil {
+		return errw.Wrap(err, "downloading")
+	}
+	// todo: rename .part and delete .etag
+	logger.Debug("finished download")
+	return nil
 }
 
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
