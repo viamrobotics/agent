@@ -144,13 +144,11 @@ func fileExists(path string) bool {
 // download an http URL, use partial if there's a .part and the server supports it.
 func DownloadWithPartial(ctx context.Context, url string, dest string, logger logging.Logger) error {
 	// the flow here is:
-	// - if no .part file exists:
-	//   - if the server supports content-ranges, write an .etag file and download to .part
-	//   - if it doesn't, download normally
-	// - if a .part file exists:
-	//   - do an OPTIONS request to check that the etag matches what we have and ranges are supported
-	//   - resume DL if yes, clean up partials and do normal DL if not
-	// todo: include .part in DL cleanup logic
+	// if .part file exists, make request with If-Matches: etag condition and offset
+	// 		a. if precondition fails, do normal download
+	// if no .part file, make a normal request and decide based on response whether to do a normal DL or start a partial
+
+	// todo: include .part files in DL cleanup logic
 	// todo: do we care if files have the same name but different abs URLs? sigh yes.
 	partialPath := dest + ".part"
 	etagsPath := dest + ".etag"
@@ -184,7 +182,7 @@ func DownloadWithPartial(ctx context.Context, url string, dest string, logger lo
 		}
 	}
 
-	// todo: this is backwards; can blindly ask for range, branch on return value + etag
+	// todo: this is backwards; can blindly ask for range, branch on return value + etag. use If-Match and detect the http.StatusPreconditionFailed
 	// todo: is 'bytes' the only value? can this have commas?
 	var out *os.File
 	if offset > 0 && etagMatch && acceptRanges == "bytes" {
