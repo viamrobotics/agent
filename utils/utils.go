@@ -134,6 +134,64 @@ func InitPaths() error {
 	return nil
 }
 
+// return true if path exists and is not a directory
+func fileExists(path string) bool {
+	stat, err := os.Stat(path)
+	return err == nil && !stat.IsDir()
+}
+
+// download an http URL, use partial if there's a .part and the server supports it.
+func DownloadWithPartial(ctx context.Context, url string, dest string, logger logging.Logger) error {
+	// the flow here is:
+	// - if no .part file exists:
+	//   - if the server supports content-ranges, write an .etag file and download to .part
+	//   - if it doesn't, download normally
+	// - if a .part file exists:
+	//   - do an OPTIONS request to check that the etag matches what we have and ranges are supported
+	//   - resume DL if yes, clean up partials and do normal DL if not
+	// todo: include .part in DL cleanup logic
+	// todo: do we care if files have the same name but different abs URLs? sigh yes.
+	partialPath := dest + ".part"
+	etagsPath := dest + ".etags"
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: rpc.SocksProxyFallbackDialContext(url, logger),
+	}}
+
+	// get headers
+	optionsReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	res, err := client.Do(optionsReq)
+	if err != nil {
+		return err
+	}
+	// ^ do I have to close either of these?
+	acceptRanges := res.Header.Get("Accept-Ranges")
+
+	var offset int64
+	etagMatch := false
+	if partialStat, err := os.Stat(partialPath); err == nil {
+		if prevEtag, err := os.ReadFile(etagsPath); err == nil {
+			etagMatch = string(prevEtag) == res.Header.Get("Etag")
+			offset = partialStat.Size()
+			logger.Debug("etag match %t, offset %d", etagMatch, offset)
+		}
+	}
+
+	// todo: is 'bytes' the only value? can this have commas?
+	if offset > 0 && etagMatch && acceptRanges == "bytes" {
+		logger.Debugf("resuming partial download at %d", offset)
+		return errors.New("todo: resume download")
+	} else if acceptRanges == "bytes" {
+		logger.Debugf("starting a resumable download")
+		return errors.New("todo: resumable download")
+	} else {
+		logger.Debugf("starting a normal download")
+		return errors.New("todo: normal download")
+	}
+}
+
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (outPath string, errRet error) {
 	parsedURL, err := url.Parse(rawURL)
