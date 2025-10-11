@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -354,11 +355,46 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	if n.noNM || (n.Config().DisableBTProvisioning.Get() && n.Config().DisableWifiProvisioning.Get()) {
 		return nil
 	}
-	if n.bgLoopHealth.IsHealthy() && n.mainLoopHealth.IsHealthy() &&
-		(!n.bluetoothEnabled() || n.btAdv == nil || n.btHealthy) {
+	bgLoopHealthy := n.bgLoopHealth.IsHealthy()
+	mainLoopHealthy := n.mainLoopHealth.IsHealthy()
+	btEnabled := n.bluetoothEnabled()
+	btAdvUnset := n.btAdv == nil
+	btHealthy := n.btHealthy
+	if bgLoopHealthy && mainLoopHealthy &&
+		(!btEnabled || btAdvUnset || btHealthy) {
 		return nil
 	}
-	return errw.New("networking system not responsive")
+	return networkingUnresponsiveError{
+		bgLoopHealthy:   bgLoopHealthy,
+		mainLoopHealthy: mainLoopHealthy,
+		btEnabled:       btEnabled,
+		btAdvUnset:      btAdvUnset,
+		btHealthy:       btHealthy,
+	}
+}
+
+type networkingUnresponsiveError struct {
+	bgLoopHealthy   bool
+	mainLoopHealthy bool
+	btEnabled       bool
+	btAdvUnset      bool
+	btHealthy       bool
+}
+
+func (e networkingUnresponsiveError) Error() string {
+	reasons := make([]string, 0, 4)
+	if !e.bgLoopHealthy {
+		reasons = append(reasons, "bgLoop unhealthy")
+	}
+	if !e.mainLoopHealthy {
+		reasons = append(reasons, "mainLoop unhealthy")
+	}
+	if e.btEnabled && !e.btAdvUnset && !e.btHealthy {
+		reasons = append(reasons, "BT unhealthy")
+	}
+	return "networking system not responsive )" +
+		strings.Join(reasons, ", ") +
+		")"
 }
 
 func (n *Networking) Config() utils.NetworkConfiguration {
