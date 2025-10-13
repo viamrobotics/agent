@@ -48,10 +48,10 @@ const (
 // Creates test URLs for property checks. Must be called with s.mu locked.
 func (s *viamServer) makeTestURLs(rp restartProperty) ([]string, error) {
 	urls := []string{s.checkURL, s.checkURLAlt}
-	// On Windows and MacOS (only used in testing), the local IPV4 addresses created below
-	// this check will not be reachable. Tests for checkRestartProperty are also unable to
-	// use the all local IPV4s created below due to how the test server is set up.
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || testing.Testing() {
+	// On Windows, the local IPV4 addresses created below this check will not be reachable.
+	// Tests for checkRestartProperty are also unable to reach the local IPV4s created below
+	// due to how the test server is set up.
+	if runtime.GOOS == "windows" || testing.Testing() {
 		return urls, nil
 	}
 
