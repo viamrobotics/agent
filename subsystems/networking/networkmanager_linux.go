@@ -1031,7 +1031,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 
 func (n *Networking) doReboot(ctx context.Context) bool {
 	n.logger.Infow(
-		"device has been offline tool long, rebooting",
+		"device has been offline too long, rebooting",
 		"configured_reboot_timeout",
 		time.Duration(n.Config().DeviceRebootAfterOfflineMinutes),
 	)
