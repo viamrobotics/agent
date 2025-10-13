@@ -944,7 +944,6 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					"have_candidates", haveCandidates,
 					"fallback_hit", fallbackHit,
 					"should_reboot_system", shouldRebootSystem,
-					"user_input_received", userInputReceived,
 					"inactive_portal", inactivePortal,
 					"is_configured", isConfigured,
 					"is_connected", isConnected,
