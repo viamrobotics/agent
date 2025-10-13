@@ -814,7 +814,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
 	defer func() {
-		n.logger.Infow("provisioning change: stop, networking shutting down")
+		n.logger.Infow("stopping provisioning, networking shutting down")
 		if err := n.stopProvisioning(); err != nil {
 			n.logger.Warn(err)
 		}
@@ -937,7 +937,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
 				}
 				n.netState.mu.RLock()
-				n.logger.Infow("provisioning change: stop",
+				n.logger.Infow("stopping provisioning, condition change",
 					"force_provisioning", forceProvisioning,
 					"user_input_received", userInputReceived,
 					"all_good", allGood,
@@ -1014,7 +1014,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
 		if !isConfigured || hitOfflineTimeout || userInputReceived || forceProvisioning {
 			n.netState.mu.RLock()
-			n.logger.Infow("provisioning change: start",
+			n.logger.Infow("starting provisioning",
 				"isConfigured", isConfigured,
 				"hitOfflineTimeout", hitOfflineTimeout,
 				"userInputReceived", userInputReceived,

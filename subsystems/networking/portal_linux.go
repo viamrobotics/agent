@@ -63,7 +63,7 @@ func (n *Networking) startWeb(bindAddr string, bindPort int) error {
 	n.portalData.workers.Add(1)
 	go func() {
 		defer utils.Recover(n.logger, func(panickedWith any) {
-			n.logger.Warnw("provisioning change: stop, panic in web goroutine",
+			n.logger.Warnw("stopping provisioning, panic in web goroutine",
 				"panic", panickedWith)
 			if err := n.stopProvisioning(); err != nil {
 				n.logger.Warnw("failed to stop provisioning", "err", err)
