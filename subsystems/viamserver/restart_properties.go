@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"testing"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -48,8 +49,9 @@ const (
 func (s *viamServer) makeTestURLs(rp restartProperty) ([]string, error) {
 	urls := []string{s.checkURL, s.checkURLAlt}
 	// On Windows and MacOS (only used in testing), the local IPV4 addresses created below
-	// this check will not be reachable.
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+	// this check will not be reachable. Tests for checkRestartProperty are also unable to
+	// use the all local IPV4s created below due to how the test server is set up.
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || testing.Testing() {
 		return urls, nil
 	}
 
