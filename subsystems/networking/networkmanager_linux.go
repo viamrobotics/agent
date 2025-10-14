@@ -884,11 +884,11 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		// sure to call it early and cache the result.
 		forceProvisioning := n.checkForceProvisioning()
 		n.logger.Debugw("networking main loop",
-			"wifi_connected", isConnected,
-			"wifi_connection", n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.ActiveSSID(n.Config().HotspotInterface)),
+			"wifiConnected", isConnected,
+			"wifiConnection", n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.ActiveSSID(n.Config().HotspotInterface)),
 			"internet", isOnline,
-			"config_present", isConfigured,
-			"force_provisioning", forceProvisioning,
+			"configPresent", isConfigured,
+			"forceProvisioning", forceProvisioning,
 		)
 
 		if pMode {
@@ -938,19 +938,19 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				}
 				n.netState.mu.RLock()
 				n.logger.Infow("stopping provisioning, condition change",
-					"force_provisioning", forceProvisioning,
-					"user_input_received", userInputReceived,
-					"all_good", allGood,
-					"have_candidates", haveCandidates,
-					"fallback_hit", fallbackHit,
-					"should_reboot_system", shouldRebootSystem,
-					"inactive_portal", inactivePortal,
-					"is_configured", isConfigured,
-					"is_connected", isConnected,
-					"is_online", isOnline,
-					"start_provisioning_if_no_internet", startProvisioningIfNoInternet,
-					"active_connections", n.netState.activeConn,
-					"last_ssid", n.netState.lastSSID,
+					"forceProvisioning", forceProvisioning,
+					"userInputReceived", userInputReceived,
+					"allGood", allGood,
+					"haveCandidates", haveCandidates,
+					"fallbackHit", fallbackHit,
+					"shouldRebootSystem", shouldRebootSystem,
+					"inactivePortal", inactivePortal,
+					"isConfigured", isConfigured,
+					"isConnected", isConnected,
+					"isOnline", isOnline,
+					"startProvisioningIfNoInternet", startProvisioningIfNoInternet,
+					"activeConnections", n.netState.activeConn,
+					"lastSsid", n.netState.lastSSID,
 				)
 				n.netState.mu.RUnlock()
 				if err := n.stopProvisioning(); err != nil {
@@ -1017,9 +1017,9 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				"isConfigured", isConfigured,
 				"hitOfflineTimeout", hitOfflineTimeout,
 				"userInputReceived", userInputReceived,
-				"force_provisioning", forceProvisioning,
-				"active_connections", n.netState.activeConn,
-				"last_ssid", n.netState.lastSSID,
+				"forceProvisioning", forceProvisioning,
+				"activeConnections", n.netState.activeConn,
+				"lastSsid", n.netState.lastSSID,
 			)
 			n.netState.mu.RUnlock()
 			if err := n.startProvisioning(ctx, inputChan); err != nil {
@@ -1032,7 +1032,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 func (n *Networking) doReboot(ctx context.Context) bool {
 	n.logger.Infow(
 		"device has been offline too long, rebooting",
-		"configured_reboot_timeout",
+		"configuredRebootTimeout",
 		time.Duration(n.Config().DeviceRebootAfterOfflineMinutes),
 	)
 	cmd := exec.Command("systemctl", "reboot")
