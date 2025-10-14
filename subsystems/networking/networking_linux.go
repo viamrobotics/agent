@@ -384,13 +384,13 @@ type networkingUnresponsiveError struct {
 func (e networkingUnresponsiveError) Error() string {
 	reasons := make([]string, 0, 4)
 	if !e.bgLoopHealthy {
-		reasons = append(reasons, "bgLoop unhealthy")
+		reasons = append(reasons, "background loop unhealthy")
 	}
 	if !e.mainLoopHealthy {
-		reasons = append(reasons, "mainLoop unhealthy")
+		reasons = append(reasons, "main loop unhealthy")
 	}
 	if e.btEnabled && !e.btAdvUnset && !e.btHealthy {
-		reasons = append(reasons, "BT unhealthy")
+		reasons = append(reasons, "bluetooth unhealthy")
 	}
 	return "networking system not responsive )" +
 		strings.Join(reasons, ", ") +
