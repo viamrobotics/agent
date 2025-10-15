@@ -33,6 +33,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 	"go.viam.com/rdk/logging"
+	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
 )
 
@@ -137,8 +138,7 @@ func InitPaths() error {
 	return nil
 }
 
-// handler for file:// protocol in DownloadFile.
-// todo: go-getter may do this for us.
+// todo: one last read-through and then delete
 func copyFile(logger logging.Logger, parsedPath, outPath, rawURL string, errRet error) error {
 	if runtime.GOOS == "windows" {
 		parsedPath = strings.TrimLeft(parsedPath, "/")
@@ -195,7 +195,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	parsedPath := parsedURL.Path
 
 	// don't want to accidentally overwrite anything in the cache directory by accident
-	// old agent versions used a different cache format, so its possible we could be re-downloading ourself
+	// old agent versions used a different cache format, so it's possible we could be re-downloading ourself
 	var outPath string
 	for n := range 100 {
 		var suffix string
@@ -222,14 +222,17 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			return "", errw.Wrap(err, "copying file")
 		}
 	case "http", "https":
-		// we shrink the hash to avoid system path length limits
+		// note: we shrink the hash to avoid system path length limits
 		partialDest := path.Join(ViamDirs.Cache, "part", hashString(rawURL, 7), last(strings.Split(parsedURL.Path, "/"), "")+".part")
+		// todo: copy HttpClient specializations from old code
 		g := getter.HttpGetter{}
 		g.SetClient(getterClient)
-		if stat, err := os.Stat(partialDest); err != nil {
+		if stat, err := os.Stat(partialDest); err == nil {
 			logger.Infof("download to existing %q, size %d", partialDest, stat.Size())
 		}
-		// todo: progress tracker watching file length in background
+		done := make(chan struct{})
+		defer close(done)
+		goutils.PanicCapturingGo(func() { fileSizeProgress(done, logger, rawURL, partialDest) })
 		if err := g.GetFile(partialDest, parsedURL); err != nil {
 			return "", errw.Wrap(err, "downloading file")
 		}
@@ -590,83 +593,56 @@ func (sb *SafeBuffer) Reset() {
 	sb.buf.Reset()
 }
 
-// Simple io.WriteSeeker type for progress bar.
-type progressMultiWriter struct {
-	progressBar *progressbar.ProgressBar
-	outFile     io.WriteSeeker
-
-	// progressbar (as of 3.18.0) has a race bug, so we do our own locking to work around it
-	barMu sync.Mutex
-}
-
-func (pmw *progressMultiWriter) Write(p []byte) (n int, err error) {
-	// Write to file first
-	n, err = pmw.outFile.Write(p)
+// starts a goroutine that watches `dest` file size, logs progress until `dest` no longer exists or `done` is closed.
+func fileSizeProgress(done chan struct{}, logger logging.Logger, url, dest string) {
+	// note: go-getter is also doing a HEAD request internally, so this is redundant, but we don't have access to it.
+	req, err := http.NewRequest(http.MethodHead, url, nil)
 	if err != nil {
+		logger.Warnf("progress bar failed: %s", err)
 		return
 	}
-	if n != len(p) {
-		err = io.ErrShortWrite
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		logger.Warnf("progress bar failed: %s", err)
 		return
 	}
+	size := res.ContentLength
+	res.Body.Close()
 
-	// Then write to progress bar with protection
-	pmw.barMu.Lock()
-	defer pmw.barMu.Unlock()
-	_, err = pmw.progressBar.Write(p)
-	return len(p), err
-}
-
-func (pmw *progressMultiWriter) Seek(offset int64, whence int) (int64, error) {
-	return pmw.outFile.Seek(offset, whence)
-}
-
-func (pmw *progressMultiWriter) GetBar() string {
-	pmw.barMu.Lock()
-	defer pmw.barMu.Unlock()
-	return pmw.progressBar.String()
-}
-
-func downloadProgressSetup(ctx context.Context,
-	outWriter io.WriteSeeker,
-	outPath string,
-	size int64,
-	logger logging.Logger,
-	workers *sync.WaitGroup,
-) (io.WriteSeeker, context.CancelFunc) {
 	bar := progressbar.NewOptions64(
 		size,
-		progressbar.OptionSetDescription("Downloading "+filepath.Base(outPath)),
+		progressbar.OptionSetDescription("Downloading "+filepath.Base(dest)),
 		progressbar.OptionSetWriter(io.Discard),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionShowTotalBytes(true),
 		progressbar.OptionSetWidth(10),
-		progressbar.OptionThrottle(65*time.Millisecond),
 		progressbar.OptionShowCount(),
 		progressbar.OptionSpinnerType(0),
 	)
-
-	// Use a mutex to protect access to the progress bar
-	writer := &progressMultiWriter{progressBar: bar, outFile: outWriter}
-	barCtx, cancel := context.WithCancel(ctx)
+	bar.ChangeMax64(size)
 	if err := bar.RenderBlank(); err != nil {
 		logger.Warn(err)
 	}
-	workers.Add(1)
-	go func() {
-		defer workers.Done()
-		logger.Info(writer.GetBar())
-		for {
-			select {
-			case <-barCtx.Done():
-				logger.Info(writer.GetBar())
+
+	ticker := time.NewTicker(5 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			stat, err := os.Stat(dest)
+			if err != nil {
+				if !errors.Is(os.ErrNotExist, err) {
+					// we don't warn if the file is missing because that means completion
+					logger.Warnf("progress bar stat error: %s", err)
+				}
 				return
-			case <-time.After(time.Second * 10):
-				logger.Info(writer.GetBar())
 			}
+			// todo: use fancy progress bar instead
+			bar.Set64(stat.Size())
+			logger.Info(bar)
+		case <-done:
+			return
 		}
-	}()
-	return writer, cancel
+	}
 }
 
 // AtomicCopy implements a best effort to atomically copy the file at src to
