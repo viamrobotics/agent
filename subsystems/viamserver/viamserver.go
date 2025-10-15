@@ -288,8 +288,11 @@ func (s *viamServer) Property(ctx context.Context, property string) bool {
 
 	switch property {
 	case RestartPropertyRestartAllowed:
-		if !s.running {
-			// Assume agent can restart viamserver if the subsystem is not running.
+		if !s.running || runtime.GOOS == "windows" {
+			// Assume agent can restart viamserver if the subsystem is not running or we are on
+			// Windows.
+			//
+			// TODO(RSDK-12271): Allow checks of restart_allowed on Windows.
 			return true
 		}
 
