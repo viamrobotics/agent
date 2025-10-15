@@ -134,6 +134,54 @@ func InitPaths() error {
 	return nil
 }
 
+// handler for file:// protocol in DownloadFile.
+// todo: go-getter may do this for us.
+func copyFile(logger logging.Logger, parsedPath, outPath, rawURL string) (string, error) {
+	var errRet error
+	if runtime.GOOS == "windows" {
+		parsedPath = strings.TrimLeft(parsedPath, "/")
+	}
+
+	infd, err := os.Open(parsedPath) //nolint:gosec
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		errRet = errors.Join(errRet, infd.Close())
+	}()
+
+	//nolint:gosec
+	if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
+		return "", err
+	}
+
+	outfd, err := os.CreateTemp(ViamDirs.Tmp, "*")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		// we might double close because we have to explicitly close before the rename for windows
+		errClose := outfd.Close()
+		if !errors.Is(errClose, os.ErrClosed) {
+			errRet = errors.Join(errRet, errClose)
+		}
+		errRet = errors.Join(errRet, SyncFS(outPath))
+		if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
+			errRet = errors.Join(errRet, err)
+		}
+	}()
+
+	_, err = io.Copy(outfd, infd)
+	if err != nil {
+		return "", errors.Join(errRet, err)
+	}
+	errRet = errors.Join(errRet, outfd.Close(), os.Rename(outfd.Name(), outPath))
+	if errRet == nil {
+		logger.Infof("Download (local file copy) complete for %s", rawURL)
+	}
+	return outPath, errRet
+}
+
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (outPath string, errRet error) {
 	parsedURL, err := url.Parse(rawURL)
@@ -164,48 +212,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 
 	//nolint:nestif
 	if parsedURL.Scheme == "file" {
-		if runtime.GOOS == "windows" {
-			parsedPath = strings.TrimLeft(parsedPath, "/")
-		}
-
-		infd, err := os.Open(parsedPath) //nolint:gosec
-		if err != nil {
-			return "", err
-		}
-		defer func() {
-			errRet = errors.Join(errRet, infd.Close())
-		}()
-
-		//nolint:gosec
-		if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
-			return "", err
-		}
-
-		outfd, err := os.CreateTemp(ViamDirs.Tmp, "*")
-		if err != nil {
-			return "", err
-		}
-		defer func() {
-			// we might double close because we have to explicitly close before the rename for windows
-			errClose := outfd.Close()
-			if !errors.Is(errClose, os.ErrClosed) {
-				errRet = errors.Join(errRet, errClose)
-			}
-			errRet = errors.Join(errRet, SyncFS(outPath))
-			if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
-				errRet = errors.Join(errRet, err)
-			}
-		}()
-
-		_, err = io.Copy(outfd, infd)
-		if err != nil {
-			return "", errors.Join(errRet, err)
-		}
-		errRet = errors.Join(errRet, outfd.Close(), os.Rename(outfd.Name(), outPath))
-		if errRet == nil {
-			logger.Infof("Download (local file copy) complete for %s", rawURL)
-		}
-		return outPath, errRet
+		return copyFile(logger, parsedPath, outPath, rawURL)
 	}
 
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
