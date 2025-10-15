@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -143,4 +144,34 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 		test.That(t, vc.ViamServer.Versions, test.ShouldHaveLength, 4)
 		test.That(t, vc.ViamServer.Versions["stale"], test.ShouldBeNil)
 	})
+}
+
+func TestCleanPartials(t *testing.T) {
+	utils.MockAndCreateViamDirs(t)
+	vc := VersionCache{logger: logging.NewTestLogger(t)}
+
+	// make a part file to clean up
+	oldPath := filepath.Join(utils.ViamDirs.Partials, "abc1", "old.part")
+	err := os.Mkdir(filepath.Dir(oldPath), 0o755)
+	test.That(t, err, test.ShouldBeNil)
+	err = os.WriteFile(oldPath, []byte("hello"), 0o600)
+	test.That(t, err, test.ShouldBeNil)
+	os.Chtimes(oldPath, time.Now(), time.Now().Add(-time.Hour*24*4))
+
+	// make another one too new to clean up
+	newPath := filepath.Join(utils.ViamDirs.Partials, "abc2", "new.part")
+	err = os.Mkdir(filepath.Dir(newPath), 0o755)
+	test.That(t, err, test.ShouldBeNil)
+	err = os.WriteFile(newPath, []byte("hello"), 0o600)
+	test.That(t, err, test.ShouldBeNil)
+
+	err = vc.CleanPartials(t.Context())
+	test.That(t, err, test.ShouldBeNil)
+
+	// old path should be gone, newpath should still exist
+	_, err = os.Stat(oldPath)
+	var pathError *os.PathError
+	test.That(t, errors.As(err, &pathError), test.ShouldBeTrue)
+	_, err = os.Stat(newPath)
+	test.That(t, err, test.ShouldBeNil)
 }

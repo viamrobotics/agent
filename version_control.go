@@ -431,4 +431,33 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	}
 
 	c.logger.Info("Finished cache cleanup")
+	c.CleanPartials(ctx)
+}
+
+func (c *VersionCache) CleanPartials(ctx context.Context) error {
+	c.logger.Info("Starting partials cleanup")
+	matches, err := filepath.Glob(filepath.Join(utils.ViamDirs.Partials, "*", "*.part"))
+	if err != nil {
+		c.logger.Errorf("error cleaning partials: %s", matches)
+		return err
+	}
+	var joinedErrors error
+	for _, match := range matches {
+		if stat, err := os.Stat(match); err != nil {
+			c.logger.Errorf("error statting partial %q: %s", match, err)
+			joinedErrors = errors.Join(joinedErrors, err)
+		} else {
+			if stat.ModTime().Add(time.Hour * 24 * 3).Before(time.Now()) {
+				if err := errors.Join(os.Remove(match), os.Remove(filepath.Dir(match))); err != nil {
+					c.logger.Errorf("error removing partial %q or parent dir: %s", match, err)
+					joinedErrors = errors.Join(joinedErrors, err)
+				} else {
+					c.logger.Infof("removed expired partial download %q", match)
+				}
+			} else {
+				c.logger.Debugf("keeping recent partial download %q", match)
+			}
+		}
+	}
+	return joinedErrors
 }

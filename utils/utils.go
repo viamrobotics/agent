@@ -53,6 +53,8 @@ type ViamDirsData struct {
 	Cache string
 	Tmp   string
 	Etc   string
+	// partial downloads
+	Partials string
 }
 
 // Values returns an [iter.Seq] over the field values in ViamDirsData at the
@@ -103,6 +105,7 @@ func init() {
 	}
 	ViamDirs.Bin = filepath.Join(ViamDirs.Viam, "bin")
 	ViamDirs.Cache = filepath.Join(ViamDirs.Viam, "cache")
+	ViamDirs.Partials = filepath.Join(ViamDirs.Cache, "part")
 	ViamDirs.Tmp = filepath.Join(ViamDirs.Viam, "tmp")
 	ViamDirs.Etc = filepath.Join(ViamDirs.Viam, "etc")
 }
@@ -138,7 +141,8 @@ func InitPaths() error {
 	return nil
 }
 
-// DownloadFile downloads a file into the cache directory and returns a path to the file.
+// DownloadFile downloads or copies a file into the cache directory and returns a path to the file.
+// If this is an http/s URL, you must check the checksum of the result; the partial logic does not check etags.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
@@ -178,7 +182,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 	case "http", "https":
 		// note: we shrink the hash to avoid system path length limits
-		partialDest := path.Join(ViamDirs.Cache, "part", hashString(rawURL, 7), last(strings.Split(parsedURL.Path, "/"), "")+".part")
+		partialDest := path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(parsedURL.Path, "/"), "")+".part")
 
 		// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
 		// if trying to connect to a local address.
