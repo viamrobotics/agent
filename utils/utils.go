@@ -213,6 +213,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 	}
 
+	// I think getter.Client is the only way to pass down context.
 	getterClient := &getter.Client{Ctx: ctx}
 	switch parsedURL.Scheme {
 	case "file":
@@ -224,18 +225,26 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	case "http", "https":
 		// note: we shrink the hash to avoid system path length limits
 		partialDest := path.Join(ViamDirs.Cache, "part", hashString(rawURL, 7), last(strings.Split(parsedURL.Path, "/"), "")+".part")
-		// todo: copy HttpClient specializations from old code
-		g := getter.HttpGetter{}
+
+		// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
+		// if trying to connect to a local address.
+		httpClient := &http.Client{Transport: &http.Transport{
+			DialContext: rpc.SocksProxyFallbackDialContext(parsedURL.String(), logger),
+		}}
+		g := getter.HttpGetter{Client: httpClient}
 		g.SetClient(getterClient)
+
 		if stat, err := os.Stat(partialDest); err == nil {
 			logger.Infof("download to existing %q, size %d", partialDest, stat.Size())
 		}
+
 		done := make(chan struct{})
 		defer close(done)
 		goutils.PanicCapturingGo(func() { fileSizeProgress(done, logger, rawURL, partialDest) })
 		if err := g.GetFile(partialDest, parsedURL); err != nil {
 			return "", errw.Wrap(err, "downloading file")
 		}
+
 		// move completed .part to outPath and remove url-hash dir
 		logger.Debugf("moving successful download %q to outPath", partialDest)
 		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
@@ -294,80 +303,6 @@ func allowFirewall(logger logging.Logger, outPath string) error {
 		}
 	}
 	return errRet
-}
-
-func downloadHttp(ctx context.Context, logger logging.Logger, parsedURL *url.URL, rawURL, outPath string) (string, error) {
-	var errRet error
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
-	if err != nil {
-		return "", errw.Wrap(err, "downloading file")
-	}
-
-	// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
-	// if trying to connect to a local address.
-	httpClient := &http.Client{Transport: &http.Transport{
-		DialContext: rpc.SocksProxyFallbackDialContext(parsedURL.String(), logger),
-	}}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", errw.Wrapf(err, "downloading file %s", rawURL)
-	}
-	defer func() {
-		errRet = errors.Join(errRet, resp.Body.Close())
-	}()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return "", errw.Errorf("got response '%s' while downloading %s", resp.Status, parsedURL)
-	}
-
-	//nolint:gosec
-	if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
-		return "", err
-	}
-
-	out, err := os.CreateTemp(ViamDirs.Tmp, "*")
-	if err != nil {
-		return "", err
-	}
-	// `closed` suppresses double-close
-	closed := false
-	defer func() {
-		if !closed {
-			errRet = errors.Join(errRet, out.Close())
-		}
-		if runtime.GOOS != "windows" {
-			// todo(windows): doc why we don't do this / test adding it back
-			errRet = errors.Join(errRet, SyncFS(out.Name()))
-		}
-		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
-			errRet = errors.Join(errRet, err)
-		}
-	}()
-
-	workers := &sync.WaitGroup{}
-	writer, cancelFunc := downloadProgressSetup(ctx, out, outPath, resp.ContentLength, logger, workers)
-	defer workers.Wait()
-	defer cancelFunc()
-
-	_, err = io.Copy(writer, resp.Body)
-	if err != nil && !os.IsNotExist(err) {
-		errRet = errors.Join(errRet, err)
-	}
-	errRet = errors.Join(errRet, out.Close())
-	closed = true
-
-	if errRet != nil {
-		return "", errRet
-	}
-
-	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
-
-	if errRet == nil {
-		logger.Infof("Download complete for %s", rawURL)
-	}
-
-	return outPath, errRet
 }
 
 // DecompressFile extracts a compressed file and returns the path to the extracted file.
