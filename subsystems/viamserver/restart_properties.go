@@ -14,6 +14,7 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	"github.com/samber/mo"
 	goutils "go.viam.com/utils"
 )
 
@@ -122,8 +123,7 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 	// Create some buffered channels for errors and found property values. Sending to these
 	// should not block, as we'll only ever have len(urls) goroutines trying to send one
 	// value to each channel.
-	errorChan := make(chan error, len(urls))
-	propertyValueChan := make(chan bool, len(urls))
+	resultChan := make(chan mo.Result[bool], len(urls))
 
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, checkRestartPropertyTimeout)
 	defer cancelFunc()
@@ -136,8 +136,9 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 
 			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)
 			if err != nil {
-				errorChan <- errw.Wrapf(err, "creating HTTP request for %s check for %s via %s",
-					rp, SubsysName, restartURL)
+				resultChan <- mo.Err[bool](
+					errw.Wrapf(err, "creating HTTP request for %s check for %s via %s",
+						rp, SubsysName, restartURL))
 				return
 			}
 
@@ -148,8 +149,8 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 
 			resp, err := client.Do(req)
 			if err != nil {
-				errorChan <- errw.Wrapf(err, "sending HTTP request for %s check for %s via %s",
-					rp, SubsysName, restartURL)
+				resultChan <- mo.Err[bool](errw.Wrapf(err, "sending HTTP request for %s check for %s via %s",
+					rp, SubsysName, restartURL))
 				return
 			}
 			defer func() {
@@ -160,47 +161,35 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 				// Interacting with older viam-server instances will result in a non-successful
 				// HTTP response status code, as the /restart_status endpoint will not be
 				// available. Report a nil error and continue to next test URL in this case.
-				errorChan <- nil
+				resultChan <- mo.Errf[bool]("checking %s status via %s, got code: %d", SubsysName, restartURL, resp.StatusCode)
 				return
 			}
 
 			var restartStatusResponse RestartStatusResponse
 			if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
-				errorChan <- errw.Wrapf(err, "decoding HTTP response for %s check for %s via %s",
-					rp, SubsysName, restartURL)
+				resultChan <- mo.Err[bool](errw.Wrapf(err, "decoding HTTP response for %s check for %s via %s",
+					rp, SubsysName, restartURL))
 				return
 			}
 
 			switch rp {
 			case RestartPropertyRestartAllowed:
-				propertyValueChan <- restartStatusResponse.RestartAllowed
+				resultChan <- mo.Ok(restartStatusResponse.RestartAllowed)
 			case RestartPropertyDoesNotHandleNeedsRestart:
-				propertyValueChan <- restartStatusResponse.DoesNotHandleNeedsRestart
+				resultChan <- mo.Ok(restartStatusResponse.DoesNotHandleNeedsRestart)
 			}
-
-			errorChan <- nil
 		}()
 	}
 
 	var combinedErr error
-errorChanL:
 	for range urls {
-		select {
-		case err := <-errorChan:
+		result := <-resultChan
+		property, err := result.Get()
+		if err != nil {
 			combinedErr = errors.Join(combinedErr, err)
-		case <-timeoutCtx.Done():
-			// break the for loop, not the select.
-			break errorChanL
+		} else {
+			return property, nil
 		}
 	}
-
-	// We assume below that the first test URL through which we encountered the feature's
-	// value represents the actual value. Only receive for one second in case no goroutine
-	// above managed to send to the channel.
-	var propertyValue bool
-	select {
-	case propertyValue = <-propertyValueChan:
-	case <-time.After(time.Second):
-	}
-	return propertyValue, combinedErr
+	return false, combinedErr
 }
