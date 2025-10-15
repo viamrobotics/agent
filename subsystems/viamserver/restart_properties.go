@@ -120,13 +120,22 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 		return false, err
 	}
 
-	// Create some buffered channels for errors and found property values. Sending to these
-	// should not block, as we'll only ever have len(urls) goroutines trying to send one
-	// value to each channel.
+	// Create a buffered channel for Result[bool] values. Sending to this channel should not
+	// block, as we'll only ever have len(urls) goroutines trying to send one value.
 	resultChan := make(chan mo.Result[bool], len(urls))
 
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, checkRestartPropertyTimeout)
 	defer cancelFunc()
+
+	// Disabling the cert verification because it doesn't work in offline mode (when
+	// connecting to localhost).
+	//nolint:gosec
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	defer func() {
+		// CloseIdleConnections at the end of the method to ensure that any goroutine created
+		// below does not leave an idle HTTP connection open to the server.
+		client.CloseIdleConnections()
+	}()
 
 	for _, url := range urls {
 		go func() {
@@ -142,11 +151,6 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 				return
 			}
 
-			// Disabling the cert verification because it doesn't work in offline mode (when
-			// connecting to localhost).
-			//nolint:gosec
-			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-
 			resp, err := client.Do(req)
 			if err != nil {
 				resultChan <- mo.Err[bool](errw.Wrapf(err, "sending HTTP request for %s check for %s via %s",
@@ -160,7 +164,7 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 				// Interacting with older viam-server instances will result in a non-successful
 				// HTTP response status code, as the /restart_status endpoint will not be
-				// available. Report a nil error and continue to next test URL in this case.
+				// available.
 				resultChan <- mo.Errf[bool]("checking %s status via %s, got code: %d", SubsysName, restartURL, resp.StatusCode)
 				return
 			}
@@ -183,12 +187,18 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 
 	var combinedErr error
 	for range urls {
-		result := <-resultChan
-		property, err := result.Get()
-		if err != nil {
-			combinedErr = errors.Join(combinedErr, err)
-		} else {
-			return property, nil
+		select {
+		case result := <-resultChan:
+			property, err := result.Get()
+			if err != nil {
+				combinedErr = errors.Join(combinedErr, err)
+			} else {
+				// We assume below that the first test URL through which we encountered the feature's
+				// value represents the actual value.
+				return property, nil
+			}
+		case <-timeoutCtx.Done():
+			return false, errors.Join(combinedErr, ctx.Err())
 		}
 	}
 	return false, combinedErr
