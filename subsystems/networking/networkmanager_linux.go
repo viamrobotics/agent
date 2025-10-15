@@ -236,16 +236,14 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 		return ctx.Err()
 	}
 
-	n.logger.Info("Starting provisioning mode.")
-
 	n.portalData.resetInputData(inputChan)
 	hotspotErr := n.startProvisioningHotspot(ctx)
 	if hotspotErr != nil {
-		n.logger.Error(errw.Wrap(hotspotErr, "failed to start hotspot provisioning"))
+		n.logger.Errorw("failed to start hotspot provisioning", "err", hotspotErr)
 	}
 	bluetoothErr := n.startProvisioningBluetooth(ctx)
 	if bluetoothErr != nil {
-		n.logger.Error(errw.Wrap(bluetoothErr, "failed to start bluetooth provisioning"))
+		n.logger.Errorw("failed to start bluetooth provisioning", "err", bluetoothErr)
 	}
 
 	// Do not return an error if at least one provisioning method succeeds.
@@ -256,7 +254,8 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 	return errors.Join(hotspotErr, bluetoothErr)
 }
 
-// startProvisioningHotspot should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
+// startProvisioningHotspot should only be called by 'StartProvisioning' (to
+// ensure opMutex is acquired).
 func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 	if n.Config().DisableWifiProvisioning.Get() {
 		return nil
@@ -283,7 +282,6 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 }
 
 func (n *Networking) stopProvisioning() error {
-	n.logger.Info("Stopping provisioning mode.")
 	n.errors.Clear()
 	err := errors.Join(
 		n.stopProvisioningHotspot(),
@@ -348,7 +346,7 @@ func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
 		return errw.Errorf("no settings found for network: %s", id)
 	}
 
-	n.logger.Infof("Activating connection: %s", id)
+	n.logger.Infow("activating connection", "id", id)
 	nw.lastTried = now
 
 	// Track the last WiFi network that attempted activation
@@ -797,10 +795,12 @@ func (n *Networking) checkForceProvisioning() bool {
 	if _, err := os.Stat(touchFile); err == nil {
 		// File exists, remove it and set force provisioning time
 		if err := os.Remove(touchFile); err != nil {
-			n.logger.Error(errw.Wrapf(err, "failed to remove %s, ignoring it to avoid getting stuck in provisioning mode", touchFile))
+			n.logger.Errorw(
+				"failed to remove force provisioning touch file, ignoring it to avoid getting stuck in provisioning mode",
+				"path", touchFile, "err", err)
 			return false
 		} else {
-			n.logger.Infof("Force provisioning touch file %s found, will enter provisioning mode.", touchFile)
+			n.logger.Infow("force provisioning touch file found, will enter provisioning mode", "path", touchFile)
 		}
 		n.connState.setForceProvisioningTime(true)
 		return true
@@ -814,6 +814,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
 	defer func() {
+		n.logger.Infow("stopping provisioning, networking shutting down")
 		if err := n.stopProvisioning(); err != nil {
 			n.logger.Warn(err)
 		}
@@ -869,7 +870,8 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		}
 		isConfigured := n.connState.getConfigured()
 		allGood := isConfigured && (isConnected || isOnline)
-		if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
+		startProvisioningIfNoInternet := n.Config().TurnOnHotspotIfWifiHasNoInternet.Get()
+		if startProvisioningIfNoInternet {
 			allGood = isOnline && isConfigured
 			hasConnectivity = isOnline
 			lastConnectivity = lastOnline
@@ -878,25 +880,28 @@ func (n *Networking) mainLoop(ctx context.Context) {
 		pModeChange := n.connState.getProvisioningChange()
 		now := time.Now()
 
-		n.logger.Debugf("wifi: %t (%s), internet: %t, config present: %t, force provisioning: %t",
-			isConnected,
-			n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.ActiveSSID(n.Config().HotspotInterface)),
-			isOnline,
-			isConfigured,
-			n.checkForceProvisioning(),
+		// [Networking.checkForceProvisioning] involves a bit of disk I/O so be
+		// sure to call it early and cache the result.
+		forceProvisioning := n.checkForceProvisioning()
+		n.logger.Debugw("networking main loop",
+			"wifiConnected", isConnected,
+			"wifiConnection", n.netState.GenNetKey(NetworkTypeWifi, "", n.netState.ActiveSSID(n.Config().HotspotInterface)),
+			"internet", isOnline,
+			"configPresent", isConfigured,
+			"forceProvisioning", forceProvisioning,
 		)
 
 		if pMode {
 			if n.bluetoothEnabled() {
 				// Update bluetooth read-only characteristics
 				if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
-					n.logger.Warn("could not update BT status characteristic")
+					n.logger.Warnw("could not update BT status characteristic", "err", err)
 				}
 				if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
-					n.logger.Warn("could not update BT networks characteristic")
+					n.logger.Warnw("could not update BT networks characteristic", "err", err)
 				}
 				if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
-					n.logger.Warn("could not update BT errors characteristic")
+					n.logger.Warnw("could not update BT errors characteristic", "err", err)
 				}
 			}
 
@@ -920,11 +925,8 @@ func (n *Networking) mainLoop(ctx context.Context) {
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
 			// only way for exit early when in forceProvisioning is userInput, otherwise the logic is any of the remaining conditions
-			shouldExitPMode := (!n.checkForceProvisioning() || userInputReceived) &&
+			shouldExitPMode := (!forceProvisioning || userInputReceived) &&
 				(allGood || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived)
-
-			n.logger.Debugf("inactive portal: %t, have candidates: %t, fallback timeout: %t (%s remaining)",
-				inactivePortal, haveCandidates, fallbackHit, fallbackRemaining.Truncate(time.Second))
 
 			if shouldExitPMode {
 				if userInputReceived {
@@ -934,8 +936,25 @@ func (n *Networking) mainLoop(ctx context.Context) {
 					// E.g. try to avoid "Not connected" web portal screen.
 					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
 				}
+				n.netState.mu.RLock()
+				n.logger.Infow("stopping provisioning, condition change",
+					"forceProvisioning", forceProvisioning,
+					"userInputReceived", userInputReceived,
+					"allGood", allGood,
+					"haveCandidates", haveCandidates,
+					"fallbackHit", fallbackHit,
+					"shouldRebootSystem", shouldRebootSystem,
+					"inactivePortal", inactivePortal,
+					"isConfigured", isConfigured,
+					"isConnected", isConnected,
+					"isOnline", isOnline,
+					"startProvisioningIfNoInternet", startProvisioningIfNoInternet,
+					"activeConnections", n.netState.activeConn,
+					"lastSsid", n.netState.lastSSID,
+				)
+				n.netState.mu.RUnlock()
 				if err := n.stopProvisioning(); err != nil {
-					n.logger.Warn(err)
+					n.logger.Warnw("failed to stop provisioning", "err", err)
 				} else {
 					pMode = n.connState.getProvisioning()
 					pModeChange = n.connState.getProvisioningChange()
@@ -947,7 +966,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			}
 		}
 
-		if pMode || (!n.checkForceProvisioning() && allGood) {
+		if pMode || (!forceProvisioning && allGood) {
 			continue
 		}
 
@@ -957,7 +976,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			if userInputReceived && userInputSSID != "" {
 				err := n.ActivateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", userInputSSID))
 				if err != nil {
-					n.logger.Warn(errw.Wrapf(err, "Failed to connect to newly provided WiFi: %s", userInputSSID))
+					n.logger.Warnw("Failed to connect to newly provided WiFi", "ssid", userInputSSID)
 				} else {
 					nwFound = true
 				}
@@ -992,25 +1011,40 @@ func (n *Networking) mainLoop(ctx context.Context) {
 			now.After(pModeChange.Add(time.Duration(n.Config().OfflineBeforeStartingHotspotMinutes)))
 		// not in provisioning mode, so start it if not configured (/etc/viam.json)
 		// OR as long as we've been offline AND out of provisioning mode for at least OfflineTimeout (2 minute default)
-		if !isConfigured || hitOfflineTimeout || userInputReceived || n.checkForceProvisioning() {
+		if !isConfigured || hitOfflineTimeout || userInputReceived || forceProvisioning {
+			n.netState.mu.RLock()
+			n.logger.Infow("starting provisioning",
+				"isConfigured", isConfigured,
+				"hitOfflineTimeout", hitOfflineTimeout,
+				"userInputReceived", userInputReceived,
+				"forceProvisioning", forceProvisioning,
+				"activeConnections", n.netState.activeConn,
+				"lastSsid", n.netState.lastSSID,
+			)
+			n.netState.mu.RUnlock()
 			if err := n.startProvisioning(ctx, inputChan); err != nil {
-				n.logger.Warn(err)
+				n.logger.Warnw("failed to start provisioning mode", "err", err)
 			}
 		}
 	}
 }
 
 func (n *Networking) doReboot(ctx context.Context) bool {
-	n.logger.Infof("device has been offline for more than %s, rebooting", time.Duration(n.Config().DeviceRebootAfterOfflineMinutes))
+	n.logger.Infow(
+		"device has been offline too long, rebooting",
+		"configuredRebootTimeout",
+		time.Duration(n.Config().DeviceRebootAfterOfflineMinutes),
+	)
 	cmd := exec.Command("systemctl", "reboot")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		n.logger.Warn(errw.Wrapf(err, "running 'systemctl reboot' %s", output))
+		n.logger.Warnw("Error running systemctl reboot", "output", output, "err", err)
 	}
-	if !n.mainLoopHealth.Sleep(ctx, time.Minute*5) {
+	const rebootWaitDuration = time.Minute * 5
+	if !n.mainLoopHealth.Sleep(ctx, rebootWaitDuration) {
 		return true
 	}
-	n.logger.Errorf("failed to reboot after %s time", time.Minute*5)
+	n.logger.Error("failed to reboot", "timeout", rebootWaitDuration)
 	return false
 }
 

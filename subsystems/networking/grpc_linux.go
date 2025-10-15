@@ -27,7 +27,9 @@ func (n *Networking) startGRPC(bindAddr string, bindPort int) error {
 
 	n.portalData.workers.Add(1)
 	go func() {
-		defer utils.Recover(n.logger, func(_ any) {
+		defer utils.Recover(n.logger, func(panickedWith any) {
+			n.logger.Warnw("stopping provisioning, panic in grpc gorountine",
+				"panic", panickedWith)
 			if err := n.stopProvisioning(); err != nil {
 				n.logger.Warn(err)
 			}
