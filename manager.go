@@ -775,6 +775,6 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 }
 
 func (m *Manager) Exit(reason string) {
-	m.logger.Infof("%s. %s will now exit to be restarted by service manager", reason, SubsystemName)
+	m.logger.Infow(fmt.Sprintf("%s will now exit to be restarted by service manager", SubsystemName), "reason", reason)
 	m.globalCancel()
 }
