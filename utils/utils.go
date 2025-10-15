@@ -138,52 +138,6 @@ func InitPaths() error {
 	return nil
 }
 
-// todo: one last read-through and then delete
-func copyFile(logger logging.Logger, parsedPath, outPath, rawURL string, errRet error) error {
-	if runtime.GOOS == "windows" {
-		parsedPath = strings.TrimLeft(parsedPath, "/")
-	}
-
-	infd, err := os.Open(parsedPath) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer func() {
-		errRet = errors.Join(errRet, infd.Close())
-	}()
-
-	//nolint:gosec
-	if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
-		return err
-	}
-
-	outfd, err := os.CreateTemp(ViamDirs.Tmp, "*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// we might double close because we have to explicitly close before the rename for windows
-		errClose := outfd.Close()
-		if !errors.Is(errClose, os.ErrClosed) {
-			errRet = errors.Join(errRet, errClose)
-		}
-		errRet = errors.Join(errRet, SyncFS(outPath))
-		if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
-			errRet = errors.Join(errRet, err)
-		}
-	}()
-
-	_, err = io.Copy(outfd, infd)
-	if err != nil {
-		return errors.Join(errRet, err)
-	}
-	errRet = errors.Join(errRet, outfd.Close(), os.Rename(outfd.Name(), outPath))
-	if errRet == nil {
-		logger.Infof("Download (local file copy) complete for %s", rawURL)
-	}
-	return errRet
-}
-
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
@@ -253,6 +207,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	default:
 		return "", fmt.Errorf("unhandled scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
+	logger.Infof("finished copying %q", rawURL)
 
 	if runtime.GOOS == "windows" {
 		if err := allowFirewall(logger, outPath); err != nil {
@@ -284,25 +239,25 @@ func hashString(input string, n int) string {
 
 // on windows only, create a firewall exception for the newly-downloaded file.
 func allowFirewall(logger logging.Logger, outPath string) error {
-	var errRet error
+	// todo: confirm this is right; this isn't the final destination. Does the rule move when the file is renamed? Link to docs.
 	cmd := exec.Command( //nolint:gosec
 		"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
 		"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
 	)
-	errRet = errors.Join(errRet, cmd.Start())
-	if errRet == nil {
-		waitErr := cmd.Wait()
-		if waitErr != nil {
-			user, _ := user.Current() //nolint:errcheck
-			if user.Name != "SYSTEM" {
-				// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
-				logger.Info("Ignoring netsh error on non-SYSTEM windows")
-			} else {
-				errRet = errors.Join(errRet, waitErr)
-			}
-		}
+	if err := cmd.Start(); err != nil {
+		return errw.Wrap(err, "creating firewall rule")
 	}
-	return errRet
+	err := cmd.Wait()
+	if err != nil {
+		user, _ := user.Current() //nolint:errcheck
+		if user.Name != "SYSTEM" {
+			// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
+			logger.Info("Ignoring netsh error on non-SYSTEM windows")
+		}
+	} else {
+		logger.Debugf("created firewall exception for %q", outPath)
+	}
+	return err
 }
 
 // DecompressFile extracts a compressed file and returns the path to the extracted file.
