@@ -218,7 +218,43 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return "", errw.Errorf("unsupported url scheme %s", parsedURL.Scheme)
 	}
+	outPath, err = downloadHttp(ctx, logger, parsedURL, rawURL, outPath)
+	if err != nil {
+		return "", err
+	}
 
+	if runtime.GOOS == "windows" {
+		errRet = errors.Join(errRet, allowFirewall(logger, outPath))
+	}
+
+	return outPath, errRet
+}
+
+// on windows only, create a firewall exception for the newly-downloaded file.
+func allowFirewall(logger logging.Logger, outPath string) error {
+	var errRet error
+	cmd := exec.Command( //nolint:gosec
+		"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
+		"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
+	)
+	errRet = errors.Join(errRet, cmd.Start())
+	if errRet == nil {
+		waitErr := cmd.Wait()
+		if waitErr != nil {
+			user, _ := user.Current() //nolint:errcheck
+			if user.Name != "SYSTEM" {
+				// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
+				logger.Info("Ignoring netsh error on non-SYSTEM windows")
+			} else {
+				errRet = errors.Join(errRet, waitErr)
+			}
+		}
+	}
+	return errRet
+}
+
+func downloadHttp(ctx context.Context, logger logging.Logger, parsedURL *url.URL, rawURL, outPath string) (string, error) {
+	var errRet error
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		return "", errw.Wrap(err, "downloading file")
@@ -288,25 +324,6 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		logger.Infof("Download complete for %s", rawURL)
 	}
 
-	if runtime.GOOS == "windows" {
-		cmd := exec.Command( //nolint:gosec
-			"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
-			"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
-		)
-		errRet = errors.Join(errRet, cmd.Start())
-		if errRet == nil {
-			waitErr := cmd.Wait()
-			if waitErr != nil {
-				user, _ := user.Current() //nolint:errcheck
-				if user.Name != "SYSTEM" {
-					// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
-					logger.Info("Ignoring netsh error on non-SYSTEM windows")
-				} else {
-					errRet = errors.Join(errRet, waitErr)
-				}
-			}
-		}
-	}
 	return outPath, errRet
 }
 
