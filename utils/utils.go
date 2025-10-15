@@ -5,7 +5,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-getter"
 	errw "github.com/pkg/errors"
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
@@ -136,15 +139,14 @@ func InitPaths() error {
 
 // handler for file:// protocol in DownloadFile.
 // todo: go-getter may do this for us.
-func copyFile(logger logging.Logger, parsedPath, outPath, rawURL string) (string, error) {
-	var errRet error
+func copyFile(logger logging.Logger, parsedPath, outPath, rawURL string, errRet error) error {
 	if runtime.GOOS == "windows" {
 		parsedPath = strings.TrimLeft(parsedPath, "/")
 	}
 
 	infd, err := os.Open(parsedPath) //nolint:gosec
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer func() {
 		errRet = errors.Join(errRet, infd.Close())
@@ -152,12 +154,12 @@ func copyFile(logger logging.Logger, parsedPath, outPath, rawURL string) (string
 
 	//nolint:gosec
 	if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
-		return "", err
+		return err
 	}
 
 	outfd, err := os.CreateTemp(ViamDirs.Tmp, "*")
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer func() {
 		// we might double close because we have to explicitly close before the rename for windows
@@ -173,17 +175,17 @@ func copyFile(logger logging.Logger, parsedPath, outPath, rawURL string) (string
 
 	_, err = io.Copy(outfd, infd)
 	if err != nil {
-		return "", errors.Join(errRet, err)
+		return errors.Join(errRet, err)
 	}
 	errRet = errors.Join(errRet, outfd.Close(), os.Rename(outfd.Name(), outPath))
 	if errRet == nil {
 		logger.Infof("Download (local file copy) complete for %s", rawURL)
 	}
-	return outPath, errRet
+	return errRet
 }
 
 // DownloadFile downloads a file into the cache directory and returns a path to the file.
-func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (outPath string, errRet error) {
+func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -194,6 +196,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 
 	// don't want to accidentally overwrite anything in the cache directory by accident
 	// old agent versions used a different cache format, so its possible we could be re-downloading ourself
+	var outPath string
 	for n := range 100 {
 		var suffix string
 		if n > 0 {
@@ -210,24 +213,59 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		}
 	}
 
-	//nolint:nestif
-	if parsedURL.Scheme == "file" {
-		return copyFile(logger, parsedPath, outPath, rawURL)
-	}
-
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return "", errw.Errorf("unsupported url scheme %s", parsedURL.Scheme)
-	}
-	outPath, err = downloadHttp(ctx, logger, parsedURL, rawURL, outPath)
-	if err != nil {
-		return "", err
+	getterClient := &getter.Client{Ctx: ctx}
+	switch parsedURL.Scheme {
+	case "file":
+		g := getter.FileGetter{Copy: true}
+		g.SetClient(getterClient)
+		if err := g.GetFile(outPath, parsedURL); err != nil {
+			return "", errw.Wrap(err, "copying file")
+		}
+	case "http", "https":
+		// we shrink the hash to avoid system path length limits
+		partialDest := path.Join(ViamDirs.Cache, "part", hashString(rawURL, 7), last(strings.Split(parsedURL.Path, "/"), "")+".part")
+		g := getter.HttpGetter{}
+		g.SetClient(getterClient)
+		// todo: progress tracker watching file length in background
+		err := g.GetFile(partialDest, parsedURL)
+		if err != nil {
+			return "", errw.Wrap(err, "downloading file")
+		}
+		// move completed .part to outPath and remove url-hash dir
+		logger.Debugf("moving successful download %q to outPath", partialDest)
+		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
+			return "", err
+		}
+	default:
+		return "", fmt.Errorf("unhandled scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
 
 	if runtime.GOOS == "windows" {
-		errRet = errors.Join(errRet, allowFirewall(logger, outPath))
+		if err := allowFirewall(logger, outPath); err != nil {
+			return "", err
+		}
 	}
 
-	return outPath, errRet
+	return outPath, nil
+}
+
+// helper: return last item of `items` slice, or `default_` if items is empty.
+func last[T any](items []T, default_ T) T {
+	if len(items) == 0 {
+		return default_
+	}
+	return items[len(items)-1]
+}
+
+// helper: last N digits of md5sum of input string.
+func hashString(input string, n int) string {
+	h := md5.New()
+	h.Write([]byte(input))
+	ret := hex.EncodeToString(h.Sum(nil))
+	if n > 0 {
+		return ret[len(ret)-n:]
+	}
+	return ret
 }
 
 // on windows only, create a firewall exception for the newly-downloaded file.
