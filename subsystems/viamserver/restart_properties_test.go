@@ -115,14 +115,13 @@ func TestCheckRestartProperty(t *testing.T) {
 			})
 
 			s.mu.Lock()
+			t.Cleanup(s.mu.Unlock)
+
 			restartAllowed, err := s.checkRestartProperty(ctx, RestartPropertyRestartAllowed)
-			s.mu.Unlock()
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, restartAllowed, test.ShouldEqual, tc.expectedRestartAllowed)
 
-			s.mu.Lock()
 			doesNotHandleNeedsRestart, err := s.checkRestartProperty(ctx, RestartPropertyDoesNotHandleNeedsRestart)
-			s.mu.Unlock()
 			test.That(t, err, test.ShouldBeNil)
 			// does_not_handle_restart should be false if explicitly false or unset in the test
 			// case.
