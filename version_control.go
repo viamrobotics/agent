@@ -222,7 +222,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	if err == nil {
 		goodBytes = bytes.Equal(shasum, verData.UnpackedSHA)
 	} else {
-		c.logger.Warn(err)
+		c.logger.Warnf("checksumming version %s UnpackedPath %q: %s", verData.Version, verData.UnpackedPath, err)
 	}
 
 	if data.TargetVersion == data.CurrentVersion {
