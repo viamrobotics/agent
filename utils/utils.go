@@ -226,9 +226,11 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		partialDest := path.Join(ViamDirs.Cache, "part", hashString(rawURL, 7), last(strings.Split(parsedURL.Path, "/"), "")+".part")
 		g := getter.HttpGetter{}
 		g.SetClient(getterClient)
+		if stat, err := os.Stat(partialDest); err != nil {
+			logger.Infof("download to existing %q, size %d", partialDest, stat.Size())
+		}
 		// todo: progress tracker watching file length in background
-		err := g.GetFile(partialDest, parsedURL)
-		if err != nil {
+		if err := g.GetFile(partialDest, parsedURL); err != nil {
 			return "", errw.Wrap(err, "downloading file")
 		}
 		// move completed .part to outPath and remove url-hash dir
