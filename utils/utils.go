@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -45,6 +46,9 @@ var (
 	ViamDirs ViamDirsData
 
 	HealthCheckTimeout = time.Minute
+
+	// for rewriting URLs to the form that supports ranges.
+	storagePathRegex = regexp.MustCompile(`^/download/storage/v1/b/([^/]+)/o/(.+)$`)
 )
 
 type ViamDirsData struct {
@@ -148,6 +152,10 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	if err != nil {
 		return "", err
 	}
+	parsedURL, rewritten := rewriteGCPDownload(parsedURL)
+	if rewritten {
+		logger.Debugf("rewrote GCP URL %q to range-friendly %q", rawURL, parsedURL.String())
+	}
 
 	logger.Infof("Starting download of %s", rawURL)
 	parsedPath := parsedURL.Path
@@ -220,6 +228,29 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	}
 
 	return outPath, nil
+}
+
+// convert GCP URLs to the form that has an accept-range header. Leave other URLs unchanged.
+// will mutate the input in the rewrite case.
+// bool return is true if the URL was rewritten.
+func rewriteGCPDownload(orig *url.URL) (*url.URL, bool) {
+	//nolint:lll
+	// try this on a shell to understand why this function is necessary. the first command has accept-range, the second doesn't.
+	// note that the second URL still seems to accept a range header, it just doesn't advertise that, which breaks our getter library.
+	// curl -I -X HEAD 'https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media'
+	// curl -I -X HEAD 'https://storage.googleapis.com/download/storage/v1/b/packages.viam.com/o/apps%2Fviam-server%2Fviam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media'
+	if orig.Hostname() != "storage.googleapis.com" {
+		return orig, false
+	}
+	match := storagePathRegex.FindStringSubmatch(orig.Path)
+	if match == nil {
+		return orig, false
+	}
+	bucket := match[1]
+	path := match[2]
+	orig.Path = fmt.Sprintf("/%s/%s", bucket, path)
+	orig.RawPath = "" // this causes go to compute it where necessary.
+	return orig, true
 }
 
 // CreatePartialPath makes a path under cachedir/part. These get cleaned up by CleanPartials.

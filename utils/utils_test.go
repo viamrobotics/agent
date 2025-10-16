@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -393,4 +394,24 @@ func TestPartialPath(t *testing.T) {
 	for _, maxPath := range maxPathLengths {
 		test.That(t, len(path), test.ShouldBeLessThanOrEqualTo, maxPath)
 	}
+}
+
+func TestRewriteGCPDownload(t *testing.T) {
+	u1, _ := url.Parse("https://google.com")
+	u2, _ := url.Parse("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media")                             //nolint:lll
+	u3, _ := url.Parse("https://storage.googleapis.com/download/storage/v1/b/packages.viam.com/o/apps%2Fviam-server%2Fviam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media") //nolint:lll
+
+	// normal URLs should not be rewritten
+	rewrite1, b1 := rewriteGCPDownload(u1)
+	rewrite2, b2 := rewriteGCPDownload(u2)
+	test.That(t, rewrite1, test.ShouldResemble, u1)
+	test.That(t, b1, test.ShouldBeFalse)
+	test.That(t, rewrite2, test.ShouldResemble, u2)
+	test.That(t, b2, test.ShouldBeFalse)
+
+	// matching URLs should be rewritten
+	rewrite3, b3 := rewriteGCPDownload(u3)
+	test.That(t, rewrite3, test.ShouldResemble, u2)
+	test.That(t, b3, test.ShouldBeTrue)
+	test.That(t, rewrite3.EscapedPath(), test.ShouldResemble, u2.EscapedPath())
 }
