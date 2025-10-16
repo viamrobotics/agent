@@ -48,11 +48,14 @@ bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH): go.* *.go */*.go */*/*.g
 clean:
 	rm -rf bin/
 
+bin/golangci-lint: go.sum
+	GOOS='' go build -o $@ github.com/golangci/golangci-lint/cmd/golangci-lint
+
 .PHONY: lint
-lint:
+lint: bin/golangci-lint
 	go mod tidy
-	GOOS='linux' go tool golangci-lint run -v --fix
-	GOOS='windows' go tool golangci-lint run -v --fix
+	GOOS='linux' $^ run -v --fix
+	GOOS='windows' $^ run -v --fix
 
 .PHONY: test
 test:
