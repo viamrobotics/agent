@@ -104,8 +104,9 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		// don't republish it below.
 		return len(p), nil
 	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(p))
+	// remove the new line escape key so the scanner doesn't think its a new line
+	cleanedInput := regexp.MustCompile("\n\u001F?").ReplaceAll(p, []byte(""))
+	scanner := bufio.NewScanner(bytes.NewReader(cleanedInput))
 	for scanner.Scan() {
 		dateMatched := dateRegex.Match(scanner.Bytes())
 		if !dateMatched { //nolint:gocritic
