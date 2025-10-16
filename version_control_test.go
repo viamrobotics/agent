@@ -150,7 +150,7 @@ func TestCleanPartials(t *testing.T) {
 	vc := VersionCache{logger: logging.NewTestLogger(t)}
 
 	// make a part file to clean up
-	oldPath := filepath.Join(utils.ViamDirs.Partials, "abc1", "old.part")
+	oldPath := utils.CreatePartialPath("https://viam.com/old.part")
 	err := os.Mkdir(filepath.Dir(oldPath), 0o755)
 	test.That(t, err, test.ShouldBeNil)
 	err = os.WriteFile(oldPath, []byte("hello"), 0o600)
@@ -158,7 +158,7 @@ func TestCleanPartials(t *testing.T) {
 	os.Chtimes(oldPath, time.Now(), time.Now().Add(-time.Hour*24*4))
 
 	// make another one too new to clean up
-	newPath := filepath.Join(utils.ViamDirs.Partials, "abc2", "new.part")
+	newPath := utils.CreatePartialPath("https://viam.com/subpath/new.part")
 	err = os.Mkdir(filepath.Dir(newPath), 0o755)
 	test.That(t, err, test.ShouldBeNil)
 	err = os.WriteFile(newPath, []byte("hello"), 0o600)

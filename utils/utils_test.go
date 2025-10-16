@@ -383,3 +383,14 @@ func TestInitPaths(t *testing.T) {
 		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
 	})
 }
+
+func TestPartialPath(t *testing.T) {
+	path := CreatePartialPath("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-latest-x86_64")
+	maxPathLengths := map[string]int{
+		"linux":   4096,
+		"windows": 260,
+	}
+	for _, maxPath := range maxPathLengths {
+		test.That(t, len(path), test.ShouldBeLessThanOrEqualTo, maxPath)
+	}
+}

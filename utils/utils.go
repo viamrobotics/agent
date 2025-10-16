@@ -182,7 +182,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 	case "http", "https":
 		// note: we shrink the hash to avoid system path length limits
-		partialDest := path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(parsedURL.Path, "/"), "")+".part")
+		partialDest := CreatePartialPath(rawURL)
 
 		// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
 		// if trying to connect to a local address.
@@ -220,6 +220,18 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	}
 
 	return outPath, nil
+}
+
+// CreatePartialPath makes a path under cachedir/part. These get cleaned up by CleanPartials.
+func CreatePartialPath(rawURL string) string {
+	var urlPath string
+	if parsed, err := url.Parse(rawURL); err != nil {
+		urlPath = "UNPARSED"
+	} else {
+		urlPath = parsed.Path
+	}
+
+	return path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), "")+".part")
 }
 
 // helper: return last item of `items` slice, or `default_` if items is empty.
