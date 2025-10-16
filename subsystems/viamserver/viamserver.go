@@ -3,13 +3,7 @@ package viamserver
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -24,23 +18,22 @@ import (
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
-	goutils "go.viam.com/utils"
 )
 
 const (
 	// stopTermTimeout must be higher than viam-server shutdown timeout of 90 secs.
 	stopTermTimeout = time.Minute * 2
 	stopKillTimeout = time.Second * 10
-	SubsysName      = "viam-server"
-)
 
-// RestartStatusResponse is the http/json response from viam_server's /health_check URL
-// This MUST remain in sync with RDK.
-type RestartStatusResponse struct {
-	// RestartAllowed represents whether this instance of the viam-server can be
-	// safely restarted.
-	RestartAllowed bool `json:"restart_allowed"`
-}
+	SubsysName = "viam-server"
+
+	// ViamAgentHandlesNeedsRestartChecking is the environment variable that viam-agent will
+	// set before starting viam-server to indicate that agent is a new enough version to
+	// have its own background loop that runs NeedsRestart against app.viam.com to determine
+	// if the system needs a restart. MUST be kept in line with the equivalent value in the
+	// rdk repo.
+	ViamAgentHandlesNeedsRestartChecking = "VIAM_AGENT_HANDLES_NEEDS_RESTART_CHECKING"
+)
 
 type viamServer struct {
 	mu           sync.Mutex
@@ -58,6 +51,12 @@ type viamServer struct {
 
 	// for blocking start/stop/check ops while another is in progress
 	startStopMu sync.Mutex
+
+	// whether this viamserver instance handles needs restart checking itself; calculated
+	// and cached at startup; used by the manager to determine whether agent should handle
+	// needs restart checking on viamserver's behalf (this is the case for new viamserver
+	// versions)
+	doesNotHandleNeedsRestart bool
 
 	logger logging.Logger
 }
@@ -106,15 +105,18 @@ func (s *viamServer) Start(ctx context.Context) error {
 	s.cmd.Stdout = stdio
 	s.cmd.Stderr = stderr
 
-	if len(s.extraEnvVars) > 0 {
-		s.logger.Infow("Adding environment variables from config to viam-server startup", "extraEnvVars", s.extraEnvVars)
+	// if s.cmd.Env is not explicitly specified (nil), viam-server would inherit all env vars in Agent's environment
+	s.cmd.Env = s.cmd.Environ()
+	// TODO(RSDK-12057): Stop setting this environment variable once we fully remove all
+	// NeedsRestart checking logic from viam-server.
+	s.cmd.Env = append(s.cmd.Env, ViamAgentHandlesNeedsRestartChecking+"=true")
 
-		// if s.cmd.Env is not explicitly specified (nil), viam-server would inherit all env vars in Agent's environment
-		s.cmd.Env = s.cmd.Environ()
+	if len(s.extraEnvVars) > 0 {
+		s.logger.Infow("Adding extra environment variables from config to viam-server startup", "extraEnvVars", s.extraEnvVars)
 		for k, v := range s.extraEnvVars {
 			s.cmd.Env = append(s.cmd.Env, k+"="+v)
 		}
-		s.logger.Debugw("Starting viam-server with environment variables", "cmd.Env", s.cmd.Env)
+		s.logger.Debugw("Starting viam-server with extra environment variables", "cmd.Env", s.cmd.Env)
 	}
 
 	// watch for this line in the logs to indicate successful startup
@@ -150,16 +152,19 @@ func (s *viamServer) Start(ctx context.Context) error {
 		defer s.mu.Unlock()
 		s.running = false
 		s.logger.Infof("%s exited", SubsysName)
-		if err != nil {
-			s.logger.Error(errw.Wrap(err, "error while getting process status"))
-		}
-		if s.cmd.ProcessState != nil {
-			s.lastExit = s.cmd.ProcessState.ExitCode()
-			if s.lastExit != 0 {
-				s.logger.Errorf("non-zero exit code: %d", s.lastExit)
-			}
-		}
+		// Only log errors from Wait() or the exit code of the process state if subsystem
+		// exited unexpectedly (was not stopped by agent and is therefore still marked as
+		// shouldRun).
 		if s.shouldRun {
+			if err != nil {
+				s.logger.Error(errw.Wrap(err, "error while getting process status"))
+			}
+			if s.cmd.ProcessState != nil {
+				s.lastExit = s.cmd.ProcessState.ExitCode()
+				if s.lastExit != 0 {
+					s.logger.Errorf("non-zero exit code: %d", s.lastExit)
+				}
+			}
 			s.logger.Infof("%s exited unexpectedly and will be restarted shortly", SubsysName)
 		}
 		close(s.exitChan)
@@ -168,9 +173,24 @@ func (s *viamServer) Start(ctx context.Context) error {
 	select {
 	case matches := <-c:
 		s.checkURL = matches[1]
-		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "localhost", 1)
-		s.logger.Infof("viam-server restart allowed check URLs: %s %s", s.checkURL, s.checkURLAlt)
+		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "127.0.0.1", 1)
 		s.logger.Infof("%s started", SubsysName)
+		s.logger.Infof("%s found serving at the following URLs: %s %s", SubsysName, s.checkURL, s.checkURLAlt)
+
+		// Once the subsystem has successfully started, check whether it handles needs restart
+		// logic. We can calculate this value only once at startup and cache it, with the
+		// assumption that it will not change over the course of the lifetime of the
+		// subsystem.
+		s.mu.Lock()
+		s.doesNotHandleNeedsRestart, err = s.checkRestartProperty(ctx, RestartPropertyDoesNotHandleNeedsRestart)
+		s.mu.Unlock()
+		if err != nil {
+			s.logger.Warn(err)
+		}
+		if !s.doesNotHandleNeedsRestart {
+			s.logger.Warnf("%s may already handle checking needs restart functionality; will not handle in agent",
+				SubsysName)
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -203,7 +223,6 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 	}
-
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
@@ -247,92 +266,6 @@ func (s *viamServer) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// errUnsafeToRestart is reported to a result channel in isRestartAllowed below when any
-// one of the viam-server test URLs explicitly reports that it is unsafe to restart
-// the viam-server instance.
-var errUnsafeToRestart = errors.New("viam-server reports it is unsafe to restart")
-
-// Must be called with `s.mu` held, as `s.checkURL` and `s.checkURLAlt` are
-// both accessed.
-func (s *viamServer) isRestartAllowed(ctx context.Context) (bool, error) {
-	urls, err := s.makeTestURLs()
-	if err != nil {
-		return false, err
-	}
-
-	resultChan := make(chan error, len(urls))
-
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*10)
-	defer cancelFunc()
-
-	for _, url := range urls {
-		go func() {
-			s.logger.Debugf("starting restart allowed check for %s using %s", SubsysName, url)
-
-			restartURL := url + "/restart_status"
-
-			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)
-			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
-				return
-			}
-
-			// disabling the cert verification because it doesn't work in offline mode (when connecting to localhost)
-			//nolint:gosec
-			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-
-			resp, err := client.Do(req)
-			if err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
-				return
-			}
-
-			defer func() {
-				goutils.UncheckedError(resp.Body.Close())
-			}()
-
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				// Interacting with older viam-server instances will result in a
-				// non-successful HTTP response status code, as the `restart_status`
-				// endpoint will not be available. Continue to next URL in this
-				// case.
-				resultChan <- errw.Wrapf(err, "checking %s status via %s, got code: %d", SubsysName, restartURL, resp.StatusCode)
-				return
-			}
-
-			var restartStatusResponse RestartStatusResponse
-			if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
-				resultChan <- errw.Wrapf(err, "checking whether %s allows restart via %s", SubsysName, restartURL)
-				return
-			}
-			if restartStatusResponse.RestartAllowed {
-				resultChan <- nil
-				return
-			}
-			resultChan <- errUnsafeToRestart
-		}()
-	}
-
-	var combinedErr error
-	for i := 1; i <= len(urls); i++ {
-		result := <-resultChan
-
-		// If any test URL reports it is explicitly _safe_ to restart (nil value sent to
-		// resultChan), we can assume we can restart viam-server.
-		if result == nil {
-			return true, nil
-		}
-		// If any test URL reports it is explicitly _unsafe_ to restart (errUnsafeToRestart),
-		// we can assume we should not restart viam-server.
-		if errors.Is(result, errUnsafeToRestart) {
-			return false, errUnsafeToRestart
-		}
-
-		combinedErr = errors.Join(combinedErr, result)
-	}
-	return false, combinedErr
-}
-
 func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -348,28 +281,34 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	return false
 }
 
-func (s *viamServer) SafeToRestart(ctx context.Context) bool {
+// Property returns a single property of the currently running viamserver.
+func (s *viamServer) Property(ctx context.Context, property string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.running || runtime.GOOS == "windows" {
-		return true
-	}
+	switch property {
+	case RestartPropertyRestartAllowed:
+		if !s.running || runtime.GOOS == "windows" {
+			// Assume agent can restart viamserver if the subsystem is not running or we are on
+			// Windows.
+			//
+			// TODO(RSDK-12271): Allow checks of restart_allowed on Windows.
+			return true
+		}
 
-	// viam-server can be safely restarted even while running if the process
-	// has reported it is safe to do so through its `restart_status` HTTP
-	// endpoint.
-	restartAllowed, err := s.isRestartAllowed(ctx)
-	if err != nil {
-		s.logger.Warn(err)
+		restartAllowed, err := s.checkRestartProperty(ctx, RestartPropertyRestartAllowed)
+		if err != nil {
+			s.logger.Warn(err)
+		}
 		return restartAllowed
+	case RestartPropertyDoesNotHandleNeedsRestart:
+		// We can use the cached value (calculated in Start) for handle needs restart
+		// property.
+		return s.doesNotHandleNeedsRestart
+	default:
+		s.logger.Errorw("Unknown property requested from viamserver", "property", property)
+		return false
 	}
-	if restartAllowed {
-		s.logger.Infof("will restart %s to run new version, as it has reported allowance of a restart", SubsysName)
-	} else {
-		s.logger.Infof("will not restart %s version to run new version, as it has not reported allowance of a restart", SubsysName)
-	}
-	return restartAllowed
 }
 
 func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
@@ -378,66 +317,4 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
-}
-
-type RestartCheck interface {
-	SafeToRestart(ctx context.Context) bool
-}
-
-// must be called with s.mu locked.
-func (s *viamServer) makeTestURLs() ([]string, error) {
-	port := "8080"
-	mainURL, err := url.Parse(s.checkURL)
-	if err != nil {
-		s.logger.Warnf("cannot determine port for restart allowed check, using default of 8080")
-	} else {
-		port = mainURL.Port()
-		s.logger.Debugf("using port %s for restart allowed check", port)
-	}
-
-	ips, err := GetAllLocalIPv4s()
-	if err != nil {
-		return []string{}, err
-	}
-
-	urls := []string{s.checkURL, s.checkURLAlt}
-	for _, ip := range ips {
-		urls = append(urls, fmt.Sprintf("https://%s:%s", ip, port))
-	}
-
-	return urls, nil
-}
-
-// GetAllLocalIPv4s is copied from goutils, but removed the loopback checks, as we DO want loopback adapters.
-func GetAllLocalIPv4s() ([]string, error) {
-	allInterfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	all := []string{}
-
-	for _, i := range allInterfaces {
-		addrs, err := i.Addrs()
-		if err != nil {
-			return nil, err
-		}
-
-		for _, addr := range addrs {
-			switch v := addr.(type) {
-			case *net.IPNet:
-				_, bits := v.Mask.Size()
-				if bits != 32 {
-					// this is what limits to ipv4
-					continue
-				}
-
-				all = append(all, v.IP.String())
-			default:
-				return nil, fmt.Errorf("unknown address type: %T", v)
-			}
-		}
-	}
-
-	return all, nil
 }
