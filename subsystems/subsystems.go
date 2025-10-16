@@ -19,6 +19,9 @@ type Subsystem interface {
 
 	// HealthCheck reports if a subsystem is running correctly (it is restarted if not)
 	HealthCheck(ctx context.Context) error
+
+	// Property gets an arbitrary property about the running subystem.
+	Property(ctx context.Context, property string) bool
 }
 
 // Dummy is a fake subsystem for when a particular OS doesn't (yet) have support.
@@ -38,4 +41,8 @@ func (d *Dummy) Update(_ context.Context, _ utils.AgentConfig) bool {
 
 func (d *Dummy) HealthCheck(_ context.Context) error {
 	return nil
+}
+
+func (d *Dummy) Property(_ context.Context, _ string) bool {
+	return false
 }

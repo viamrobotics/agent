@@ -114,3 +114,8 @@ func (s *syscfg) HealthCheck(ctx context.Context) error {
 	}
 	return errors.New("healthcheck failed")
 }
+
+// Property is a noop for the syscfg subsystem.
+func (s *syscfg) Property(_ context.Context, _ string) bool {
+	return false
+}

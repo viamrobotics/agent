@@ -461,3 +461,8 @@ func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 
 	return nil
 }
+
+// Property is a noop for the networking subsystem.
+func (n *Networking) Property(_ context.Context, _ string) bool {
+	return false
+}
