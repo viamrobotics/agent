@@ -54,8 +54,8 @@ bin/golangci-lint: go.sum
 .PHONY: lint
 lint: bin/golangci-lint
 	go mod tidy
-	GOOS='linux' $^ run -v --fix
-	GOOS='windows' $^ run -v --fix
+	GOOS='linux' $^ run -v --fix --timeout 10m
+	GOOS='windows' $^ run -v --fix --timeout 10m
 
 .PHONY: test
 test:
