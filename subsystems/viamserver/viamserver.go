@@ -132,8 +132,8 @@ func (s *viamServer) Start(ctx context.Context) error {
 	// suppress specific panic patterns from stderr to prevent double logging
 	_, err = stderr.AddMatcher(
 		"panicSuppressor",
-		regexp.MustCompile(`^panic:`),
-		true, 
+		regexp.MustCompile(`^panic:`), // Only match lines that start with "panic:"
+		true, // mask=true suppresses these patterns
 	)
 	if err != nil {
 		s.mu.Unlock()
