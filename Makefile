@@ -48,14 +48,11 @@ bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH): go.* *.go */*.go */*/*.g
 clean:
 	rm -rf bin/
 
-bin/golangci-lint: Makefile
-	GOOS='' GOBIN=`pwd`/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
-
 .PHONY: lint
-lint: bin/golangci-lint
+lint:
 	go mod tidy
-	GOOS='linux' bin/golangci-lint run -v --fix
-	GOOS='windows' bin/golangci-lint run -v --fix
+	GOOS='linux' go tool golangci-lint run -v --fix
+	GOOS='windows' go tool golangci-lint run -v --fix
 
 .PHONY: test
 test:
