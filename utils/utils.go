@@ -5,7 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -198,7 +198,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 
 		done := make(chan struct{})
 		defer close(done)
-		goutils.PanicCapturingGo(func() { fileSizeProgress(done, logger, rawURL, partialDest) })
+		goutils.PanicCapturingGo(func() { fileSizeProgress(done, ctx, logger, rawURL, partialDest) })
 		if err := g.GetFile(partialDest, parsedURL); err != nil {
 			return "", errw.Wrap(err, "downloading file")
 		}
@@ -232,7 +232,7 @@ func last[T any](items []T, default_ T) T {
 
 // helper: last N digits of md5sum of input string.
 func hashString(input string, n int) string {
-	h := md5.New()
+	h := md5.New() //nolint:gosec
 	h.Write([]byte(input))
 	ret := hex.EncodeToString(h.Sum(nil))
 	if n > 0 {
@@ -488,9 +488,9 @@ func (sb *SafeBuffer) Reset() {
 }
 
 // starts a goroutine that watches `dest` file size, logs progress until `dest` no longer exists or `done` is closed.
-func fileSizeProgress(done chan struct{}, logger logging.Logger, url, dest string) {
+func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Logger, url, dest string) {
 	// note: go-getter is also doing a HEAD request internally, so this is redundant, but we don't have access to it.
-	req, err := http.NewRequest(http.MethodHead, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		logger.Warnf("progress bar failed: %s", err)
 		return
@@ -501,7 +501,7 @@ func fileSizeProgress(done chan struct{}, logger logging.Logger, url, dest strin
 		return
 	}
 	size := res.ContentLength
-	res.Body.Close()
+	res.Body.Close() //nolint:errcheck,gosec
 
 	bar := progressbar.NewOptions64(
 		size,
@@ -524,14 +524,14 @@ func fileSizeProgress(done chan struct{}, logger logging.Logger, url, dest strin
 		case <-ticker.C:
 			stat, err := os.Stat(dest)
 			if err != nil {
-				if !errors.Is(os.ErrNotExist, err) {
+				if !errors.Is(err, os.ErrNotExist) {
 					// we don't warn if the file is missing because that means completion
 					logger.Warnf("progress bar stat error: %s", err)
 				}
 				return
 			}
 			// todo: use fancy progress bar instead
-			bar.Set64(stat.Size())
+			bar.Set64(stat.Size()) //nolint:errcheck,gosec
 			logger.Info(bar)
 		case <-done:
 			return

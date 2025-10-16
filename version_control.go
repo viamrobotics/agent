@@ -431,7 +431,7 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	}
 
 	c.logger.Info("Finished cache cleanup")
-	c.CleanPartials(ctx)
+	c.CleanPartials(ctx) //nolint:errcheck,gosec
 }
 
 func (c *VersionCache) CleanPartials(ctx context.Context) error {

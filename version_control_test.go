@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -53,7 +52,7 @@ func TestUpdateBinary(t *testing.T) {
 	}
 
 	// initial install
-	needsRestart, err := vc.UpdateBinary(context.Background(), viamserver.SubsysName)
+	needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeTrue)
 	testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-server"))
@@ -61,13 +60,13 @@ func TestUpdateBinary(t *testing.T) {
 	test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
 
 	// rerun with no change
-	needsRestart, err = vc.UpdateBinary(context.Background(), viamserver.SubsysName)
+	needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeFalse)
 
 	// upgrade
 	vc.ViamServer.TargetVersion = vi2.Version
-	needsRestart, err = vc.UpdateBinary(context.Background(), viamserver.SubsysName)
+	needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeTrue)
 	testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
@@ -106,7 +105,7 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 			}
 			utils.ForceSymlink(path, linkPath)
 		}
-		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		protected := vc.getProtectedFilesAndCleanVersions(t.Context(), 1)
 		slices.Sort(expected)
 		slices.Sort(protected)
 		test.That(t, protected, test.ShouldResemble, expected)
@@ -135,7 +134,7 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 		copy(expected, baseProtectedFiles)
 		expected = append(expected, "prev", "target", "running", "recent") // not "stale" though
 
-		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		protected := vc.getProtectedFilesAndCleanVersions(t.Context(), 1)
 		slices.Sort(expected)
 		slices.Sort(protected)
 		test.That(t, protected, test.ShouldResemble, expected)
