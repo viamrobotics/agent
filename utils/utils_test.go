@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,7 +119,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(context.Background(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, downloadedPath, test.ShouldNotBeEmpty)
 
@@ -138,7 +139,7 @@ func TestDownloadFile(t *testing.T) {
 		defer server.Close()
 
 		// Download the file
-		downloadedPath, err := DownloadFile(context.Background(), server.URL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), server.URL, logger)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, downloadedPath, test.ShouldNotBeEmpty)
 
@@ -162,7 +163,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file - should create a new file with suffix
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(context.Background(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, downloadedPath, test.ShouldNotEqual, existingPath)
 		test.That(t, strings.HasSuffix(downloadedPath, ".duplicate-001"), test.ShouldBeTrue)
@@ -198,7 +199,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file - should create file with .duplicate-003 suffix
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(context.Background(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, strings.HasSuffix(downloadedPath, ".duplicate-003"), test.ShouldBeTrue)
 
@@ -209,13 +210,13 @@ func TestDownloadFile(t *testing.T) {
 	})
 
 	t.Run("returns error for invalid URL", func(t *testing.T) {
-		_, err := DownloadFile(context.Background(), "invalid://url", logger)
+		_, err := DownloadFile(t.Context(), "invalid://url", logger)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "unsupported url scheme")
 	})
 
 	t.Run("returns error for non-existent file:// URL", func(t *testing.T) {
-		_, err := DownloadFile(context.Background(), "file:///nonexistent/file.txt", logger)
+		_, err := DownloadFile(t.Context(), "file:///nonexistent/file.txt", logger)
 		test.That(t, err, test.ShouldNotBeNil)
 	})
 
@@ -225,9 +226,9 @@ func TestDownloadFile(t *testing.T) {
 		}))
 		defer server.Close()
 
-		_, err := DownloadFile(context.Background(), server.URL, logger)
+		_, err := DownloadFile(t.Context(), server.URL, logger)
 		test.That(t, err, test.ShouldNotBeNil)
-		test.That(t, err.Error(), test.ShouldContainSubstring, "got response '404 Not Found'")
+		test.That(t, err.Error(), test.ShouldContainSubstring, "bad response code: 404")
 	})
 
 	t.Run("returns error for HTTP 500", func(t *testing.T) {
@@ -236,9 +237,9 @@ func TestDownloadFile(t *testing.T) {
 		}))
 		defer server.Close()
 
-		_, err := DownloadFile(context.Background(), server.URL, logger)
+		_, err := DownloadFile(t.Context(), server.URL, logger)
 		test.That(t, err, test.ShouldNotBeNil)
-		test.That(t, err.Error(), test.ShouldContainSubstring, "got response '500 Internal Server Error'")
+		test.That(t, err.Error(), test.ShouldContainSubstring, "bad response code: 500")
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {
@@ -250,7 +251,7 @@ func TestDownloadFile(t *testing.T) {
 		defer server.Close()
 
 		// Create a context that cancels immediately
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
 		_, err := DownloadFile(ctx, server.URL, logger)
@@ -259,7 +260,7 @@ func TestDownloadFile(t *testing.T) {
 
 	t.Run("handles network errors", func(t *testing.T) {
 		// Try to download from a non-existent server
-		_, err := DownloadFile(context.Background(), "https://nonexistent.example.com/file.txt", logger)
+		_, err := DownloadFile(t.Context(), "https://nonexistent.example.com/file.txt", logger)
 		test.That(t, err, test.ShouldNotBeNil)
 	})
 
@@ -277,7 +278,7 @@ func TestDownloadFile(t *testing.T) {
 		}))
 		defer server.Close()
 
-		_, err := DownloadFile(context.Background(), server.URL, logger)
+		_, err := DownloadFile(t.Context(), server.URL, logger)
 		test.That(t, err, test.ShouldNotBeNil)
 	})
 
@@ -290,7 +291,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(context.Background(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
 		test.That(t, err, test.ShouldBeNil)
 
 		// Verify the content
@@ -382,4 +383,35 @@ func TestInitPaths(t *testing.T) {
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
 	})
+}
+
+func TestPartialPath(t *testing.T) {
+	path := CreatePartialPath("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-latest-x86_64")
+	maxPathLengths := map[string]int{
+		"linux":   4096,
+		"windows": 260,
+	}
+	for _, maxPath := range maxPathLengths {
+		test.That(t, len(path), test.ShouldBeLessThanOrEqualTo, maxPath)
+	}
+}
+
+func TestRewriteGCPDownload(t *testing.T) {
+	u1, _ := url.Parse("https://google.com")
+	u2, _ := url.Parse("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media")                             //nolint:lll
+	u3, _ := url.Parse("https://storage.googleapis.com/download/storage/v1/b/packages.viam.com/o/apps%2Fviam-server%2Fviam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media") //nolint:lll
+
+	// normal URLs should not be rewritten
+	rewrite1, b1 := rewriteGCPDownload(u1)
+	rewrite2, b2 := rewriteGCPDownload(u2)
+	test.That(t, rewrite1, test.ShouldResemble, u1)
+	test.That(t, b1, test.ShouldBeFalse)
+	test.That(t, rewrite2, test.ShouldResemble, u2)
+	test.That(t, b2, test.ShouldBeFalse)
+
+	// matching URLs should be rewritten
+	rewrite3, b3 := rewriteGCPDownload(u3)
+	test.That(t, rewrite3, test.ShouldResemble, u2)
+	test.That(t, b3, test.ShouldBeTrue)
+	test.That(t, rewrite3.EscapedPath(), test.ShouldResemble, u2.EscapedPath())
 }

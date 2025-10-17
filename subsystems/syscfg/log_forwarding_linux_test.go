@@ -1,7 +1,6 @@
 package syscfg
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -80,7 +79,7 @@ func (m *mockAppender) All() []zapcore.Entry {
 
 func TestLogForwarderFilter(t *testing.T) {
 	t.Cleanup(createMockJournalctl(t))
-	ctx := context.Background()
+	ctx := t.Context()
 
 	expectedEntries := map[string][]zapcore.Entry{
 		"all,-foobar": {
@@ -199,7 +198,7 @@ func TestLogForwarderFilter(t *testing.T) {
 			})
 
 			// On start, we should see kernel forwarder start log
-			err := sys.Start(context.Background())
+			err := sys.Start(t.Context())
 			test.That(t, err, test.ShouldBeNil)
 
 			// Wait for initial logs
@@ -217,7 +216,7 @@ func TestLogForwarderFilter(t *testing.T) {
 			time.Sleep(3 * time.Second)
 
 			// Stop forwarding to ensure all logs are flushed
-			err = sys.Stop(context.Background())
+			err = sys.Stop(t.Context())
 			test.That(t, err, test.ShouldBeNil)
 
 			// Verify total forwarded entries

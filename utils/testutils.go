@@ -34,11 +34,12 @@ func MockViamDirs(t *testing.T) string {
 	td := t.TempDir()
 	viam := filepath.Join(td, "viam")
 	ViamDirs = ViamDirsData{
-		Viam:  viam,
-		Bin:   filepath.Join(viam, "bin"),
-		Cache: filepath.Join(viam, "cache"),
-		Tmp:   filepath.Join(viam, "tmp"),
-		Etc:   filepath.Join(viam, "etc"),
+		Viam:     viam,
+		Bin:      filepath.Join(viam, "bin"),
+		Cache:    filepath.Join(viam, "cache"),
+		Partials: filepath.Join(viam, "cache", "part"),
+		Tmp:      filepath.Join(viam, "tmp"),
+		Etc:      filepath.Join(viam, "etc"),
 	}
 	return td
 }
