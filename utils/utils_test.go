@@ -228,7 +228,7 @@ func TestDownloadFile(t *testing.T) {
 
 		_, err := DownloadFile(t.Context(), server.URL, logger)
 		test.That(t, err, test.ShouldNotBeNil)
-		test.That(t, err.Error(), test.ShouldContainSubstring, "got response '404 Not Found'")
+		test.That(t, err.Error(), test.ShouldContainSubstring, "bad response code: 404")
 	})
 
 	t.Run("returns error for HTTP 500", func(t *testing.T) {
@@ -239,7 +239,7 @@ func TestDownloadFile(t *testing.T) {
 
 		_, err := DownloadFile(t.Context(), server.URL, logger)
 		test.That(t, err, test.ShouldNotBeNil)
-		test.That(t, err.Error(), test.ShouldContainSubstring, "got response '500 Internal Server Error'")
+		test.That(t, err.Error(), test.ShouldContainSubstring, "bad response code: 500")
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {

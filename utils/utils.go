@@ -217,7 +217,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			return "", err
 		}
 	default:
-		return "", fmt.Errorf("unhandled scheme %q in URL %q", parsedURL.Scheme, rawURL)
+		return "", fmt.Errorf("unsupported url scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
 	logger.Infof("finished copying %q", rawURL)
 
