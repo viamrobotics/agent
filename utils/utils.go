@@ -236,9 +236,11 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 func rewriteGCPDownload(orig *url.URL) (*url.URL, bool) {
 	//nolint:lll
 	// try this on a shell to understand why this function is necessary. the first command has accept-range, the second doesn't.
-	// note that the second URL still seems to accept a range header, it just doesn't advertise that, which breaks our getter library.
+	// note that the second URL still seems to *accept* a range header, it just doesn't advertise that, which breaks our getter library.
 	// curl -I -X HEAD 'https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media'
 	// curl -I -X HEAD 'https://storage.googleapis.com/download/storage/v1/b/packages.viam.com/o/apps%2Fviam-server%2Fviam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media'
+	// We end up with the second form because we consume MediaLink from https://github.com/googleapis/google-cloud-go/blob/125c39d61e201297004af8cd5f84b09e3dd511fe/storage/storage.go#L1571
+	// This function transforms MediaLink into the 'public URL' format.
 	if orig.Hostname() != "storage.googleapis.com" {
 		return orig, false
 	}
