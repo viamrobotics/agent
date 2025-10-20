@@ -434,6 +434,8 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	c.CleanPartials(ctx) //nolint:errcheck,gosec
 }
 
+// CleanPartials is called by CleanCache and cleans up incomplete partial downloads that have not been modified for 3 days.
+// The 3-day grace period is 1) to avoid breaking ongoing downloads and 2) to give spotty connections a chance to resolve.
 func (c *VersionCache) CleanPartials(ctx context.Context) error {
 	c.logger.Info("Starting partials cleanup")
 	matches, err := filepath.Glob(filepath.Join(utils.ViamDirs.Partials, "*", "*.part"))
