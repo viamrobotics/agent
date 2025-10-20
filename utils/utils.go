@@ -154,7 +154,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	}
 	parsedURL, rewritten := rewriteGCPDownload(parsedURL)
 	if rewritten {
-		logger.Debugf("rewrote GCP URL %q to range-friendly %q", rawURL, parsedURL.String())
+		logger.Debugw("rewrote GCP media link to range-friendly", "orig", rawURL, "rewritten", parsedURL.String())
 	}
 
 	logger.Infof("Starting download of %s", rawURL)
@@ -201,7 +201,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		g.SetClient(getterClient)
 
 		if stat, err := os.Stat(partialDest); err == nil {
-			logger.Infof("download to existing %q, size %d", partialDest, stat.Size())
+			logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
 		}
 
 		done := make(chan struct{})
@@ -212,14 +212,14 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 
 		// move completed .part to outPath and remove url-hash dir
-		logger.Debugf("moving successful download %q to outPath", partialDest)
+		logger.Debugf("moving successful download to outPath", "partialDest", partialDest)
 		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
 			return "", err
 		}
 	default:
 		return "", fmt.Errorf("unsupported url scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
-	logger.Infof("finished copying %q", rawURL)
+	logger.Infow("finished copying", "url", rawURL)
 
 	if runtime.GOOS == "windows" {
 		if err := allowFirewall(logger, outPath); err != nil {
@@ -304,7 +304,7 @@ func allowFirewall(logger logging.Logger, outPath string) error {
 			logger.Info("Ignoring netsh error on non-SYSTEM windows")
 		}
 	} else {
-		logger.Debugf("created firewall exception for %q", outPath)
+		logger.Debugw("created firewall exception for", "program", outPath)
 	}
 	return err
 }
@@ -537,12 +537,12 @@ func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Lo
 	// note: go-getter is also doing a HEAD request internally, so this is redundant, but we don't have access to it.
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
-		logger.Warnf("progress bar failed: %s", err)
+		logger.Warnw("progress bar failed", "err", err)
 		return
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		logger.Warnf("progress bar failed: %s", err)
+		logger.Warnw("progress bar failed", "err", err)
 		return
 	}
 	size := res.ContentLength
@@ -571,7 +571,7 @@ func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Lo
 			if err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
 					// we don't warn if the file is missing because that means completion
-					logger.Warnf("progress bar stat error: %s", err)
+					logger.Warnw("progress bar stat error", "err", err)
 				}
 				return
 			}

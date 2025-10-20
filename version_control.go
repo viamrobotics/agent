@@ -438,24 +438,24 @@ func (c *VersionCache) CleanPartials(ctx context.Context) error {
 	c.logger.Info("Starting partials cleanup")
 	matches, err := filepath.Glob(filepath.Join(utils.ViamDirs.Partials, "*", "*.part"))
 	if err != nil {
-		c.logger.Errorf("error cleaning partials: %s", matches)
+		c.logger.Errorw("error cleaning partials", "matches", strings.Join(matches, ", ")[:200])
 		return err
 	}
 	var joinedErrors error
 	for _, match := range matches {
 		if stat, err := os.Stat(match); err != nil {
-			c.logger.Errorf("error statting partial %q: %s", match, err)
+			c.logger.Errorw("error statting partial", "match", match, "err", err)
 			joinedErrors = errors.Join(joinedErrors, err)
 		} else {
 			if stat.ModTime().Add(time.Hour * 24 * 3).Before(time.Now()) {
 				if err := errors.Join(os.Remove(match), os.Remove(filepath.Dir(match))); err != nil {
-					c.logger.Errorf("error removing partial %q or parent dir: %s", match, err)
+					c.logger.Errorw("error removing partial or parent dir", "match", match, "err", err)
 					joinedErrors = errors.Join(joinedErrors, err)
 				} else {
-					c.logger.Infof("removed expired partial download %q", match)
+					c.logger.Infow("removed expired partial download", "match", match)
 				}
 			} else {
-				c.logger.Debugf("keeping recent partial download %q", match)
+				c.logger.Debugw("keeping recent partial download", "match", match)
 			}
 		}
 	}
