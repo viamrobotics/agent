@@ -16,7 +16,7 @@ import (
 
 func TestWebPortalJsonParse(t *testing.T) {
 	bindAddr := "localhost"
-	bindPort := 8080
+	bindPort := 8081
 	httpSaveURL := fmt.Sprintf("http://%s/save", net.JoinHostPort(bindAddr, strconv.Itoa(bindPort)))
 
 	inputChan := make(chan userInput, 1)
