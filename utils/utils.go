@@ -29,7 +29,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/go-getter"
+	"github.com/hashicorp/go-getter/v2"
 	errw "github.com/pkg/errors"
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
@@ -179,26 +179,34 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 	}
 
-	// I think getter.Client is the only way to pass down context.
-	getterClient := &getter.Client{Ctx: ctx}
 	switch parsedURL.Scheme {
 	case "file":
-		g := getter.FileGetter{Copy: true}
-		g.SetClient(getterClient)
-		if err := g.GetFile(outPath, parsedURL); err != nil {
+		panic("DON'T USE FILEGETTER DIRECTLY")
+		g := getter.FileGetter{}
+		if err := g.GetFile(ctx, &getter.Request{Src: parsedURL.String(), Dst: outPath, Copy: true}); err != nil {
 			return "", errw.Wrap(err, "copying file")
 		}
 	case "http", "https":
 		// note: we shrink the hash to avoid system path length limits
 		partialDest := CreatePartialPath(rawURL)
+		if err := os.MkdirAll(filepath.Dir(partialDest), 0o600); err != nil {
+			return "", errw.Wrap(err, "downloading file")
+		}
 
 		// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
 		// if trying to connect to a local address.
-		httpClient := &http.Client{Transport: &http.Transport{
-			DialContext: rpc.SocksProxyFallbackDialContext(parsedURL.String(), logger),
-		}}
-		g := getter.HttpGetter{Client: httpClient}
-		g.SetClient(getterClient)
+		client := &getter.Client{
+			Getters: []getter.Getter{&getter.HttpGetter{
+				XTerraformGetDisabled: true,
+				Client: &http.Client{Transport: &http.Transport{
+					DialContext: rpc.SocksProxyFallbackDialContext(parsedURL.String(), logger),
+				}},
+				HeadFirstTimeout: 10 * time.Second,
+				ReadTimeout:      30 * time.Second,
+				MaxBytes:         8000000,
+			}},
+			Decompressors: getter.Decompressors,
+		}
 
 		if stat, err := os.Stat(partialDest); err == nil {
 			logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
@@ -207,8 +215,8 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		done := make(chan struct{})
 		defer close(done)
 		goutils.PanicCapturingGo(func() { fileSizeProgress(done, ctx, logger, rawURL, partialDest) })
-		if err := g.GetFile(partialDest, parsedURL); err != nil {
-			return "", errw.Wrap(err, "downloading file")
+		if _, err := client.Get(ctx, &getter.Request{Src: parsedURL.String(), Dst: partialDest, GetMode: getter.ModeFile}); err != nil {
+			return "", errw.Wrap(err, "downloading file Get")
 		}
 
 		// move completed .part to outPath and remove url-hash dir
