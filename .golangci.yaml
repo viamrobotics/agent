@@ -65,6 +65,8 @@ linters-settings:
       - composites
   lll:
     line-length: 140
+  gomoddirectives:
+    replace-allow-list: [github.com/hashicorp/go-getter]
 issues:
   exclude-rules:
     - path: _test\.go$
