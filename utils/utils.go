@@ -192,12 +192,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		// note: we shrink the hash to avoid system path length limits
 		partialDest := CreatePartialPath(rawURL)
 
-		// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
-		// if trying to connect to a local address.
-		httpClient := &http.Client{Transport: &http.Transport{
-			DialContext: rpc.SocksProxyFallbackDialContext(parsedURL.String(), logger),
-		}}
-		g := getter.HttpGetter{Client: httpClient}
+		g := getter.HttpGetter{Client: socksClient(parsedURL.String(), logger)}
 		g.SetClient(getterClient)
 
 		if stat, err := os.Stat(partialDest); err == nil {
@@ -228,6 +223,13 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	}
 
 	return outPath, nil
+}
+
+// Return an http client which can use SOCKS proxy from environment as gRPC proxy dialer.
+func socksClient(url string, logger logging.Logger) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		DialContext: rpc.SocksProxyFallbackDialContext(url, logger),
+	}}
 }
 
 // convert GCP URLs to the form that has an accept-range header. Leave other URLs unchanged.
@@ -540,7 +542,7 @@ func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Lo
 		logger.Warnw("progress bar failed", "err", err)
 		return
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := socksClient(url, logger).Do(req)
 	if err != nil {
 		logger.Warnw("progress bar failed", "err", err)
 		return
