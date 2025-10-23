@@ -1,7 +1,6 @@
 package networking
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -17,7 +16,7 @@ import (
 
 func TestWebPortalJsonParse(t *testing.T) {
 	bindAddr := "localhost"
-	bindPort := 8080
+	bindPort := 8081
 	httpSaveURL := fmt.Sprintf("http://%s/save", net.JoinHostPort(bindAddr, strconv.Itoa(bindPort)))
 
 	inputChan := make(chan userInput, 1)
@@ -38,7 +37,7 @@ func TestWebPortalJsonParse(t *testing.T) {
 
 	// Test json missing cloud section
 	client := &http.Client{}
-	dummyCtx := context.Background()
+	dummyCtx := t.Context()
 	urlParams := url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{}"}}
 	req, err := http.NewRequestWithContext(dummyCtx, http.MethodPost, fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
 	test.That(t, err, test.ShouldBeNil)
@@ -54,7 +53,7 @@ func TestWebPortalJsonParse(t *testing.T) {
 
 	// Test malformed json
 	client = &http.Client{}
-	dummyCtx = context.Background()
+	dummyCtx = t.Context()
 	urlParams = url.Values{"ssid": {"notused"}, "password": {"notused"}, "viamconfig": {"{{{"}}
 	req, err = http.NewRequestWithContext(dummyCtx, http.MethodPost, fmt.Sprintf("%s?%s", httpSaveURL, urlParams.Encode()), nil)
 	test.That(t, err, test.ShouldBeNil)
@@ -70,7 +69,7 @@ func TestWebPortalJsonParse(t *testing.T) {
 
 	// Test valid json
 	client = &http.Client{}
-	dummyCtx = context.Background()
+	dummyCtx = t.Context()
 	validConfig := "{\"cloud\":{\"app_address\":\"1\",\"id\":\"2\",\"secret\":\"3\"}}"
 	urlParams = url.Values{
 		"ssid":       {"notused"},

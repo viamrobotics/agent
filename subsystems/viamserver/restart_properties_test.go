@@ -1,7 +1,6 @@
 package viamserver
 
 import (
-	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -22,7 +21,7 @@ type oldRestartStatusResponse struct {
 // does_not_handle_needs_restart against a fake viamserver instance (HTTP server).
 func TestCheckRestartProperty(t *testing.T) {
 	logger := logging.NewTestLogger(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	targetAddr := "localhost:8080"
 	s := &viamServer{

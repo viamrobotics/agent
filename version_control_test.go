@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"context"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,7 +52,7 @@ func TestUpdateBinary(t *testing.T) {
 	}
 
 	// initial install
-	needsRestart, err := vc.UpdateBinary(context.Background(), viamserver.SubsysName)
+	needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeTrue)
 	testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-server"))
@@ -60,13 +60,13 @@ func TestUpdateBinary(t *testing.T) {
 	test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
 
 	// rerun with no change
-	needsRestart, err = vc.UpdateBinary(context.Background(), viamserver.SubsysName)
+	needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeFalse)
 
 	// upgrade
 	vc.ViamServer.TargetVersion = vi2.Version
-	needsRestart, err = vc.UpdateBinary(context.Background(), viamserver.SubsysName)
+	needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, needsRestart, test.ShouldBeTrue)
 	testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
@@ -105,7 +105,7 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 			}
 			utils.ForceSymlink(path, linkPath)
 		}
-		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		protected := vc.getProtectedFilesAndCleanVersions(t.Context(), 1)
 		slices.Sort(expected)
 		slices.Sort(protected)
 		test.That(t, protected, test.ShouldResemble, expected)
@@ -134,7 +134,7 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 		copy(expected, baseProtectedFiles)
 		expected = append(expected, "prev", "target", "running", "recent") // not "stale" though
 
-		protected := vc.getProtectedFilesAndCleanVersions(context.Background(), 1)
+		protected := vc.getProtectedFilesAndCleanVersions(t.Context(), 1)
 		slices.Sort(expected)
 		slices.Sort(protected)
 		test.That(t, protected, test.ShouldResemble, expected)
@@ -143,4 +143,34 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 		test.That(t, vc.ViamServer.Versions, test.ShouldHaveLength, 4)
 		test.That(t, vc.ViamServer.Versions["stale"], test.ShouldBeNil)
 	})
+}
+
+func TestCleanPartials(t *testing.T) {
+	utils.MockAndCreateViamDirs(t)
+	vc := VersionCache{logger: logging.NewTestLogger(t)}
+
+	// make a part file to clean up
+	oldPath := utils.CreatePartialPath("https://viam.com/old.part")
+	err := os.Mkdir(filepath.Dir(oldPath), 0o755)
+	test.That(t, err, test.ShouldBeNil)
+	err = os.WriteFile(oldPath, []byte("hello"), 0o600)
+	test.That(t, err, test.ShouldBeNil)
+	os.Chtimes(oldPath, time.Now(), time.Now().Add(-time.Hour*24*4))
+
+	// make another one too new to clean up
+	newPath := utils.CreatePartialPath("https://viam.com/subpath/new.part")
+	err = os.Mkdir(filepath.Dir(newPath), 0o755)
+	test.That(t, err, test.ShouldBeNil)
+	err = os.WriteFile(newPath, []byte("hello"), 0o600)
+	test.That(t, err, test.ShouldBeNil)
+
+	err = vc.CleanPartials(t.Context())
+	test.That(t, err, test.ShouldBeNil)
+
+	// old path should be gone, newpath should still exist
+	_, err = os.Stat(oldPath)
+	var pathError *os.PathError
+	test.That(t, errors.As(err, &pathError), test.ShouldBeTrue)
+	_, err = os.Stat(newPath)
+	test.That(t, err, test.ShouldBeNil)
 }

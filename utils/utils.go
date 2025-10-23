@@ -5,7 +5,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,16 +22,19 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-getter"
 	errw "github.com/pkg/errors"
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 	"go.viam.com/rdk/logging"
+	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
 )
 
@@ -41,6 +46,9 @@ var (
 	ViamDirs ViamDirsData
 
 	HealthCheckTimeout = time.Minute
+
+	// for rewriting URLs to the form that supports ranges.
+	storagePathRegex = regexp.MustCompile(`^/download/storage/v1/b/([^/]+)/o/(.+)$`)
 )
 
 type ViamDirsData struct {
@@ -49,6 +57,8 @@ type ViamDirsData struct {
 	Cache string
 	Tmp   string
 	Etc   string
+	// partial downloads
+	Partials string
 }
 
 // Values returns an [iter.Seq] over the field values in ViamDirsData at the
@@ -99,6 +109,7 @@ func init() {
 	}
 	ViamDirs.Bin = filepath.Join(ViamDirs.Viam, "bin")
 	ViamDirs.Cache = filepath.Join(ViamDirs.Viam, "cache")
+	ViamDirs.Partials = filepath.Join(ViamDirs.Cache, "part")
 	ViamDirs.Tmp = filepath.Join(ViamDirs.Viam, "tmp")
 	ViamDirs.Etc = filepath.Join(ViamDirs.Viam, "etc")
 }
@@ -134,18 +145,24 @@ func InitPaths() error {
 	return nil
 }
 
-// DownloadFile downloads a file into the cache directory and returns a path to the file.
-func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (outPath string, errRet error) {
+// DownloadFile downloads or copies a file into the cache directory and returns a path to the file.
+// If this is an http/s URL, you must check the checksum of the result; the partial logic does not check etags.
+func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
+	}
+	parsedURL, rewritten := rewriteGCPDownload(parsedURL)
+	if rewritten {
+		logger.Debugw("rewrote GCP media link to range-friendly", "orig", rawURL, "rewritten", parsedURL.String())
 	}
 
 	logger.Infof("Starting download of %s", rawURL)
 	parsedPath := parsedURL.Path
 
 	// don't want to accidentally overwrite anything in the cache directory by accident
-	// old agent versions used a different cache format, so its possible we could be re-downloading ourself
+	// old agent versions used a different cache format, so it's possible we could be re-downloading ourself
+	var outPath string
 	for n := range 100 {
 		var suffix string
 		if n > 0 {
@@ -162,145 +179,136 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (ou
 		}
 	}
 
-	//nolint:nestif
-	if parsedURL.Scheme == "file" {
-		if runtime.GOOS == "windows" {
-			parsedPath = strings.TrimLeft(parsedPath, "/")
+	// I think getter.Client is the only way to pass down context.
+	getterClient := &getter.Client{Ctx: ctx}
+	switch parsedURL.Scheme {
+	case "file":
+		g := getter.FileGetter{Copy: true}
+		g.SetClient(getterClient)
+		if err := g.GetFile(outPath, parsedURL); err != nil {
+			return "", errw.Wrap(err, "copying file")
+		}
+	case "http", "https":
+		// note: we shrink the hash to avoid system path length limits
+		partialDest := CreatePartialPath(rawURL)
+
+		g := getter.HttpGetter{Client: socksClient(parsedURL.String(), logger)}
+		g.SetClient(getterClient)
+
+		if stat, err := os.Stat(partialDest); err == nil {
+			logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
 		}
 
-		infd, err := os.Open(parsedPath) //nolint:gosec
-		if err != nil {
+		done := make(chan struct{})
+		defer close(done)
+		goutils.PanicCapturingGo(func() { fileSizeProgress(done, ctx, logger, rawURL, partialDest) })
+		if err := g.GetFile(partialDest, parsedURL); err != nil {
+			return "", errw.Wrap(err, "downloading file")
+		}
+
+		// move completed .part to outPath and remove url-hash dir
+		logger.Debugf("moving successful download to outPath", "partialDest", partialDest)
+		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
 			return "", err
 		}
-		defer func() {
-			errRet = errors.Join(errRet, infd.Close())
-		}()
-
-		//nolint:gosec
-		if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
-			return "", err
-		}
-
-		outfd, err := os.CreateTemp(ViamDirs.Tmp, "*")
-		if err != nil {
-			return "", err
-		}
-		defer func() {
-			// we might double close because we have to explicitly close before the rename for windows
-			errClose := outfd.Close()
-			if !errors.Is(errClose, os.ErrClosed) {
-				errRet = errors.Join(errRet, errClose)
-			}
-			errRet = errors.Join(errRet, SyncFS(outPath))
-			if err := os.Remove(outfd.Name()); err != nil && !os.IsNotExist(err) {
-				errRet = errors.Join(errRet, err)
-			}
-		}()
-
-		_, err = io.Copy(outfd, infd)
-		if err != nil {
-			return "", errors.Join(errRet, err)
-		}
-		errRet = errors.Join(errRet, outfd.Close(), os.Rename(outfd.Name(), outPath))
-		if errRet == nil {
-			logger.Infof("Download (local file copy) complete for %s", rawURL)
-		}
-		return outPath, errRet
+	default:
+		return "", fmt.Errorf("unsupported url scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
-
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return "", errw.Errorf("unsupported url scheme %s", parsedURL.Scheme)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
-	if err != nil {
-		return "", errw.Wrap(err, "downloading file")
-	}
-
-	// Use SOCKS proxy from environment as gRPC proxy dialer. Do not use
-	// if trying to connect to a local address.
-	httpClient := &http.Client{Transport: &http.Transport{
-		DialContext: rpc.SocksProxyFallbackDialContext(parsedURL.String(), logger),
-	}}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", errw.Wrapf(err, "downloading file %s", rawURL)
-	}
-	defer func() {
-		errRet = errors.Join(errRet, resp.Body.Close())
-	}()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return "", errw.Errorf("got response '%s' while downloading %s", resp.Status, parsedURL)
-	}
-
-	//nolint:gosec
-	if err := os.MkdirAll(ViamDirs.Tmp, 0o755); err != nil {
-		return "", err
-	}
-
-	out, err := os.CreateTemp(ViamDirs.Tmp, "*")
-	if err != nil {
-		return "", err
-	}
-	// `closed` suppresses double-close
-	closed := false
-	defer func() {
-		if !closed {
-			errRet = errors.Join(errRet, out.Close())
-		}
-		if runtime.GOOS != "windows" {
-			// todo(windows): doc why we don't do this / test adding it back
-			errRet = errors.Join(errRet, SyncFS(out.Name()))
-		}
-		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
-			errRet = errors.Join(errRet, err)
-		}
-	}()
-
-	workers := &sync.WaitGroup{}
-	writer, cancelFunc := downloadProgressSetup(ctx, out, outPath, resp.ContentLength, logger, workers)
-	defer workers.Wait()
-	defer cancelFunc()
-
-	_, err = io.Copy(writer, resp.Body)
-	if err != nil && !os.IsNotExist(err) {
-		errRet = errors.Join(errRet, err)
-	}
-	errRet = errors.Join(errRet, out.Close())
-	closed = true
-
-	if errRet != nil {
-		return "", errRet
-	}
-
-	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
-
-	if errRet == nil {
-		logger.Infof("Download complete for %s", rawURL)
-	}
+	logger.Infow("finished copying", "url", rawURL)
 
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command( //nolint:gosec
-			"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
-			"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
-		)
-		errRet = errors.Join(errRet, cmd.Start())
-		if errRet == nil {
-			waitErr := cmd.Wait()
-			if waitErr != nil {
-				user, _ := user.Current() //nolint:errcheck
-				if user.Name != "SYSTEM" {
-					// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
-					logger.Info("Ignoring netsh error on non-SYSTEM windows")
-				} else {
-					errRet = errors.Join(errRet, waitErr)
-				}
-			}
+		if err := allowFirewall(logger, outPath); err != nil {
+			return "", err
 		}
 	}
-	return outPath, errRet
+
+	return outPath, nil
+}
+
+// Return an http client which can use SOCKS proxy from environment as gRPC proxy dialer.
+func socksClient(url string, logger logging.Logger) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		DialContext: rpc.SocksProxyFallbackDialContext(url, logger),
+	}}
+}
+
+// convert GCP URLs to the form that has an accept-range header. Leave other URLs unchanged.
+// will mutate the input in the rewrite case.
+// bool return is true if the URL was rewritten.
+func rewriteGCPDownload(orig *url.URL) (*url.URL, bool) {
+	//nolint:lll
+	// try this on a shell to understand why this function is necessary. the first command has accept-range, the second doesn't.
+	// note that the second URL still seems to *accept* a range header, it just doesn't advertise that, which breaks our getter library.
+	// curl -I -X HEAD 'https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media'
+	// curl -I -X HEAD 'https://storage.googleapis.com/download/storage/v1/b/packages.viam.com/o/apps%2Fviam-server%2Fviam-server-v0.96.0-aarch64?generation=1759865152533030&alt=media'
+	// We end up with the second form because we consume MediaLink from https://github.com/googleapis/google-cloud-go/blob/125c39d61e201297004af8cd5f84b09e3dd511fe/storage/storage.go#L1571
+	// This function transforms MediaLink into the 'public URL' format.
+	if orig.Hostname() != "storage.googleapis.com" {
+		return orig, false
+	}
+	match := storagePathRegex.FindStringSubmatch(orig.Path)
+	if match == nil {
+		return orig, false
+	}
+	bucket := match[1]
+	path := match[2]
+	orig.Path = fmt.Sprintf("/%s/%s", bucket, path)
+	orig.RawPath = "" // this causes go to compute it where necessary.
+	return orig, true
+}
+
+// CreatePartialPath makes a path under cachedir/part. These get cleaned up by CleanPartials.
+func CreatePartialPath(rawURL string) string {
+	var urlPath string
+	if parsed, err := url.Parse(rawURL); err != nil {
+		urlPath = "UNPARSED"
+	} else {
+		urlPath = parsed.Path
+	}
+
+	return path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), "")+".part")
+}
+
+// helper: return last item of `items` slice, or `default_` if items is empty.
+func last[T any](items []T, default_ T) T {
+	if len(items) == 0 {
+		return default_
+	}
+	return items[len(items)-1]
+}
+
+// helper: last N digits of md5sum of input string.
+func hashString(input string, n int) string {
+	h := md5.New() //nolint:gosec
+	h.Write([]byte(input))
+	ret := hex.EncodeToString(h.Sum(nil))
+	if n > 0 {
+		return ret[len(ret)-n:]
+	}
+	return ret
+}
+
+// on windows only, create a firewall exception for the newly-downloaded file.
+func allowFirewall(logger logging.Logger, outPath string) error {
+	// todo: confirm this is right; this isn't the final destination. Does the rule move when the file is renamed? Link to docs.
+	cmd := exec.Command( //nolint:gosec
+		"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
+		"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
+	)
+	if err := cmd.Start(); err != nil {
+		return errw.Wrap(err, "creating firewall rule")
+	}
+	err := cmd.Wait()
+	if err != nil {
+		user, _ := user.Current() //nolint:errcheck
+		if user.Name != "SYSTEM" {
+			// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
+			logger.Info("Ignoring netsh error on non-SYSTEM windows")
+		}
+	} else {
+		logger.Debugw("created firewall exception for", "program", outPath)
+	}
+	return err
 }
 
 // DecompressFile extracts a compressed file and returns the path to the extracted file.
@@ -526,83 +534,56 @@ func (sb *SafeBuffer) Reset() {
 	sb.buf.Reset()
 }
 
-// Simple io.WriteSeeker type for progress bar.
-type progressMultiWriter struct {
-	progressBar *progressbar.ProgressBar
-	outFile     io.WriteSeeker
-
-	// progressbar (as of 3.18.0) has a race bug, so we do our own locking to work around it
-	barMu sync.Mutex
-}
-
-func (pmw *progressMultiWriter) Write(p []byte) (n int, err error) {
-	// Write to file first
-	n, err = pmw.outFile.Write(p)
+// starts a goroutine that watches `dest` file size, logs progress until `dest` no longer exists or `done` is closed.
+func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Logger, url, dest string) {
+	// note: go-getter is also doing a HEAD request internally, so this is redundant, but we don't have access to it.
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
+		logger.Warnw("progress bar failed", "err", err)
 		return
 	}
-	if n != len(p) {
-		err = io.ErrShortWrite
+	res, err := socksClient(url, logger).Do(req)
+	if err != nil {
+		logger.Warnw("progress bar failed", "err", err)
 		return
 	}
+	size := res.ContentLength
+	res.Body.Close() //nolint:errcheck,gosec
 
-	// Then write to progress bar with protection
-	pmw.barMu.Lock()
-	defer pmw.barMu.Unlock()
-	_, err = pmw.progressBar.Write(p)
-	return len(p), err
-}
-
-func (pmw *progressMultiWriter) Seek(offset int64, whence int) (int64, error) {
-	return pmw.outFile.Seek(offset, whence)
-}
-
-func (pmw *progressMultiWriter) GetBar() string {
-	pmw.barMu.Lock()
-	defer pmw.barMu.Unlock()
-	return pmw.progressBar.String()
-}
-
-func downloadProgressSetup(ctx context.Context,
-	outWriter io.WriteSeeker,
-	outPath string,
-	size int64,
-	logger logging.Logger,
-	workers *sync.WaitGroup,
-) (io.WriteSeeker, context.CancelFunc) {
 	bar := progressbar.NewOptions64(
 		size,
-		progressbar.OptionSetDescription("Downloading "+filepath.Base(outPath)),
+		progressbar.OptionSetDescription("Downloading "+filepath.Base(dest)),
 		progressbar.OptionSetWriter(io.Discard),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionShowTotalBytes(true),
 		progressbar.OptionSetWidth(10),
-		progressbar.OptionThrottle(65*time.Millisecond),
 		progressbar.OptionShowCount(),
 		progressbar.OptionSpinnerType(0),
 	)
-
-	// Use a mutex to protect access to the progress bar
-	writer := &progressMultiWriter{progressBar: bar, outFile: outWriter}
-	barCtx, cancel := context.WithCancel(ctx)
+	bar.ChangeMax64(size)
 	if err := bar.RenderBlank(); err != nil {
 		logger.Warn(err)
 	}
-	workers.Add(1)
-	go func() {
-		defer workers.Done()
-		logger.Info(writer.GetBar())
-		for {
-			select {
-			case <-barCtx.Done():
-				logger.Info(writer.GetBar())
+
+	ticker := time.NewTicker(5 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			stat, err := os.Stat(dest)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					// we don't warn if the file is missing because that means completion
+					logger.Warnw("progress bar stat error", "err", err)
+				}
 				return
-			case <-time.After(time.Second * 10):
-				logger.Info(writer.GetBar())
 			}
+			// todo: use fancy progress bar instead
+			bar.Set64(stat.Size()) //nolint:errcheck,gosec
+			logger.Info(bar)
+		case <-done:
+			return
 		}
-	}()
-	return writer, cancel
+	}
 }
 
 // AtomicCopy implements a best effort to atomically copy the file at src to
