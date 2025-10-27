@@ -74,10 +74,9 @@ func TestUpdateBinary(t *testing.T) {
 		testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
 	})
 
-	t.Run("checksum-mismatch-1", func(t *testing.T) {
+	t.Run("checksum-wrong-at-top-should-redownload", func(t *testing.T) {
 		// case where checksum is wrong at the top of UpdateBinary
 		// (I think we get here by having a binary not tracked in cache)
-
 		vi3 := vi2
 		vi3.Version = "0.71.1"
 		vc.ViamServer.Versions[vi3.Version] = &vi3
@@ -107,9 +106,24 @@ func TestUpdateBinary(t *testing.T) {
 		test.That(t, stat.ModTime().After(mtime), test.ShouldBeTrue)
 	})
 
-	t.Run("checksum-mismatch-2", func(t *testing.T) {
-		// case where checksum of downloaded file is wrong
-		t.Error("todo")
+	t.Run("checksum-wrong-after-download-should-error", func(t *testing.T) {
+		// When the checksum of downloaded file is wrong, confirm that we error.
+		vi4 := vi2
+		vi4.Version = "0.71.2"
+		vi4.UnpackedSHA = []byte("WRONG")
+		vc.ViamServer.Versions[vi4.Version] = &vi4
+		vc.ViamServer.TargetVersion = vi4.Version
+		err := os.Remove(vi4.UnpackedPath)
+		test.That(t, err == nil || os.IsNotExist(err), test.ShouldBeTrue)
+
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "sha256")
+
+		// Note: we leave the bad file there rather than deleting it when the checksum fails.
+		// The agent event loop should prevent it from being used because the cache isn't saved?
+		// _, err = os.Stat(vi4.UnpackedPath)
+		// test.That(t, os.IsNotExist(err), test.ShouldBeTrue)
 	})
 
 	t.Run("custom-url", func(t *testing.T) {
