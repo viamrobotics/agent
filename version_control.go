@@ -79,9 +79,10 @@ type VersionInfo struct {
 	DlPath       string
 	DlSHA        []byte
 	UnpackedPath string
-	UnpackedSHA  []byte
-	SymlinkPath  string
-	Installed    time.Time
+	// the sha256 field of the UpdateInfo proto
+	UnpackedSHA []byte
+	SymlinkPath string
+	Installed   time.Time
 }
 
 func (c *VersionCache) AgentVersion() string {
@@ -258,6 +259,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
 
 	if !goodBytes {
+		c.logger.Warnw("mismatched checksum, redownloading",
+			"expected", string(verData.UnpackedSHA), "actual", string(shasum), "url", verData.URL)
 		// download and record the sha of the download itself
 		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
 		if err != nil {
