@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
@@ -105,11 +106,20 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 
+	//4mb limit minus safety margin
+	//grpcLimit:= 4000000
+	//how long you want each message to be
+	//buffer := make([]byte, 0, grpcLimit) 
 	scanner := bufio.NewScanner(bytes.NewReader(p))
 	for scanner.Scan() {
-		dateMatched := dateRegex.Match(scanner.Bytes())
-		if !dateMatched { //nolint:gocritic
-			// this case is the 'unstructured error' case; we were unable to parse a date.
+		//Most stdout logs are unimportant, so don't log and just upload to syslog
+		if l.unstructuredLoggerName == "viam-server.StdOut" {
+			fmt.Println("STDOUT: " , scanner.Text())
+			//nolint
+			writePlatformOutput(scanner.Bytes())
+			//nolint
+			writePlatformOutput([]byte("\n"))
+		} else {
 			entry := logging.LogEntry{Entry: zapcore.Entry{
 				Level:      zapcore.Level(logging.WARN),
 				Time:       time.Now().UTC(),
@@ -121,18 +131,6 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 				entry.Level = zapcore.Level(logging.ERROR)
 			}
 			l.logger.Write(&entry)
-		} else if l.uploadAll {
-			// in this case, date matching succeeded and we think this is a parseable log message.
-			// we check uploadAll because some subprocesses have their own netlogger which will
-			// upload structured logs. (But won't upload unmatched logs).
-			entry := parseLog(scanner.Bytes()).entry()
-			l.logger.Write(&logging.LogEntry{Entry: entry})
-		} else {
-			// this case is already-structured logging from non-uploadAll; we print it but don't upload it.
-			//nolint
-			writePlatformOutput(scanner.Bytes())
-			//nolint
-			writePlatformOutput([]byte("\n"))
 		}
 	}
 	// note: this return isn't quite right; we don't know how many bytes we wrote, it can be greater
