@@ -24,6 +24,25 @@ type Subsystem interface {
 	Property(ctx context.Context, property string) bool
 }
 
+type PartialHealthError struct {
+	child error
+}
+
+func WrapPartialHealthErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return PartialHealthError{child: err}
+}
+
+func (e PartialHealthError) Error() string {
+	return "subsystem is partially unhealthy: " + e.child.Error()
+}
+
+func (e PartialHealthError) Unwrap() error {
+	return e.child
+}
+
 // Dummy is a fake subsystem for when a particular OS doesn't (yet) have support.
 type Dummy struct{}
 
