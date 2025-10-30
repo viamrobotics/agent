@@ -245,6 +245,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			}
 		}
 
+		// TODO(APP-10012): don't leave bad checksum binary on disk + symlinked
 		if goodBytes {
 			return false, nil
 		}
@@ -299,6 +300,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 
 		if len(verData.UnpackedSHA) > 1 && !bytes.Equal(verData.UnpackedSHA, actualSha) {
+			// TODO(APP-10012): don't leave bad checksum file on disk
 			//nolint:goerr113
 			return needRestart, fmt.Errorf(
 				"sha256 (%s) of downloaded file (%s) does not match provided (%s)",
