@@ -120,8 +120,7 @@ func TestUpdateBinary(t *testing.T) {
 		test.That(t, needsRestart, test.ShouldBeFalse)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "sha256")
 
-		// Note: we leave the bad file there rather than deleting it when the checksum fails.
-		// The agent event loop should prevent it from being used because the cache isn't saved?
+		// TODO(APP-10012): fix bad-checksum cleanup logic and restore this check.
 		// _, err = os.Stat(vi4.UnpackedPath)
 		// test.That(t, os.IsNotExist(err), test.ShouldBeTrue)
 	})
