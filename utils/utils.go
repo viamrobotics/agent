@@ -373,13 +373,14 @@ func FuzzTime(duration time.Duration, pct float64) time.Duration {
 	return time.Duration(float64(duration) - slop + (random * slop))
 }
 
+// CheckIfSame returns true if os.Samefile is true after EvalSymlinks.
 func CheckIfSame(path1, path2 string) (bool, error) {
 	curPath, err := filepath.EvalSymlinks(path1)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "evaluating symlinks pointing to %s", path1)
+		return false, errw.Wrapf(err, "evaluating potential symlink at %s", path1)
 	}
 
 	stat1, err := os.Stat(curPath)
@@ -392,7 +393,7 @@ func CheckIfSame(path1, path2 string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, errw.Wrapf(err, "evaluating symlinks pointing to %s", path2)
+		return false, errw.Wrapf(err, "evaluating potential symlink at %s", path2)
 	}
 
 	stat2, err := os.Stat(realPath)

@@ -51,27 +51,83 @@ func TestUpdateBinary(t *testing.T) {
 		},
 	}
 
-	// initial install
-	needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
-	test.That(t, err, test.ShouldBeNil)
-	test.That(t, needsRestart, test.ShouldBeTrue)
-	testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-server"))
-	testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi.Version))
-	test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
+	t.Run("initial-install", func(t *testing.T) {
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeTrue)
+		testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-server"))
+		testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi.Version))
+		test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
+	})
 
-	// rerun with no change
-	needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
-	test.That(t, err, test.ShouldBeNil)
-	test.That(t, needsRestart, test.ShouldBeFalse)
+	t.Run("rerun-with-no-change", func(t *testing.T) {
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+	})
 
-	// upgrade
-	vc.ViamServer.TargetVersion = vi2.Version
-	needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
-	test.That(t, err, test.ShouldBeNil)
-	test.That(t, needsRestart, test.ShouldBeTrue)
-	testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
+	t.Run("upgrade", func(t *testing.T) {
+		vc.ViamServer.TargetVersion = vi2.Version
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeTrue)
+		testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
+	})
 
-	// todo: test custom URL
+	t.Run("checksum-wrong-at-top-should-redownload", func(t *testing.T) {
+		// case where checksum is wrong at the top of UpdateBinary
+		// (I think we get here by having a binary not tracked in cache)
+		vi3 := vi2
+		vi3.Version = "0.71.1"
+		vc.ViamServer.Versions[vi3.Version] = &vi3
+		vc.ViamServer.TargetVersion = vi3.Version
+		_, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+
+		// run again and confirm that the mtime doesn't change
+		stat, _ := os.Stat(vi3.UnpackedPath)
+		mtime := stat.ModTime()
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		stat, _ = os.Stat(vi3.UnpackedPath)
+		test.That(t, stat.ModTime(), test.ShouldEqual, mtime)
+
+		// edit the file, confirm that mtime changes + needsRestart = true
+		err = os.WriteFile(vi3.UnpackedPath, []byte("bad contents"), 0o666)
+		test.That(t, err, test.ShouldBeNil)
+		stat, _ = os.Stat(vi3.UnpackedPath)
+		mtime = stat.ModTime()
+		time.Sleep(time.Millisecond * 10) // mtime check is flaky otherwise
+		needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeTrue)
+		stat, _ = os.Stat(vi3.UnpackedPath)
+		test.That(t, stat.ModTime().After(mtime), test.ShouldBeTrue)
+	})
+
+	t.Run("checksum-wrong-after-download-should-error", func(t *testing.T) {
+		// When the checksum of downloaded file is wrong, confirm that we error.
+		vi4 := vi2
+		vi4.Version = "0.71.2"
+		vi4.UnpackedSHA = []byte("WRONG")
+		vc.ViamServer.Versions[vi4.Version] = &vi4
+		vc.ViamServer.TargetVersion = vi4.Version
+		err := os.Remove(vi4.UnpackedPath)
+		test.That(t, err == nil || os.IsNotExist(err), test.ShouldBeTrue)
+
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "sha256")
+
+		// TODO(APP-10012): fix bad-checksum cleanup logic and restore this check.
+		// _, err = os.Stat(vi4.UnpackedPath)
+		// test.That(t, os.IsNotExist(err), test.ShouldBeTrue)
+	})
+
+	t.Run("custom-url", func(t *testing.T) {
+		t.Skip("todo")
+	})
 }
 
 // assert that a file exists.

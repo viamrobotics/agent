@@ -79,9 +79,10 @@ type VersionInfo struct {
 	DlPath       string
 	DlSHA        []byte
 	UnpackedPath string
-	UnpackedSHA  []byte
-	SymlinkPath  string
-	Installed    time.Time
+	// the sha256 field of the UpdateInfo proto
+	UnpackedSHA []byte
+	SymlinkPath string
+	Installed   time.Time
 }
 
 func (c *VersionCache) AgentVersion() string {
@@ -244,6 +245,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			}
 		}
 
+		// TODO(APP-10012): don't leave bad checksum binary on disk + symlinked
 		if goodBytes {
 			return false, nil
 		}
@@ -258,6 +260,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
 
 	if !goodBytes {
+		c.logger.Warnw("mismatched checksum, redownloading",
+			"expected", string(verData.UnpackedSHA), "actual", string(shasum), "url", verData.URL)
 		// download and record the sha of the download itself
 		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
 		if err != nil {
@@ -296,6 +300,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 
 		if len(verData.UnpackedSHA) > 1 && !bytes.Equal(verData.UnpackedSHA, actualSha) {
+			// TODO(APP-10012): don't leave bad checksum file on disk
 			//nolint:goerr113
 			return needRestart, fmt.Errorf(
 				"sha256 (%s) of downloaded file (%s) does not match provided (%s)",
