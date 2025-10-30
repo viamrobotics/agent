@@ -3,21 +3,18 @@ package utils
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"regexp"
 	"strconv"
 	"sync"
 	"time"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
 	"go.viam.com/rdk/logging"
 )
 
-var (
-	dateRegex       = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
-	colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
-)
+var colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
 
 var levels = map[string]zapcore.Level{
 	"DEBUG":  zapcore.DebugLevel,
@@ -36,23 +33,20 @@ type matcher struct {
 }
 
 // NewMatchingLogger returns a MatchingLogger.
-func NewMatchingLogger(logger logging.Logger, isError, uploadAll bool, unstructuredLoggerName string) *MatchingLogger {
+func NewMatchingLogger(logger logging.Logger, isStdOut bool, unstructuredLoggerName string) *MatchingLogger {
 	return &MatchingLogger{
 		logger:                 logger,
-		defaultError:           isError,
-		uploadAll:              uploadAll,
+		isStdOut:               isStdOut,
 		unstructuredLoggerName: unstructuredLoggerName,
 	}
 }
 
 // MatchingLogger provides a logger that also allows sending regex matched lines to a channel.
 type MatchingLogger struct {
-	mu           sync.RWMutex
-	logger       logging.Logger
-	matchers     map[string]matcher
-	defaultError bool
-	// if uploadAll is false, only send unstructured log lines to the logger, and just print structured ones.
-	uploadAll              bool
+	mu                     sync.RWMutex
+	logger                 logging.Logger
+	matchers               map[string]matcher
+	isStdOut               bool
 	unstructuredLoggerName string
 }
 
@@ -106,15 +100,10 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 
-	//4mb limit minus safety margin
-	//grpcLimit:= 4000000
-	//how long you want each message to be
-	//buffer := make([]byte, 0, grpcLimit) 
 	scanner := bufio.NewScanner(bytes.NewReader(p))
 	for scanner.Scan() {
-		//Most stdout logs are unimportant, so don't log and just upload to syslog
-		if l.unstructuredLoggerName == "viam-server.StdOut" {
-			fmt.Println("STDOUT: " , scanner.Text())
+		// Most stdout logs are unimportant, so don't log and just upload to syslog
+		if l.isStdOut {
 			//nolint
 			writePlatformOutput(scanner.Bytes())
 			//nolint
@@ -127,9 +116,6 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 				Message:    scanner.Text(),
 				Caller:     zapcore.EntryCaller{Defined: false},
 			}}
-			if l.defaultError {
-				entry.Level = zapcore.Level(logging.ERROR)
-			}
 			l.logger.Write(&entry)
 		}
 	}
