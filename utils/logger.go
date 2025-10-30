@@ -3,7 +3,6 @@ package utils
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"regexp"
 	"strconv"
 	"sync"
