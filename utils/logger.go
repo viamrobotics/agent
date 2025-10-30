@@ -76,7 +76,7 @@ func (l *MatchingLogger) DeleteMatcher(name string) {
 	}
 }
 
-// Write takes input and filters it against each defined matcher, before logging it.
+// Write takes input and logs to syslog if stdout or to the underlying logger if stderr.
 func (l *MatchingLogger) Write(p []byte) (int, error) {
 	var mask bool
 
