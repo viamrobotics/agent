@@ -367,16 +367,6 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			partialHealthErr := &subsystems.PartialHealthError{}
-			if errors.As(err, partialHealthErr) {
-				m.logger.Errorw(
-					"Subsystem healthcheck partially failed, no automatic action will be taken",
-					"subsystem", entry.name,
-					"err", partialHealthErr.Unwrap(),
-				)
-				continue
-			}
-
 			m.logger.Errorw(
 				"Subsystem healthcheck failed, subsystem will be shut down",
 				"subsystem", entry.name,

@@ -362,24 +362,25 @@ func (n *Networking) HealthCheck(ctx context.Context) error {
 	btHealthy := n.btHealthy
 	wifiOk := bgLoopHealthy && mainLoopHealthy
 	btOk := !btEnabled || btAdvUnset || btHealthy
-	if wifiOk && btOk {
+	if wifiOk || btOk {
+		if !wifiOk || (btEnabled && !btOk) {
+			// If any form of networking is still working we should return nil so the
+			// agent doesn't shut down the entire subsystem, for example shutting
+			// down a functioning wifi access point when only bluetooth is broken,
+			// but still log that something is wrong.
+			n.logger.Warnw("Networking subsystem is partially unhealthy",
+				"wikiOk", wifiOk,
+				"bluetoothOk", btOk)
+		}
 		return nil
 	}
-	err := networkingUnresponsiveError{
+	return networkingUnresponsiveError{
 		bgLoopHealthy:   bgLoopHealthy,
 		mainLoopHealthy: mainLoopHealthy,
 		btEnabled:       btEnabled,
 		btAdvUnset:      btAdvUnset,
 		btHealthy:       btHealthy,
 	}
-	if wifiOk || btOk {
-		// If any form of networking is still working we should report partial
-		// failure so the agent doesn't shut down the entire subsystem, for example
-		// shutting down a functioning wifi access point when only bluetooth is
-		// broken.
-		return subsystems.WrapPartialHealthErr(err)
-	}
-	return err
 }
 
 type networkingUnresponsiveError struct {
