@@ -367,7 +367,11 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			m.logger.Error(errw.Wrapf(err, "Subsystem healthcheck failed for %s", entry.name))
+			m.logger.Errorw(
+				"Subsystem healthcheck failed, subsystem will be shut down",
+				"subsystem", entry.name,
+				"err", err,
+			)
 			if err := entry.sub.Stop(ctx); err != nil {
 				m.logger.Warn(errw.Wrapf(err, "stopping subsystem %s", entry.name))
 			}
