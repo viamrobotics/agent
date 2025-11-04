@@ -13,10 +13,7 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-var (
-	dateRegex       = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
-	colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
-)
+var colorCodeRegexp = regexp.MustCompile(`\x1b\[\d+m`)
 
 var levels = map[string]zapcore.Level{
 	"DEBUG":  zapcore.DebugLevel,
@@ -35,23 +32,20 @@ type matcher struct {
 }
 
 // NewMatchingLogger returns a MatchingLogger.
-func NewMatchingLogger(logger logging.Logger, isError, uploadAll bool, unstructuredLoggerName string) *MatchingLogger {
+func NewMatchingLogger(logger logging.Logger, isStdOut bool, unstructuredLoggerName string) *MatchingLogger {
 	return &MatchingLogger{
 		logger:                 logger,
-		defaultError:           isError,
-		uploadAll:              uploadAll,
+		isStdOut:               isStdOut,
 		unstructuredLoggerName: unstructuredLoggerName,
 	}
 }
 
 // MatchingLogger provides a logger that also allows sending regex matched lines to a channel.
 type MatchingLogger struct {
-	mu           sync.RWMutex
-	logger       logging.Logger
-	matchers     map[string]matcher
-	defaultError bool
-	// if uploadAll is false, only send unstructured log lines to the logger, and just print structured ones.
-	uploadAll              bool
+	mu                     sync.RWMutex
+	logger                 logging.Logger
+	matchers               map[string]matcher
+	isStdOut               bool
 	unstructuredLoggerName string
 }
 
@@ -82,7 +76,7 @@ func (l *MatchingLogger) DeleteMatcher(name string) {
 	}
 }
 
-// Write takes input and filters it against each defined matcher, before logging it.
+// Write takes input and logs to syslog if stdout or to the underlying logger if stderr.
 func (l *MatchingLogger) Write(p []byte) (int, error) {
 	var mask bool
 
@@ -107,9 +101,13 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 
 	scanner := bufio.NewScanner(bytes.NewReader(p))
 	for scanner.Scan() {
-		dateMatched := dateRegex.Match(scanner.Bytes())
-		if !dateMatched { //nolint:gocritic
-			// this case is the 'unstructured error' case; we were unable to parse a date.
+		// Most stdout logs are unimportant, so don't log and just upload to syslog
+		if l.isStdOut {
+			//nolint
+			writePlatformOutput(scanner.Bytes())
+			//nolint
+			writePlatformOutput([]byte("\n"))
+		} else {
 			entry := logging.LogEntry{Entry: zapcore.Entry{
 				Level:      zapcore.Level(logging.WARN),
 				Time:       time.Now().UTC(),
@@ -117,22 +115,7 @@ func (l *MatchingLogger) Write(p []byte) (int, error) {
 				Message:    scanner.Text(),
 				Caller:     zapcore.EntryCaller{Defined: false},
 			}}
-			if l.defaultError {
-				entry.Level = zapcore.Level(logging.ERROR)
-			}
 			l.logger.Write(&entry)
-		} else if l.uploadAll {
-			// in this case, date matching succeeded and we think this is a parseable log message.
-			// we check uploadAll because some subprocesses have their own netlogger which will
-			// upload structured logs. (But won't upload unmatched logs).
-			entry := parseLog(scanner.Bytes()).entry()
-			l.logger.Write(&logging.LogEntry{Entry: entry})
-		} else {
-			// this case is already-structured logging from non-uploadAll; we print it but don't upload it.
-			//nolint
-			writePlatformOutput(scanner.Bytes())
-			//nolint
-			writePlatformOutput([]byte("\n"))
 		}
 	}
 	// note: this return isn't quite right; we don't know how many bytes we wrote, it can be greater
