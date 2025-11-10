@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/google/uuid"
@@ -53,13 +54,15 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 		n.logger.Warn("could not update BT networks characteristic")
 	}
 
-	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
+	pairingCtx, pairingCtxCancel := context.WithTimeout(ctx, time.Second * 30)
+	defer pairingCtxCancel()
+	if err := n.enablePairing(pairingCtx, n.Config().HotspotSSID); err != nil {
 		return err
 	}
 
 	// Start advertising the bluetooth service.
 	if err := n.btAdv.Start(); err != nil {
-		return fmt.Errorf("failed to start advertising: %w", err)
+		return errw.Wrap(err, "failed to start advertising")
 	}
 	n.btHealthy = true
 
