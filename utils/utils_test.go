@@ -386,7 +386,7 @@ func TestInitPaths(t *testing.T) {
 }
 
 func TestPartialPath(t *testing.T) {
-	path := CreatePartialPath("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-latest-x86_64")
+	path, _ := CreatePartialPath("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-latest-x86_64")
 	maxPathLengths := map[string]int{
 		"linux":   4096,
 		"windows": 260,
