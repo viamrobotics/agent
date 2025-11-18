@@ -298,8 +298,9 @@ func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 		urlPath = parsed.Path
 	}
 
-	partPath = path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), "")+".part")
-	etagPath = partPath + ".etag"
+	basePath := path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), ""))
+	partPath = basePath + ".part"
+	etagPath = basePath + ".etag"
 	return partPath, etagPath
 }
 
