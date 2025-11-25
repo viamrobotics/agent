@@ -221,12 +221,10 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			} else {
 				logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
 			}
-		} else {
+		} else if remoteETag != "" {
 			// If the file doesn't exist, save a new etag file
-			if remoteETag != "" {
-				if err := writeETag(etagPath, remoteETag); err != nil {
-					logger.Warnw("failed to save ETag", "err", err)
-				}
+			if err := writeETag(etagPath, remoteETag); err != nil {
+				logger.Warnw("failed to save ETag", "err", err)
 			}
 		}
 
@@ -341,7 +339,7 @@ func getRemoteETagAndSize(ctx context.Context, url string, logger logging.Logger
 	if err != nil {
 		return "", 0, errw.Wrap(err, "executing HEAD request")
 	}
-	defer res.Body.Close() //nolint:errcheck,gosec
+	defer res.Body.Close() //nolint:errcheck
 	etag := res.Header.Get("ETag")
 	// Remove surrounding quotes if present (ETags are often returned as "value")
 	etag = strings.Trim(etag, `"`)
@@ -350,7 +348,7 @@ func getRemoteETagAndSize(ctx context.Context, url string, logger logging.Logger
 
 // readETag reads the ETag from a file.
 func readETag(etagPath string) (string, error) {
-	data, err := os.ReadFile(etagPath)
+	data, err := os.ReadFile(etagPath) //nolint:gosec
 	if err != nil {
 		return "", err
 	}
@@ -360,10 +358,10 @@ func readETag(etagPath string) (string, error) {
 // writeETag writes the ETag to a file.
 func writeETag(etagPath string, etag string) error {
 	// Ensure the directory exists
-	if err := os.MkdirAll(path.Dir(etagPath), 0o755); err != nil {
+	if err := os.MkdirAll(path.Dir(etagPath), 0o750); err != nil {
 		return errw.Wrapf(err, "creating directory for %s", etagPath)
 	}
-	return errw.Wrapf(os.WriteFile(etagPath, []byte(etag), 0o644), "writing ETag to %s", etagPath)
+	return errw.Wrapf(os.WriteFile(etagPath, []byte(etag), 0o600), "writing ETag to %s", etagPath)
 }
 
 // on windows only, create a firewall exception for the newly-downloaded file.
