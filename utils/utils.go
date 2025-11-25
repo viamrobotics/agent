@@ -277,7 +277,8 @@ func last[T any](items []T, default_ T) T {
 	return items[len(items)-1]
 }
 
-// helper: last N digits of md5sum of input string.
+// helper: give the last `n` digits of the md5sum of `input`.
+// If `n` is <= 0, return full string.
 func hashString(input string, n int) string {
 	h := md5.New() //nolint:gosec
 	h.Write([]byte(input))
