@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -261,7 +262,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 
 	if !goodBytes {
 		c.logger.Warnw("mismatched checksum, redownloading",
-			"expected", string(verData.UnpackedSHA), "actual", string(shasum), "url", verData.URL)
+			"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
+			"url", verData.URL)
 		// download and record the sha of the download itself
 		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
 		if err != nil {
