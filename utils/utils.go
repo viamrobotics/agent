@@ -356,7 +356,7 @@ func readETag(etagPath string) (string, error) {
 }
 
 // writeETag writes the ETag to a file.
-func writeETag(etagPath string, etag string) error {
+func writeETag(etagPath, etag string) error {
 	// Ensure the directory exists
 	if err := os.MkdirAll(path.Dir(etagPath), 0o750); err != nil {
 		return errw.Wrapf(err, "creating directory for %s", etagPath)
