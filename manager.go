@@ -169,6 +169,11 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 		return false, ctx.Err()
 	}
 
+	// Do not manage the agent while in dev mode.
+	if utils.DevMode {
+		return false, nil
+	}
+
 	_, err := m.GetConfig(ctx)
 	if err != nil {
 		return false, err
@@ -195,17 +200,20 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	m.cfgMu.Lock()
 	defer m.cfgMu.Unlock()
 
-	// Agent
-	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
-	if err != nil {
-		m.logger.Warn(err)
-	}
-	if needRestart {
-		_, err := InstallNewVersion(ctx, m.logger)
+	// Do not manage the agent while in dev mode.
+	if !utils.DevMode {
+		// Agent
+		needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
 		if err != nil {
-			m.logger.Warnw("running install of new agent version", "error", err)
+			m.logger.Warn(err)
 		}
-		m.viamAgentNeedsRestart = true
+		if needRestart {
+			_, err := InstallNewVersion(ctx, m.logger)
+			if err != nil {
+				m.logger.Warnw("running install of new agent version", "error", err)
+			}
+			m.viamAgentNeedsRestart = true
+		}
 	}
 
 	// Viam Server
@@ -254,7 +262,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 			m.logger.Warn(err)
 		}
 	} else {
-		needRestart = m.sysConfig.Update(ctx, m.cfg)
+		needRestart := m.sysConfig.Update(ctx, m.cfg)
 		if needRestart {
 			if err := m.sysConfig.Stop(ctx); err != nil {
 				m.logger.Warn(err)
@@ -271,7 +279,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 			m.logger.Warn(err)
 		}
 	} else {
-		needRestart = m.networking.Update(ctx, m.cfg)
+		needRestart := m.networking.Update(ctx, m.cfg)
 		if needRestart {
 			if err := m.networking.Stop(ctx); err != nil {
 				m.logger.Warn(err)

@@ -65,6 +65,7 @@ var (
 	DefaultsFilePath      = "/etc/viam-defaults.json"
 	CLIDebug              = false
 	CLIWaitForUpdateCheck = false
+	DevMode               = false
 )
 
 func init() {
