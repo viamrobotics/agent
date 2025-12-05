@@ -81,9 +81,8 @@ func commonMain() {
 		globalLogger.SetLevel(logging.DEBUG)
 	}
 
-	if opts.UpdateFirst {
-		utils.CLIWaitForUpdateCheck = true
-	}
+	utils.CLIWaitForUpdateCheck = opts.UpdateFirst
+	utils.DevMode = opts.DevMode
 
 	// need to be root to go any further than this
 	curUser, err := user.Current()

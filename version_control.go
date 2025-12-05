@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -202,10 +203,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		return false, errw.Errorf("unknown binary name for update request: %s", binary)
 	}
 
-	var needRestart, goodBytes bool
-
 	if data.brokenTarget {
-		return needRestart, nil
+		return false, nil
 	}
 
 	verData, ok := data.Versions[data.TargetVersion]
@@ -216,17 +215,37 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		if targetVersion == "" {
 			targetVersion = "[empty string]"
 		}
-		return needRestart, errw.Errorf("version data %s not found for binary %s", targetVersion, binary)
+		return false, errw.Errorf("version data %s not found for binary %s", targetVersion, binary)
+	}
+
+	var shasum []byte
+	var shaErr error
+	urlObj, urlErr := url.Parse(verData.URL)
+	//nolint:gocritic
+	if urlErr == nil && urlObj.Scheme == "file" {
+		shasum, shaErr = utils.GetFileSum(urlObj.Path)
+	} else if urlErr == nil && urlObj.Scheme == "https" {
+		// Google storage's `x-goog-hash` header only report crc32 hashes. We could compute that
+		// from the file on disk in. But do not do so currently.
+		//
+		// Alternatively we could compare the `last-modified` header with the on disk
+		// last-modified. We do not preserve the modification time when downloading files. So we
+		// can't rely on equality. But it should also be correct to redownload anytime the in-cloud
+		// last modified is newer than the on-disk last modified. So long as the system clock can be
+		// trusted. Which may not be the case for freshly restarted raspberry pis.
+		shaErr = errors.New("we do not know how to cache invalidate custom download urls")
+	} else {
+		shasum, shaErr = utils.GetFileSum(verData.UnpackedPath)
+	}
+
+	var needRestart, bytesMatch bool
+	if shaErr == nil {
+		bytesMatch = bytes.Equal(shasum, verData.UnpackedSHA)
+	} else if verData.UnpackedPath != "" { // custom file:// URLs with have an empty unpacked path; no need to warn
+		c.logger.Warnw("Could not calculate shasum", "path", verData.UnpackedPath, "shaErr", shaErr)
 	}
 
 	isCustomURL := strings.HasPrefix(verData.Version, "customURL+")
-	shasum, err := utils.GetFileSum(verData.UnpackedPath)
-	if err == nil {
-		goodBytes = bytes.Equal(shasum, verData.UnpackedSHA)
-	} else if verData.UnpackedPath != "" { // custom file:// URLs with have an empty unpacked path; no need to warn
-		c.logger.Warnw("Could not calculate shasum", "path", verData.UnpackedPath, "error", err)
-	}
-
 	if data.TargetVersion == data.CurrentVersion {
 		// if a known version, make sure the symlink is correct
 		same, err := utils.CheckIfSame(verData.DlPath, verData.SymlinkPath)
@@ -246,71 +265,78 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			}
 		}
 
-		// TODO(APP-10012): don't leave bad checksum binary on disk + symlinked
-		if goodBytes {
-			return false, nil
-		}
-
 		// if we're here, we have a mismatched checksum, as likely the URL changed, so wipe it and recompute later
 		if isCustomURL {
 			verData.UnpackedSHA = []byte{}
 		}
 	}
 
+	// TODO(APP-10012): don't leave bad checksum binary on disk + symlinked
+	if bytesMatch {
+		return needRestart, nil
+	}
+
 	// this is a new version
 	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
+	c.logger.Warnw("mismatched checksum, redownloading",
+		"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
+		"url", verData.URL, "shaErr", shaErr)
 
-	if !goodBytes {
-		c.logger.Warnw("mismatched checksum, redownloading",
-			"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
-			"url", verData.URL)
-		// download and record the sha of the download itself
-		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+	// download and record the sha of the download itself
+	var err error
+	verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+	if err != nil {
+		if isCustomURL && urlObj.Scheme != "file" {
+			// If the binary was downloaded from the internet cache that link as bad forever. We
+			// don't want to redownload every five seconds to learn the binary still does not
+			// work. Even if the binary backing the URL eventually changes, unfortunately.
+			//
+			// However, if the URL represents a file on disk, we should keep retrying. Consider
+			// the case where the file was overwritten in place. Being this update logic is run
+			// every five seconds, it's common to catch a binary while its being
+			// compiled/written to.
+			data.brokenTarget = true
+		}
+		return needRestart, errw.Wrapf(err, "downloading %s", binary)
+	}
+
+	actualSha, err := utils.GetFileSum(verData.DlPath)
+	if err != nil {
+		return needRestart, errw.Wrap(err, "getting file shasum")
+	}
+
+	// TODO handle compressed formats, for now, the raw download is the same file
+	verData.UnpackedPath = verData.DlPath
+	verData.DlSHA = actualSha
+
+	if len(verData.UnpackedSHA) <= 1 && isCustomURL {
+		// new custom download, so need to check the file is an executable binary and use locally generated sha
+		mtype, err := mimetype.DetectFile(verData.UnpackedPath)
 		if err != nil {
-			if isCustomURL {
-				data.brokenTarget = true
-			}
-			return needRestart, errw.Wrapf(err, "downloading %s", binary)
+			return needRestart, errw.Wrapf(err, "determining file type of download")
 		}
 
-		actualSha, err := utils.GetFileSum(verData.DlPath)
-		if err != nil {
-			return needRestart, errw.Wrap(err, "getting file shasum")
+		expectedMimes := []string{"application/x-elf", "application/x-executable"}
+		if runtime.GOOS == "windows" {
+			expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 		}
 
-		// TODO handle compressed formats, for now, the raw download is the same file
-		verData.UnpackedPath = verData.DlPath
-		verData.DlSHA = actualSha
-
-		if len(verData.UnpackedSHA) <= 1 && isCustomURL {
-			// new custom download, so need to check the file is an executable binary and use locally generated sha
-			mtype, err := mimetype.DetectFile(verData.UnpackedPath)
-			if err != nil {
-				return needRestart, errw.Wrapf(err, "determining file type of download")
-			}
-
-			expectedMimes := []string{"application/x-elf", "application/x-executable"}
-			if runtime.GOOS == "windows" {
-				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
-			}
-
-			if !slices.ContainsFunc(expectedMimes, mtype.Is) {
-				data.brokenTarget = true
-				return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
-			}
-			verData.UnpackedSHA = actualSha
+		if !slices.ContainsFunc(expectedMimes, mtype.Is) {
+			data.brokenTarget = true
+			return needRestart, errw.Errorf("downloaded file is %s, not %s, skipping", mtype, strings.Join(expectedMimes, ", "))
 		}
+		verData.UnpackedSHA = actualSha
+	}
 
-		if len(verData.UnpackedSHA) > 1 && !bytes.Equal(verData.UnpackedSHA, actualSha) {
-			// TODO(APP-10012): don't leave bad checksum file on disk
-			//nolint:goerr113
-			return needRestart, fmt.Errorf(
-				"sha256 (%s) of downloaded file (%s) does not match provided (%s)",
-				base64.StdEncoding.EncodeToString(actualSha),
-				verData.UnpackedPath,
-				base64.StdEncoding.EncodeToString(verData.UnpackedSHA),
-			)
-		}
+	if len(verData.UnpackedSHA) > 1 && !bytes.Equal(verData.UnpackedSHA, actualSha) {
+		// TODO(APP-10012): don't leave bad checksum file on disk
+		//nolint:goerr113
+		return needRestart, fmt.Errorf(
+			"sha256 (%s) of downloaded file (%s) does not match provided (%s)",
+			base64.StdEncoding.EncodeToString(actualSha),
+			verData.UnpackedPath,
+			base64.StdEncoding.EncodeToString(verData.UnpackedSHA),
+		)
 	}
 
 	// chmod with execute permissions if the file is executable
@@ -320,7 +346,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	}
 
 	// symlink the extracted file to bin
-	if err = utils.ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
+	if err := utils.ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
 		return needRestart, errw.Wrap(err, "creating symlink")
 	}
 

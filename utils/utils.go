@@ -160,9 +160,11 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	logger.Infof("Starting download of %s", rawURL)
 	parsedPath := parsedURL.Path
 
-	// don't want to accidentally overwrite anything in the cache directory by accident
-	// old agent versions used a different cache format, so it's possible we could be re-downloading ourself
+	// APP-8900: Somehow, versioned binaries can be downloaded over themselves. I think when the
+	// version cache file is out of sync with what's actually on disk. I don't know why we need a
+	// version cache file.
 	var outPath string
+	outPath = filepath.Join(ViamDirs.Cache, path.Base(parsedPath))
 	for n := range 100 {
 		var suffix string
 		if n > 0 {
@@ -350,15 +352,17 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 	return outPath, errRet
 }
 
-func GetFileSum(filepath string) (outSum []byte, errRet error) {
-	//nolint:gosec
-	in, err := os.Open(filepath)
+func GetFileSum(path string) (outSum []byte, errRet error) {
+	resolvedPath, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		errRet = errors.Join(errRet, in.Close())
-	}()
+
+	in, err := os.Open(resolvedPath)
+	if err != nil {
+		return nil, err
+	}
+	defer goutils.UncheckedErrorFunc(in.Close)
 
 	h := sha256.New()
 	_, errRet = io.Copy(h, in)
