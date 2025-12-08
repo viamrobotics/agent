@@ -12,9 +12,9 @@ type connectionState struct {
 
 	configured bool
 
-	online     bool
-	lastOnline time.Time
-	lastTested time.Time
+	online                bool
+	lastOnline            time.Time
+	manualCheckLastTested time.Time
 
 	connected     bool
 	lastConnected time.Time
@@ -140,16 +140,16 @@ func (c *connectionState) getLastInteraction() time.Time {
 	return c.lastInteraction
 }
 
-func (c *connectionState) setLastTested() {
+func (c *connectionState) setManualCheckLastTested() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.lastTested = time.Now()
+	c.manualCheckLastTested = time.Now()
 }
 
-func (c *connectionState) getLastTested() time.Time {
+func (c *connectionState) getManualCheckLastTested() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.lastTested
+	return c.manualCheckLastTested
 }
 
 // setForceProvisioningTime records the current time if passed true, and resets the time to the zero-value otherwise.

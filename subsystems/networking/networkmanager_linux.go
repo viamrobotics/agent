@@ -113,13 +113,18 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	if !online {
 		n.logger.Debugf("NetworkManager reports not online. current state: %v", state)
 		behindSocksProxy := os.Getenv("SOCKS_PROXY") != ""
-		// we always do the manual check when behind socks proxy, otherwise only if offline
-		if force ||
-			(behindSocksProxy && n.connState.getOnline() && time.Now().After(n.connState.getLastTested().Add(manualCheckIntervalLong))) ||
-			(!n.connState.getOnline() && time.Now().After(n.connState.getLastTested().Add(manualCheckIntervalShort))) {
+		// we the manual check when *NetworkManager reports we're offline* and:
+		// 1) force
+		// 2) not behind socks proxy. either 1) we're actually offline / 2) NetworkManager is wrong (uncommon)
+		// 3) behind socks proxy and we're:
+		//    - currently online && last manual check >= 15 mins ago (verify still online)
+		//    - currently offline && last manual check >= 2 mins ago (initial check)
+		if force || !behindSocksProxy ||
+			(n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalLong))) ||
+			(!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalShort))) {
 			var errManualCheck error
 			online, errManualCheck = n.CheckInternetManual(ctx, behindSocksProxy)
-			n.connState.setLastTested()
+			n.connState.setManualCheckLastTested()
 			if errManualCheck != nil {
 				n.logger.Debug(errw.Wrap(errManualCheck, "testing connectivity via file download"))
 			}
