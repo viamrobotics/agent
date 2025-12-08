@@ -242,7 +242,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 
 		// move completed .part to outPath and remove url-hash dir
-		logger.Debugf("moving successful download to outPath", "partialDest", partialDest)
+		logger.Debugw("moving successful download to outPath", "partialDest", partialDest)
 		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
 			return "", err
 		}
