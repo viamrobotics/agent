@@ -232,6 +232,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		c.logger.Warnw("Could not calculate shasum", "path", verData.UnpackedPath, "error", err)
 	}
 
+	prevLastModified := verData.LastModified
 	var lastModified time.Time
 	var lastModifiedChanged bool
 	if isCustomURL && !isFileURL && time.Since(verData.LastModifiedCheck) > 2*time.Minute {
@@ -279,7 +280,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	if !goodBytes || lastModifiedChanged {
 		if lastModifiedChanged {
 			c.logger.Infow("detected change in Last-Modified timestamp. redownloading.",
-				"latest", lastModified, "previous", verData.LastModified, "url", verData.URL)
+				"latest", lastModified, "previous", prevLastModified, "url", verData.URL)
 		} else {
 			c.logger.Warnw("mismatched checksum, redownloading",
 				"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
