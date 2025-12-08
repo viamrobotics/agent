@@ -27,6 +27,11 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
+// lastModifiedCheckFrequency is the minimum interval for checking
+// a customURL's "Last-Modified" header to detect if the file has changed.
+// This is to not to overwhelm servers, since we fetch config updates and call UpdateBinary every few seconds.
+const lastModifiedCheckFrequency = time.Minute * 2
+
 func getCacheFilePath() string {
 	return filepath.Join(utils.ViamDirs.Cache, "version_cache.json")
 }
@@ -235,7 +240,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	prevLastModified := verData.LastModified
 	var lastModified time.Time
 	var lastModifiedChanged bool
-	if isCustomURL && !isFileURL && time.Since(verData.LastModifiedCheck) > 2*time.Minute {
+	if isCustomURL && !isFileURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFrequency {
 		lastModified = utils.GetLastModified(ctx, verData.URL, c.logger)
 		// don't mark changed if we're just storing lastModified for the first time
 		lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
