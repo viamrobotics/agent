@@ -145,6 +145,8 @@ func InitPaths() error {
 	return nil
 }
 
+// GetLastModified retrieves the 'Last-Modified' header from a url via a HEAD request.
+// If there is any issue (e.g. not present, retreiving, parsing), it will return a default time.Time{}.
 func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) time.Time {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
@@ -163,9 +165,7 @@ func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) 
 		return time.Time{}
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Warn(err)
-		}
+		goutils.UncheckedError(resp.Body.Close())
 	}()
 	if resp.StatusCode == http.StatusOK {
 		if lastModified := resp.Header.Get("Last-Modified"); lastModified != "" {
