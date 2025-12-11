@@ -83,6 +83,7 @@ func (n *Networking) getLastNetworkTried() NetworkInfo {
 }
 
 func (n *Networking) checkOnline(ctx context.Context, force bool) error {
+	networkStatusLogger := n.logger.Sublogger("network_status")
 	if force {
 		if err := n.nm.CheckConnectivity(); err != nil {
 			n.logger.Warn(err)
@@ -105,13 +106,13 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	case gnm.NmStateConnectedLocal:
 		// do nothing, but may need these two in the future
 	case gnm.NmStateUnknown:
-		n.logger.Debug("unable to determine network state")
+		networkStatusLogger.Info("unable to determine network state")
 	default:
 	}
 
 	// if NM reports not online, see if we can download a test file as a backup.
 	if !online {
-		n.logger.Debugf("NetworkManager reports not online. current state: %v", state)
+		networkStatusLogger.Infof("NetworkManager reports not online. current state: %v", state)
 		behindSocksProxy := os.Getenv("SOCKS_PROXY") != ""
 		// We perform a manual check when *NetworkManager reports we're offline* and:
 		// 1) force
@@ -126,10 +127,10 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 			online, errManualCheck = n.CheckInternetManual(ctx, behindSocksProxy)
 			n.connState.setManualCheckLastTested()
 			if errManualCheck != nil {
-				n.logger.Debug(errw.Wrap(errManualCheck, "testing connectivity via file download"))
+				networkStatusLogger.Info(errw.Wrap(errManualCheck, "testing connectivity via file download"))
 			}
 			if online {
-				n.logger.Infof(
+				networkStatusLogger.Infof(
 					"test file download successful. overriding NetworkManager's reported offline (current state: %v) and marking Agent as online.", state)
 			}
 		} else {
