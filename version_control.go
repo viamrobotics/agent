@@ -244,7 +244,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		lastModified = utils.GetLastModified(ctx, verData.URL, c.logger)
 		// don't mark changed if we're just storing lastModified for the first time
 		lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
-		if !lastModified.IsZero() {
+		// don't allow LastModified to move backwards (mostly likely in case server is misconfigured)
+		if lastModified.After(verData.LastModified) {
 			verData.LastModified = lastModified
 		}
 		verData.LastModifiedCheck = time.Now()
