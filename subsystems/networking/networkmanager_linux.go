@@ -101,12 +101,14 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	switch state {
 	case gnm.NmStateConnectedGlobal:
 		online = true
-	case gnm.NmStateConnectedSite:
-		fallthrough
+		networkStatusLogger.Debugf("NetworkManager reports full connectivity (global: %v).", state)
 	case gnm.NmStateConnectedLocal:
 		// do nothing, but may need these two in the future
+		networkStatusLogger.Infof("NetworkManager reports limited connectivity (local-only: %v). Check your internet conection.", state)
+	case gnm.NmStateConnectedSite:
+		networkStatusLogger.Infof("NetworkManager reports limited connectivity (site-only: %v). Check your internet conection.", state)
 	case gnm.NmStateUnknown:
-		networkStatusLogger.Info("unable to determine network state")
+		networkStatusLogger.Infof("unable to determine network state: %v", state)
 	default:
 	}
 
