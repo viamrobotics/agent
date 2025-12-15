@@ -113,7 +113,7 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	if !online {
 		n.logger.Debugf("NetworkManager reports not online. current state: %v", state)
 		behindSocksProxy := os.Getenv("SOCKS_PROXY") != ""
-		// we the manual check when *NetworkManager reports we're offline* and:
+		// We perform a manual check when *NetworkManager reports we're offline* and:
 		// 1) force
 		// 2) not behind socks proxy. either 1) we're actually offline / 2) NetworkManager is wrong (uncommon)
 		// 3) behind socks proxy and we're:
