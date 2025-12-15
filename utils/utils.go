@@ -145,6 +145,41 @@ func InitPaths() error {
 	return nil
 }
 
+// GetLastModified retrieves the 'Last-Modified' header from a url via a HEAD request.
+// If there is any issue (e.g. not present, retreiving, parsing), it will return a default time.Time{}.
+func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) time.Time {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		logger.Infof("%v", err)
+		return time.Time{}
+	}
+	client := socksClient(parsedURL.String(), logger)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, parsedURL.String(), nil)
+	if err != nil {
+		logger.Infof("%v", err)
+		return time.Time{}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Infof("%v", err)
+		return time.Time{}
+	}
+	defer func() {
+		goutils.UncheckedError(resp.Body.Close())
+	}()
+	if resp.StatusCode == http.StatusOK {
+		if lastModified := resp.Header.Get("Last-Modified"); lastModified != "" {
+			parsed, err := http.ParseTime(lastModified)
+			if err != nil {
+				logger.Infow("read Last-Modified but failed to parse. ignoring", "err", err, "Last-Modified", lastModified)
+				return time.Time{}
+			}
+			return parsed
+		}
+	}
+	return time.Time{}
+}
+
 // DownloadFile downloads or copies a file into the cache directory and returns a path to the file.
 // If this is an http/s URL, you must check the checksum of the result; the partial logic does not check etags.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
@@ -207,7 +242,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 
 		// move completed .part to outPath and remove url-hash dir
-		logger.Debugf("moving successful download to outPath", "partialDest", partialDest)
+		logger.Debugw("moving successful download to outPath", "partialDest", partialDest)
 		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
 			return "", err
 		}

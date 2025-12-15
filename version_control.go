@@ -27,6 +27,11 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
+// lastModifiedCheckFrequency is the minimum interval for checking
+// a customURL's "Last-Modified" header to detect if the file has changed.
+// This is to not to overwhelm servers, since we fetch config updates and call UpdateBinary every few seconds.
+const lastModifiedCheckFrequency = time.Minute * 2
+
 func getCacheFilePath() string {
 	return filepath.Join(utils.ViamDirs.Cache, "version_cache.json")
 }
@@ -84,6 +89,10 @@ type VersionInfo struct {
 	UnpackedSHA []byte
 	SymlinkPath string
 	Installed   time.Time
+
+	// Last-Modified field from http header, if available
+	LastModified      time.Time
+	LastModifiedCheck time.Time
 }
 
 func (c *VersionCache) AgentVersion() string {
@@ -220,11 +229,26 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	}
 
 	isCustomURL := strings.HasPrefix(verData.Version, "customURL+")
+	isFileURL := strings.HasPrefix(verData.URL, "file://")
 	shasum, err := utils.GetFileSum(verData.UnpackedPath)
 	if err == nil {
 		goodBytes = bytes.Equal(shasum, verData.UnpackedSHA)
 	} else if verData.UnpackedPath != "" { // custom file:// URLs with have an empty unpacked path; no need to warn
 		c.logger.Warnw("Could not calculate shasum", "path", verData.UnpackedPath, "error", err)
+	}
+
+	prevLastModified := verData.LastModified
+	var lastModified time.Time
+	var lastModifiedChanged bool
+	if isCustomURL && !isFileURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFrequency {
+		lastModified = utils.GetLastModified(ctx, verData.URL, c.logger)
+		// don't mark changed if we're just storing lastModified for the first time
+		lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
+		// don't allow LastModified to move backwards (mostly likely in case server is misconfigured)
+		if lastModified.After(verData.LastModified) {
+			verData.LastModified = lastModified
+		}
+		verData.LastModifiedCheck = time.Now()
 	}
 
 	if data.TargetVersion == data.CurrentVersion {
@@ -247,7 +271,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 
 		// TODO(APP-10012): don't leave bad checksum binary on disk + symlinked
-		if goodBytes {
+		// if checksums match and lastModified either hasn't changed or wasn't scanned, no update is needed
+		if goodBytes && !lastModifiedChanged {
 			return false, nil
 		}
 
@@ -260,10 +285,15 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	// this is a new version
 	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
 
-	if !goodBytes {
-		c.logger.Warnw("mismatched checksum, redownloading",
-			"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
-			"url", verData.URL)
+	if !goodBytes || lastModifiedChanged {
+		if lastModifiedChanged {
+			c.logger.Infow("detected change in Last-Modified timestamp. redownloading.",
+				"latest", lastModified, "previous", prevLastModified, "url", verData.URL)
+		} else {
+			c.logger.Warnw("mismatched checksum, redownloading",
+				"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
+				"url", verData.URL)
+		}
 		// download and record the sha of the download itself
 		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
 		if err != nil {
