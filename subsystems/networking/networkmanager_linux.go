@@ -25,8 +25,10 @@ const (
 	manualCheckURL          = "http://packages.viam.com/check_network_status.txt"
 	manualCheckTestContents = "NetworkManager is online"
 
-	manualCheckIntervalShort = time.Second * 15
-	manualCheckIntervalLong  = time.Minute * 2
+	// different check intervals when behind and not behind socks proxy
+	nonSocksManualCheckInterval   = time.Minute * 2
+	socksManualCheckIntervalShort = time.Second * 15
+	socksManualCheckIntervalLong  = time.Minute * 2
 )
 
 func (n *Networking) warnIfMultiplePrimaryNetworks() {
@@ -125,8 +127,9 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 		//    - currently online && last manual check >= 15 mins ago (verify still online)
 		// otherwise, if none of these, we exit early without updating connState.
 		if force ||
-			(!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalShort))) ||
-			(behindSocksProxy && n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalLong))) {
+			(!behindSocksProxy && !n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(nonSocksManualCheckInterval))) ||
+			(behindSocksProxy && !n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalShort))) ||
+			(behindSocksProxy && n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalLong))) {
 			var errManualCheck error
 			online, errManualCheck = n.CheckInternetManual(ctx, behindSocksProxy)
 			n.connState.setManualCheckLastTested()
