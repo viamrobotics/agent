@@ -104,9 +104,9 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 		networkStatusLogger.Debugf("NetworkManager reports full connectivity (global: %v).", state)
 	case gnm.NmStateConnectedLocal:
 		// do nothing, but may need these two in the future
-		networkStatusLogger.Infof("NetworkManager reports limited connectivity (local-only: %v). Check your internet conection.", state)
+		networkStatusLogger.Infof("NetworkManager reports limited connectivity (local-only: %v). Check your internet connection.", state)
 	case gnm.NmStateConnectedSite:
-		networkStatusLogger.Infof("NetworkManager reports limited connectivity (site-only: %v). Check your internet conection.", state)
+		networkStatusLogger.Infof("NetworkManager reports limited connectivity (site-only: %v). Check your internet connection.", state)
 	case gnm.NmStateUnknown:
 		networkStatusLogger.Infof("unable to determine network state: %v", state)
 	default:
@@ -118,13 +118,15 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 		behindSocksProxy := os.Getenv("SOCKS_PROXY") != ""
 		// We perform a manual check when *NetworkManager reports we're offline* and:
 		// 1) force
-		// 2) not behind socks proxy. either 1) we're actually offline / 2) NetworkManager is wrong (uncommon)
+		// 2) not behind socks proxy and we're
+		//    - currently offline && last manual check >= 2 mins ago. either 1) we're actually offline 2) NetworkManager is wrong (uncommon)
 		// 3) behind socks proxy and we're:
-		//    - currently online && last manual check >= 15 mins ago (verify still online)
 		//    - currently offline && last manual check >= 2 mins ago (initial check)
-		if force || !behindSocksProxy ||
-			(n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalLong))) ||
-			(!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalShort))) {
+		//    - currently online && last manual check >= 15 mins ago (verify still online)
+		// otherwise, if none of these, we exit early without updating connState.
+		if force ||
+			(!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalShort))) ||
+			(behindSocksProxy && n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(manualCheckIntervalLong))) {
 			var errManualCheck error
 			online, errManualCheck = n.CheckInternetManual(ctx, behindSocksProxy)
 			n.connState.setManualCheckLastTested()
