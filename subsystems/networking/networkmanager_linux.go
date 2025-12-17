@@ -123,8 +123,8 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 		// 2) not behind socks proxy and we're
 		//    - currently offline && last manual check >= 2 mins ago. either 1) we're actually offline 2) NetworkManager is wrong (uncommon)
 		// 3) behind socks proxy and we're:
-		//    - currently offline && last manual check >= 2 mins ago (initial check)
-		//    - currently online && last manual check >= 15 mins ago (verify still online)
+		//    - currently offline && last manual check >= 15 secs ago (initial check)
+		//    - currently online && last manual check >= 2 mins ago (verify still online)
 		// otherwise, if none of these, we exit early without updating connState.
 		if force ||
 			(!behindSocksProxy &&
