@@ -22,11 +22,13 @@ import (
 )
 
 const (
-	socksTestURL      = "http://packages.viam.com/check_network_status.txt"
-	socksTestContents = "NetworkManager is online"
+	manualCheckURL          = "http://packages.viam.com/check_network_status.txt"
+	manualCheckTestContents = "NetworkManager is online"
 
-	socksTestIntervalShort = time.Second * 15
-	socksTestIntervalLong  = time.Minute * 2
+	// different check intervals when behind and not behind socks proxy.
+	nonSocksManualCheckInterval   = time.Minute * 2
+	socksManualCheckIntervalShort = time.Second * 15
+	socksManualCheckIntervalLong  = time.Minute * 2
 )
 
 func (n *Networking) warnIfMultiplePrimaryNetworks() {
@@ -83,7 +85,9 @@ func (n *Networking) getLastNetworkTried() NetworkInfo {
 }
 
 func (n *Networking) checkOnline(ctx context.Context, force bool) error {
+	networkStatusLogger := n.logger.Sublogger("network_status")
 	if force {
+		// note: this call blocks; may take 30s+
 		if err := n.nm.CheckConnectivity(); err != nil {
 			n.logger.Warn(err)
 		}
@@ -100,27 +104,50 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 	switch state {
 	case gnm.NmStateConnectedGlobal:
 		online = true
-	case gnm.NmStateConnectedSite:
-		fallthrough
+		networkStatusLogger.Debugw("NetworkManager reports full connectivity (global).", "state", state)
 	case gnm.NmStateConnectedLocal:
 		// do nothing, but may need these two in the future
+		networkStatusLogger.Infow("NetworkManager reports limited connectivity (local-only). Check your internet connection.", "state", state)
+	case gnm.NmStateConnectedSite:
+		networkStatusLogger.Infow("NetworkManager reports limited connectivity (site-only). Check your internet connection.", "state", state)
 	case gnm.NmStateUnknown:
-		n.logger.Debug("unable to determine network state")
+		networkStatusLogger.Infow("unable to determine network state", "state", state)
 	default:
 	}
 
-	if !online && os.Getenv("SOCKS_PROXY") != "" {
+	// if NM reports not online, see if we can download a test file as a backup.
+	if !online {
+		behindSocksProxy := os.Getenv("SOCKS_PROXY") != ""
+		// We perform a manual check when *NetworkManager reports we're offline* and:
+		// 1) force
+		// 2) not behind socks proxy and we're
+		//    - currently offline && last manual check >= 2 mins ago. either 1) we're actually offline 2) NetworkManager is wrong (uncommon)
+		// 3) behind socks proxy and we're:
+		//    - currently offline && last manual check >= 15 secs ago (initial check)
+		//    - currently online && last manual check >= 2 mins ago (verify still online)
+		// otherwise, if none of these, we exit early without updating connState.
 		if force ||
-			(n.connState.getOnline() && time.Now().After(n.connState.getLastTested().Add(socksTestIntervalLong))) ||
-			(!n.connState.getOnline() && time.Now().After(n.connState.getLastTested().Add(socksTestIntervalShort))) {
-			var errSocks error
-			online, errSocks = n.CheckInternetViaSOCKS(ctx)
-			n.connState.setLastTested()
-			if errSocks != nil {
-				n.logger.Debug(errw.Wrap(errSocks, "testing connectivity via possible SOCKS proxy"))
+			(!behindSocksProxy &&
+				!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(nonSocksManualCheckInterval))) ||
+			(behindSocksProxy &&
+				!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalShort))) ||
+			(behindSocksProxy &&
+				n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalLong))) {
+			networkStatusLogger.Infow("NetworkManager reports not online. Trying manual check.", "state", state)
+			var errManualCheck error
+			online, errManualCheck = n.CheckInternetManual(ctx, behindSocksProxy)
+			n.connState.setManualCheckLastTested()
+			if errManualCheck != nil {
+				networkStatusLogger.Info(errw.Wrap(errManualCheck, "testing connectivity via file download"))
+			}
+			if online {
+				networkStatusLogger.Infof(
+					"test file download successful. overriding NetworkManager's reported offline (current state: %v) and marking Agent as online.", state)
 			}
 		} else {
 			// if it's not time for a new test, we want to avoid mistakenly recording "offline"
+			networkStatusLogger.Infow("NetworkManager reports not online. Not performing manual check.",
+				"last_manual_check", n.connState.getManualCheckLastTested().String(), "state", state)
 			return nil
 		}
 	}
@@ -728,11 +755,14 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	n.logger.Info("Background state monitors started")
 	defer n.logger.Info("Background state monitors stopped")
 	for {
+		// note: these operations may not return immediately: despite scanLoopDelay,
+		// the actual frequencies that each function runs at will depend on your system.
 		if !n.bgLoopHealth.Sleep(ctx, scanLoopDelay) {
 			return
 		}
 
 		n.checkConfigured()
+		// this may block for 30s+
 		if err := n.networkScan(ctx); err != nil {
 			n.logger.Warn(err)
 		}
@@ -1048,19 +1078,22 @@ func (n *Networking) doReboot(ctx context.Context) bool {
 	return false
 }
 
-func (n *Networking) CheckInternetViaSOCKS(ctx context.Context) (bool, error) {
-	n.logger.Debug("checking internet via possible SOCKS proxy")
+func (n *Networking) CheckInternetManual(ctx context.Context, behindSocksProxy bool) (bool, error) {
+	n.logger.Debug("checking internet by attempting to download test file.")
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()
-	req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, socksTestURL, nil)
+	req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, manualCheckURL, nil)
 	if err != nil {
 		return false, errw.Wrap(err, "request setup")
 	}
 
 	// Use SOCKS proxy from environment as gRPC proxy dialer.
-	httpClient := &http.Client{Transport: &http.Transport{
-		DialContext: rpc.SocksProxyFallbackDialContext(socksTestURL, n.logger),
-	}}
+	httpClient := &http.Client{}
+	if behindSocksProxy {
+		httpClient.Transport = &http.Transport{
+			DialContext: rpc.SocksProxyFallbackDialContext(manualCheckURL, n.logger),
+		}
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -1074,7 +1107,7 @@ func (n *Networking) CheckInternetViaSOCKS(ctx context.Context) (bool, error) {
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return false, errw.Errorf("got response '%s' while checking %s", resp.Status, socksTestURL)
+		return false, errw.Errorf("got response '%s' while checking %s", resp.Status, manualCheckURL)
 	}
 
 	data, err := io.ReadAll(resp.Body)
@@ -1082,9 +1115,9 @@ func (n *Networking) CheckInternetViaSOCKS(ctx context.Context) (bool, error) {
 		return false, errw.Wrap(err, "reading document body")
 	}
 
-	online := bytes.Contains(data, []byte(socksTestContents))
+	online := bytes.Contains(data, []byte(manualCheckTestContents))
 
-	n.logger.Debugf("connection test to %s and possibly via SOCKS result: %t", socksTestURL, online)
+	n.logger.Debugf("manual connection test to %s result: %t", manualCheckURL, online)
 
 	return online, nil
 }
