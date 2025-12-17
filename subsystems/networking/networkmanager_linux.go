@@ -25,7 +25,7 @@ const (
 	manualCheckURL          = "http://packages.viam.com/check_network_status.txt"
 	manualCheckTestContents = "NetworkManager is online"
 
-	// different check intervals when behind and not behind socks proxy
+	// different check intervals when behind and not behind socks proxy.
 	nonSocksManualCheckInterval   = time.Minute * 2
 	socksManualCheckIntervalShort = time.Second * 15
 	socksManualCheckIntervalLong  = time.Minute * 2
@@ -127,9 +127,12 @@ func (n *Networking) checkOnline(ctx context.Context, force bool) error {
 		//    - currently online && last manual check >= 15 mins ago (verify still online)
 		// otherwise, if none of these, we exit early without updating connState.
 		if force ||
-			(!behindSocksProxy && !n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(nonSocksManualCheckInterval))) ||
-			(behindSocksProxy && !n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalShort))) ||
-			(behindSocksProxy && n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalLong))) {
+			(!behindSocksProxy &&
+				!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(nonSocksManualCheckInterval))) ||
+			(behindSocksProxy &&
+				!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalShort))) ||
+			(behindSocksProxy &&
+				n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalLong))) {
 			networkStatusLogger.Infow("NetworkManager reports not online. Trying manual check.", "state", state)
 			var errManualCheck error
 			online, errManualCheck = n.CheckInternetManual(ctx, behindSocksProxy)
