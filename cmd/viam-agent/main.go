@@ -56,10 +56,17 @@ func commonMain() {
 	}()
 
 	var opts agentOpts
-	parser := flags.NewParser(&opts, flags.IgnoreUnknown)
+	parser := flags.NewParser(&opts, flags.HelpFlag|flags.AllowBoolValues)
 	parser.Usage = "runs as a background service and manages updates and the process lifecycle for viam-server."
 
 	_, err := parser.Parse()
+	if fe, ok := err.(*flags.Error); ok {
+		// don't log help screen with FATAL
+		if fe.Type == flags.ErrHelp {
+			print(fe.Message)
+			os.Exit(0)
+		}
+	}
 	exitIfError(err)
 
 	if opts.Help {
