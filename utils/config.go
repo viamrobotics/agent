@@ -289,7 +289,7 @@ func LoadConfigFromCache() (AgentConfig, error) {
 }
 
 // ApplyCLIArgs merges incoming cfg (e.g. from cloud or cache) with provided command line options,
-// prioritizing the latter for most, but with some exceptions:
+// prioritizing the latter for most, but with some exceptions.
 func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
 	newCfg := cfg
 	if CLIDebug {

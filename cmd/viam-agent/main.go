@@ -63,10 +63,13 @@ func commonMain() {
 	parser.Usage = "runs as a background service and manages updates and the process lifecycle for viam-server."
 
 	_, err := parser.Parse()
+	//nolint:errorlint
 	if fe, ok := err.(*flags.Error); ok {
 		// don't log help screen with FATAL
 		if fe.Type == flags.ErrHelp {
+			//nolint:forbidigo
 			print(fe.Message)
+			//nolint:gocritic
 			os.Exit(0)
 		}
 	}
@@ -117,7 +120,9 @@ func commonMain() {
 		//nolint:forbidigo
 		fmt.Printf("viam-agent with current options should be run as root (uid 0), but current user is %s (uid %s).\n",
 			curUser.Username, curUser.Uid)
+		//nolint:forbidigo
 		fmt.Printf("To install as a systemd service, run with sudo and --install.\n")
+		//nolint:forbidigo
 		fmt.Printf("See --help for a full list of options.\n")
 		return
 	}
