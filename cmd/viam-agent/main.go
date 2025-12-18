@@ -43,6 +43,7 @@ type agentOpts struct {
 	Version        bool   `description:"Show version"                      long:"version"                                   short:"v"`
 	Install        bool   `description:"Install systemd service"           long:"install"`
 	DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                         long:"dev-mode"`
+	ViamDir          string `description:"Use a custom path for agent directories"                      long:"viam-dir"`
 	ManageSysconfig  bool   `description:"Opt-in to system configuration management"                    long:"manage-sysconfig"`
 	ManageNetworking bool   `description:"Opt-in to networking management"                              long:"manage-networking"`
 }
@@ -101,6 +102,12 @@ func commonMain() {
 
 	if opts.ManageNetworking {
 		utils.CLIManageNetworking = true
+	}
+
+	// allows overriding default Agent dir (/opt/viam on Linux)
+	if opts.ViamDir != "" {
+		utils.ViamDirs.Viam = opts.ViamDir
+		utils.ReinitViamDirs()
 	}
 
 	curUser, err := user.Current()

@@ -97,14 +97,20 @@ func GetRevision() string {
 }
 
 func init() {
-	ViamDirs.Viam = "/opt/viam"
-	if runtime.GOOS == "windows" {
-		ViamDirs.Viam = "c:/opt/viam"
-		// note: forward slash isn't an abs path on windows, but resolves to one.
-		var err error
-		ViamDirs.Viam, err = filepath.Abs(ViamDirs.Viam)
-		if err != nil {
-			panic(err)
+	ReinitViamDirs()
+}
+
+func ReinitViamDirs() {
+	if ViamDirs.Viam == "" {
+		ViamDirs.Viam = "/opt/viam"
+		if runtime.GOOS == "windows" {
+			ViamDirs.Viam = "c:/opt/viam"
+			// note: forward slash isn't an abs path on windows, but resolves to one.
+			var err error
+			ViamDirs.Viam, err = filepath.Abs(ViamDirs.Viam)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 	ViamDirs.Bin = filepath.Join(ViamDirs.Viam, "bin")
@@ -133,7 +139,7 @@ func InitPaths() error {
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
 		if err := checkPathOwner(uid, info); err != nil {
-			return err
+			return errw.Wrapf(err, "viam dirs path owner check failed %s", p)
 		}
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)
