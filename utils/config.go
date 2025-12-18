@@ -25,8 +25,8 @@ var (
 			Debug:                         Tribool(0),
 			WaitForUpdateCheck:            Tribool(0),
 			DisableViamServer:             Tribool(0),
-			DisableNetworkConfiguration:   Tribool(0),
-			DisableSystemConfiguration:    Tribool(0),
+			DisableNetworkConfiguration:   Tribool(1),
+			DisableSystemConfiguration:    Tribool(1),
 			ViamServerStartTimeoutMinutes: Timeout(time.Minute * 10),
 			ViamServerExtraEnvVars:        nil,
 		},
@@ -65,6 +65,8 @@ var (
 	DefaultsFilePath      = "/etc/viam-defaults.json"
 	CLIDebug              = false
 	CLIWaitForUpdateCheck = false
+	CLIManageSysconfig    = false
+	CLIManageNetworking   = false
 )
 
 func init() {
@@ -286,14 +288,25 @@ func LoadConfigFromCache() (AgentConfig, error) {
 	return validateConfig(cfg)
 }
 
+// ApplyCLIArgs merges incoming cfg (e.g. from cloud or cache) with provided command line options,
+// prioritizing the latter for most, but with some exceptions:
 func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
+	newCfg := cfg
 	if CLIDebug {
-		cfg.AdvancedSettings.Debug = 1
+		newCfg.AdvancedSettings.Debug = 1
 	}
 	if CLIWaitForUpdateCheck {
-		cfg.AdvancedSettings.WaitForUpdateCheck = 1
+		newCfg.AdvancedSettings.WaitForUpdateCheck = 1
 	}
-	return cfg
+	// for these, CLI has lower precedence
+	if CLIManageSysconfig && !cfg.AdvancedSettings.DisableSystemConfiguration.IsSet() {
+		newCfg.AdvancedSettings.DisableSystemConfiguration = -1
+	}
+	if CLIManageNetworking && !cfg.AdvancedSettings.DisableNetworkConfiguration.IsSet() {
+		newCfg.AdvancedSettings.DisableNetworkConfiguration = -1
+	}
+
+	return newCfg
 }
 
 func StackConfigs(proto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {

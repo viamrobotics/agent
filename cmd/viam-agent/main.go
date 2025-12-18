@@ -43,6 +43,8 @@ type agentOpts struct {
 	Version        bool   `description:"Show version"                      long:"version"                                   short:"v"`
 	Install        bool   `description:"Install systemd service"           long:"install"`
 	DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                         long:"dev-mode"`
+	ManageSysconfig  bool   `description:"Opt-in to system configuration management"                    long:"manage-sysconfig"`
+	ManageNetworking bool   `description:"Opt-in to networking management"                              long:"manage-networking"`
 }
 
 //nolint:gocognit
@@ -93,6 +95,14 @@ func commonMain() {
 	}
 
 	// need to be root to go any further than this
+	if opts.ManageSysconfig {
+		utils.CLIManageSysconfig = true
+	}
+
+	if opts.ManageNetworking {
+		utils.CLIManageNetworking = true
+	}
+
 	curUser, err := user.Current()
 	exitIfError(err)
 	if runtime.GOOS != "windows" && curUser.Uid != "0" && !opts.DevMode {
