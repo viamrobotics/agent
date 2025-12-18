@@ -45,6 +45,8 @@ var (
 
 	ViamDirs ViamDirsData
 
+	IsRunningLocally = false
+
 	HealthCheckTimeout = time.Minute
 
 	// for rewriting URLs to the form that supports ranges.

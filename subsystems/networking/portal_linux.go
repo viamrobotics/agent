@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -120,7 +119,7 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 	}
 
-	if os.Getenv("VIAM_AGENT_DEVMODE") != "" {
+	if utils.IsRunningLocally {
 		n.logger.Warn("devmode enabled, using templates from /opt/viam/tmp/templates/")
 		newT, err := template.ParseGlob("/opt/viam/tmp/templates/*.html")
 		if err == nil {

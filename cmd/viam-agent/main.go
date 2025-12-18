@@ -35,17 +35,17 @@ var (
 
 //nolint:lll
 type agentOpts struct {
-	Config         string `default:"/etc/viam.json"                        description:"Path to machine credentials file"   long:"config"   short:"c"`
-	DefaultsConfig string `default:"/etc/viam-defaults.json"               description:"Path to manufacturer defaults file" long:"defaults"`
-	Debug          bool   `description:"Enable debug logging (agent only)" env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
-	UpdateFirst    bool   `description:"Update versions before starting"   env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
-	Help           bool   `description:"Show this help message"            long:"help"                                      short:"h"`
-	Version        bool   `description:"Show version"                      long:"version"                                   short:"v"`
-	Install        bool   `description:"Install systemd service"           long:"install"`
-	DevMode        bool   `description:"Allow non-root and non-service"    env:"VIAM_AGENT_DEVMODE"                         long:"dev-mode"`
+	Config           string `default:"/etc/viam.json"                                                   description:"Path to machine credentials file"   long:"config"   short:"c"`
+	DefaultsConfig   string `default:"/etc/viam-defaults.json"                                          description:"Path to manufacturer defaults file" long:"defaults"`
+	Install          bool   `description:"Install systemd service"                                      long:"install"`
+	Debug            bool   `description:"Enable debug logging (agent only)"                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
 	ViamDir          string `description:"Use a custom path for agent directories"                      long:"viam-dir"`
 	ManageSysconfig  bool   `description:"Opt-in to system configuration management"                    long:"manage-sysconfig"`
 	ManageNetworking bool   `description:"Opt-in to networking management"                              long:"manage-networking"`
+	UpdateFirst      bool   `description:"Update versions before starting"                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
+	DevMode          bool   `description:"Nothing (deprecated and will be removed in a future release)" long:"dev-mode"`
+	Help             bool   `description:"Show this help message"                                       long:"help"                                      short:"h"`
+	Version          bool   `description:"Show version"                                                 long:"version"                                   short:"v"`
 }
 
 //nolint:gocognit
@@ -95,7 +95,6 @@ func commonMain() {
 		utils.CLIWaitForUpdateCheck = true
 	}
 
-	// need to be root to go any further than this
 	if opts.ManageSysconfig {
 		utils.CLIManageSysconfig = true
 	}
@@ -110,11 +109,16 @@ func commonMain() {
 		utils.ReinitViamDirs()
 	}
 
+	needsRootToContinue := opts.Install || opts.ManageSysconfig || opts.ManageNetworking
+
 	curUser, err := user.Current()
 	exitIfError(err)
-	if runtime.GOOS != "windows" && curUser.Uid != "0" && !opts.DevMode {
+	if runtime.GOOS != "windows" && curUser.Uid != "0" && needsRootToContinue {
 		//nolint:forbidigo
-		fmt.Printf("viam-agent must be run as root (uid 0), but current user is %s (uid %s)\n", curUser.Username, curUser.Uid)
+		fmt.Printf("viam-agent with current options should be run as root (uid 0), but current user is %s (uid %s).\n",
+			curUser.Username, curUser.Uid)
+		fmt.Printf("To install as a systemd service, run with sudo and --install.\n")
+		fmt.Printf("See --help for a full list of options.\n")
 		return
 	}
 
@@ -124,16 +128,12 @@ func commonMain() {
 		return
 	}
 
-	if runtime.GOOS != "windows" && !opts.DevMode {
-		// confirm that we're running from a proper install
-		if !strings.HasPrefix(os.Args[0], utils.ViamDirs.Viam) {
-			//nolint:forbidigo
-			fmt.Printf("viam-agent is intended to be run as a system service and installed in %s.\n"+
-				"Please install with '%s --install' and then start the service with 'systemctl start viam-agent'\n"+
-				"Note you may need to preface the above commands with 'sudo' if you are not currently root.\n",
-				utils.ViamDirs.Viam, os.Args[0])
-			return
-		}
+	if runtime.GOOS != "windows" && !strings.HasPrefix(os.Args[0], utils.ViamDirs.Viam) {
+		globalLogger.Warnf("note: viam-agent is intended to be run as a system service and installed in %s. "+
+			"For production use, please install with '%s --install' and then start the service with 'systemctl start viam-agent'"+
+			"See --help for a full list of options.",
+			utils.ViamDirs.Viam, os.Args[0])
+		utils.IsRunningLocally = true
 	}
 
 	// set up folder structure
