@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -678,4 +679,23 @@ func GoArchToOSArch(goarch string) string {
 		return "x86_64"
 	}
 	return ""
+}
+
+// IsValidAgentBinary inspects the binary at path to determine if that binary is
+// ostensibly an agent binary by comparing its build info to our own.
+func IsValidAgentBinary(path string) bool {
+	// If we cannot for some reason determine our _own_ build info, fall back to a
+	// hardcoded string for the Golang module name.
+	agentGolangModuleName := "github.com/viamrobotics/agent"
+	currBinaryBuildInfo, ok := debug.ReadBuildInfo()
+	if ok {
+		agentGolangModuleName = currBinaryBuildInfo.Main.Path
+	}
+
+	binaryAtPathBuildInfo, err := buildinfo.ReadFile(path)
+	if err != nil || binaryAtPathBuildInfo.Main.Path != agentGolangModuleName {
+		return false
+	}
+
+	return true
 }
