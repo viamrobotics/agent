@@ -497,3 +497,55 @@ func TestRewriteGCPDownload(t *testing.T) {
 	test.That(t, b3, test.ShouldBeTrue)
 	test.That(t, rewrite3.EscapedPath(), test.ShouldResemble, u2.EscapedPath())
 }
+
+func TestIsValidAgentBinary(t *testing.T) {
+	t.Run("valid agent binary", func(t *testing.T) {
+		// The test binary itself is a valid Go binary with buildinfo
+		// Get the path to the currently running test executable
+		testBinaryPath, err := os.Executable()
+		test.That(t, err, test.ShouldBeNil)
+
+		// The test binary should be valid since it's part of the agent module
+		result := IsValidAgentBinary(testBinaryPath)
+		test.That(t, result, test.ShouldBeTrue)
+	})
+
+	t.Run("non-existent file", func(t *testing.T) {
+		result := IsValidAgentBinary("/path/to/nonexistent/binary")
+		test.That(t, result, test.ShouldBeFalse)
+	})
+
+	t.Run("invalid binary - not a Go executable", func(t *testing.T) {
+		td := t.TempDir()
+		invalidBinary := filepath.Join(td, "invalid")
+
+		// Create a file with random content that's not a valid Go binary
+		err := os.WriteFile(invalidBinary, []byte("not a valid go binary"), 0o755)
+		test.That(t, err, test.ShouldBeNil)
+
+		result := IsValidAgentBinary(invalidBinary)
+		test.That(t, result, test.ShouldBeFalse)
+	})
+
+	t.Run("non-binary file", func(t *testing.T) {
+		td := t.TempDir()
+		textFile := filepath.Join(td, "text.txt")
+
+		// Create a text file
+		err := os.WriteFile(textFile, []byte("hello world"), 0o644)
+		test.That(t, err, test.ShouldBeNil)
+
+		result := IsValidAgentBinary(textFile)
+		test.That(t, result, test.ShouldBeFalse)
+	})
+
+	t.Run("empty file", func(t *testing.T) {
+		td := t.TempDir()
+		emptyFile := filepath.Join(td, "empty")
+
+		Touch(t, emptyFile)
+
+		result := IsValidAgentBinary(emptyFile)
+		test.That(t, result, test.ShouldBeFalse)
+	})
+}
