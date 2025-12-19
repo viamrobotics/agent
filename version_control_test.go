@@ -229,6 +229,65 @@ func TestUpdateBinary(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 		wg.Wait()
 	})
+
+	t.Run("reject-invalid-agent-binary", func(t *testing.T) {
+		// Test that downloading an invalid agent binary fails with the correct error
+		td := t.TempDir()
+		invalidAgent := filepath.Join(td, "invalid-agent")
+
+		// Create a file that's not a valid Go binary
+		err := os.WriteFile(invalidAgent, []byte("not a valid go binary"), 0o755)
+		test.That(t, err, test.ShouldBeNil)
+
+		vi6 := vi2
+		vi6.Version = "0.72.0"
+		vi6.URL = "file://" + invalidAgent
+		vi6.UnpackedSHA = make([]byte, 0)
+
+		agentVC := VersionCache{
+			logger: logger,
+			ViamAgent: &Versions{
+				TargetVersion: vi6.Version,
+				Versions: map[string]*VersionInfo{
+					vi6.Version: &vi6,
+				},
+			},
+		}
+
+		// Attempt to update the agent binary with an invalid file
+		needsRestart, err := agentVC.UpdateBinary(t.Context(), SubsystemName)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "not a Golang executable with the correct module name")
+	})
+
+	t.Run("accept-valid-agent-binary", func(t *testing.T) {
+		// Test that downloading a valid agent binary succeeds
+		// Use the test binary itself as a valid agent binary
+		testBinaryPath, err := os.Executable()
+		test.That(t, err, test.ShouldBeNil)
+
+		vi7 := vi2
+		vi7.Version = "0.73.0"
+		vi7.URL = "file://" + testBinaryPath
+		vi7.UnpackedSHA = make([]byte, 0)
+		vi7.SymlinkPath = filepath.Join(utils.ViamDirs.Bin, SubsystemName)
+
+		agentVC := VersionCache{
+			logger: logger,
+			ViamAgent: &Versions{
+				TargetVersion: vi7.Version,
+				Versions: map[string]*VersionInfo{
+					vi7.Version: &vi7,
+				},
+			},
+		}
+
+		// Attempt to update the agent binary with a valid file
+		needsRestart, err := agentVC.UpdateBinary(t.Context(), SubsystemName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeTrue)
+	})
 }
 
 // assert that a file exists.
