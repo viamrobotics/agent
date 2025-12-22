@@ -72,7 +72,7 @@ func commonMain() {
 	}
 
 	if opts.Version {
-		versionInfoJSON, err := json.MarshalIndent(&utils.VersionInfo{
+		agentVersionInfoJSON, err := json.MarshalIndent(&utils.AgentVersionInfo{
 			Version:     utils.GetVersion(),
 			GitRevision: utils.GetRevision(),
 			BinaryName:  agent.SubsystemName,
@@ -83,7 +83,7 @@ func commonMain() {
 			return
 		}
 		//nolint:forbidigo
-		fmt.Printf("%s\n", versionInfoJSON)
+		fmt.Printf("%s\n", agentVersionInfoJSON)
 		return
 	}
 
