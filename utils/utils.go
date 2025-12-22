@@ -682,9 +682,9 @@ func GoArchToOSArch(goarch string) string {
 	return ""
 }
 
-// VersionInfo exists to log version information from -version in a structured way and to
+// AgentVersionInfo exists to log version information from -version in a structured way and to
 // parse that information in IsValidAgentBinary below.
-type VersionInfo struct {
+type AgentVersionInfo struct {
 	BinaryName  string `json:"binary_name"`
 	GitRevision string `json:"git_revision"`
 	Version     string `json:"version"`
@@ -697,12 +697,13 @@ func IsValidAgentBinary(path, expectedBinaryName string) bool {
 	cmd := exec.Command(path, "-version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// An agent binary that cannot run -version is always invalid.
 		return false
 	}
-	var vi *VersionInfo
-	err = json.Unmarshal(output, &vi)
+	var avi *AgentVersionInfo
+	err = json.Unmarshal(output, &avi)
 	if err == nil {
-		return vi.BinaryName == expectedBinaryName
+		return avi.BinaryName == expectedBinaryName
 	}
 	// Older versions of agent will not encode their version information as JSON. In this
 	// case, examine the build info of the binary and compare it to our own. Note that this

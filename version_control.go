@@ -320,7 +320,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				data.brokenTarget = true
 			}
 			return needRestart,
-				fmt.Errorf("downloaded %s file is not a Golang executable with the correct module name, skipping",
+				fmt.Errorf("downloaded file does not appear to be a %s binary, skipping",
 					SubsystemName)
 		}
 

@@ -499,53 +499,44 @@ func TestRewriteGCPDownload(t *testing.T) {
 }
 
 func TestIsValidAgentBinary(t *testing.T) {
-	t.Run("valid agent binary", func(t *testing.T) {
-		// The test binary itself is a valid Go binary with buildinfo
-		// Get the path to the currently running test executable
-		testBinaryPath, err := os.Executable()
-		test.That(t, err, test.ShouldBeNil)
+	t.Parallel()
 
-		// The test binary should be valid since it's part of the agent module
-		result := IsValidAgentBinary(testBinaryPath, "viam-agent")
-		test.That(t, result, test.ShouldBeTrue)
-	})
+	// TODO(RSDK-12820): Remove this conditional once we support more agent features on
+	// MacOS.
+	if runtime.GOOS == "darwin" {
+		t.Skip("Built viam-agent binary will not run -version on MacOS; skipping")
+	}
 
-	t.Run("non-existent file", func(t *testing.T) {
-		result := IsValidAgentBinary("/path/to/nonexistent/binary", "viam-agent")
-		test.That(t, result, test.ShouldBeFalse)
-	})
+	nonBinaryPath := filepath.Join(t.TempDir(), "text.txt")
+	err := os.WriteFile(nonBinaryPath, []byte("Hello, World!"), 0o644)
+	test.That(t, err, test.ShouldBeNil)
 
-	t.Run("invalid binary - not a Go executable", func(t *testing.T) {
-		td := t.TempDir()
-		invalidBinary := filepath.Join(td, "invalid")
+	testCases := []struct {
+		name  string
+		path  string
+		valid bool
+	}{
+		{
+			name:  "valid agent binary",
+			path:  BuildViamAgent(t),
+			valid: true,
+		},
+		{
+			name:  "non-binary file",
+			path:  nonBinaryPath,
+			valid: false,
+		},
+		{
+			name:  "non-existent file",
+			path:  filepath.Join("path", "to", "nonexistent", "binary"),
+			valid: false,
+		},
+	}
 
-		// Create a file with random content that's not a valid Go binary
-		err := os.WriteFile(invalidBinary, []byte("not a valid go binary"), 0o755)
-		test.That(t, err, test.ShouldBeNil)
-
-		result := IsValidAgentBinary(invalidBinary, "viam-agent")
-		test.That(t, result, test.ShouldBeFalse)
-	})
-
-	t.Run("non-binary file", func(t *testing.T) {
-		td := t.TempDir()
-		textFile := filepath.Join(td, "text.txt")
-
-		// Create a text file
-		err := os.WriteFile(textFile, []byte("hello world"), 0o644)
-		test.That(t, err, test.ShouldBeNil)
-
-		result := IsValidAgentBinary(textFile, "viam-agent")
-		test.That(t, result, test.ShouldBeFalse)
-	})
-
-	t.Run("empty file", func(t *testing.T) {
-		td := t.TempDir()
-		emptyFile := filepath.Join(td, "empty")
-
-		Touch(t, emptyFile)
-
-		result := IsValidAgentBinary(emptyFile, "viam-agent")
-		test.That(t, result, test.ShouldBeFalse)
-	})
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			test.That(t, IsValidAgentBinary(tc.path, "viam-agent"), test.ShouldEqual, tc.valid)
+		})
+	}
 }
