@@ -234,33 +234,82 @@ func TestUpdateBinary(t *testing.T) {
 	})
 
 	t.Run("viam-agent", func(t *testing.T) {
+		vi := VersionInfo{
+			Version:     "0.23.0",
+			SymlinkPath: filepath.Join(utils.ViamDirs.Bin, "viam-agent"),
+		}
+		// Mimic SHA of an empty file.
+		var err error
+		vi.UnpackedSHA, err = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+		test.That(t, err, test.ShouldBeNil)
+
+		vi2 := vi
+		vi2.Version = "0.24.0"
+
+		td := t.TempDir()
+		for _, v := range []*VersionInfo{&vi, &vi2} {
+			f, err := os.Create(filepath.Join(td, "source-binary-"+v.Version))
+			test.That(t, err, test.ShouldBeNil)
+			f.Close()
+			v.URL = "file://" + f.Name()
+		}
+
+		vc := VersionCache{
+			logger: logger,
+			ViamAgent: &Versions{
+				TargetVersion: vi.Version,
+				Versions: map[string]*VersionInfo{
+					vi.Version:  &vi,
+					vi2.Version: &vi2,
+				},
+			},
+		}
+
+		t.Run("initial-install", func(t *testing.T) {
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, needsRestart, test.ShouldBeTrue)
+			testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-agent"))
+			testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi.Version))
+			test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
+		})
+
+		t.Run("rerun-with-no-change", func(t *testing.T) {
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, needsRestart, test.ShouldBeFalse)
+		})
+
+		t.Run("upgrade", func(t *testing.T) {
+			vc.ViamAgent.TargetVersion = vi2.Version
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, needsRestart, test.ShouldBeTrue)
+			testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
+		})
+
 		t.Run("non-binary-file", func(t *testing.T) {
-			nonBinaryPath := filepath.Join(t.TempDir(), "text.txt")
+			nonBinaryPath := filepath.Join(td, "text.txt")
 			err := os.WriteFile(nonBinaryPath, []byte("Hello, World!"), 0o644)
 			test.That(t, err, test.ShouldBeNil)
 
-			vi := VersionInfo{}
-			vi.Version = "0.23.0"
-			vi.URL = "file://" + nonBinaryPath
-			vi.UnpackedSHA = make([]byte, 0)
-			agentVC := VersionCache{
-				logger: logger,
-				ViamAgent: &Versions{
-					TargetVersion: vi.Version,
-					Versions: map[string]*VersionInfo{
-						vi.Version: &vi,
-					},
-				},
-			}
+			vi3 := vi2
+			vi3.URL = "file://" + nonBinaryPath
+			vi3.Version = "customURL+" + vi3.URL
+			vi3.UnpackedSHA = make([]byte, 0)
+			vc.ViamAgent.Versions[vi3.Version] = &vi3
+			vc.ViamAgent.TargetVersion = vi3.Version
 
-			needsRestart, err := agentVC.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			test.That(t, err, test.ShouldNotBeNil)
 			test.That(t, err.Error(), test.ShouldContainSubstring, "downloaded file does not appear to be a viam-agent binary")
+			// Manually repair target for future subtests, as we just broke it by pointing to a
+			// "bad" file.
+			vc.ViamAgent.brokenTarget = false
 		})
 
 		t.Run("non-agent-binary-file", func(t *testing.T) {
-			td := t.TempDir()
 			nonAgentBinaryProgramPath := filepath.Join(td, "main.go")
 			nonAgentBinaryPath := filepath.Join(td, "main")
 			golangProgram := []byte(
@@ -278,24 +327,21 @@ func main() {
 			test.That(t, string(output), test.ShouldBeBlank)
 			test.That(t, err, test.ShouldBeNil)
 
-			vi := VersionInfo{}
-			vi.Version = "0.23.0"
-			vi.URL = "file://" + nonAgentBinaryPath
-			vi.UnpackedSHA = make([]byte, 0)
-			agentVC := VersionCache{
-				logger: logger,
-				ViamAgent: &Versions{
-					TargetVersion: vi.Version,
-					Versions: map[string]*VersionInfo{
-						vi.Version: &vi,
-					},
-				},
-			}
+			vi4 := vi2
+			vi4.URL = "file://" + nonAgentBinaryPath
+			vi4.Version = "customURL+" + vi4.URL
+			vi4.UnpackedSHA = make([]byte, 0)
+			vc.ViamAgent.Versions[vi4.Version] = &vi4
+			vc.ViamAgent.TargetVersion = vi4.Version
 
-			needsRestart, err := agentVC.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			test.That(t, err, test.ShouldNotBeNil)
 			test.That(t, err.Error(), test.ShouldContainSubstring, "downloaded file does not appear to be a viam-agent binary")
+
+			// Manually repair target for future subtests, as we just broke it by pointing to a
+			// "bad" file.
+			vc.ViamAgent.brokenTarget = false
 		})
 
 		t.Run("valid-file", func(t *testing.T) {
@@ -304,23 +350,16 @@ func main() {
 			if runtime.GOOS == "darwin" {
 				t.Skip("Built viam-agent binary will not run -version on MacOS; skipping")
 			}
+			agentBinaryPath := utils.BuildViamAgent(t)
 
-			vi := VersionInfo{}
-			vi.Version = "0.23.0"
-			vi.URL = "file://" + utils.BuildViamAgent(t)
-			vi.UnpackedSHA = make([]byte, 0)
-			vi.SymlinkPath = filepath.Join(utils.ViamDirs.Bin, SubsystemName)
-			agentVC := VersionCache{
-				logger: logger,
-				ViamAgent: &Versions{
-					TargetVersion: vi.Version,
-					Versions: map[string]*VersionInfo{
-						vi.Version: &vi,
-					},
-				},
-			}
+			vi5 := vi2
+			vi5.URL = "file://" + agentBinaryPath
+			vi5.Version = "customURL+" + vi5.URL
+			vi5.UnpackedSHA = make([]byte, 0)
+			vc.ViamAgent.Versions[vi5.Version] = &vi5
+			vc.ViamAgent.TargetVersion = vi5.Version
 
-			needsRestart, err := agentVC.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 		})
