@@ -288,7 +288,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	if !goodBytes || lastModifiedChanged {
 		if lastModifiedChanged {
 			c.logger.Infow("detected change in Last-Modified timestamp. redownloading.",
-				"latest", lastModified, "previous", prevLastModified, "url", verData.URL)
+				"latest", lastModified.String(), "previous", prevLastModified.String(), "url", verData.URL)
 		} else {
 			c.logger.Warnw("mismatched checksum, redownloading",
 				"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
