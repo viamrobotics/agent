@@ -313,7 +313,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		verData.DlSHA = actualSha
 
 		if len(verData.UnpackedSHA) <= 1 && isCustomURL {
-			// If we downloadeded a custom agent binary, check that it is ostensibly an agent
+			// If we downloaded a custom agent binary, check that it is ostensibly an agent
 			// binary. This is primarily to ensure that users do not crash their agents
 			// irrevocably by accidentally pointing `version_control.agent` to a viam-server
 			// binary, for example.
@@ -324,7 +324,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 						SubsystemName)
 			}
 
-			// Also check that the file is an executable binary and use locally generated sha.
+			// Also check that the file has an executable MIME type and use the locally
+			// generated sha.
 			mtype, err := mimetype.DetectFile(verData.UnpackedPath)
 			if err != nil {
 				return needRestart, errw.Wrapf(err, "determining file type of download")
