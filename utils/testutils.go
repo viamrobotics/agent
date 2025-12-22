@@ -82,9 +82,9 @@ func ResolveFile(fn string) string {
 }
 
 // BuildViamAgent will attempt to build the viam-agent. If successful, this function will
-// return the path to the executable.
+// return the path to the executable. Leverages the test-build make target.
 //
-// Mostly copied from rdk's file_utils.go.
+// Mostly copied from rdk's testutils/file_utils.go.
 func BuildViamAgent(tb testing.TB) string {
 	tb.Helper()
 
