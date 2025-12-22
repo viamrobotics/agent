@@ -312,20 +312,19 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		verData.UnpackedPath = verData.DlPath
 		verData.DlSHA = actualSha
 
-		// If we downloaded an agent binary, check that it is ostensibly an agent binary. This
-		// is primarily to ensure that users do not crash their agents irrevocably by
-		// accidentally pointing `version_control.agent` to a viam-server binary, for example.
-		if binary == SubsystemName && !utils.IsValidAgentBinary(verData.DlPath, SubsystemName) {
-			if isCustomURL {
-				data.brokenTarget = true
-			}
-			return needRestart,
-				fmt.Errorf("downloaded file does not appear to be a %s binary, skipping",
-					SubsystemName)
-		}
-
 		if len(verData.UnpackedSHA) <= 1 && isCustomURL {
-			// new custom download, so need to check the file is an executable binary and use locally generated sha
+			// If we downloadeded a custom agent binary, check that it is ostensibly an agent
+			// binary. This is primarily to ensure that users do not crash their agents
+			// irrevocably by accidentally pointing `version_control.agent` to a viam-server
+			// binary, for example.
+			if binary == SubsystemName && !utils.IsValidAgentBinary(verData.DlPath, SubsystemName) {
+				data.brokenTarget = true
+				return needRestart,
+					fmt.Errorf("downloaded file does not appear to be a %s binary, skipping",
+						SubsystemName)
+			}
+
+			// Also check that the file is an executable binary and use locally generated sha.
 			mtype, err := mimetype.DetectFile(verData.UnpackedPath)
 			if err != nil {
 				return needRestart, errw.Wrapf(err, "determining file type of download")
