@@ -506,12 +506,12 @@ func TestIsValidAgentBinary(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 
 		// The test binary should be valid since it's part of the agent module
-		result := IsValidAgentBinary(testBinaryPath)
+		result := IsValidAgentBinary(testBinaryPath, "viam-agent")
 		test.That(t, result, test.ShouldBeTrue)
 	})
 
 	t.Run("non-existent file", func(t *testing.T) {
-		result := IsValidAgentBinary("/path/to/nonexistent/binary")
+		result := IsValidAgentBinary("/path/to/nonexistent/binary", "viam-agent")
 		test.That(t, result, test.ShouldBeFalse)
 	})
 
@@ -523,7 +523,7 @@ func TestIsValidAgentBinary(t *testing.T) {
 		err := os.WriteFile(invalidBinary, []byte("not a valid go binary"), 0o755)
 		test.That(t, err, test.ShouldBeNil)
 
-		result := IsValidAgentBinary(invalidBinary)
+		result := IsValidAgentBinary(invalidBinary, "viam-agent")
 		test.That(t, result, test.ShouldBeFalse)
 	})
 
@@ -535,7 +535,7 @@ func TestIsValidAgentBinary(t *testing.T) {
 		err := os.WriteFile(textFile, []byte("hello world"), 0o644)
 		test.That(t, err, test.ShouldBeNil)
 
-		result := IsValidAgentBinary(textFile)
+		result := IsValidAgentBinary(textFile, "viam-agent")
 		test.That(t, result, test.ShouldBeFalse)
 	})
 
@@ -545,7 +545,7 @@ func TestIsValidAgentBinary(t *testing.T) {
 
 		Touch(t, emptyFile)
 
-		result := IsValidAgentBinary(emptyFile)
+		result := IsValidAgentBinary(emptyFile, "viam-agent")
 		test.That(t, result, test.ShouldBeFalse)
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"debug/buildinfo"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -681,11 +682,35 @@ func GoArchToOSArch(goarch string) string {
 	return ""
 }
 
+// VersionInfo exists to log version information from -version in a structured way and to
+// parse that information in IsValidAgentBinary below.
+type VersionInfo struct {
+	BinaryName  string `json:"binary_name"`
+	GitRevision string `json:"git_revision"`
+	Version     string `json:"version"`
+}
+
 // IsValidAgentBinary inspects the binary at path to determine if that binary is
-// ostensibly an agent binary by comparing its build info to our own.
-func IsValidAgentBinary(path string) bool {
-	// If we cannot for some reason determine our _own_ build info, fall back to a
-	// hardcoded string for the Golang module name.
+// ostensibly an agent binary.
+func IsValidAgentBinary(path, expectedBinaryName string) bool {
+	// Run the binary with -version to look for the binary_name field.
+	cmd := exec.Command(path, "-version")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	var vi *VersionInfo
+	err = json.Unmarshal(output, &vi)
+	if err == nil {
+		return vi.BinaryName == expectedBinaryName
+	}
+	// Older versions of agent will not encode their version information as JSON. In this
+	// case, examine the build info of the binary and compare it to our own. Note that this
+	// only works with binaries NOT compressed with upx, which is why we default to the
+	// strategy above.
+
+	// If we cannot for some reason determine our own build info, fall back to a hardcoded
+	// string for the Golang module name.
 	agentGolangModuleName := "github.com/viamrobotics/agent"
 	currBinaryBuildInfo, ok := debug.ReadBuildInfo()
 	if ok {
