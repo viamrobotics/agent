@@ -312,11 +312,10 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		verData.UnpackedPath = verData.DlPath
 		verData.DlSHA = actualSha
 
-		// If we downloaded an agent binary, check that it is a Golang executable with the
-		// correct module name. This is primarily to ensure that users do not crash their
-		// agents irrevocably by accidentally pointing `version_control.agent` to a
-		// viam-server binary, for example.
-		if binary == SubsystemName && !utils.IsValidAgentBinary(verData.DlPath) {
+		// If we downloaded an agent binary, check that it is ostensibly an agent binary. This
+		// is primarily to ensure that users do not crash their agents irrevocably by
+		// accidentally pointing `version_control.agent` to a viam-server binary, for example.
+		if binary == SubsystemName && !utils.IsValidAgentBinary(verData.DlPath, SubsystemName) {
 			if isCustomURL {
 				data.brokenTarget = true
 			}
