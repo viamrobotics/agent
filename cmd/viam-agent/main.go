@@ -106,12 +106,6 @@ func commonMain() {
 		utils.CLIManageNetworking = true
 	}
 
-	// allows overriding default Agent dir (/opt/viam on Linux)
-	if opts.ViamDir != "" {
-		utils.ViamDirs.Viam = opts.ViamDir
-		utils.ReinitViamDirs()
-	}
-
 	needsRootToContinue := opts.Install || opts.ManageSysconfig || opts.ManageNetworking
 
 	curUser, err := user.Current()
@@ -139,6 +133,11 @@ func commonMain() {
 			"See --help for a full list of options.",
 			utils.ViamDirs.Viam, os.Args[0])
 		utils.IsRunningLocally = true
+	}
+
+	// allows overriding default Agent dir (/opt/viam on Linux)
+	if opts.ViamDir != "" {
+		utils.InitViamDirs(opts.ViamDir)
 	}
 
 	// set up folder structure

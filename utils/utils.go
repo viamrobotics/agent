@@ -99,22 +99,21 @@ func GetRevision() string {
 }
 
 func init() {
-	ReinitViamDirs()
-}
-
-func ReinitViamDirs() {
-	if ViamDirs.Viam == "" {
-		ViamDirs.Viam = "/opt/viam"
-		if runtime.GOOS == "windows" {
-			ViamDirs.Viam = "c:/opt/viam"
-			// note: forward slash isn't an abs path on windows, but resolves to one.
-			var err error
-			ViamDirs.Viam, err = filepath.Abs(ViamDirs.Viam)
-			if err != nil {
-				panic(err)
-			}
+	viamDirRoot := "/opt/viam"
+	if runtime.GOOS == "windows" {
+		viamDirRoot = "c:/opt/viam"
+		// note: forward slash isn't an abs path on windows, but resolves to one.
+		var err error
+		viamDirRoot, err = filepath.Abs(viamDirRoot)
+		if err != nil {
+			panic(err)
 		}
 	}
+	InitViamDirs(viamDirRoot)
+}
+
+func InitViamDirs(viamDirRoot string) {
+	ViamDirs.Viam = viamDirRoot
 	ViamDirs.Bin = filepath.Join(ViamDirs.Viam, "bin")
 	ViamDirs.Cache = filepath.Join(ViamDirs.Viam, "cache")
 	ViamDirs.Partials = filepath.Join(ViamDirs.Cache, "part")
