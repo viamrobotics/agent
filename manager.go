@@ -200,12 +200,17 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	if err != nil {
 		m.logger.Warn(err)
 	}
+	// if running locally (not via systemd), download but don't install & exit
 	if needRestart {
-		_, err := InstallNewVersion(ctx, m.logger)
-		if err != nil {
-			m.logger.Warnw("running install of new agent version", "error", err)
+		if utils.IsRunningLocally {
+			m.logger.Infof("Agent is running locally. Downloaded latest update to version cache, but skipping install.")
+		} else {
+			_, err := InstallNewVersion(ctx, m.logger)
+			if err != nil {
+				m.logger.Warnw("running install of new agent version", "error", err)
+			}
+			m.viamAgentNeedsRestart = true
 		}
-		m.viamAgentNeedsRestart = true
 	}
 
 	// Viam Server
