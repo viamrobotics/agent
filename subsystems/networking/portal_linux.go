@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -120,8 +121,9 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	if utils.IsRunningLocally {
-		n.logger.Warn("devmode enabled, using templates from /opt/viam/tmp/templates/")
-		newT, err := template.ParseGlob("/opt/viam/tmp/templates/*.html")
+		templatesDir := filepath.Join(utils.ViamDirs.Tmp, "templates")
+		n.logger.Warnf("running locally, using templates from %s", templatesDir)
+		newT, err := template.ParseGlob(templatesDir + "/*.html")
 		if err == nil {
 			t = newT
 		}

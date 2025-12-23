@@ -112,7 +112,7 @@ func commonMain() {
 	exitIfError(err)
 	if runtime.GOOS != "windows" && curUser.Uid != "0" && needsRootToContinue {
 		//nolint:forbidigo
-		fmt.Printf("viam-agent with current options should be run as root (uid 0), but current user is %s (uid %s).\n",
+		fmt.Printf("viam-agent with provided options should be run as root (uid 0), but current user is %s (uid %s).\n",
 			curUser.Username, curUser.Uid)
 		//nolint:forbidigo
 		fmt.Printf("To install as a systemd service, run with sudo and --install.\n")
@@ -128,16 +128,20 @@ func commonMain() {
 	}
 
 	if runtime.GOOS != "windows" && !strings.HasPrefix(os.Args[0], utils.ViamDirs.Viam) {
-		globalLogger.Warnf("note: viam-agent is intended to be run as a system service and installed in %s. "+
-			"For production use, please install with '%s --install' and then start the service with 'systemctl start viam-agent'"+
-			"See --help for a full list of options.",
-			utils.ViamDirs.Viam, os.Args[0])
+		globalLogger.Warnf("note: viam-agent is intended to be run as a system service and installed in %s.", utils.ViamDirs.Viam)
+		globalLogger.Warnf("\tFor production use, please install with '%s --install' and "+
+			"then start the service with 'systemctl start viam-agent'", os.Args[0])
+		globalLogger.Warnf("\tSee --help for a full list of options.")
 		utils.IsRunningLocally = true
 	}
 
 	// allows overriding default Agent dir (/opt/viam on Linux)
 	if opts.ViamDir != "" {
 		utils.InitViamDirs(opts.ViamDir)
+	}
+
+	if utils.IsRunningLocally {
+		globalLogger.Infof("Starting local viam-agent. viam dir: %s", utils.ViamDirs.Viam)
 	}
 
 	// set up folder structure
