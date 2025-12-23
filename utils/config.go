@@ -25,8 +25,8 @@ var (
 			Debug:                         Tribool(0),
 			WaitForUpdateCheck:            Tribool(0),
 			DisableViamServer:             Tribool(0),
-			DisableNetworkConfiguration:   Tribool(1),
-			DisableSystemConfiguration:    Tribool(1),
+			DisableNetworkConfiguration:   Tribool(0),
+			DisableSystemConfiguration:    Tribool(0),
 			ViamServerStartTimeoutMinutes: Timeout(time.Minute * 10),
 			ViamServerExtraEnvVars:        nil,
 		},
@@ -122,16 +122,22 @@ type AdvancedSettings struct {
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
 
-// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes.
+// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --manage-networking.
 func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
+	if !CLIManageNetworking {
+		return true
+	}
 	if runtime.GOOS == "windows" {
 		return true
 	}
 	return as.DisableNetworkConfiguration.Get()
 }
 
-// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes.
+// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes, or if running without --manage-sysconfig.
 func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
+	if !CLIManageSysconfig {
+		return true
+	}
 	if runtime.GOOS == "windows" {
 		return true
 	}
@@ -298,14 +304,6 @@ func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
 	if CLIWaitForUpdateCheck {
 		newCfg.AdvancedSettings.WaitForUpdateCheck = 1
 	}
-	// for these, CLI has lower precedence
-	if CLIManageSysconfig && !cfg.AdvancedSettings.DisableSystemConfiguration.IsSet() {
-		newCfg.AdvancedSettings.DisableSystemConfiguration = -1
-	}
-	if CLIManageNetworking && !cfg.AdvancedSettings.DisableNetworkConfiguration.IsSet() {
-		newCfg.AdvancedSettings.DisableNetworkConfiguration = -1
-	}
-
 	return newCfg
 }
 

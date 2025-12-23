@@ -82,10 +82,6 @@ func TestConvertJson(t *testing.T) {
 	testConfig.NetworkConfiguration.DisableCaptivePortalRedirect = -1
 	testConfig.NetworkConfiguration.BluetoothTrustAll = -1
 
-	// these are explicitly true in the DefaultConfig, but we're testing unmarshalling of the above jsonBytes.
-	testConfig.AdvancedSettings.DisableSystemConfiguration = 0
-	testConfig.AdvancedSettings.DisableNetworkConfiguration = 0
-
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)
 }
