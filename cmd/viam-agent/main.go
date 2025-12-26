@@ -35,17 +35,17 @@ var (
 
 //nolint:lll
 type agentOpts struct {
-	Config           string `default:"/etc/viam.json"                                                   description:"Path to machine credentials file"   long:"config"   short:"c"`
-	DefaultsConfig   string `default:"/etc/viam-defaults.json"                                          description:"Path to manufacturer defaults file" long:"defaults"`
-	Install          bool   `description:"Install systemd service"                                      long:"install"`
-	Debug            bool   `description:"Enable debug logging (agent only)"                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
-	ViamDir          string `description:"Use a custom path for agent directories"                      long:"viam-dir"`
-	ManageSysconfig  bool   `description:"Opt-in to system configuration management"                    long:"manage-sysconfig"`
-	ManageNetworking bool   `description:"Opt-in to networking management"                              long:"manage-networking"`
-	UpdateFirst      bool   `description:"Update versions before starting"                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
-	DevMode          bool   `description:"Nothing (deprecated and will be removed in a future release)" long:"dev-mode"`
-	Help             bool   `description:"Show this help message"                                       long:"help"                                      short:"h"`
-	Version          bool   `description:"Show version"                                                 long:"version"                                   short:"v"`
+	Config                    string `default:"/etc/viam.json"                                                   description:"Path to machine credentials file"   long:"config"   short:"c"`
+	DefaultsConfig            string `default:"/etc/viam-defaults.json"                                          description:"Path to manufacturer defaults file" long:"defaults"`
+	Install                   bool   `description:"Install systemd service"                                      long:"install"`
+	Debug                     bool   `description:"Enable debug logging (agent only)"                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
+	ViamDir                   string `description:"Use a custom path for agent directories"                      long:"viam-dir"`
+	EnableSyscfgSubsystem     bool   `description:"Enable system configuration management subsystem"             long:"enable-syscfg-subsystem"`
+	EnableNetworkingSubsystem bool   `description:"Enable networking management subsystem"                       long:"enable-networking-subsystem"`
+	UpdateFirst               bool   `description:"Update versions before starting"                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
+	DevMode                   bool   `description:"Nothing (deprecated and will be removed in a future release)" long:"dev-mode"`
+	Help                      bool   `description:"Show this help message"                                       long:"help"                                      short:"h"`
+	Version                   bool   `description:"Show version"                                                 long:"version"                                   short:"v"`
 }
 
 //nolint:gocognit
@@ -98,15 +98,15 @@ func commonMain() {
 		utils.CLIWaitForUpdateCheck = true
 	}
 
-	if opts.ManageSysconfig {
-		utils.CLIManageSysconfig = true
+	if opts.EnableSyscfgSubsystem {
+		utils.CLIEnableSyscfgSubsystem = true
 	}
 
-	if opts.ManageNetworking {
-		utils.CLIManageNetworking = true
+	if opts.EnableNetworkingSubsystem {
+		utils.CLIEnableNetworkingSubsystem = true
 	}
 
-	needsRootToContinue := opts.Install || opts.ManageSysconfig || opts.ManageNetworking
+	needsRootToContinue := opts.Install || opts.EnableSyscfgSubsystem || opts.EnableNetworkingSubsystem
 
 	curUser, err := user.Current()
 	exitIfError(err)

@@ -61,12 +61,12 @@ var (
 	configCacheFilename = "config_cache.json"
 
 	// Can be overwritten via cli arguments.
-	AppConfigFilePath     = "/etc/viam.json"
-	DefaultsFilePath      = "/etc/viam-defaults.json"
-	CLIDebug              = false
-	CLIWaitForUpdateCheck = false
-	CLIManageSysconfig    = false
-	CLIManageNetworking   = false
+	AppConfigFilePath            = "/etc/viam.json"
+	DefaultsFilePath             = "/etc/viam-defaults.json"
+	CLIDebug                     = false
+	CLIWaitForUpdateCheck        = false
+	CLIEnableSyscfgSubsystem     = false
+	CLIEnableNetworkingSubsystem = false
 )
 
 func init() {
@@ -122,9 +122,9 @@ type AdvancedSettings struct {
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
 
-// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --manage-networking.
+// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-networking-subsystem.
 func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
-	if !CLIManageNetworking {
+	if !CLIEnableNetworkingSubsystem {
 		return true
 	}
 	if runtime.GOOS == "windows" {
@@ -133,9 +133,9 @@ func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	return as.DisableNetworkConfiguration.Get()
 }
 
-// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes, or if running without --manage-sysconfig.
+// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-syscfg-subsystem.
 func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
-	if !CLIManageSysconfig {
+	if !CLIEnableSyscfgSubsystem {
 		return true
 	}
 	if runtime.GOOS == "windows" {
