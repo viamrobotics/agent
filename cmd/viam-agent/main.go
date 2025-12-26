@@ -40,8 +40,8 @@ type agentOpts struct {
 	Install                   bool   `description:"Install systemd service"                                      long:"install"`
 	Debug                     bool   `description:"Enable debug logging (agent only)"                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
 	ViamDir                   string `description:"Use a custom path for agent directories"                      long:"viam-dir"`
-	EnableSyscfgSubsystem     bool   `description:"Enable system configuration management subsystem"             long:"enable-syscfg-subsystem"`
-	EnableNetworkingSubsystem bool   `description:"Enable networking management subsystem"                       long:"enable-networking-subsystem"`
+	EnableSyscfgSubsystem     bool   `description:"Enable system configuration management subsystem"             long:"enable-syscfg"`
+	EnableNetworkingSubsystem bool   `description:"Enable networking management subsystem"                       long:"enable-networking"`
 	UpdateFirst               bool   `description:"Update versions before starting"                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
 	DevMode                   bool   `description:"Nothing (deprecated and will be removed in a future release)" long:"dev-mode"`
 	Help                      bool   `description:"Show this help message"                                       long:"help"                                      short:"h"`

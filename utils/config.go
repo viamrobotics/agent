@@ -122,7 +122,7 @@ type AdvancedSettings struct {
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
 
-// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-networking-subsystem.
+// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-networking.
 func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	if !CLIEnableNetworkingSubsystem {
 		return true
@@ -133,7 +133,7 @@ func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	return as.DisableNetworkConfiguration.Get()
 }
 
-// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-syscfg-subsystem.
+// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-syscfg.
 func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 	if !CLIEnableSyscfgSubsystem {
 		return true

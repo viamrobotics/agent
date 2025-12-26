@@ -558,7 +558,7 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 		} else {
 			// on initial run without --wait, quickly check for & apply any config update with a short timeout to not delay startup.
 			// if it fails, fall back to cached config if available, otherwise default config.
-			// note: if running with --enable-*-subsystem, config retreival fails, and there is no cached config, they will be enabled by default.
+			// note: if running with --enable-*, config retreival fails, and there is no cached config, they will be enabled by default.
 			// if you have Disable* in your config, the subsystems will turn off after the next successful GetConfig.
 			ctxInit, ctxInitCancel := context.WithTimeout(ctx, 2*time.Second)
 			var err error
