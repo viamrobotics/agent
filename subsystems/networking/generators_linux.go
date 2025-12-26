@@ -24,7 +24,7 @@ func generateHotspotSettings(id NetKey, psk string) gnm.ConnectionSettings {
 
 	settings := gnm.ConnectionSettings{
 		"connection": map[string]any{
-			"id":             string(id),
+			"id":             id.String(),
 			"uuid":           uuid.New().String(),
 			"type":           "802-11-wireless",
 			"autoconnect":    false,
@@ -51,10 +51,10 @@ func generateHotspotSettings(id NetKey, psk string) gnm.ConnectionSettings {
 }
 
 func generateNetworkSettings(id NetKey, cfg utils.NetworkDefinition) (gnm.ConnectionSettings, error) {
-	settings := gnm.ConnectionSettings{}
-	if id == "" {
+	if id.Name() == "" || id.ifname == "" {
 		return nil, errw.New("id cannot be empty")
 	}
+	settings := gnm.ConnectionSettings{}
 
 	var netType string
 	switch id.Type() {
@@ -69,7 +69,7 @@ func generateNetworkSettings(id NetKey, cfg utils.NetworkDefinition) (gnm.Connec
 	}
 
 	settings["connection"] = map[string]any{
-		"id":                   id,
+		"id":                   id.String(),
 		"uuid":                 uuid.New().String(),
 		"type":                 netType,
 		"autoconnect":          true,
