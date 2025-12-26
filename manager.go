@@ -196,15 +196,13 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	defer m.cfgMu.Unlock()
 
 	// Agent
-	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
-	if err != nil {
-		m.logger.Warn(err)
-	}
-	// if running locally (not via systemd), download but don't install & exit
-	if needRestart {
-		if utils.IsRunningLocally {
-			m.logger.Infof("Agent is running locally. Downloaded latest update to version cache, but skipping install.")
-		} else {
+	// if running locally (not via systemd), don't check for Agent updates
+	if !utils.IsRunningLocally {
+		needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
+		if err != nil {
+			m.logger.Warn(err)
+		}
+		if needRestart {
 			_, err := InstallNewVersion(ctx, m.logger)
 			if err != nil {
 				m.logger.Warnw("running install of new agent version", "error", err)
@@ -259,7 +257,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 			m.logger.Warn(err)
 		}
 	} else {
-		needRestart = m.sysConfig.Update(ctx, m.cfg)
+		needRestart := m.sysConfig.Update(ctx, m.cfg)
 		if needRestart {
 			if err := m.sysConfig.Stop(ctx); err != nil {
 				m.logger.Warn(err)
@@ -276,7 +274,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 			m.logger.Warn(err)
 		}
 	} else {
-		needRestart = m.networking.Update(ctx, m.cfg)
+		needRestart := m.networking.Update(ctx, m.cfg)
 		if needRestart {
 			if err := m.networking.Stop(ctx); err != nil {
 				m.logger.Warn(err)
