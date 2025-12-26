@@ -64,7 +64,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 		return nil
 	}
 
-	s.logger.Debugf("Starting syscfg")
+	s.logger.Infof("Starting syscfg subsystem")
 
 	s.started = true
 	var healthyLog, healthyUpgrades bool
@@ -101,6 +101,9 @@ func (s *syscfg) Start(ctx context.Context) error {
 func (s *syscfg) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.started {
+		s.logger.Infof("Stopping syscfg subsystem")
+	}
 	s.started = false
 
 	return errw.Wrap(s.stopLogForwarding(), "stopping kernel log forwarding")
