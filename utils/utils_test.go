@@ -365,7 +365,6 @@ func TestDownloadFile(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.ServeContent(w, r, "hello", modtime, bytes.NewReader(payload))
-			w.Write(payload)
 		}))
 
 		maxBytesForTesting = int64(2 * len(payload) / 3)
