@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -12,11 +13,13 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
+	goutils "go.viam.com/utils"
 )
 
 func TestDecompressFile(t *testing.T) {
@@ -104,6 +107,62 @@ func TestWriteFileIfNew(t *testing.T) {
 	written, err = WriteFileIfNew(path, []byte("other contents"))
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, written, test.ShouldBeTrue)
+}
+
+func TestGetLastModified(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+
+	port, err := goutils.TryReserveRandomPort()
+	test.That(t, err, test.ShouldBeNil)
+
+	baseURL := fmt.Sprintf(":%d", port)
+	baseURLWithScheme := fmt.Sprintf("%s://%s", "http", baseURL)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/nolm", func(w http.ResponseWriter, r *http.Request) {
+	})
+	mux.HandleFunc("/lm", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Last-Modified", "Tue, 09 Dec 2025 18:52:44 GMT")
+	})
+	mux.HandleFunc("/badlm", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Last-Modified", "asdfghjkl")
+	})
+	server := &http.Server{Addr: baseURL, Handler: mux}
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := server.ListenAndServe(); err != nil {
+			test.That(t, err, test.ShouldEqual, http.ErrServerClosed)
+		}
+	}()
+
+	// Test Last-Modified not present
+	ctx := t.Context()
+	noLmURL, err := url.JoinPath(baseURLWithScheme, "/nolm")
+	test.That(t, err, test.ShouldBeNil)
+	lm := GetLastModified(ctx, noLmURL, logger)
+	test.That(t, lm.IsZero(), test.ShouldBeTrue)
+
+	// Test Last-Modified valid
+	lmURL, err := url.JoinPath(baseURLWithScheme, "/lm")
+	test.That(t, err, test.ShouldBeNil)
+	lm = GetLastModified(ctx, lmURL, logger)
+	test.That(t, lm.IsZero(), test.ShouldBeFalse)
+
+	parsed, err := time.Parse(time.UnixDate, "Tue Dec 09 18:52:44 GMT 2025")
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, lm, test.ShouldEqual, parsed)
+
+	// Test Last-Modified present but unparsable
+	badLmURL, err := url.JoinPath(baseURLWithScheme, "/badlm")
+	test.That(t, err, test.ShouldBeNil)
+	lm = GetLastModified(ctx, badLmURL, logger)
+	test.That(t, lm.IsZero(), test.ShouldBeTrue)
+
+	err = server.Shutdown(ctx)
+	test.That(t, err, test.ShouldBeNil)
+	wg.Wait()
 }
 
 func TestDownloadFile(t *testing.T) {
@@ -298,6 +357,29 @@ func TestDownloadFile(t *testing.T) {
 		content, err := os.ReadFile(downloadedPath)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, string(content), test.ShouldEqual, testContent)
+	})
+
+	t.Run("resume", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("hello "), 10)
+		modtime := time.Now()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeContent(w, r, "hello", modtime, bytes.NewReader(payload))
+		}))
+
+		maxBytesForTesting = int64(2 * len(payload) / 3)
+		t.Cleanup(func() {
+			maxBytesForTesting = 0
+			server.Close()
+		})
+		_, err := DownloadFile(t.Context(), server.URL, logger)
+		test.That(t, err, test.ShouldNotBeNil)
+
+		path, err := DownloadFile(t.Context(), server.URL, logger)
+		test.That(t, err, test.ShouldBeNil)
+		downloaded, err := os.ReadFile(path)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, downloaded, test.ShouldResemble, payload)
 	})
 }
 

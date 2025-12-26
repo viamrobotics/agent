@@ -3,10 +3,14 @@ package agent
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +18,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
+	goutils "go.viam.com/utils"
 )
 
 func TestUpdateBinary(t *testing.T) {
@@ -126,7 +131,103 @@ func TestUpdateBinary(t *testing.T) {
 	})
 
 	t.Run("custom-url", func(t *testing.T) {
-		t.Skip("todo")
+		port, err := goutils.TryReserveRandomPort()
+		test.That(t, err, test.ShouldBeNil)
+
+		baseURL := fmt.Sprintf(":%d", port)
+		baseURLWithScheme := fmt.Sprintf("%s://localhost%s", "http", baseURL)
+
+		elfBytes := []byte{0x7f, 'E', 'L', 'F'}
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("/nolm", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/x-executable")
+			w.Write(elfBytes)
+		})
+		mux.HandleFunc("/lm", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Last-Modified", "Tue, 09 Dec 2025 18:52:44 GMT")
+			w.Write(elfBytes)
+		})
+		mux.HandleFunc("/badlm", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Last-Modified", "asdfghjkl")
+			w.Write(elfBytes)
+		})
+		server := &http.Server{Addr: baseURL, Handler: mux}
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := server.ListenAndServe(); err != nil {
+				test.That(t, err, test.ShouldEqual, http.ErrServerClosed)
+			}
+		}()
+
+		ctx := t.Context()
+		lmURL, err := url.JoinPath(baseURLWithScheme, "/lm")
+		test.That(t, err, test.ShouldBeNil)
+
+		vi5 := vi2
+		vi5.LastModified = time.Time{}
+		vi5.LastModifiedCheck = time.Time{}
+		vi5.Version = fmt.Sprintf("customURL+%s", lmURL)
+		vi5.URL = lmURL
+		vi5.UnpackedSHA = make([]byte, 0)
+		vc.ViamServer.Versions[vi5.Version] = &vi5
+		vc.ViamServer.TargetVersion = vi5.Version
+
+		// update from previous to customURL: download and restart needed
+		needsRestart, err := vc.UpdateBinary(ctx, viamserver.SubsysName)
+
+		test.That(t, needsRestart, test.ShouldBeTrue)
+		test.That(t, err, test.ShouldBeNil)
+
+		vi5.LastModified = time.Time{}
+		vi5.LastModifiedCheck = time.Time{}
+		// initial 0->populated: no download or restart needed
+		needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, vi5.LastModified.IsZero(), test.ShouldBeFalse)
+		test.That(t, vi5.LastModifiedCheck.IsZero(), test.ShouldBeFalse)
+
+		// test LastModified increased: download & restart needed
+		vi5.LastModified = time.Time{}.Add(time.Second)
+		vi5.LastModifiedCheck = time.Time{}.Add(time.Second)
+
+		needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+		test.That(t, needsRestart, test.ShouldBeTrue)
+		test.That(t, err, test.ShouldBeNil)
+
+		// test unparseable Last-Modified: do nothing
+		vi5.LastModified = time.Time{}.Add(time.Second)
+		vi5.LastModifiedCheck = time.Time{}.Add(time.Second)
+
+		badLmURL, err := url.JoinPath(baseURLWithScheme, "/badlm")
+		test.That(t, err, test.ShouldBeNil)
+		vi5.URL = badLmURL
+
+		needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, vi5.LastModified, test.ShouldEqual, time.Time{}.Add(time.Second))
+
+		// test unpopulated Last-Modified: do nothing
+		vi5.LastModified = time.Time{}.Add(time.Second)
+		vi5.LastModifiedCheck = time.Time{}.Add(time.Second)
+
+		noLmURL, err := url.JoinPath(baseURLWithScheme, "/nolm")
+		test.That(t, err, test.ShouldBeNil)
+		vi5.URL = noLmURL
+
+		needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, vi5.LastModified, test.ShouldEqual, time.Time{}.Add(time.Second))
+
+		err = server.Shutdown(ctx)
+		test.That(t, err, test.ShouldBeNil)
+		wg.Wait()
 	})
 }
 
