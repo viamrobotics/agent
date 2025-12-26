@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -277,53 +277,49 @@ func (b *banner) Get() string {
 // wifi is <ssid>@<ifname>, ex: "myNetwork@wlan0"
 // wired is wired@<ifname>, ex: "wired@eth0"
 // bluetooth is "bluetooth@<ifname>" where ifname is the hardware address of the remote device, ex: "bluetooth@1A:2B:3C:11:22:33".
-type NetKey string
+type NetKey struct {
+	name   string
+	ifname string
+	iftype string
+}
 
-const NetKeyUnknown = NetKey("UNKNOWN")
+var NetKeyUnknown = NetKey{
+	name:   "UNKNOWN",
+	ifname: "UNKNOWN",
+	iftype: "UNKNOWN",
+}
 
 func (n NetKey) Type() string {
 	if n == NetKeyUnknown {
 		return ""
 	}
-	splits := strings.Split(string(n), "@")
-	if len(splits) != 2 {
-		return ""
-	}
-	switch splits[0] {
-	case NetworkTypeWired:
-		return NetworkTypeWired
-	case NetworkTypeBluetooth:
-		return NetworkTypeBluetooth
-	default:
-		return NetworkTypeWifi
-	}
+	return n.iftype
 }
 
 func (n NetKey) Interface() string {
 	if n == NetKeyUnknown {
 		return ""
 	}
-	splits := strings.Split(string(n), "@")
-	if len(splits) != 2 {
-		return ""
-	}
-	return splits[1]
+	return n.ifname
 }
 
 func (n NetKey) SSID() string {
 	if n == NetKeyUnknown {
 		return ""
 	}
-	splits := strings.Split(string(n), "@")
-	if len(splits) != 2 {
-		return ""
-	}
-	switch splits[0] {
+	switch n.iftype {
 	case NetworkTypeWired:
 		return ""
 	case NetworkTypeBluetooth:
 		return ""
 	default:
-		return splits[0]
+		return n.name
 	}
+}
+
+func (n NetKey) String() string {
+	if n.name == "" || n.ifname == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s@%s", n.name, n.ifname)
 }
