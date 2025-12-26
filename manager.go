@@ -549,13 +549,24 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 		})
 		defer m.activeBackgroundWorkers.Done()
 
-		deviceAgentConfigCheckInterval := minimalDeviceAgentConfigCheckInterval
+		var deviceAgentConfigCheckInterval time.Duration
 		m.cfgMu.RLock()
 		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck.Get()
 		m.cfgMu.RUnlock()
 		if wait {
 			deviceAgentConfigCheckInterval = m.CheckUpdates(ctx)
 		} else {
+			// on initial run without --wait, quickly check for & apply any config update with a short timeout to not delay startup.
+			// if it fails, fall back to cached config if available, otherwise default config.
+			// note: if running with --enable-*-subsystem, config retreival fails, and there is no cached config, they will be enabled by default.
+			// if you have Disable* in your config, the subsystems will turn off after the next successful GetConfig.
+			ctxInit, ctxInitCancel := context.WithTimeout(ctx, 2*time.Second)
+			var err error
+			deviceAgentConfigCheckInterval, err = m.GetConfig(ctxInit)
+			if err != nil {
+				m.logger.Infow("initial config retreival failed. will use cached config if available", "err", err)
+			}
+			ctxInitCancel()
 			// premptively start things before we go into the regular update/check/restart
 			m.SubsystemHealthChecks(ctx)
 		}
