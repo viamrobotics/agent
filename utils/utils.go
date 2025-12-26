@@ -49,6 +49,9 @@ var (
 
 	// for rewriting URLs to the form that supports ranges.
 	storagePathRegex = regexp.MustCompile(`^/download/storage/v1/b/([^/]+)/o/(.+)$`)
+
+	// the test suite will set this to nonzero for exercising resumable DL.
+	maxBytesForTesting int64
 )
 
 type ViamDirsData struct {
@@ -227,7 +230,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		// note: we shrink the hash to avoid system path length limits
 		partialDest := CreatePartialPath(rawURL)
 
-		g := getter.HttpGetter{Client: socksClient(parsedURL.String(), logger)}
+		g := getter.HttpGetter{Client: socksClient(parsedURL.String(), logger), MaxBytes: maxBytesForTesting}
 		g.SetClient(getterClient)
 
 		if stat, err := os.Stat(partialDest); err == nil {
