@@ -45,6 +45,8 @@ var (
 
 	ViamDirs ViamDirsData
 
+	// Indicate when Agent is not being run as the installed systemd service.
+	// Changes some behaviors to allow for easier local development work (previously enabled with --dev-mode).
 	IsRunningLocally = false
 
 	HealthCheckTimeout = time.Minute
