@@ -1,7 +1,6 @@
 package networking
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 
@@ -351,11 +350,11 @@ func (n *networkState) GenNetKey(netType, ifName, ssid string) NetKey {
 			ifName = n.hotspotInterface
 			n.mu.RUnlock()
 		}
-		return NetKey(fmt.Sprintf("%s@%s", ssid, ifName))
+		return NetKey{ssid, ifName, NetworkTypeWifi}
 	case NetworkTypeWired:
-		return NetKey(fmt.Sprintf("%s@%s", NetworkTypeWired, ifName))
+		return NetKey{NetworkTypeWired, ifName, NetworkTypeWired}
 	case NetworkTypeBluetooth:
-		return NetKey(fmt.Sprintf("%s@%s", NetworkTypeBluetooth, ifName))
+		return NetKey{NetworkTypeBluetooth, ifName, NetworkTypeBluetooth}
 	default:
 		n.logger.Warnf("encountered unknown network type: %s, interface: %s, ssid: %s", netType, ifName, ssid)
 		_, file, no, ok := runtime.Caller(1)
