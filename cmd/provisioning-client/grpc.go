@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/viamrobotics/agent/subsystems/networking"
+	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/provisioning/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -40,7 +41,7 @@ func grpcClient() error {
 	}
 
 	if opts.PartID != "" {
-		if err := SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr); err != nil {
+		if err := SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr, opts.APIKey); err != nil {
 			return err
 		}
 	}
@@ -91,13 +92,17 @@ func GetNetworks(ctx context.Context, client pb.ProvisioningServiceClient) error
 	return nil
 }
 
-func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string) error {
+func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string, apiKey utils.APIKey) error {
 	fmt.Println("Writing device credentials...")
 	req := &pb.SetSmartMachineCredentialsRequest{
 		Cloud: &pb.CloudConfig{
 			Id:         id,
 			Secret:     secret,
 			AppAddress: appaddr,
+			ApiKey: &pb.APIKey{
+				Id:    apiKey.ID,
+				Value: apiKey.Value,
+			},
 		},
 	}
 

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/viamrobotics/agent/utils"
 	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
 )
@@ -122,9 +123,10 @@ type MachineConfig struct {
 }
 
 type CloudConfig struct {
-	AppAddress string `json:"app_address"`
-	ID         string `json:"id"`
-	Secret     string `json:"secret"`
+	AppAddress string       `json:"app_address"`
+	ID         string       `json:"id"`
+	Secret     string       `json:"secret"`
+	APIKey     utils.APIKey `json:"api_key"`
 }
 
 func WriteDeviceConfig(file string, input userInput) error {
@@ -137,10 +139,11 @@ func WriteDeviceConfig(file string, input userInput) error {
 			AppAddress: input.AppAddr,
 			ID:         input.PartID,
 			Secret:     input.Secret,
+			APIKey:     input.APIKey,
 		},
 	}
 
-	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" {
+	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || (cfg.Cloud.Secret == "" || cfg.Cloud.APIKey.IsEmpty()) {
 		return errors.New("incomplete machine credentials received, please try again")
 	}
 
@@ -199,6 +202,7 @@ type userInput struct {
 	PartID  string
 	Secret  string
 	AppAddr string
+	APIKey  utils.APIKey
 
 	// raw /etc/viam.json contents
 	RawConfig string

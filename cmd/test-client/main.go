@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
@@ -102,17 +103,22 @@ func loadCredentials(path string) (*logging.CloudConfig, error) {
 		return nil, fmt.Errorf("no cloud section in file %s", path)
 	}
 
-	for _, req := range []string{"app_address", "id", "secret"} {
+	for _, req := range []string{"app_address", "id"} {
 		field, ok := cloud[req]
 		if !ok {
 			return nil, fmt.Errorf("no cloud config field for %s", field)
 		}
 	}
 
+	cloudCreds, err := utils.ParseCloudCreds(cloud)
+	if err != nil {
+		return nil, fmt.Errorf("no cloud config field for cloud creds")
+	}
+
 	cloudConfig := &logging.CloudConfig{
 		AppAddress: cloud["app_address"],
 		ID:         cloud["id"],
-		Secret:     cloud["secret"],
+		CloudCred:  cloudCreds,
 	}
 
 	return cloudConfig, nil
@@ -125,14 +131,10 @@ func dial(ctx context.Context, logger logging.Logger, cloudConfig *logging.Cloud
 	}
 
 	dialOpts := make([]rpc.DialOption, 0, 2)
-	// Only add credentials when secret is set.
-	if cloudConfig.Secret != "" {
-		dialOpts = append(dialOpts, rpc.WithEntityCredentials(cloudConfig.ID,
-			rpc.Credentials{
-				Type:    "robot-secret",
-				Payload: cloudConfig.Secret,
-			},
-		))
+
+	// Only add credentials when they are set.
+	if cloudConfig.CloudCred != nil {
+		dialOpts = append(dialOpts, cloudConfig.CloudCred)
 	}
 
 	if u.Scheme == "http" {
