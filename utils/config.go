@@ -71,6 +71,28 @@ func init() {
 	if runtime.GOOS == "windows" {
 		DefaultConfiguration.AdvancedSettings.ViamServerStartTimeoutMinutes = Timeout(time.Minute)
 	}
+	if isRaspberryPi() {
+		DefaultConfiguration.NetworkConfiguration.WifiPowerSave = -1
+	}
+}
+
+// isRaspberryPi provides a best guess as to whether the current device is a Raspberry Pi (any model).
+func isRaspberryPi() bool {
+	model, err := os.ReadFile("/proc/device-tree/model")
+	if err == nil && strings.Contains(string(model), "Raspberry Pi") {
+		return true
+	}
+
+	compat, err := os.ReadFile("/proc/device-tree/compatible")
+	if err == nil && strings.Contains(string(compat), "raspberrypi") {
+		return true
+	}
+
+	cpuinfo, err := os.ReadFile("/proc/cpuinfo")
+	if err == nil && strings.Contains(string(cpuinfo), "BCM2835") {
+		return true
+	}
+	return false
 }
 
 //nolint:recvcheck
