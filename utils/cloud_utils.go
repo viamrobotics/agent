@@ -10,12 +10,12 @@ import (
 )
 
 type APIKey struct {
-	ID    string `json:"id"`
-	Value string `json:"value"`
+	ID  string `json:"id"`
+	Key string `json:"value"`
 }
 
 func (a APIKey) IsEmpty() bool {
-	return a.ID == "" && a.Value == ""
+	return a.ID == "" && a.Key == ""
 }
 
 func ParseCloudCreds(cloudCfg map[string]string) (rpc.DialOption, error) {
@@ -31,9 +31,9 @@ func ParseCloudCreds(cloudCfg map[string]string) (rpc.DialOption, error) {
 		if !ok {
 			return nil, errw.Errorf(`no field for "id" in "api_key"`)
 		}
-		keySecret, ok := apiKey["value"]
+		keySecret, ok := apiKey["key"]
 		if !ok {
-			return nil, errw.Errorf(`no field for "value" in "api_key"`)
+			return nil, errw.Errorf(`no field for "key" in "api_key"`)
 		}
 		creds := rpc.WithEntityCredentials(keyID, rpc.Credentials{rutils.CredentialsTypeAPIKey, keySecret})
 		return creds, nil
