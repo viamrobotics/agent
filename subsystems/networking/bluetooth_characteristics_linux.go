@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -28,6 +29,7 @@ const (
 	pskKey                   = "psk"
 	robotPartIDKey           = "id"
 	robotPartSecretKey       = "secret"
+	apiKeyCredsKey           = "api_key"
 	appAddressKey            = "app_address"
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
@@ -43,7 +45,7 @@ const (
 
 var (
 	characteristicsWriteOnly = []string{
-		ssidKey, pskKey, robotPartIDKey, robotPartSecretKey,
+		ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, apiKeyCredsKey,
 		appAddressKey, exitProvisioningKey, unlockPairingKey,
 	}
 	characteristicsReadOnly = []string{
@@ -274,7 +276,17 @@ func (b *btCharacteristics) recordInput(ctx context.Context, cName, value string
 		b.userInputData.input.Secret = value
 	case appAddressKey:
 		b.userInputData.input.AppAddr = value
+	case apiKeyCredsKey:
+		b.userInputData.input.APIKey = apiKeyFromString(value)
 	case exitProvisioningKey:
 		b.userInputData.sendInput(ctx)
 	}
+}
+func apiKeyFromString(value string) utils.APIKey {
+	var apiKey utils.APIKey
+	if err := json.Unmarshal([]byte(value), &apiKey); err != nil {
+		// Return empty on error, will be validated downstream
+		return utils.APIKey{}
+	}
+	return apiKey
 }
