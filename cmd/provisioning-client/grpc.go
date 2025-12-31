@@ -100,8 +100,8 @@ func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id
 			Secret:     secret,
 			AppAddress: appaddr,
 			ApiKey: &pb.APIKey{
-				Id:    apiKey.ID,
-				Value: apiKey.Value,
+				Id:  apiKey.ID,
+				Key: apiKey.Value,
 			},
 		},
 	}
