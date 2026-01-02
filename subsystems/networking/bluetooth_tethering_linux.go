@@ -173,57 +173,101 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 	return nil
 }
 
-func (n *Networking) enablePairing(deviceName string) error {
-	conn, adapter, err := getBluetoothDBus()
-	if err != nil {
-		return err
+// dbusErrShouldRetry returns true if the passed error is a [dbus.Error] and
+// that error indicates a transient error that may go away if the operation is
+// retried.
+func dbusErrShouldRetry(err error) bool {
+	var dbusErr dbus.Error
+	ok := errw.As(err, &dbusErr)
+	if !ok {
+		return false
 	}
-
-	call := adapter.Call("org.bluez.Adapter1.StartDiscovery", 0)
-	if call.Err != nil {
-		return call.Err
+	if dbusErr.Name == "org.bluez.Error.NotReady" {
+		return true
 	}
+	return false
+}
 
-	err = adapter.SetProperty("org.bluez.Adapter1.Alias", dbus.MakeVariant(deviceName))
-	if err != nil {
-		return errw.Wrap(err, "setting bluetooth alias")
+func (n *Networking) enablePairing(ctx context.Context, deviceName string) error {
+	var backoff time.Duration
+	for {
+		if backoff > 0 {
+			n.logger.Debugw("enable bluetooth pairing backing off", "duration", backoff)
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+				return ctx.Err()
+			}
+		}
+		backoff = max(min(time.Second, backoff*2), time.Second*5)
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		conn, adapter, err := getBluetoothDBus()
+		if err != nil {
+			return err
+		}
+
+		call := adapter.CallWithContext(ctx, "org.bluez.Adapter1.StartDiscovery", 0)
+		if call.Err != nil {
+			if dbusErrShouldRetry(call.Err) {
+				continue
+			}
+			return errw.Wrap(call.Err, "calling org.bluez.Adapter1.StartDiscovery")
+		}
+
+		err = adapter.SetProperty("org.bluez.Adapter1.Alias", dbus.MakeVariant(deviceName))
+		if err != nil {
+			return errw.Wrap(err, "setting bluetooth alias")
+		}
+
+		n.logger.Debug("setting bluetooth to discoverable")
+		err = adapter.SetProperty("org.bluez.Adapter1.Discoverable", dbus.MakeVariant(true))
+		if err != nil {
+			return errw.Wrap(err, "enabling bluetooth discovery")
+		}
+
+		discoveryTimeout := uint32(time.Duration(n.Config().RetryConnectionTimeoutMinutes * 2).Seconds())
+		err = adapter.SetProperty("org.bluez.Adapter1.DiscoverableTimeout", dbus.MakeVariant(discoveryTimeout))
+		if err != nil {
+			return errw.Wrap(err, "adjusting discovery timeout")
+		}
+
+		n.btAgent.mu.Lock()
+		n.btAgent.conn = conn
+		// remove temporary pairing approval if leftover from previous invocation
+		n.btAgent.pairable = false
+		n.btAgent.mu.Unlock()
+
+		if err := conn.Export(n.btAgent, BluezAgentPath, BluezAgent); err != nil {
+			return errw.Wrap(err, "exporting custom agent object")
+		}
+
+		obj := conn.Object(BluezDBusService, "/org/bluez")
+		call = obj.CallWithContext(ctx, "org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "DisplayYesNo")
+		if err := call.Err; err != nil {
+			if dbusErrShouldRetry(err) {
+				continue
+			}
+			return errw.Wrap(err, "registering custom agent")
+		}
+
+		call = obj.CallWithContext(ctx, "org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
+		if err := call.Err; err != nil {
+			if dbusErrShouldRetry(err) {
+				continue
+			}
+			return fmt.Errorf("failed to set default agent: %w", err)
+		}
+
+		n.logger.Debug("bluetooth pairing enabled")
+		return nil
 	}
-
-	n.logger.Debug("setting bluetooth to discoverable")
-	err = adapter.SetProperty("org.bluez.Adapter1.Discoverable", dbus.MakeVariant(true))
-	if err != nil {
-		return errw.Wrap(err, "enabling bluetooth discovery")
-	}
-
-	discoveryTimeout := uint32(time.Duration(n.Config().RetryConnectionTimeoutMinutes * 2).Seconds())
-	err = adapter.SetProperty("org.bluez.Adapter1.DiscoverableTimeout", dbus.MakeVariant(discoveryTimeout))
-	if err != nil {
-		return errw.Wrap(err, "adjusting discovery timeout")
-	}
-
-	n.btAgent.mu.Lock()
-	n.btAgent.conn = conn
-	// remove temporary pairing approval if leftover from previous invocation
-	n.btAgent.pairable = false
-	n.btAgent.mu.Unlock()
-
-	if err := conn.Export(n.btAgent, BluezAgentPath, BluezAgent); err != nil {
-		return errw.Wrap(err, "exporting custom agent object")
-	}
-
-	obj := conn.Object(BluezDBusService, "/org/bluez")
-	call = obj.Call("org.bluez.AgentManager1.RegisterAgent", 0, dbus.ObjectPath(BluezAgentPath), "DisplayYesNo")
-	if err := call.Err; err != nil {
-		return errw.Wrap(err, "registering custom agent")
-	}
-
-	call = obj.Call("org.bluez.AgentManager1.RequestDefaultAgent", 0, dbus.ObjectPath(BluezAgentPath))
-	if err := call.Err; err != nil {
-		return fmt.Errorf("failed to set default agent: %w", err)
-	}
-
-	n.logger.Debug("bluetooth pairing enabled")
-	return nil
 }
 
 func (n *Networking) disablePairing() error {

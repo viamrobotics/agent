@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
+	"time"
 
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/google/uuid"
@@ -40,7 +42,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 	}
 
 	// Create a bluetooth service comprised of the above configs.
-	if err := n.initializeBluetoothService(n.Config().HotspotSSID, n.btChar.initCharacteristics(ctx)); err != nil {
+	if err := n.initializeBluetoothService(ctx, n.Config().HotspotSSID, n.btChar.initCharacteristics(ctx)); err != nil {
 		n.noBT = true
 		return fmt.Errorf("failed to initialize bluetooth service: %w", err)
 	}
@@ -53,13 +55,15 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 		n.logger.Warn("could not update BT networks characteristic")
 	}
 
-	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
+	pairingCtx, pairingCtxCancel := context.WithTimeout(ctx, time.Second*30)
+	defer pairingCtxCancel()
+	if err := n.enablePairing(pairingCtx, n.Config().HotspotSSID); err != nil {
 		return err
 	}
 
 	// Start advertising the bluetooth service.
 	if err := n.btAdv.Start(); err != nil {
-		return fmt.Errorf("failed to start advertising: %w", err)
+		return errw.Wrap(err, "failed to start advertising")
 	}
 	n.btHealthy = true
 
@@ -97,8 +101,26 @@ func (n *Networking) stopProvisioningBluetooth() error {
 	return nil
 }
 
+// rfkillUnblock execs `rfkill` to unblock bluetooth radios that may have a
+// soft block.
+// NOTE: this could be rewritten read + manipulate files in /sys directly but
+// the code probably wouldn't be any easier to maintain and definitely wouldn't
+// be shorter. If we ever run into inconsistent behavior from `rfkill` then we
+// can look into making such a change.
+func rfkillUnblock(ctx context.Context) error {
+	rfkillUnblock := exec.CommandContext(ctx, "rfkill", "unblock", "bluetooth")
+	output, err := rfkillUnblock.CombinedOutput()
+	return errw.Wrapf(err, "failed to unblock bluetooth: %v", output)
+}
+
 // initializeBluetoothService performs low-level system configuration to enable bluetooth advertisement.
-func (n *Networking) initializeBluetoothService(deviceName string, characteristics []bluetooth.CharacteristicConfig) error {
+func (n *Networking) initializeBluetoothService(
+	ctx context.Context, deviceName string, characteristics []bluetooth.CharacteristicConfig,
+) error {
+	if err := rfkillUnblock(ctx); err != nil {
+		n.logger.Warnw("Failed to unblock bluetooth with rfkill; bluetooth initialization will continue but may fail", "err", err)
+	}
+
 	serviceUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(serviceNameKey)))
 
 	adapter := bluetooth.DefaultAdapter
