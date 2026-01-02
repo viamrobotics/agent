@@ -45,6 +45,10 @@ var (
 
 	ViamDirs ViamDirsData
 
+	// Indicate when Agent is not being run as the installed systemd service.
+	// Changes some behaviors to allow for easier local development work (previously enabled with --dev-mode).
+	IsRunningLocally = false
+
 	HealthCheckTimeout = time.Minute
 
 	// for rewriting URLs to the form that supports ranges.
@@ -100,16 +104,21 @@ func GetRevision() string {
 }
 
 func init() {
-	ViamDirs.Viam = "/opt/viam"
+	viamDirRoot := "/opt/viam"
 	if runtime.GOOS == "windows" {
-		ViamDirs.Viam = "c:/opt/viam"
+		viamDirRoot = "c:/opt/viam"
 		// note: forward slash isn't an abs path on windows, but resolves to one.
 		var err error
-		ViamDirs.Viam, err = filepath.Abs(ViamDirs.Viam)
+		viamDirRoot, err = filepath.Abs(viamDirRoot)
 		if err != nil {
 			panic(err)
 		}
 	}
+	InitViamDirs(viamDirRoot)
+}
+
+func InitViamDirs(viamDirRoot string) {
+	ViamDirs.Viam = viamDirRoot
 	ViamDirs.Bin = filepath.Join(ViamDirs.Viam, "bin")
 	ViamDirs.Cache = filepath.Join(ViamDirs.Viam, "cache")
 	ViamDirs.Partials = filepath.Join(ViamDirs.Cache, "part")
@@ -136,7 +145,7 @@ func InitPaths() error {
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
 		if err := checkPathOwner(uid, info); err != nil {
-			return err
+			return errw.Wrapf(err, "viam dirs path owner check failed %s", p)
 		}
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)

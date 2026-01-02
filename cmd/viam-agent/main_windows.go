@@ -50,6 +50,7 @@ func main() {
 		panic(err)
 	} else if !inService {
 		globalLogger.Info("no service detected -- running as normal process")
+		utils.IsRunningLocally = true
 		commonMain()
 		return
 	}

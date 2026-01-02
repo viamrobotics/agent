@@ -61,10 +61,12 @@ var (
 	configCacheFilename = "config_cache.json"
 
 	// Can be overwritten via cli arguments.
-	AppConfigFilePath     = "/etc/viam.json"
-	DefaultsFilePath      = "/etc/viam-defaults.json"
-	CLIDebug              = false
-	CLIWaitForUpdateCheck = false
+	AppConfigFilePath            = "/etc/viam.json"
+	DefaultsFilePath             = "/etc/viam-defaults.json"
+	CLIDebug                     = false
+	CLIWaitForUpdateCheck        = false
+	CLIEnableSyscfgSubsystem     = false
+	CLIEnableNetworkingSubsystem = false
 )
 
 func init() {
@@ -120,16 +122,22 @@ type AdvancedSettings struct {
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
 
-// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes.
+// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-networking.
 func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
+	if !CLIEnableNetworkingSubsystem {
+		return true
+	}
 	if runtime.GOOS == "windows" {
 		return true
 	}
 	return as.DisableNetworkConfiguration.Get()
 }
 
-// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes.
+// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-syscfg.
 func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
+	if !CLIEnableSyscfgSubsystem {
+		return true
+	}
 	if runtime.GOOS == "windows" {
 		return true
 	}
@@ -286,14 +294,17 @@ func LoadConfigFromCache() (AgentConfig, error) {
 	return validateConfig(cfg)
 }
 
+// ApplyCLIArgs merges incoming cfg (e.g. from cloud or cache) with provided command line options,
+// prioritizing the latter for most, but with some exceptions.
 func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
+	newCfg := cfg
 	if CLIDebug {
-		cfg.AdvancedSettings.Debug = 1
+		newCfg.AdvancedSettings.Debug = 1
 	}
 	if CLIWaitForUpdateCheck {
-		cfg.AdvancedSettings.WaitForUpdateCheck = 1
+		newCfg.AdvancedSettings.WaitForUpdateCheck = 1
 	}
-	return cfg
+	return newCfg
 }
 
 func StackConfigs(proto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {

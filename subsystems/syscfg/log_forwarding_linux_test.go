@@ -227,8 +227,9 @@ func TestLogForwarderFilter(t *testing.T) {
 
 			// Verify the logs in order
 			expectedLogs := []string{
-				"Starting syscfg",
+				"Starting syscfg subsystem",
 				"Started system log forwarding",
+				"Stopping syscfg subsystem",
 				"stopped journalctl",
 				"Stopped system log forwarding",
 			}
