@@ -8,7 +8,6 @@ import (
 	"time"
 
 	dbus "github.com/godbus/dbus/v5"
-	"github.com/pkg/errors"
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
@@ -179,7 +178,7 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 // retried.
 func dbusErrShouldRetry(err error) bool {
 	var dbusErr dbus.Error
-	ok := errors.As(err, &dbusErr)
+	ok := errw.As(err, &dbusErr)
 	if !ok {
 		return false
 	}
@@ -219,7 +218,7 @@ func (n *Networking) enablePairing(ctx context.Context, deviceName string) error
 			if dbusErrShouldRetry(call.Err) {
 				continue
 			}
-			return errors.Wrap(call.Err, "calling org.bluez.Adapter1.StartDiscovery")
+			return errw.Wrap(call.Err, "calling org.bluez.Adapter1.StartDiscovery")
 		}
 
 		err = adapter.SetProperty("org.bluez.Adapter1.Alias", dbus.MakeVariant(deviceName))
