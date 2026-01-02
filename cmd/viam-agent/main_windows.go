@@ -64,6 +64,9 @@ func main() {
 	if err != nil {
 		return
 	}
+
+	logging.RegisterEventLogger(globalLogger, serviceName)
+
 	defer func() {
 		goutils.UncheckedError(elog.Close())
 	}()

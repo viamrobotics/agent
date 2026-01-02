@@ -11,6 +11,8 @@ tool github.com/golangci/golangci-lint/cmd/golangci-lint
 // We fork this bc the stock version doubles agent binary from 25mb -> 50mb.
 replace github.com/hashicorp/go-getter => github.com/viam-labs/go-getter v0.0.0-20251022162721-98d73b852c8a
 
+replace go.viam.com/rdk v0.73.0 => ../rdk
+
 require (
 	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/gabriel-vasile/mimetype v1.4.9
