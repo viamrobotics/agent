@@ -104,9 +104,9 @@ func (n *Networking) stopProvisioningBluetooth() error {
 // rfkillUnblock execs `rfkill` to unblock bluetooth radios that may have a
 // soft block.
 // NOTE: this could be rewritten read + manipulate files in /sys directly but
-// I'm not currently convinced the code would be any shorter or easier to
-// maintain. If we ever run into issues with inconsistent `rfkill` output maybe
-// it will be worth making such a change.
+// the code probably wouldn't be any easier to maintain and definitely wouldn't
+// be shorter. If we ever run into inconsistent behavior from `rfkill` then we
+// can look into making such a change.
 func rfkillUnblock(ctx context.Context) error {
 	rfkillUnblock := exec.CommandContext(ctx, "rfkill", "unblock", "bluetooth")
 	output, err := rfkillUnblock.CombinedOutput()
