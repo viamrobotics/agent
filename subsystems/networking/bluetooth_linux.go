@@ -55,7 +55,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 		n.logger.Warn("could not update BT networks characteristic")
 	}
 
-	pairingCtx, pairingCtxCancel := context.WithTimeout(ctx, time.Second * 30)
+	pairingCtx, pairingCtxCancel := context.WithTimeout(ctx, time.Second*30)
 	defer pairingCtxCancel()
 	if err := n.enablePairing(pairingCtx, n.Config().HotspotSSID); err != nil {
 		return err
@@ -114,7 +114,9 @@ func rfkillUnblock(ctx context.Context) error {
 }
 
 // initializeBluetoothService performs low-level system configuration to enable bluetooth advertisement.
-func (n *Networking) initializeBluetoothService(ctx context.Context, deviceName string, characteristics []bluetooth.CharacteristicConfig) error {
+func (n *Networking) initializeBluetoothService(
+	ctx context.Context, deviceName string, characteristics []bluetooth.CharacteristicConfig,
+) error {
 	if err := rfkillUnblock(ctx); err != nil {
 		n.logger.Warnw("Failed to unblock bluetooth with rfkill; bluetooth initialization will continue but may fail", "err", err)
 	}
