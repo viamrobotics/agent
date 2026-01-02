@@ -63,6 +63,8 @@ func main() {
 	elog, err = eventlog.Open(serviceName)
 	if err != nil {
 		return
+	} else {
+		logging.RegisterEventLogger(globalLogger, serviceName)
 	}
 	defer func() {
 		goutils.UncheckedError(elog.Close())
