@@ -284,8 +284,8 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		if err := os.Rename(partialDest, outPath); err != nil {
 			return "", errw.Wrap(err, "moving successful download to outPath")
 		}
-		if err := os.Remove(etagPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			logger.Warnw("failed to remove etag file", "err", err)
+		if err := os.RemoveAll(path.Dir(partialDest)); err != nil {
+			logger.Warnw("failed to remove partial subdir", "err", err)
 		}
 		return outPath, nil
 
@@ -347,6 +347,11 @@ func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 	}
 
 	basePath := path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), ""))
+	if !strings.HasSuffix(basePath, string(os.PathSeparator)) {
+		// necessary because when URL is just domain with no path, this would have a shallower dir structure
+		// and break delete logic in tests.
+		basePath += string(os.PathSeparator)
+	}
 	return basePath + ".part", basePath + ".etag"
 }
 
