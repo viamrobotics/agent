@@ -337,8 +337,9 @@ func rewriteGCPDownload(orig *url.URL) (*url.URL, bool) {
 	return orig, true
 }
 
-// CreatePartialPath makes a path under cachedir/part. These get cleaned up by CleanPartials.
-// Returns both the .part path and the .etag path.
+// CreatePartialPath makes a temporary destination under cachedir/part. These get cleaned up
+// periodically by CleanPartials, but persist for a few days so a failed download can be retried.
+// Returns a .part path and .etag path.
 func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 	var urlPath string
 	if parsed, err := url.Parse(rawURL); err != nil {
@@ -348,9 +349,7 @@ func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 	}
 
 	basePath := path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), ""))
-	partPath = basePath + ".part"
-	etagPath = basePath + ".etag"
-	return partPath, etagPath
+	return basePath + ".part", basePath + ".etag"
 }
 
 // helper: return last item of `items` slice, or `default_` if items is empty.
@@ -398,10 +397,13 @@ func getRemoteETagAndSize(ctx context.Context, url string, logger logging.Logger
 	return etag, res.ContentLength, nil
 }
 
-// readETag reads the ETag from a file.
+// readETag reads the ETag from a file. Returns "", nil when the file is missing.
 func readETag(etagPath string) (string, error) {
 	data, err := os.ReadFile(etagPath) //nolint:gosec
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
