@@ -273,11 +273,15 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			return "", errw.Wrap(err, "downloading file")
 		}
 
-		// move completed .part to outPath and remove url-hash dir
 		logger.Debugw("moving successful download to outPath", "partialDest", partialDest)
-		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
-			return "", err
+		if err := os.Rename(partialDest, outPath); err != nil {
+			return "", errw.Wrap(err, "moving successful download to outPath")
 		}
+		if err := os.Remove(etagPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logger.Warnw("failed to remove etag file", "err", err)
+		}
+		return outPath, nil
+
 	default:
 		return "", fmt.Errorf("unsupported url scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
