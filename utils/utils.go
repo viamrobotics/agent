@@ -239,7 +239,6 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		// note: we shrink the hash to avoid system path length limits
 		partialDest, etagPath := CreatePartialPath(rawURL)
 
-		// Do a HEAD request to get the ETag value
 		remoteETag, err := getRemoteETag(ctx, parsedURL.String(), logger)
 		if err != nil {
 			logger.Warnw("failed to get remote ETag, proceeding with download", "err", err)
@@ -249,14 +248,13 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		g.SetClient(getterClient)
 
 		if stat, err := os.Stat(partialDest); err == nil {
-			storedETag, err := readETag(etagPath)
+			storedETag, err := readIfExists(etagPath)
 			if err != nil {
 				return "", errw.Wrap(err, "reading stored ETag")
 			}
 			// note: this intentionally allows resume for 'both blank' and 'exact match' cases,
 			// and disallows for 'mismatch' + 'either missing' cases.
 			if storedETag != remoteETag {
-				// If it's a mismatch, delete the old .part file
 				logger.Warnw("ETag mismatch, deleting old file", "dest", partialDest, "stored_etag", storedETag, "remote_etag", remoteETag)
 				if err := os.Remove(partialDest); err != nil && !errors.Is(err, fs.ErrNotExist) {
 					return "", errw.Wrap(err, "failed to remove stale partial")
@@ -270,7 +268,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 
 		if remoteETag != "" {
-			if err := writeETag(etagPath, remoteETag); err != nil {
+			if err := writeWithDirs(etagPath, remoteETag); err != nil {
 				logger.Warnw("failed to save ETag", "err", err)
 			}
 		}
@@ -375,47 +373,37 @@ func hashString(input string, n int) string {
 // getRemoteETag performs a HEAD request to get the ETag from the remote server.
 // ETags are returned with quotes removed for consistent comparison.
 func getRemoteETag(ctx context.Context, url string, logger logging.Logger) (string, error) {
-	etag, _, err := getRemoteETagAndSize(ctx, url, logger)
-	return etag, err
-}
-
-// getRemoteETagAndSize performs a HEAD request to get the ETag and content length from the remote server.
-// ETags are returned with quotes removed for consistent comparison.
-func getRemoteETagAndSize(ctx context.Context, url string, logger logging.Logger) (string, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
-		return "", 0, errw.Wrap(err, "creating HEAD request")
+		return "", err
 	}
 	res, err := socksClient(url, logger).Do(req)
 	if err != nil {
-		return "", 0, errw.Wrap(err, "executing HEAD request")
+		return "", err
 	}
 	defer res.Body.Close() //nolint:errcheck
-	etag := res.Header.Get("ETag")
-	// Remove surrounding quotes if present (ETags are often returned as "value")
-	etag = strings.Trim(etag, `"`)
-	return etag, res.ContentLength, nil
+	// we remove surrounding quotes if present
+	return strings.Trim(res.Header.Get("ETag"), `"`), nil
 }
 
-// readETag reads the ETag from a file. Returns "", nil when the file is missing.
-func readETag(etagPath string) (string, error) {
-	data, err := os.ReadFile(etagPath) //nolint:gosec
+// readIfExists reads a file if it exists, returns "", nil when the file is missing.
+func readIfExists(destPath string) (string, error) {
+	data, err := os.ReadFile(destPath) //nolint:gosec
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", nil
 		}
 		return "", err
 	}
-	return strings.TrimSpace(string(data)), nil
+	return string(data), nil
 }
 
-// writeETag writes the ETag to a file.
-func writeETag(etagPath, etag string) error {
-	// Ensure the directory exists
-	if err := os.MkdirAll(path.Dir(etagPath), 0o750); err != nil {
-		return errw.Wrapf(err, "creating directory for %s", etagPath)
+// writeWithDirs writes a file at path, creating dirs if necessary.
+func writeWithDirs(destPath, contents string) error {
+	if err := os.MkdirAll(path.Dir(destPath), 0o750); err != nil {
+		return errw.Wrapf(err, "creating directory for %s", destPath)
 	}
-	return errw.Wrapf(os.WriteFile(etagPath, []byte(etag), 0o600), "writing ETag to %s", etagPath)
+	return errw.Wrapf(os.WriteFile(destPath, []byte(contents), 0o600), "writing %s", destPath)
 }
 
 // on windows only, create a firewall exception for the newly-downloaded file.
