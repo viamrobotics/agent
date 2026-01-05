@@ -284,7 +284,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		if err := os.Rename(partialDest, outPath); err != nil {
 			return "", errw.Wrap(err, "moving successful download to outPath")
 		}
-		if err := os.RemoveAll(path.Dir(partialDest)); err != nil {
+		if err := os.RemoveAll(filepath.Dir(partialDest)); err != nil {
 			logger.Warnw("failed to remove partial subdir", "err", err)
 		}
 		return outPath, nil
@@ -346,7 +346,7 @@ func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 		urlPath = parsed.Path
 	}
 
-	basePath := path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), ""))
+	basePath := filepath.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), ""))
 	if !strings.HasSuffix(basePath, string(os.PathSeparator)) {
 		// necessary because when URL is just domain with no path, this would have a shallower dir structure
 		// and break delete logic in tests.
@@ -405,7 +405,7 @@ func readIfExists(destPath string) (string, error) {
 
 // writeWithDirs writes a file at path, creating dirs if necessary.
 func writeWithDirs(destPath, contents string) error {
-	if err := os.MkdirAll(path.Dir(destPath), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
 		return errw.Wrapf(err, "creating directory for %s", destPath)
 	}
 	return errw.Wrapf(os.WriteFile(destPath, []byte(contents), 0o600), "writing %s", destPath)
