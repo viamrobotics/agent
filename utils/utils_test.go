@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -444,7 +445,7 @@ func TestInitPaths(t *testing.T) {
 
 	t.Run("failure not directory", func(t *testing.T) {
 		MockViamDirs(t)
-		err := os.MkdirAll(ViamDirs.Viam, os.ModePerm)
+		err := os.MkdirAll(ViamDirs.Viam, 0o755)
 		test.That(t, err, test.ShouldBeNil)
 		_, err = os.Create(ViamDirs.Bin)
 		test.That(t, err, test.ShouldBeNil)
@@ -458,9 +459,11 @@ func TestInitPaths(t *testing.T) {
 			t.SkipNow()
 		}
 		MockViamDirs(t)
-		err := os.MkdirAll(ViamDirs.Bin, os.ModePerm)
+		err := errors.Join(
+			os.MkdirAll(ViamDirs.Viam, 0o755),
+			os.MkdirAll(ViamDirs.Bin, 0o700),
+		)
 		test.That(t, err, test.ShouldBeNil)
-		os.Chmod(ViamDirs.Bin, 0o700)
 		err = InitPaths()
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
