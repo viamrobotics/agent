@@ -693,11 +693,11 @@ type AgentVersionInfo struct {
 // IsValidAgentBinary inspects the binary at path to determine if that binary is
 // ostensibly an agent binary.
 func IsValidAgentBinary(path, expectedBinaryName string) bool {
-	// Run the binary with -version to look for the binary_name field.
-	cmd := exec.Command(path, "-version")
+	// Run the binary with --version to look for the binary_name field.
+	cmd := exec.Command(path, "--version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// An agent binary that cannot run -version is always invalid.
+		// An agent binary that cannot run --version is always invalid.
 		return false
 	}
 	var avi *AgentVersionInfo
