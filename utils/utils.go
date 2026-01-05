@@ -249,27 +249,27 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		g.SetClient(getterClient)
 
 		if stat, err := os.Stat(partialDest); err == nil {
-			// File exists, load the etag file and check it against the one we just got
 			storedETag, err := readETag(etagPath)
-			if err == nil && remoteETag != "" {
-				if storedETag == remoteETag {
-					// ETag matches - allow resume (getter will handle range requests)
-					logger.Infow("resuming download with matching ETag", "dest", partialDest, "size", stat.Size(), "etag", remoteETag)
-				} else {
-					// If it's a mismatch, delete the old .part file and save the new .etag file
-					logger.Infow("ETag mismatch, deleting old file", "dest", partialDest, "stored_etag", storedETag, "remote_etag", remoteETag)
-					if err := os.Remove(partialDest); err != nil && !errors.Is(err, fs.ErrNotExist) {
-						logger.Warnw("failed to remove old partial file", "err", err)
-					}
-					if err := writeETag(etagPath, remoteETag); err != nil {
-						logger.Warnw("failed to save ETag", "err", err)
-					}
+			if err != nil {
+				return "", errw.Wrap(err, "reading stored ETag")
+			}
+			// note: this intentionally allows resume for 'both blank' and 'exact match' cases,
+			// and disallows for 'mismatch' + 'either missing' cases.
+			if storedETag != remoteETag {
+				// If it's a mismatch, delete the old .part file
+				logger.Warnw("ETag mismatch, deleting old file", "dest", partialDest, "stored_etag", storedETag, "remote_etag", remoteETag)
+				if err := os.Remove(partialDest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return "", errw.Wrap(err, "failed to remove stale partial")
+				}
+				if err := os.Remove(etagPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return "", errw.Wrap(err, "failed to remove stale etag")
 				}
 			} else {
 				logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
 			}
-		} else if remoteETag != "" {
-			// If the file doesn't exist, save a new etag file
+		}
+
+		if remoteETag != "" {
 			if err := writeETag(etagPath, remoteETag); err != nil {
 				logger.Warnw("failed to save ETag", "err", err)
 			}
