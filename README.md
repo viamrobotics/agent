@@ -3,6 +3,8 @@ A self-updating service manager that maintains the lifecycle for viam-server (as
 
 For more information, see the [Viam Agent documentation](https://docs.viam.com/configure/agent/).
 
+Agent is designed to run as a systemd service. First-time setup is `sudo ./viam-agent --install` and it will automatically update itself when new updates are released.
+
 ## Development
 
 ### Makefile Targets
@@ -21,6 +23,4 @@ Ex: `make all TAG_VERSION=0.1.2`
 Agent can be run directly (`./viam-agent`) outside of systemd for local development purposes. It will only manage viam-server by default. Network and system configuration management can be enabled with `--enable-networking` and `--enable-syscfg`. `--viam-dir` can be used to override the default `/opt/viam` location. See `--help` for the full list of options.
 
 ### Systemd
-Agent is designed to run as a systemd service. First-time setup is `sudo ./viam-agent --install` and it will automatically update itself when new updates are released.
-
 The service configration lives in both `viam-agent.service` and `preinstall.sh`, and the two should be kept in sync when making changes.
