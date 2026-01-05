@@ -507,27 +507,8 @@ func TestIsValidAgentBinary(t *testing.T) {
 		t.Skip("Built viam-agent binary will not run -version on MacOS; skipping")
 	}
 
-	td := t.TempDir()
-
-	nonBinaryPath := filepath.Join(td, "text.txt")
+	nonBinaryPath := filepath.Join(t.TempDir(), "text.txt")
 	err := os.WriteFile(nonBinaryPath, []byte("Hello, World!"), 0o644)
-	test.That(t, err, test.ShouldBeNil)
-
-	nonAgentBinaryProgramPath := filepath.Join(td, "main.go")
-	nonAgentBinaryPath := filepath.Join(td, "main")
-	golangProgram := []byte(
-		`package main
-
-func main() {
-	println("Hello, World!")
-}
-`)
-	err = os.WriteFile(nonAgentBinaryProgramPath, golangProgram, 0o644)
-	test.That(t, err, test.ShouldBeNil)
-	cmd := exec.Command("go", "build", nonAgentBinaryProgramPath)
-	cmd.Dir = td
-	output, err := cmd.CombinedOutput()
-	test.That(t, string(output), test.ShouldBeBlank)
 	test.That(t, err, test.ShouldBeNil)
 
 	testCases := []struct {
@@ -542,7 +523,7 @@ func main() {
 		},
 		{
 			name:  "non-agent binary file",
-			path:  nonAgentBinaryPath,
+			path:  os.Args[0], // use test binary
 			valid: false,
 		},
 		{

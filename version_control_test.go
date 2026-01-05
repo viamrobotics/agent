@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -310,25 +309,12 @@ func TestUpdateBinary(t *testing.T) {
 		})
 
 		t.Run("non-agent-binary-file", func(t *testing.T) {
-			nonAgentBinaryProgramPath := filepath.Join(td, "main.go")
-			nonAgentBinaryPath := filepath.Join(td, "main")
-			golangProgram := []byte(
-				`package main
-
-func main() {
-	println("Hello, World!")
-}
-`)
-			err := os.WriteFile(nonAgentBinaryProgramPath, golangProgram, 0o644)
-			test.That(t, err, test.ShouldBeNil)
-			cmd := exec.Command("go", "build", nonAgentBinaryProgramPath)
-			cmd.Dir = td
-			output, err := cmd.CombinedOutput()
-			test.That(t, string(output), test.ShouldBeBlank)
+			// We'll use the currently running test binary as an example of a non-agent binary.
+			testBinaryPath, err := os.Executable()
 			test.That(t, err, test.ShouldBeNil)
 
 			vi4 := vi2
-			vi4.URL = "file://" + nonAgentBinaryPath
+			vi4.URL = "file://" + testBinaryPath
 			vi4.Version = "customURL+" + vi4.URL
 			vi4.UnpackedSHA = make([]byte, 0)
 			vc.ViamAgent.Versions[vi4.Version] = &vi4
