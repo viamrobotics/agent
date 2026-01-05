@@ -346,8 +346,9 @@ func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 		urlPath = parsed.Path
 	}
 
-	basePath := filepath.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), ""))
-	if !strings.HasSuffix(basePath, string(os.PathSeparator)) {
+	filename := last(strings.Split(urlPath, "/"), "")
+	basePath := path.Join(ViamDirs.Partials, hashString(rawURL, 7), filename)
+	if filename == "" {
 		// necessary because when URL is just domain with no path, this would have a shallower dir structure
 		// and break delete logic in tests.
 		basePath += string(os.PathSeparator)
