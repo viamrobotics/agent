@@ -11,7 +11,7 @@ import (
 
 type APIKey struct {
 	ID  string `json:"id"`
-	Key string `json:"value"`
+	Key string `json:"key"`
 }
 
 func (a APIKey) IsEmpty() bool {
