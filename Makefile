@@ -48,8 +48,11 @@ bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH): go.* *.go */*.go */*/*.g
 clean:
 	rm -rf bin/
 
-bin/golangci-lint: go.sum
-	GOOS='' go build -o $@ github.com/golangci/golangci-lint/cmd/golangci-lint
+# hack copied from App's Makefile
+GOVERSION = $(shell grep '^go .\..' go.mod | head -n1 | cut -d' ' -f2)
+
+bin/golangci-lint: go.mod
+	GOTOOLCHAIN=go$(GOVERSION) GOOS='' GOBIN='$(shell pwd)/bin' go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
 
 .PHONY: lint
 lint: bin/golangci-lint
