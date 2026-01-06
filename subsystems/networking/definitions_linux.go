@@ -143,7 +143,7 @@ func WriteDeviceConfig(file string, input userInput) error {
 		},
 	}
 
-	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || (cfg.Cloud.Secret == "" || cfg.Cloud.APIKey.IsEmpty()) {
+	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || (cfg.Cloud.Secret == "" && cfg.Cloud.APIKey.IsEmpty()) {
 		return errors.New("incomplete machine credentials received, please try again")
 	}
 
