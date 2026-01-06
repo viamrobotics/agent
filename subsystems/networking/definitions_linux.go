@@ -273,10 +273,7 @@ func (b *banner) Get() string {
 	return b.banner
 }
 
-// NetKey is used to uniquely index connections
-// wifi is <ssid>@<ifname>, ex: "myNetwork@wlan0"
-// wired is wired@<ifname>, ex: "wired@eth0"
-// bluetooth is "bluetooth@<ifname>" where ifname is the hardware address of the remote device, ex: "bluetooth@1A:2B:3C:11:22:33".
+// NetKey is used to uniquely index connections. Use String() if a string representation is preferred.
 type NetKey struct {
 	// name is ssid for wifi or hotspot, otherwise just "wired" or "bluetooth"
 	name string
@@ -325,6 +322,10 @@ func (n NetKey) SSID() string {
 	}
 }
 
+// String returns a string representation of the NetKey.
+// wifi is <ssid>@<ifname>, ex: "myNetwork@wlan0"
+// wired is wired@<ifname>, ex: "wired@eth0"
+// bluetooth is "bluetooth@<ifname>" where ifname is the hardware address of the remote device, ex: "bluetooth@1A:2B:3C:11:22:33".
 func (n NetKey) String() string {
 	if n.Name() == "" || n.Interface() == "" {
 		return ""
