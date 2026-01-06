@@ -83,16 +83,6 @@ func isRaspberryPi() bool {
 	if err == nil && strings.Contains(string(model), "Raspberry Pi") {
 		return true
 	}
-
-	compat, err := os.ReadFile("/proc/device-tree/compatible")
-	if err == nil && strings.Contains(string(compat), "raspberrypi") {
-		return true
-	}
-
-	cpuinfo, err := os.ReadFile("/proc/cpuinfo")
-	if err == nil && strings.Contains(string(cpuinfo), "BCM2835") {
-		return true
-	}
 	return false
 }
 
