@@ -65,6 +65,7 @@ func main() {
 		return
 	}
 
+	// send Agent logs to the Windows event viewer
 	logging.RegisterEventLogger(globalLogger, serviceName)
 
 	defer func() {
