@@ -2,9 +2,13 @@ package utils
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	agentpb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/test"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // basic test for the config structure names.
@@ -84,4 +88,70 @@ func TestConvertJson(t *testing.T) {
 
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)
+}
+
+func TestStackConfigs(t *testing.T) {
+	tempDir := t.TempDir()
+
+	DefaultsFilePath = filepath.Join(tempDir, "viam-defaults.json")
+
+	jsonBytes := `
+{
+	"advanced_settings": {
+		"debug": false,
+		"viam_server_start_timeout_minutes": 12
+	},
+	"network_configuration": {
+		"manufacturer": "viam",
+		"model": "custom",
+		"fragment_id": "",
+		"hotspot_prefix": "viam-setup",
+		"hotspot_ssid": "viamsetuptestssid123",
+		"hotspot_password": "viamsetup",
+		"disable_captive_portal_redirect": false,
+		"offline_before_starting_hotspot_minutes": 2,
+		"user_idle_minutes": 6,
+		"retry_connection_timeout_minutes": 10,
+		"wifi_power_save": null,
+		"bluetooth_trust_all": false
+	},
+	"system_configuration": {
+			"logging_journald_system_max_use_megabytes": 513,
+			"logging_journald_runtime_max_use_megabytes": 512,
+			"os_auto_upgrade_type": "",
+			"forward_system_logs": ""
+	}
+}
+`
+	viamDefaultsCfg := DefaultConfig()
+	err := json.Unmarshal([]byte(jsonBytes), &viamDefaultsCfg)
+	test.That(t, err, test.ShouldBeNil)
+
+	err = os.WriteFile(DefaultsFilePath, []byte(jsonBytes), 0o644)
+	test.That(t, err, test.ShouldBeNil)
+
+	agentConfigNoCloud, err := StackConfigs(nil)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, agentConfigNoCloud, test.ShouldResemble, viamDefaultsCfg)
+
+	// if a readable cloud proto is provided, only its values should be used.
+	// if a value is not provided, it should be the hardcoded default from DefaultConfig. viam-defaults.json should not be used at all
+	adv, err := structpb.NewStruct(map[string]any{
+		"debug": true,
+	})
+	test.That(t, err, test.ShouldBeNil)
+	fromCloudProto := &agentpb.DeviceAgentConfigResponse{
+		AdvancedSettings: adv,
+	}
+	agentCfgFromCloud, err := StackConfigs(fromCloudProto)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, agentCfgFromCloud.AdvancedSettings.Debug, test.ShouldNotEqual, viamDefaultsCfg.AdvancedSettings.Debug)
+	//nolint:lll
+	test.That(t, agentCfgFromCloud.AdvancedSettings.ViamServerStartTimeoutMinutes, test.ShouldNotEqual, viamDefaultsCfg.AdvancedSettings.ViamServerStartTimeoutMinutes)
+	// defaults to hostname. we don't use field from defaults file.
+	test.That(t, agentCfgFromCloud.NetworkConfiguration.HotspotSSID, test.ShouldNotEqual, viamDefaultsCfg.NetworkConfiguration.HotspotSSID)
+	//nolint:lll
+	test.That(t, agentCfgFromCloud.NetworkConfiguration.UserIdleMinutes, test.ShouldNotEqual, viamDefaultsCfg.NetworkConfiguration.UserIdleMinutes)
+	//nolint:lll
+	test.That(t, agentCfgFromCloud.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes, test.ShouldNotEqual, viamDefaultsCfg.SystemConfiguration.LoggingJournaldSystemMaxUseMegabytes)
 }
