@@ -392,10 +392,12 @@ func TestDownloadFile(t *testing.T) {
 		})
 
 		t.Run("etag-mismatch", func(t *testing.T) {
-			etag := 0
+			var etag int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Add("ETag", strconv.Itoa(etag))
-				etag += 1
+				if r.Method == http.MethodGet {
+					etag += 1
+				}
 				http.ServeContent(w, r, "hello", modtime, bytes.NewReader(payload))
 			}))
 			t.Cleanup(func() {
