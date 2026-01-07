@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.viam.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/viam/bin/viam-agent</string>
+        <string>--config</string>
+        <string>/etc/viam.json</string>
+    </array>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/viam-agent.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/viam-agent.log</string>
+
+    <key>ExitTimeOut</key>
+    <integer>240</integer>
+</dict>
+</plist>
