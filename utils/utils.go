@@ -237,13 +237,38 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 	case "http", "https":
 		// note: we shrink the hash to avoid system path length limits
-		partialDest := CreatePartialPath(rawURL)
+		partialDest, etagPath := CreatePartialPath(rawURL)
+
+		remoteETag, err := getRemoteETag(ctx, parsedURL.String(), logger)
+		if err != nil {
+			logger.Warnw("failed to get remote ETag, proceeding with download", "err", err)
+		}
 
 		g := getter.HttpGetter{Client: socksClient(parsedURL.String(), logger), MaxBytes: maxBytesForTesting}
 		g.SetClient(getterClient)
 
 		if stat, err := os.Stat(partialDest); err == nil {
-			logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
+			storedETag, err := readIfExists(etagPath)
+			if err != nil {
+				return "", errw.Wrap(err, "reading stored ETag")
+			}
+			if remoteETag == "" || storedETag != remoteETag {
+				logger.Warnw("ETag mismatch, deleting old file", "dest", partialDest, "stored_etag", storedETag, "remote_etag", remoteETag)
+				if err := os.Remove(partialDest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return "", errw.Wrap(err, "failed to remove stale partial")
+				}
+				if err := os.Remove(etagPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return "", errw.Wrap(err, "failed to remove stale etag")
+				}
+			} else {
+				logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
+			}
+		}
+
+		if remoteETag != "" {
+			if err := writeWithDirs(etagPath, remoteETag); err != nil {
+				logger.Warnw("failed to save ETag", "err", err)
+			}
 		}
 
 		done := make(chan struct{})
@@ -253,11 +278,15 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			return "", errw.Wrap(err, "downloading file")
 		}
 
-		// move completed .part to outPath and remove url-hash dir
 		logger.Debugw("moving successful download to outPath", "partialDest", partialDest)
-		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
-			return "", err
+		if err := os.Rename(partialDest, outPath); err != nil {
+			return "", errw.Wrap(err, "moving successful download to outPath")
 		}
+		if err := os.RemoveAll(filepath.Dir(partialDest)); err != nil {
+			logger.Warnw("failed to remove partial subdir", "err", err)
+		}
+		return outPath, nil
+
 	default:
 		return "", fmt.Errorf("unsupported url scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
@@ -304,8 +333,10 @@ func rewriteGCPDownload(orig *url.URL) (*url.URL, bool) {
 	return orig, true
 }
 
-// CreatePartialPath makes a path under cachedir/part. These get cleaned up by CleanPartials.
-func CreatePartialPath(rawURL string) string {
+// CreatePartialPath makes a temporary destination under cachedir/part. These get cleaned up
+// periodically by CleanPartials, but persist for a few days so a failed download can be retried.
+// Returns a .part path and .etag path.
+func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 	var urlPath string
 	if parsed, err := url.Parse(rawURL); err != nil {
 		urlPath = "UNPARSED"
@@ -313,7 +344,14 @@ func CreatePartialPath(rawURL string) string {
 		urlPath = parsed.Path
 	}
 
-	return path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), "")+".part")
+	filename := last(strings.Split(urlPath, "/"), "")
+	basePath := filepath.Join(ViamDirs.Partials, hashString(rawURL, 7), filename)
+	if filename == "" {
+		// necessary because when URL is just domain with no path, this would have a shallower dir structure
+		// and break delete logic in tests.
+		basePath += string(os.PathSeparator)
+	}
+	return basePath + ".part", basePath + ".etag"
 }
 
 // helper: return last item of `items` slice, or `default_` if items is empty.
@@ -334,6 +372,42 @@ func hashString(input string, n int) string {
 		return ret[len(ret)-n:]
 	}
 	return ret
+}
+
+// getRemoteETag performs a HEAD request to get the ETag from the remote server.
+// ETags are returned with quotes removed for consistent comparison.
+func getRemoteETag(ctx context.Context, url string, logger logging.Logger) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := socksClient(url, logger).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close() //nolint:errcheck
+	// we remove surrounding quotes if present
+	return strings.Trim(res.Header.Get("ETag"), `"`), nil
+}
+
+// readIfExists reads a file if it exists, returns "", nil when the file is missing.
+func readIfExists(destPath string) (string, error) {
+	data, err := os.ReadFile(destPath) //nolint:gosec
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
+}
+
+// writeWithDirs writes a file at path, creating dirs if necessary.
+func writeWithDirs(destPath, contents string) error {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+		return errw.Wrapf(err, "creating directory for %s", destPath)
+	}
+	return errw.Wrapf(os.WriteFile(destPath, []byte(contents), 0o600), "writing %s", destPath)
 }
 
 // on windows only, create a firewall exception for the newly-downloaded file.
