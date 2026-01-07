@@ -252,9 +252,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			if err != nil {
 				return "", errw.Wrap(err, "reading stored ETag")
 			}
-			// note: this intentionally allows resume for 'both blank' and 'exact match' cases,
-			// and disallows for 'mismatch' + 'either missing' cases.
-			if storedETag != remoteETag {
+			if remoteETag == "" || storedETag != remoteETag {
 				logger.Warnw("ETag mismatch, deleting old file", "dest", partialDest, "stored_etag", storedETag, "remote_etag", remoteETag)
 				if err := os.Remove(partialDest); err != nil && !errors.Is(err, fs.ErrNotExist) {
 					return "", errw.Wrap(err, "failed to remove stale partial")
