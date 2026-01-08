@@ -108,17 +108,22 @@ func (m *Manager) LoadAppConfig() error {
 		return errw.New("no cloud section in local config file")
 	}
 
-	for _, req := range []string{"app_address", "id", "secret"} {
+	for _, req := range []string{"app_address", "id"} {
 		field, ok := cloud[req]
 		if !ok {
 			return errw.Errorf("no cloud config field for %s", field)
 		}
 	}
 
+	cloudCreds, err := utils.ParseCloudCreds(cloud)
+	if err != nil {
+		return errw.Errorf("no cloud config field for cloud creds")
+	}
+
 	m.cloudConfig = &logging.CloudConfig{
 		AppAddress: cloud["app_address"],
 		ID:         cloud["id"],
-		Secret:     cloud["secret"],
+		CloudCred:  cloudCreds,
 	}
 
 	return nil
@@ -640,14 +645,10 @@ func (m *Manager) dial(ctx context.Context) error {
 	}
 
 	dialOpts := make([]rpc.DialOption, 0, 2)
-	// Only add credentials when secret is set.
-	if m.cloudConfig.Secret != "" {
-		dialOpts = append(dialOpts, rpc.WithEntityCredentials(m.cloudConfig.ID,
-			rpc.Credentials{
-				Type:    "robot-secret",
-				Payload: m.cloudConfig.Secret,
-			},
-		))
+
+	// Only add credentials when they are set.
+	if m.cloudConfig.CloudCred != nil {
+		dialOpts = append(dialOpts, m.cloudConfig.CloudCred)
 	}
 
 	if u.Scheme == "http" {

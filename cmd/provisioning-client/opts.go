@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/viamrobotics/agent/utils"
 )
 
 var opts struct {
@@ -21,9 +22,10 @@ var opts struct {
 
 	PSK string `description:"psk for bluetooth security" long:"psk"`
 
-	AppAddr string `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
-	PartID  string `description:"PartID to set in viam.json"        long:"part-id"`
-	Secret  string `description:"Device secret to set in viam.json" long:"secret"`
+	AppAddr string       `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
+	PartID  string       `description:"PartID to set in viam.json"        long:"part-id"`
+	Secret  string       `description:"Device secret to set in viam.json" long:"secret"`
+	APIKey  utils.APIKey `description:"Device secret to set in viam.json" long:"api-key"`
 
 	Exit bool `description:"Tell the device to exit provisioning mode" long:"exit" short:"e"`
 
@@ -55,9 +57,9 @@ func parseOpts() bool {
 		return false
 	}
 
-	if opts.PartID != "" || opts.Secret != "" {
-		if opts.PartID == "" || opts.Secret == "" || opts.AppAddr == "" {
-			fmt.Println("Error: Must set both Secret and PartID (and optionally AppAddr) at the same time!")
+	if opts.PartID != "" || opts.Secret != "" || !opts.APIKey.IsEmpty() {
+		if opts.PartID == "" || (opts.Secret == "" && opts.APIKey.IsEmpty()) || opts.AppAddr == "" {
+			fmt.Println("Error: Must set PartID, AppAddr, and either Secret or API Key!")
 			return false
 		}
 	}

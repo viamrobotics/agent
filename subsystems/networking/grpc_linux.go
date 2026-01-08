@@ -117,6 +117,10 @@ func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
 	n.portalData.input.PartID = cloud.GetId()
 	n.portalData.input.Secret = cloud.GetSecret()
 	n.portalData.input.AppAddr = cloud.GetAppAddress()
+	n.portalData.input.APIKey = utils.APIKey{
+		ID:  cloud.GetApiKey().GetId(),
+		Key: cloud.GetApiKey().GetKey(),
+	}
 
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }
