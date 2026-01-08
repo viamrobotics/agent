@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -84,8 +85,18 @@ func commonMain() {
 	}
 
 	if opts.Version {
+		agentVersionInfoJSON, err := json.MarshalIndent(&utils.AgentVersionInfo{
+			Version:     utils.GetVersion(),
+			GitRevision: utils.GetRevision(),
+			BinaryName:  agent.SubsystemName,
+		}, "", "\t")
+		if err != nil {
+			//nolint:forbidigo
+			fmt.Printf("Error creating version information %v; exiting", err.Error())
+			return
+		}
 		//nolint:forbidigo
-		fmt.Printf("Version: %s\nGit Revision: %s\n", utils.GetVersion(), utils.GetRevision())
+		fmt.Printf("%s\n", agentVersionInfoJSON)
 		return
 	}
 

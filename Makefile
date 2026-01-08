@@ -44,6 +44,15 @@ bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH): go.* *.go */*.go */*/*.g
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable$(OS_NAME)-$(LINUX_ARCH) || true
 
+# Used for building agent binaries from within test suite.
+.PHONY: test-build
+test-build:
+	@if [ -z ${TESTBUILD_OUTPUT_PATH} ]; then \
+		echo "Error: must set TESTBUILD_OUTPUT_PATH for test-build make target"; \
+		exit 1; \
+	fi
+	go build -o ${TESTBUILD_OUTPUT_PATH} -trimpath -tags $(TAGS) -ldflags	$(LDFLAGS) ./cmd/viam-agent
+
 .PHONY: clean
 clean:
 	rm -rf bin/
