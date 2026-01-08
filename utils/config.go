@@ -73,6 +73,19 @@ func init() {
 	if runtime.GOOS == "windows" {
 		DefaultConfiguration.AdvancedSettings.ViamServerStartTimeoutMinutes = Timeout(time.Minute)
 	}
+	// We've experenced wifi power save to be a source of networking instability on Raspberry Pis. Disable by default.
+	if isRaspberryPi() {
+		DefaultConfiguration.NetworkConfiguration.WifiPowerSave = -1
+	}
+}
+
+// isRaspberryPi provides a best guess as to whether the current device is a Raspberry Pi (any model).
+func isRaspberryPi() bool {
+	model, err := os.ReadFile("/proc/device-tree/model")
+	if err == nil && strings.Contains(string(model), "Raspberry Pi") {
+		return true
+	}
+	return false
 }
 
 //nolint:recvcheck
