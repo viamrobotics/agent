@@ -52,7 +52,7 @@ func (s *syscfg) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart
 	}
 
 	s.cfg = cfg.SystemConfiguration
-	return
+	return needRestart
 }
 
 func (s *syscfg) Start(ctx context.Context) error {
@@ -74,7 +74,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 	defer utils.Recover(s.logger, nil)
 
 	// set journald max size limits
-	err := s.EnforceLogging()
+	err := s.EnforceLogging(ctx)
 	if err != nil {
 		s.logger.Warn(errw.Wrap(err, "configuring journald logging"))
 	} else {

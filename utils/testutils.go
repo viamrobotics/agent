@@ -91,7 +91,7 @@ func BuildViamAgent(tb testing.TB) string {
 	buildOutputPath := tb.TempDir()
 	agentPath := filepath.Join(buildOutputPath, "viam-agent")
 
-	var builder *exec.Cmd = exec.Command("make", "test-build")
+	builder := exec.CommandContext(tb.Context(), "make", "test-build")
 	// Set Dir to be the root of the repository.
 	builder.Dir = ResolveFile(".")
 	// Set TESTBUILD_OUTPUT_PATH to be within created temporary directory.

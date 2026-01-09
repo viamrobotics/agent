@@ -1,6 +1,7 @@
 package systemd
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 
@@ -15,24 +16,24 @@ type SystemdExecutor interface {
 	// this by executing `systemctl --version` and checking the output. It returns
 	// nil if systemd is available and an error describing why it is unavailable
 	// otherwise.
-	IsAvailable() error
+	IsAvailable(ctx context.Context) error
 
 	// DaemonReload executes `systemctl daemon-reload`.
-	DaemonReload() error
+	DaemonReload(ctx context.Context) error
 
 	// Enable calls `systemctl enable` with the provided service name.
-	Enable(service string) error
+	Enable(ctx context.Context, service string) error
 
 	// SystemPath gets the unit search paths by calling `systemd-path
 	// systemd-search-system-unit`. It automatically splits the result around
 	// `:`.
-	SystemdSearchPaths() ([]string, error)
+	SystemdSearchPaths(ctx context.Context) ([]string, error)
 }
 
 type realSystemdExecutor struct{}
 
-func (s realSystemdExecutor) IsAvailable() error {
-	cmd := exec.Command("systemctl", "--version")
+func (s realSystemdExecutor) IsAvailable(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "systemctl", "--version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errors.Wrapf(err, "systemctl --version returned errors: %s", output)
@@ -40,8 +41,8 @@ func (s realSystemdExecutor) IsAvailable() error {
 	return nil
 }
 
-func (s realSystemdExecutor) Enable(service string) error {
-	cmd := exec.Command("systemctl", "enable", "viam-agent")
+func (s realSystemdExecutor) Enable(ctx context.Context, service string) error {
+	cmd := exec.CommandContext(ctx, "systemctl", "enable", "viam-agent")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errors.Wrapf(err, "running 'systemctl enable %s' output: %s", service, output)
@@ -49,8 +50,8 @@ func (s realSystemdExecutor) Enable(service string) error {
 	return nil
 }
 
-func (s realSystemdExecutor) DaemonReload() error {
-	cmd := exec.Command("systemctl", "daemon-reload")
+func (s realSystemdExecutor) DaemonReload(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "systemctl", "daemon-reload")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errors.Wrapf(err, "running 'systemctl daemon-reload' output: %s", output)
@@ -58,8 +59,8 @@ func (s realSystemdExecutor) DaemonReload() error {
 	return nil
 }
 
-func (s realSystemdExecutor) SystemdSearchPaths() ([]string, error) {
-	cmd := exec.Command("systemd-path", "systemd-search-system-unit")
+func (s realSystemdExecutor) SystemdSearchPaths(ctx context.Context) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "systemd-path", "systemd-search-system-unit")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, errors.Wrapf(err, "running 'systemd-path systemd-search-system-unit' output: %s", output)
