@@ -78,6 +78,9 @@ linters:
   settings:
     errcheck:
       check-blank: true
+    goconst:
+      ignore-string-values:
+        - '^windows$'
     gomoddirectives:
       replace-allow-list:
         - github.com/hashicorp/go-getter
