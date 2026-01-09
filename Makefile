@@ -57,14 +57,14 @@ test-build:
 clean:
 	rm -rf bin/
 
-bin/golangci-lint: go.sum
-	GOOS='' go build -o $@ github.com/golangci/golangci-lint/cmd/golangci-lint
+.PHONY: ensure-mise
+ensure-mise:
+	mise trust -yq
+	mise install
 
 .PHONY: lint
-lint: bin/golangci-lint
-	go mod tidy
-	GOOS='linux' $^ run -v --fix --timeout 10m
-	GOOS='windows' $^ run -v --fix --timeout 10m
+lint: ensure-mise
+	@mise run lint
 
 .PHONY: test
 test:
