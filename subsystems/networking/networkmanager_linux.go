@@ -3,6 +3,7 @@ package networking
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -259,8 +260,18 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 	}
 	n.internalOpMu.Lock()
 	defer n.internalOpMu.Unlock()
+
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+
+	// rebase the current config onto the default. since we no longer merge configs once a cloud config is available,
+	// we it may not include provisioning settings that were in the viam-defaults.json.
+	if provisioningCfg, err := rebaseNetworkConfiguration(n.cfg); err != nil {
+		n.logger.Infof("rebase existing networking config over viam-defaults.json failed with err. Continuing with existing config.", "err", err)
+	} else {
+		// this has either 1) no change if we've never been online 2) will be restored to options from cloud-only once we're online & refetch.
+		n.cfg = provisioningCfg
 	}
 
 	n.portalData.resetInputData(inputChan)
@@ -279,6 +290,28 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 		return nil
 	}
 	return errors.Join(hotspotErr, bluetoothErr)
+}
+
+// rebaseNetworkConfiguration reapplies a NetworkConfiguration over the default configuration.
+func rebaseNetworkConfiguration(nCfg utils.NetworkConfiguration) (utils.NetworkConfiguration, error) {
+	asJSON, err := json.Marshal(nCfg)
+	if err != nil {
+		return utils.NetworkConfiguration{}, err
+	}
+
+	// get default cfg. Hardcoded values + viam_defaults.json (if available - does not err if file does not exist).
+	newCfg, err := utils.StackConfigs(nil)
+	if err != nil {
+		return utils.NetworkConfiguration{}, err
+	}
+
+	// merge current cfg on over
+	err = json.Unmarshal(asJSON, &newCfg.NetworkConfiguration)
+	if err != nil {
+		return utils.NetworkConfiguration{}, err
+	}
+
+	return newCfg.NetworkConfiguration, err
 }
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to
