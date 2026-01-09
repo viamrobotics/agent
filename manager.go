@@ -78,7 +78,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 
 		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
 		networking: networking.NewSubsystem(ctx, logger, cfg),
-		cache:      NewVersionCache(logger),
+		cache:      NewVersionCache(logger.Sublogger("version_cache")),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
