@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -20,9 +21,9 @@ func PlatformProcSettings(cmd *exec.Cmd) {
 }
 
 // KillTree kills the process group.
-func KillTree(pid int) error {
+func KillTree(ctx context.Context, pid int) error {
 	//nolint:gosec
-	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
+	cmd := exec.CommandContext(ctx, "taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "killing PID %d: %s", pid, out)

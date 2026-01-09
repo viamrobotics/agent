@@ -1,0 +1,9 @@
+[tools]
+golangci-lint = "2.8.0"
+
+[tasks.lint]
+run = [
+  'go mod tidy',
+  'GOOS=linux golangci-lint run -v --fix --timeout 10m',
+  'GOOS=windows golangci-lint run -v --fix --timeout 10m',
+]

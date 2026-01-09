@@ -7,6 +7,16 @@ Agent is designed to run as a systemd service. First-time setup is `sudo ./viam-
 
 ## Development
 
+### Required tools
+
+We use [mise-en-place][mise] to manage `golangci-lint`. In the future this may expand to include other development tools. You can install it on MacOS and most Linux distributions with the following command:
+
+```bash
+curl https://mise.run | sh
+```
+
+Mise is also available in Homebrew and several package repositories. See the [official documentation][install-mise] for a list of installation methods.
+
 ### Makefile Targets
 * `make` will build a viam-agent for your current CPU architecture. Note that as only linux is supported, this will be a linux binary.  
 * `make arm64` arm64 specific build.
@@ -24,3 +34,6 @@ Agent can be run directly (`./viam-agent`) outside of systemd for local developm
 
 ### Systemd
 The service configration lives in both `viam-agent.service` and `preinstall.sh`, and the two should be kept in sync when making changes.
+
+[mise]: https://mise.jdx.dev/
+[install-mise]: https://mise.jdx.dev/installing-mise.html

@@ -55,6 +55,7 @@ func (n *Networking) startWeb(bindAddr string, bindPort int) error {
 	}
 	n.dataMu.Unlock()
 	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
+	//nolint: noctx
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)

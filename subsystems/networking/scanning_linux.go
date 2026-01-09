@@ -324,7 +324,7 @@ func getSSIDFromSettings(settings gnm.ConnectionSettings) string {
 
 	mode, ok := modeRaw.(string)
 	// we'll take hotspots and "normal" infrastructure connections only
-	if !ok || !(mode == "infrastructure" || mode == "ap") {
+	if !ok || (mode != "infrastructure" && mode != "ap") {
 		return ""
 	}
 

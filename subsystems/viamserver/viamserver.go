@@ -99,7 +99,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stdio := utils.NewMatchingLogger(s.logger, true, "viam-server.StdOut")
 	stderr := utils.NewMatchingLogger(s.logger, false, "viam-server.StdErr")
 	//nolint:gosec
-	s.cmd = exec.Command(binPath, "-config", utils.AppConfigFilePath)
+	s.cmd = exec.CommandContext(ctx, binPath, "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs.Viam
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
@@ -229,7 +229,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Warnf("%s refused to exit, killing", SubsysName)
-	if err := utils.KillTree(s.cmd.Process.Pid); err != nil {
+	if err := utils.KillTree(ctx, s.cmd.Process.Pid); err != nil {
 		s.logger.Warn(err)
 	}
 

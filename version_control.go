@@ -317,7 +317,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			// binary. This is primarily to ensure that users do not crash their agents
 			// irrevocably by accidentally pointing `version_control.agent` to a viam-server
 			// binary, for example.
-			if binary == SubsystemName && !utils.IsValidAgentBinary(verData.DlPath, SubsystemName) {
+			if binary == SubsystemName && !utils.IsValidAgentBinary(ctx, verData.DlPath, SubsystemName) {
 				data.brokenTarget = true
 				return needRestart,
 					fmt.Errorf("downloaded file does not appear to be a %s binary, skipping",

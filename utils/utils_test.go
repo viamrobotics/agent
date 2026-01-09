@@ -34,7 +34,7 @@ func TestDecompressFile(t *testing.T) {
 
 	// compress an empty file
 	Touch(t, orig)
-	_, err := exec.Command("xz", orig).Output()
+	_, err := exec.CommandContext(t.Context(), "xz", orig).Output()
 	test.That(t, err, test.ShouldBeNil)
 
 	// decompress
@@ -575,7 +575,7 @@ func TestIsValidAgentBinary(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			test.That(t, IsValidAgentBinary(tc.path, "viam-agent"), test.ShouldEqual, tc.valid)
+			test.That(t, IsValidAgentBinary(t.Context(), tc.path, "viam-agent"), test.ShouldEqual, tc.valid)
 		})
 	}
 }
