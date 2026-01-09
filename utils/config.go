@@ -270,15 +270,15 @@ func LoadConfigFromCache() (AgentConfig, error) {
 	cacheBytes, err := os.ReadFile(cachePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return StackConfigs(nil)
+			return StackOfflineConfig()
 		} else {
-			cfg, newErr := StackConfigs(nil)
+			cfg, newErr := StackOfflineConfig()
 			return cfg, errors.Join(errw.Wrap(err, "reading config cache"), newErr)
 		}
 	} else {
 		err = json.Unmarshal(cacheBytes, &cfg)
 		if err != nil {
-			cfg, newErr := StackConfigs(nil)
+			cfg, newErr := StackOfflineConfig()
 			return cfg, errors.Join(errw.Wrap(err, "parsing config cache"), newErr)
 		}
 	}
@@ -296,10 +296,8 @@ func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
 	return cfg
 }
 
-// StackConfigs returns a merged config resulting from applying in order:
-// DefaultConfig -> deprecated viam-provisioning.json -> cloud config if available & valid / otherwise viam-defaults.json.
-func StackConfigs(fromCloudProto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {
-	cfg := DefaultConfig()
+// StackOldProvisioningConfig reads viam-provisioning.json if available and merges it over startCfg.
+func stackOldProvisioningConfig(startCfg AgentConfig) (AgentConfig, error) {
 	var errOut error
 
 	// parse/apply deprecated /etc/viam-provisioning.json (NetworkConfiguration only)
@@ -309,47 +307,90 @@ func StackConfigs(fromCloudProto *pb.DeviceAgentConfigResponse) (AgentConfig, er
 			errOut = errors.Join(errOut, errw.Wrap(err, "reading deprecated /etc/viam-provisioning.json"))
 		}
 	} else {
-		cfg.NetworkConfiguration = *oldCfg
+		startCfg.NetworkConfiguration = *oldCfg
+	}
+	return startCfg, errOut
+}
+
+// StackOldProvisioningConfig reads viam-defaults.json if available and merges it over startCfg.
+func stackViamDefaultsConfig(startCfg AgentConfig) (AgentConfig, error) {
+	cfg := startCfg
+	var errOut error
+
+	// manufacturer config from local disk (/etc/viam-defaults.json)
+	// use only if cloud read wasn't provided or unmarshall failed (don't merge the two).
+	jsonBytes, err := os.ReadFile(DefaultsFilePath)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			errOut = errors.Join(errOut, err)
+		}
+	} else {
+		if err := json.Unmarshal(jsonc.ToJSON(jsonBytes), &cfg); err != nil {
+			errOut = errors.Join(errOut, errw.Wrapf(err, "parsing %s", DefaultsFilePath))
+		}
 	}
 
-	// cloud-provided config
+	return cfg, errOut
+}
+
+// StackConfigs merges nextCfg over startCfg.
+func StackConfigs(startCfg, nextCfg AgentConfig) (AgentConfig, error) {
+	cfg := startCfg
+	var errOut error
+
+	jsonBytes, err := json.Marshal(nextCfg)
+	if err != nil {
+		errOut = errors.Join(errOut, err)
+	} else {
+		if err := json.Unmarshal(jsonBytes, &cfg); err != nil {
+			errOut = errors.Join(errOut, err)
+		}
+	}
+	return cfg, errOut
+}
+
+// StackOfflineConfig returns a merged config resulting from applying in order:
+// DefaultConfig -> deprecated viam-provisioning.json -> viam-defaults.json.
+func StackOfflineConfig() (AgentConfig, error) {
+	return StackProtoConfig(nil)
+}
+
+// StackProtoConfig returns a merged config resulting from applying in order:
+// DefaultConfig -> deprecated viam-provisioning.json -> cloud config if available & valid / otherwise viam-defaults.json.
+func StackProtoConfig(fromCloudProto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {
+	cfg := DefaultConfig()
+	var errOut error
+
+	cfgTmp, err := stackOldProvisioningConfig(cfg)
+	if err != nil {
+		errOut = errors.Join(errOut, err)
+	} else {
+		cfg = cfgTmp
+	}
+
 	var cloudCfgSuccess bool
 	if fromCloudProto != nil {
 		cloudCfg, err := ProtoToConfig(fromCloudProto)
 		if err != nil {
 			errOut = errors.Join(errOut, err)
 		} else {
-			jsonBytes, err := json.Marshal(cloudCfg)
+			cfgTmp, err := StackConfigs(cfg, cloudCfg)
 			if err != nil {
 				errOut = errors.Join(errOut, err)
 			} else {
-				cfgTmp := cfg
-				if err := json.Unmarshal(jsonBytes, &cfgTmp); err != nil {
-					errOut = errors.Join(errOut, err)
-					// if err, cfgTmp could be partially filled. don't use.
-				} else {
-					cfg = cfgTmp
-					cloudCfgSuccess = true
-				}
+				cfg = cfgTmp
+				cloudCfgSuccess = true
 			}
 		}
 	}
 
+	// use viam-defaults (stack on top of base) only if cloud config is invalid
 	if !cloudCfgSuccess {
-		// manufacturer config from local disk (/etc/viam-defaults.json)
-		// use only if cloud read wasn't provided or unmarshall failed (don't merge the two).
-		jsonBytes, err := os.ReadFile(DefaultsFilePath)
+		cfgTmp, err := stackViamDefaultsConfig(cfg)
 		if err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				errOut = errors.Join(errOut, err)
-			}
+			errOut = errors.Join(errOut, err)
 		} else {
-			cfgTmp := cfg
-			if err := json.Unmarshal(jsonc.ToJSON(jsonBytes), &cfgTmp); err != nil {
-				errOut = errors.Join(errOut, errw.Wrapf(err, "parsing %s", DefaultsFilePath))
-			} else {
-				cfg = cfgTmp
-			}
+			cfg = cfgTmp
 		}
 	}
 

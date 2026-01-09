@@ -130,7 +130,7 @@ func TestStackConfigs(t *testing.T) {
 	err = os.WriteFile(DefaultsFilePath, []byte(jsonBytes), 0o644)
 	test.That(t, err, test.ShouldBeNil)
 
-	agentConfigNoCloud, err := StackConfigs(nil)
+	agentConfigNoCloud, err := StackOfflineConfig()
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, agentConfigNoCloud, test.ShouldResemble, viamDefaultsCfg)
 
@@ -143,7 +143,7 @@ func TestStackConfigs(t *testing.T) {
 	fromCloudProto := &agentpb.DeviceAgentConfigResponse{
 		AdvancedSettings: adv,
 	}
-	agentCfgFromCloud, err := StackConfigs(fromCloudProto)
+	agentCfgFromCloud, err := StackProtoConfig(fromCloudProto)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, agentCfgFromCloud.AdvancedSettings.Debug, test.ShouldNotEqual, viamDefaultsCfg.AdvancedSettings.Debug)
 	//nolint:lll

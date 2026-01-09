@@ -268,9 +268,11 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 	// rebase the current config onto the default. since we no longer merge configs once a cloud config is available,
 	// it may not include provisioning settings that were in the viam-defaults.json.
 	if provisioningCfg, err := rebaseNetworkConfiguration(n.cfg); err != nil {
-		n.logger.Infof("rebase existing networking config over viam-defaults.json failed with err. Continuing with existing config.", "err", err)
+		n.logger.Infof("merging current networking config over viam-defaults.json failed with err. Continuing with current config.",
+			"err", err, "current_cfg", n.cfg)
 	} else {
 		// this has either 1) no change if we've never been online 2) will be restored to options from cloud-only once we're online & refetch.
+		n.logger.Infof("starting provisioning. temporarily merging current config with 'viam-defaults' (if available)")
 		n.cfg = provisioningCfg
 	}
 
@@ -300,7 +302,7 @@ func rebaseNetworkConfiguration(nCfg utils.NetworkConfiguration) (utils.NetworkC
 	}
 
 	// get default cfg. Hardcoded values + viam_defaults.json (if available - does not err if file does not exist).
-	newCfg, err := utils.StackConfigs(nil)
+	newCfg, err := utils.StackOfflineConfig()
 	if err != nil {
 		return utils.NetworkConfiguration{}, err
 	}
