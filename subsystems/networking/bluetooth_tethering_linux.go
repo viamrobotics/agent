@@ -3,6 +3,7 @@ package networking
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -171,6 +172,18 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 	}()
 
 	return nil
+}
+
+// rfkillUnblock execs `rfkill` to unblock bluetooth radios that may have a
+// soft block.
+// NOTE: this could be rewritten read + manipulate files in /sys directly but
+// I'm not currently convinced the code would be any shorter or easier to
+// maintain. If we ever run into issues with inconsistent `rfkill` output maybe
+// it will be worth making such a change.
+func rfkillUnblock(ctx context.Context) error {
+	rfkillUnblock := exec.CommandContext(ctx, "rfkill", "unblock", "bluetooth")
+	output, err := rfkillUnblock.CombinedOutput()
+	return errw.Wrapf(err, "failed to unblock bluetooth: %v", output)
 }
 
 func (n *Networking) enablePairing(deviceName string) error {

@@ -40,7 +40,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 	}
 
 	// Create a bluetooth service comprised of the above configs.
-	if err := n.initializeBluetoothService(n.Config().HotspotSSID, n.btChar.initCharacteristics(ctx)); err != nil {
+	if err := n.initializeBluetoothService(ctx, n.Config().HotspotSSID, n.btChar.initCharacteristics(ctx)); err != nil {
 		n.noBT = true
 		return fmt.Errorf("failed to initialize bluetooth service: %w", err)
 	}
@@ -98,7 +98,13 @@ func (n *Networking) stopProvisioningBluetooth() error {
 }
 
 // initializeBluetoothService performs low-level system configuration to enable bluetooth advertisement.
-func (n *Networking) initializeBluetoothService(deviceName string, characteristics []bluetooth.CharacteristicConfig) error {
+func (n *Networking) initializeBluetoothService(
+	ctx context.Context, deviceName string, characteristics []bluetooth.CharacteristicConfig,
+) error {
+	if err := rfkillUnblock(ctx); err != nil {
+		n.logger.Warnw("Failed to unblock bluetooth with rfkill; bluetooth initialization will continue but may fail", "err", err)
+	}
+
 	serviceUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(serviceNameKey)))
 
 	adapter := bluetooth.DefaultAdapter
