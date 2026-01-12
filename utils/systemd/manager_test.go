@@ -1,6 +1,7 @@
 package systemd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -110,7 +111,7 @@ func TestSystemdManagerInstallService(t *testing.T) {
 				fallbackFileDir: fallbackServiceDir,
 			}
 
-			serviceFile, newInstall, err := manager.InstallService("my-service", myServiceBytes)
+			serviceFile, newInstall, err := manager.InstallService(t.Context(), "my-service", myServiceBytes)
 			test.That(t, err, test.ShouldBeNil)
 
 			if !tc.previousServiceFile.exists || tc.previousServiceFile.hasDiff || tc.previousServiceFile.inFallback {
@@ -140,22 +141,22 @@ type fakeExecutor struct {
 }
 
 // DaemonReload implements systemd.SystemdExecutor.
-func (f *fakeExecutor) DaemonReload() error {
+func (f *fakeExecutor) DaemonReload(context.Context) error {
 	f.daemonReloadCallCount += 1
 	return nil
 }
 
 // Enable implements systemd.SystemdExecutor.
-func (f *fakeExecutor) Enable(service string) error {
+func (f *fakeExecutor) Enable(ctx context.Context, service string) error {
 	return nil
 }
 
 // IsAvailable implements systemd.SystemdExecutor.
-func (f *fakeExecutor) IsAvailable() error {
+func (f *fakeExecutor) IsAvailable(context.Context) error {
 	return nil
 }
 
 // SystemdSearchPaths implements systemd.SystemdExecutor.
-func (f *fakeExecutor) SystemdSearchPaths() ([]string, error) {
+func (f *fakeExecutor) SystemdSearchPaths(context.Context) ([]string, error) {
 	return f.searchPaths, nil
 }

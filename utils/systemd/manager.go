@@ -3,6 +3,7 @@
 package systemd
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -51,9 +52,9 @@ func NewSystemdManager(logger logging.Logger) *SystemdManager {
 // the old file. It returns the path the installed service file if it exists.
 // It also returns true if the install was successful and the service did not
 // already exist.
-func (s *SystemdManager) InstallService(serviceName string, serviceFileContents []byte) (string, bool, error) {
+func (s *SystemdManager) InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error) {
 	serviceFileName := serviceName + ".service"
-	serviceFilePath, removeOldFile, err := s.getServiceFilePath(serviceFileName)
+	serviceFilePath, removeOldFile, err := s.getServiceFilePath(ctx, serviceFileName)
 	if err != nil {
 		return "", false, err
 	}
@@ -83,7 +84,7 @@ func (s *SystemdManager) InstallService(serviceName string, serviceFileContents 
 	}
 
 	if newFile {
-		if err := s.DaemonReload(); err != nil {
+		if err := s.DaemonReload(ctx); err != nil {
 			return "", false, err
 		}
 	}
@@ -100,7 +101,7 @@ func (s *SystemdManager) InstallService(serviceName string, serviceFileContents 
 // to the first located service file. On failure it returns an empty string.
 // The second return value indicates whether the located file was in the
 // previous path and a migration should be performed.
-func (s *SystemdManager) getServiceFilePath(serviceFile string) (string, bool, error) {
+func (s *SystemdManager) getServiceFilePath(ctx context.Context, serviceFile string) (string, bool, error) {
 	serviceFilePath := filepath.Join(s.dirs.serviceFileDir, serviceFile)
 	_, err := os.Stat(serviceFilePath)
 	if err == nil {
@@ -115,7 +116,7 @@ func (s *SystemdManager) getServiceFilePath(serviceFile string) (string, bool, e
 
 	// Check if the new, preferred path is present in the systemd search path and
 	// therefore a migration may need to be performed.
-	searchPaths, err := s.SystemdSearchPaths()
+	searchPaths, err := s.SystemdSearchPaths(ctx)
 	if err != nil {
 		return "", false, err
 	}
