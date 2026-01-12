@@ -88,7 +88,7 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	trusted, ok := b.trusted[bdaddr]
-	if (!ok || !trusted) && !b.trustAll && !b.pairable {
+	if !(ok && trusted) && !b.trustAll && !b.pairable {
 		b.logger.Errorf("Bluetooth device pairing rejected for %s (%s), device address must be added via provisioning first.", bdaddr, alias)
 		return errPairingRejected
 	}
