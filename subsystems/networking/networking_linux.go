@@ -236,7 +236,7 @@ func (n *Networking) Start(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	n.logger.Debugf("Starting networking")
+	n.logger.Infof("Starting networking subsystem")
 
 	if n.nm == nil || n.settings == nil {
 		if err := n.init(ctx); err != nil {
@@ -289,7 +289,7 @@ func (n *Networking) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	n.logger.Infof("%s subsystem exiting", SubsysName)
+	n.logger.Infof("Stopping networking subsystem")
 	if n.cancel != nil {
 		n.cancel()
 	}

@@ -3,7 +3,19 @@ A self-updating service manager that maintains the lifecycle for viam-server (as
 
 For more information, see the [Viam Agent documentation](https://docs.viam.com/configure/agent/).
 
+Agent is designed to run as a systemd service. First-time setup is `sudo ./viam-agent --install` and it will automatically update itself when new updates are released.
+
 ## Development
+
+### Required tools
+
+We use [mise-en-place][mise] to manage `golangci-lint`. In the future this may expand to include other development tools. You can install it on MacOS and most Linux distributions with the following command:
+
+```bash
+curl https://mise.run | sh
+```
+
+Mise is also available in Homebrew and several package repositories. See the [official documentation][install-mise] for a list of installation methods.
 
 ### Makefile Targets
 * `make` will build a viam-agent for your current CPU architecture. Note that as only linux is supported, this will be a linux binary.  
@@ -18,9 +30,10 @@ Note that there is no "v" in the actual version, though it is expected in git. E
 Ex: `make all TAG_VERSION=0.1.2`
 
 ### DevMode
-Setting the environment variable `VIAM_AGENT_DEVMODE=1` will skip the self-location check for the binary, so you can run it directly during development, without installing to /opt/viam.
+Agent can be run directly (`./viam-agent`) outside of systemd for local development purposes. It will only manage viam-server by default. Network and system configuration management can be enabled with `--enable-networking` and `--enable-syscfg`. `--viam-dir` can be used to override the default `/opt/viam` location. See `--help` for the full list of options.
 
 ### Systemd
-In production, Agent is designed to run as a systemd service. First-time setup is `sudo ./viam-agent --install` and it will automatically update itself when new updates are released.
-
 The service configration lives in both `viam-agent.service` and `preinstall.sh`, and the two should be kept in sync when making changes.
+
+[mise]: https://mise.jdx.dev/
+[install-mise]: https://mise.jdx.dev/installing-mise.html

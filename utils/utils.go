@@ -7,7 +7,9 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec
 	"crypto/sha256"
+	"debug/buildinfo"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,6 +46,10 @@ var (
 	GitRevision = ""
 
 	ViamDirs ViamDirsData
+
+	// Indicate when Agent is not being run as the installed systemd service.
+	// Changes some behaviors to allow for easier local development work (previously enabled with --dev-mode).
+	IsRunningLocally = false
 
 	HealthCheckTimeout = time.Minute
 
@@ -100,16 +106,21 @@ func GetRevision() string {
 }
 
 func init() {
-	ViamDirs.Viam = "/opt/viam"
+	viamDirRoot := "/opt/viam"
 	if runtime.GOOS == "windows" {
-		ViamDirs.Viam = "c:/opt/viam"
+		viamDirRoot = "c:/opt/viam"
 		// note: forward slash isn't an abs path on windows, but resolves to one.
 		var err error
-		ViamDirs.Viam, err = filepath.Abs(ViamDirs.Viam)
+		viamDirRoot, err = filepath.Abs(viamDirRoot)
 		if err != nil {
 			panic(err)
 		}
 	}
+	InitViamDirs(viamDirRoot)
+}
+
+func InitViamDirs(viamDirRoot string) {
+	ViamDirs.Viam = viamDirRoot
 	ViamDirs.Bin = filepath.Join(ViamDirs.Viam, "bin")
 	ViamDirs.Cache = filepath.Join(ViamDirs.Viam, "cache")
 	ViamDirs.Partials = filepath.Join(ViamDirs.Cache, "part")
@@ -136,7 +147,7 @@ func InitPaths() error {
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
 		if err := checkPathOwner(uid, info); err != nil {
-			return err
+			return errw.Wrapf(err, "viam dirs path owner check failed %s", p)
 		}
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)
@@ -228,13 +239,38 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 	case "http", "https":
 		// note: we shrink the hash to avoid system path length limits
-		partialDest := CreatePartialPath(rawURL)
+		partialDest, etagPath := CreatePartialPath(rawURL)
+
+		remoteETag, err := getRemoteETag(ctx, parsedURL.String(), logger)
+		if err != nil {
+			logger.Warnw("failed to get remote ETag, proceeding with download", "err", err)
+		}
 
 		g := getter.HttpGetter{Client: socksClient(parsedURL.String(), logger), MaxBytes: maxBytesForTesting}
 		g.SetClient(getterClient)
 
 		if stat, err := os.Stat(partialDest); err == nil {
-			logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
+			storedETag, err := readIfExists(etagPath)
+			if err != nil {
+				return "", errw.Wrap(err, "reading stored ETag")
+			}
+			if remoteETag == "" || storedETag != remoteETag {
+				logger.Warnw("ETag mismatch, deleting old file", "dest", partialDest, "stored_etag", storedETag, "remote_etag", remoteETag)
+				if err := os.Remove(partialDest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return "", errw.Wrap(err, "failed to remove stale partial")
+				}
+				if err := os.Remove(etagPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return "", errw.Wrap(err, "failed to remove stale etag")
+				}
+			} else {
+				logger.Infow("download to existing", "dest", partialDest, "size", stat.Size())
+			}
+		}
+
+		if remoteETag != "" {
+			if err := writeWithDirs(etagPath, remoteETag); err != nil {
+				logger.Warnw("failed to save ETag", "err", err)
+			}
 		}
 
 		done := make(chan struct{})
@@ -244,18 +280,22 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			return "", errw.Wrap(err, "downloading file")
 		}
 
-		// move completed .part to outPath and remove url-hash dir
 		logger.Debugw("moving successful download to outPath", "partialDest", partialDest)
-		if err := errors.Join(os.Rename(partialDest, outPath), os.Remove(path.Dir(partialDest))); err != nil {
-			return "", err
+		if err := os.Rename(partialDest, outPath); err != nil {
+			return "", errw.Wrap(err, "moving successful download to outPath")
 		}
+		if err := os.RemoveAll(filepath.Dir(partialDest)); err != nil {
+			logger.Warnw("failed to remove partial subdir", "err", err)
+		}
+		return outPath, nil
+
 	default:
 		return "", fmt.Errorf("unsupported url scheme %q in URL %q", parsedURL.Scheme, rawURL)
 	}
 	logger.Infow("finished copying", "url", rawURL)
 
 	if runtime.GOOS == "windows" {
-		if err := allowFirewall(logger, outPath); err != nil {
+		if err := allowFirewall(ctx, logger, outPath); err != nil {
 			return "", err
 		}
 	}
@@ -295,8 +335,10 @@ func rewriteGCPDownload(orig *url.URL) (*url.URL, bool) {
 	return orig, true
 }
 
-// CreatePartialPath makes a path under cachedir/part. These get cleaned up by CleanPartials.
-func CreatePartialPath(rawURL string) string {
+// CreatePartialPath makes a temporary destination under cachedir/part. These get cleaned up
+// periodically by CleanPartials, but persist for a few days so a failed download can be retried.
+// Returns a .part path and .etag path.
+func CreatePartialPath(rawURL string) (partPath, etagPath string) {
 	var urlPath string
 	if parsed, err := url.Parse(rawURL); err != nil {
 		urlPath = "UNPARSED"
@@ -304,7 +346,14 @@ func CreatePartialPath(rawURL string) string {
 		urlPath = parsed.Path
 	}
 
-	return path.Join(ViamDirs.Partials, hashString(rawURL, 7), last(strings.Split(urlPath, "/"), "")+".part")
+	filename := last(strings.Split(urlPath, "/"), "")
+	basePath := filepath.Join(ViamDirs.Partials, hashString(rawURL, 7), filename)
+	if filename == "" {
+		// necessary because when URL is just domain with no path, this would have a shallower dir structure
+		// and break delete logic in tests.
+		basePath += string(os.PathSeparator)
+	}
+	return basePath + ".part", basePath + ".etag"
 }
 
 // helper: return last item of `items` slice, or `default_` if items is empty.
@@ -327,10 +376,47 @@ func hashString(input string, n int) string {
 	return ret
 }
 
+// getRemoteETag performs a HEAD request to get the ETag from the remote server.
+// ETags are returned with quotes removed for consistent comparison.
+func getRemoteETag(ctx context.Context, url string, logger logging.Logger) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := socksClient(url, logger).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close() //nolint:errcheck
+	// we remove surrounding quotes if present
+	return strings.Trim(res.Header.Get("ETag"), `"`), nil
+}
+
+// readIfExists reads a file if it exists, returns "", nil when the file is missing.
+func readIfExists(destPath string) (string, error) {
+	data, err := os.ReadFile(destPath) //nolint:gosec
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
+}
+
+// writeWithDirs writes a file at path, creating dirs if necessary.
+func writeWithDirs(destPath, contents string) error {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+		return errw.Wrapf(err, "creating directory for %s", destPath)
+	}
+	return errw.Wrapf(os.WriteFile(destPath, []byte(contents), 0o600), "writing %s", destPath)
+}
+
 // on windows only, create a firewall exception for the newly-downloaded file.
-func allowFirewall(logger logging.Logger, outPath string) error {
+func allowFirewall(ctx context.Context, logger logging.Logger, outPath string) error {
 	// todo: confirm this is right; this isn't the final destination. Does the rule move when the file is renamed? Link to docs.
-	cmd := exec.Command( //nolint:gosec
+	cmd := exec.CommandContext( //nolint:gosec
+		ctx,
 		"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
 		"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
 	)
@@ -669,4 +755,48 @@ func GoArchToOSArch(goarch string) string {
 		return "x86_64"
 	}
 	return ""
+}
+
+// AgentVersionInfo exists to log version information from -version in a structured way and to
+// parse that information in IsValidAgentBinary below.
+type AgentVersionInfo struct {
+	BinaryName  string `json:"binary_name"`
+	GitRevision string `json:"git_revision"`
+	Version     string `json:"version"`
+}
+
+// IsValidAgentBinary inspects the binary at path to determine if that binary is
+// ostensibly an agent binary.
+func IsValidAgentBinary(ctx context.Context, path, expectedBinaryName string) bool {
+	// Run the binary with --version to look for the binary_name field.
+	cmd := exec.CommandContext(ctx, path, "--version")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// An agent binary that cannot run --version is always invalid.
+		return false
+	}
+	var avi *AgentVersionInfo
+	err = json.Unmarshal(output, &avi)
+	if err == nil {
+		return avi.BinaryName == expectedBinaryName
+	}
+	// Older versions of agent will not encode their version information as JSON. In this
+	// case, examine the build info of the binary and compare it to our own. Note that this
+	// only works with binaries NOT compressed with upx, which is why we default to the
+	// strategy above.
+
+	// If we cannot for some reason determine our own build info, fall back to a hardcoded
+	// string for the Golang module name.
+	agentGolangModuleName := "github.com/viamrobotics/agent"
+	currBinaryBuildInfo, ok := debug.ReadBuildInfo()
+	if ok {
+		agentGolangModuleName = currBinaryBuildInfo.Main.Path
+	}
+
+	binaryAtPathBuildInfo, err := buildinfo.ReadFile(path)
+	if err != nil || binaryAtPathBuildInfo.Main.Path != agentGolangModuleName {
+		return false
+	}
+
+	return true
 }

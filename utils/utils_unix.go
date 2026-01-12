@@ -3,6 +3,7 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -42,7 +43,7 @@ func SignalForTermination(pid int) error {
 }
 
 // KillTree sends SIGKILL to the process group.
-func KillTree(pid int) error {
+func KillTree(ctx context.Context, pid int) error {
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
 		return errw.Wrapf(err, "killing PID %d", pid)
 	}

@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ func TestInstall(t *testing.T) {
 		utils.MockViamDirs(t)
 		logger := logging.NewTestLogger(t)
 		systemdManager := &fakeSystemdManager{unavailable: true}
-		err := agent.Install(logger, systemdManager)
+		err := agent.Install(t.Context(), logger, systemdManager)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "can only install on systems using systemd")
 	})
@@ -36,7 +37,7 @@ func TestInstall(t *testing.T) {
 		logger := logging.NewTestLogger(t)
 
 		systemdManager := &fakeSystemdManager{isNewInstall: true}
-		err := agent.Install(logger, systemdManager)
+		err := agent.Install(t.Context(), logger, systemdManager)
 		test.That(t, err, test.ShouldBeNil)
 
 		expectedCachePath := filepath.Join(
@@ -94,7 +95,7 @@ func TestInstall(t *testing.T) {
 		test.That(t, agent.VersionCacheExists(), test.ShouldBeTrue)
 
 		systemdManager := &fakeSystemdManager{}
-		err := agent.Install(logger, systemdManager)
+		err := agent.Install(t.Context(), logger, systemdManager)
 		test.That(t, err, test.ShouldBeNil)
 
 		expectedCachePath := filepath.Join(
@@ -133,16 +134,16 @@ type fakeSystemdManager struct {
 	isNewInstall    bool
 }
 
-func (f *fakeSystemdManager) Enable(serviceName string) error {
+func (f *fakeSystemdManager) Enable(ctx context.Context, serviceName string) error {
 	f.enableCallCount += 1
 	return nil
 }
 
-func (f *fakeSystemdManager) InstallService(serviceName string, serviceFileContents []byte) (string, bool, error) {
+func (f *fakeSystemdManager) InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error) {
 	return "", f.isNewInstall, nil
 }
 
-func (f *fakeSystemdManager) IsAvailable() error {
+func (f *fakeSystemdManager) IsAvailable(context.Context) error {
 	if f.unavailable {
 		return errors.New("systemd unavailable")
 	}
