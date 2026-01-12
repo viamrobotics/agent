@@ -65,6 +65,10 @@ func main() {
 	if err != nil {
 		return
 	}
+
+	// send Agent logs to the Windows event viewer
+	logging.RegisterEventLogger(globalLogger, serviceName)
+
 	defer func() {
 		goutils.UncheckedError(elog.Close())
 	}()
