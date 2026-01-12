@@ -733,7 +733,7 @@ func fixWindowsPaths(resp *pb.DeviceAgentConfigResponse) {
 		return
 	}
 	if resp.GetAgentUpdateInfo() != nil && !strings.HasSuffix(resp.GetAgentUpdateInfo().GetFilename(), ".exe") {
-		resp.AgentUpdateInfo.Filename += ".exe" //nolint:goconst
+		resp.AgentUpdateInfo.Filename += ".exe"
 	}
 	if resp.GetViamServerUpdateInfo() != nil && !strings.HasSuffix(resp.GetViamServerUpdateInfo().GetFilename(), ".exe") {
 		resp.ViamServerUpdateInfo.Filename += ".exe"

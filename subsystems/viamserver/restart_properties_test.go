@@ -98,7 +98,8 @@ func TestCheckRestartProperty(t *testing.T) {
 				Addr:   targetAddr,
 			})
 			test.That(t, err, test.ShouldBeNil)
-			ln, err := net.Listen("tcp", targetAddr)
+			listenCfg := &net.ListenConfig{}
+			ln, err := listenCfg.Listen(ctx, "tcp", targetAddr)
 			test.That(t, err, test.ShouldBeNil)
 			var wg sync.WaitGroup
 			wg.Add(1)

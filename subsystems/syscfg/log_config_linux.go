@@ -3,6 +3,7 @@ package syscfg
 // This file contains tweaks for logging/journald, such as max size limits.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -21,7 +22,7 @@ var (
 )
 
 // runs inside s.mu.Lock().
-func (s *syscfg) EnforceLogging() error {
+func (s *syscfg) EnforceLogging(ctx context.Context) error {
 	if s.cfg.LoggingJournaldRuntimeMaxUseMegabytes < 0 && s.cfg.LoggingJournaldSystemMaxUseMegabytes < 0 {
 		if err := os.Remove(journaldConfPath); err != nil {
 			if errw.Is(err, fs.ErrNotExist) {
@@ -31,18 +32,18 @@ func (s *syscfg) EnforceLogging() error {
 		}
 
 		// if journald is NOT enabled, simply return
-		if err := checkJournaldEnabled(); err != nil {
+		if err := checkJournaldEnabled(ctx); err != nil {
 			return nil //nolint:nilerr
 		}
 
-		if err := restartJournald(); err != nil {
+		if err := restartJournald(ctx); err != nil {
 			return err
 		}
 		s.logger.Infof("Logging config disabled. Removing customized %s", journaldConfPath)
 		return nil
 	}
 
-	if err := checkJournaldEnabled(); err != nil {
+	if err := checkJournaldEnabled(ctx); err != nil {
 		s.logger.Warn("systemd-journald is not enabled, cannot configure logging limits")
 		return err
 	}
@@ -85,7 +86,7 @@ func (s *syscfg) EnforceLogging() error {
 	}
 
 	if isNew {
-		if err := restartJournald(); err != nil {
+		if err := restartJournald(ctx); err != nil {
 			return err
 		}
 		s.logger.Infof("Updated %s, setting SystemMaxUse=%s and RuntimeMaxUse=%s", journaldConfPath, persistSize, tempSize)
@@ -93,8 +94,8 @@ func (s *syscfg) EnforceLogging() error {
 	return nil
 }
 
-func restartJournald() error {
-	cmd := exec.Command("systemctl", "restart", "systemd-journald")
+func restartJournald(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "systemctl", "restart", "systemd-journald")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "executing 'systemctl restart systemd-journald' %s", output)
@@ -102,8 +103,8 @@ func restartJournald() error {
 	return nil
 }
 
-func checkJournaldEnabled() error {
-	cmd := exec.Command("systemctl", "is-enabled", "systemd-journald")
+func checkJournaldEnabled(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "systemctl", "is-enabled", "systemd-journald")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "executing 'systemctl is-enabled systemd-journald' %s", output)

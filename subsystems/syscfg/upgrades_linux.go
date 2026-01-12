@@ -45,7 +45,7 @@ func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
 		return nil
 	}
 
-	err = verifyInstall()
+	err = verifyInstall(ctx)
 	if err != nil {
 		err = doInstall(ctx)
 		if err != nil {
@@ -54,7 +54,7 @@ func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
 	}
 
 	securityOnly := cfg == "security"
-	confContents, err := generateOrigins(securityOnly)
+	confContents, err := generateOrigins(ctx, securityOnly)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
 		}
 	}
 
-	err = enableTimer()
+	err = enableTimer(ctx)
 	if err != nil {
 		s.logger.Error(err)
 	}
@@ -98,8 +98,8 @@ func checkSupportedDistro() error {
 }
 
 // make sure the needed package is installed.
-func verifyInstall() error {
-	cmd := exec.Command("unattended-upgrade", "-h")
+func verifyInstall(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "unattended-upgrade", "-h")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "executing 'unattended-upgrade -h' %s", output)
@@ -107,9 +107,9 @@ func verifyInstall() error {
 	return nil
 }
 
-func enableTimer() error {
+func enableTimer(ctx context.Context) error {
 	// enable here
-	cmd := exec.Command("systemctl", "enable", "apt-daily-upgrade.timer")
+	cmd := exec.CommandContext(ctx, "systemctl", "enable", "apt-daily-upgrade.timer")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "executing 'systemctl enable apt-daily-upgrade.timer' %s", output)
@@ -134,8 +134,8 @@ func doInstall(ctx context.Context) error {
 }
 
 // generates the "Origins-Pattern" section of 50unattended-upgrades file.
-func generateOrigins(securityOnly bool) (string, error) {
-	cmd := exec.Command("apt-cache", "policy")
+func generateOrigins(ctx context.Context, securityOnly bool) (string, error) {
+	cmd := exec.CommandContext(ctx, "apt-cache", "policy")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", errw.Wrapf(err, "executing 'apt-cache policy' %s", output)

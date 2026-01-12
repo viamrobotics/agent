@@ -295,7 +295,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	logger.Infow("finished copying", "url", rawURL)
 
 	if runtime.GOOS == "windows" {
-		if err := allowFirewall(logger, outPath); err != nil {
+		if err := allowFirewall(ctx, logger, outPath); err != nil {
 			return "", err
 		}
 	}
@@ -413,9 +413,10 @@ func writeWithDirs(destPath, contents string) error {
 }
 
 // on windows only, create a firewall exception for the newly-downloaded file.
-func allowFirewall(logger logging.Logger, outPath string) error {
+func allowFirewall(ctx context.Context, logger logging.Logger, outPath string) error {
 	// todo: confirm this is right; this isn't the final destination. Does the rule move when the file is renamed? Link to docs.
-	cmd := exec.Command( //nolint:gosec
+	cmd := exec.CommandContext( //nolint:gosec
+		ctx,
 		"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
 		"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
 	)
@@ -766,9 +767,9 @@ type AgentVersionInfo struct {
 
 // IsValidAgentBinary inspects the binary at path to determine if that binary is
 // ostensibly an agent binary.
-func IsValidAgentBinary(path, expectedBinaryName string) bool {
+func IsValidAgentBinary(ctx context.Context, path, expectedBinaryName string) bool {
 	// Run the binary with --version to look for the binary_name field.
-	cmd := exec.Command(path, "--version")
+	cmd := exec.CommandContext(ctx, path, "--version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// An agent binary that cannot run --version is always invalid.

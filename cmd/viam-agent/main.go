@@ -134,7 +134,7 @@ func commonMain() {
 
 	if opts.Install {
 		sdmanager := systemd.NewSystemdManager(globalLogger.Sublogger("systemd"))
-		exitIfError(agent.Install(globalLogger, sdmanager))
+		exitIfError(agent.Install(ctx, globalLogger, sdmanager))
 		return
 	}
 

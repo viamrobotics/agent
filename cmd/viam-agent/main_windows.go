@@ -42,7 +42,7 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 			goutils.UncheckedError(elog.Error(1, fmt.Sprintf("unexpected control request #%d", c)))
 		}
 	}
-	return
+	return ssec, errno
 }
 
 func main() {
@@ -65,6 +65,10 @@ func main() {
 	if err != nil {
 		return
 	}
+
+	// send Agent logs to the Windows event viewer
+	logging.RegisterEventLogger(globalLogger, serviceName)
+
 	defer func() {
 		goutils.UncheckedError(elog.Close())
 	}()
@@ -79,7 +83,8 @@ func main() {
 	}()
 
 	commonMain()
-	if err := zapChildren(); err != nil {
+
+	if err := zapChildren(context.Background()); err != nil {
 		goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error killing subtree %s", err)))
 	}
 	goutils.UncheckedError(elog.Info(1, fmt.Sprintf("%s service stopped", serviceName)))
@@ -98,7 +103,7 @@ func runPlatformProvisioning(_ context.Context, _ utils.AgentConfig, _ *agent.Ma
 }
 
 // zapChildren kills any stray processes we might have upon exit.
-func zapChildren() error {
+func zapChildren(ctx context.Context) error {
 	elog, err := eventlog.Open("viam-agent")
 	if err != nil {
 		// Check error but continue since we want this to work
@@ -109,7 +114,7 @@ func zapChildren() error {
 
 	// Use a fixed command string to prevent injection
 	//nolint:gosec // WMIC.exe is a fixed command
-	cmd := exec.Command("WMIC.exe", "process", "where", fmt.Sprintf("ParentProcessId=%d", pid), "get", "ProcessId")
+	cmd := exec.CommandContext(ctx, "WMIC.exe", "process", "where", fmt.Sprintf("ParentProcessId=%d", pid), "get", "ProcessId")
 	output, err := cmd.Output()
 	if err != nil {
 		return err
@@ -133,7 +138,7 @@ func zapChildren() error {
 		}
 
 		//nolint:gosec // taskkill is a fixed command
-		cmd = exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(childPID))
+		cmd = exec.CommandContext(ctx, "taskkill", "/F", "/T", "/PID", strconv.Itoa(childPID))
 		err = cmd.Run()
 		if elog != nil {
 			if err != nil {
