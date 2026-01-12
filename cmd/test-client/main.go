@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -92,32 +93,35 @@ func loadCredentials(path string) (*logging.CloudConfig, error) {
 		return nil, err
 	}
 
-	cfg := make(map[string]map[string]string)
+	var cfg map[string]interface{}
 	err = json.Unmarshal(b, &cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	cloud, ok := cfg["cloud"]
+	cloud, ok := cfg["cloud"].(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("no cloud section in file %s", path)
 	}
 
-	for _, req := range []string{"app_address", "id"} {
-		field, ok := cloud[req]
-		if !ok {
-			return nil, fmt.Errorf("no cloud config field for %s", field)
-		}
+	appAddress, ok := cloud["app_address"].(string)
+	if !ok {
+		return nil, errors.New("no cloud config field for app_address")
+	}
+
+	id, ok := cloud["id"].(string)
+	if !ok {
+		return nil, errors.New("no cloud config field for id")
 	}
 
 	cloudCreds, err := utils.ParseCloudCreds(cloud)
 	if err != nil {
-		return nil, fmt.Errorf("no cloud config field for cloud creds")
+		return nil, errors.New("no cloud config field for cloud creds")
 	}
 
 	cloudConfig := &logging.CloudConfig{
-		AppAddress: cloud["app_address"],
-		ID:         cloud["id"],
+		AppAddress: appAddress,
+		ID:         id,
 		CloudCred:  cloudCreds,
 	}
 

@@ -2,9 +2,8 @@
 package utils
 
 import (
-	"encoding/json"
+	"errors"
 
-	errw "github.com/pkg/errors"
 	rutils "go.viam.com/rdk/utils"
 	"go.viam.com/utils/rpc"
 )
@@ -18,32 +17,36 @@ func (a APIKey) IsEmpty() bool {
 	return a.ID == "" && a.Key == ""
 }
 
-func ParseCloudCreds(cloudCfg map[string]string) (rpc.DialOption, error) {
-	// Check if api_key exists as a nested structure
-	if apiKeyStr, hasApiKey := cloudCfg["api_key"]; hasApiKey {
-		// Parse the api_key string as JSON into a map
-		var apiKey map[string]string
-		if err := json.Unmarshal([]byte(apiKeyStr), &apiKey); err != nil {
-			return nil, errw.Wrap(err, `invalid JSON format for "api_key"`)
+func ParseCloudCreds(cloudCfg map[string]interface{}) (rpc.DialOption, error) {
+	if apiKeyInterface, hasApiKey := cloudCfg["api_key"]; hasApiKey {
+		apiKey, ok := apiKeyInterface.(map[string]interface{})
+		if !ok {
+			return nil, errors.New(`"api_key" field is not a valid object`)
 		}
 
-		keyID, ok := apiKey["id"]
+		keyID, ok := apiKey["id"].(string)
 		if !ok {
-			return nil, errw.Errorf(`no field for "id" in "api_key"`)
+			return nil, errors.New(`no field for "id" in "api_key" or "id" is not a string`)
 		}
-		keySecret, ok := apiKey["key"]
+
+		keySecret, ok := apiKey["key"].(string)
 		if !ok {
-			return nil, errw.Errorf(`no field for "key" in "api_key"`)
+			return nil, errors.New(`no field for "key" in "api_key" or "key" is not a string`)
 		}
 		creds := rpc.WithEntityCredentials(keyID, rpc.Credentials{rutils.CredentialsTypeAPIKey, keySecret})
 		return creds, nil
 	}
 
 	// Fall back to secret-based auth
-	secret, ok := cloudCfg["secret"]
+	secret, ok := cloudCfg["secret"].(string)
 	if !ok {
-		return nil, errw.Errorf(`no cloud config field for "secret" or "api_key"`)
+		return nil, errors.New(`no cloud config field for "secret" or "api_key" or "secret" is not a string`)
 	}
-	creds := rpc.WithEntityCredentials(cloudCfg["id"], rpc.Credentials{rutils.CredentialsTypeRobotSecret, secret})
+
+	id, ok := cloudCfg["id"].(string)
+	if !ok {
+		return nil, errors.New(`no cloud config field for "id" or "id" is not a string`)
+	}
+	creds := rpc.WithEntityCredentials(id, rpc.Credentials{rutils.CredentialsTypeRobotSecret, secret})
 	return creds, nil
 }

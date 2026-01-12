@@ -97,32 +97,35 @@ func (m *Manager) LoadAppConfig() error {
 		return errw.Wrap(err, "reading config file")
 	}
 
-	cfg := make(map[string]map[string]string)
+	var cfg map[string]interface{}
 	err = json.Unmarshal(jsonc.ToJSON(b), &cfg)
 	if err != nil {
 		return errw.Wrap(err, "parsing config file")
 	}
 
-	cloud, ok := cfg["cloud"]
+	cloud, ok := cfg["cloud"].(map[string]interface{})
 	if !ok {
 		return errw.New("no cloud section in local config file")
 	}
 
-	for _, req := range []string{"app_address", "id"} {
-		field, ok := cloud[req]
-		if !ok {
-			return errw.Errorf("no cloud config field for %s", field)
-		}
+	appAddress, ok := cloud["app_address"].(string)
+	if !ok {
+		return errw.New("no cloud config field for app_address")
+	}
+
+	id, ok := cloud["id"].(string)
+	if !ok {
+		return errw.New("no cloud config field for id")
 	}
 
 	cloudCreds, err := utils.ParseCloudCreds(cloud)
 	if err != nil {
-		return errw.Errorf("no cloud config field for cloud creds")
+		return errw.New("no cloud config field for cloud creds")
 	}
 
 	m.cloudConfig = &logging.CloudConfig{
-		AppAddress: cloud["app_address"],
-		ID:         cloud["id"],
+		AppAddress: appAddress,
+		ID:         id,
 		CloudCred:  cloudCreds,
 	}
 
