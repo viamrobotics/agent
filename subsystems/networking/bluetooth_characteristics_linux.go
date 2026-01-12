@@ -282,6 +282,7 @@ func (b *btCharacteristics) recordInput(ctx context.Context, cName, value string
 		b.userInputData.sendInput(ctx)
 	}
 }
+
 func apiKeyFromString(value string) utils.APIKey {
 	var apiKey utils.APIKey
 	if err := json.Unmarshal([]byte(value), &apiKey); err != nil {
