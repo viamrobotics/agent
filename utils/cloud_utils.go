@@ -25,13 +25,13 @@ func ParseCloudCreds(cloudCfg map[string]interface{}) (rpc.DialOption, error) {
 		}
 
 		keyID, ok := apiKey["id"].(string)
-		if !ok {
-			return nil, errors.New(`no field for "id" in "api_key" or "id" is not a string`)
+		if !ok || keyID == "" {
+			return nil, errors.New("field 'id' in 'api_key' must be a non-empty string")
 		}
 
 		keySecret, ok := apiKey["key"].(string)
-		if !ok {
-			return nil, errors.New(`no field for "key" in "api_key" or "key" is not a string`)
+		if !ok || keySecret == "" {
+			return nil, errors.New("field 'key' in 'api_key' must be a non-empty string")
 		}
 		creds := rpc.WithEntityCredentials(keyID, rpc.Credentials{rutils.CredentialsTypeAPIKey, keySecret})
 		return creds, nil
@@ -39,13 +39,13 @@ func ParseCloudCreds(cloudCfg map[string]interface{}) (rpc.DialOption, error) {
 
 	// Fall back to secret-based auth
 	secret, ok := cloudCfg["secret"].(string)
-	if !ok {
-		return nil, errors.New(`no cloud config field for "secret" or "api_key" or "secret" is not a string`)
+	if !ok || secret == "" {
+		return nil, errors.New("field 'secret' in cloud config must be a non-empty string")
 	}
 
 	id, ok := cloudCfg["id"].(string)
-	if !ok {
-		return nil, errors.New(`no cloud config field for "id" or "id" is not a string`)
+	if !ok || id == "" {
+		return nil, errors.New("field 'id' in cloud config must be a non-empty string")
 	}
 	creds := rpc.WithEntityCredentials(id, rpc.Credentials{rutils.CredentialsTypeRobotSecret, secret})
 	return creds, nil

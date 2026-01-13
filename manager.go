@@ -109,13 +109,13 @@ func (m *Manager) LoadAppConfig() error {
 	}
 
 	appAddress, ok := cloud["app_address"].(string)
-	if !ok {
-		return errw.New("no cloud config field for app_address")
+	if !ok || appAddress == "" {
+		return errw.New("field 'app_address' in cloud config must be a non-empty string")
 	}
 
 	id, ok := cloud["id"].(string)
-	if !ok {
-		return errw.New("no cloud config field for id")
+	if !ok || id == "" {
+		return errw.New("field 'id' in cloud config must be a non-empty string")
 	}
 
 	cloudCreds, err := utils.ParseCloudCreds(cloud)

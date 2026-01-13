@@ -57,8 +57,12 @@ func parseOpts() bool {
 		return false
 	}
 
-	if opts.PartID != "" || opts.Secret != "" || !opts.APIKey.IsEmpty() {
-		if opts.PartID == "" || (opts.Secret == "" && opts.APIKey.IsEmpty()) || opts.AppAddr == "" {
+	hasPartialOpts := opts.PartID != "" || opts.Secret != "" || !opts.APIKey.IsEmpty()
+	if hasPartialOpts {
+		missingRequired := opts.PartID == "" || opts.AppAddr == ""
+		missingAuth := opts.Secret == "" && opts.APIKey.IsEmpty()
+
+		if missingRequired || missingAuth {
 			fmt.Println("Error: Must set PartID, AppAddr, and either Secret or API Key!")
 			return false
 		}
