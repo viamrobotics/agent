@@ -5,12 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
 
 	"github.com/jessevdk/go-flags"
+	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
@@ -101,22 +101,22 @@ func loadCredentials(path string) (*logging.CloudConfig, error) {
 
 	cloud, ok := cfg["cloud"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("no cloud section in file %s", path)
+		return nil, errw.Errorf("no cloud section in file %s", path)
 	}
 
 	appAddress, ok := cloud["app_address"].(string)
 	if !ok || appAddress == "" {
-		return nil, errors.New("field 'app_address' in cloud config must be a non-empty string")
+		return nil, errw.New("field 'app_address' in cloud config must be a non-empty string")
 	}
 
 	id, ok := cloud["id"].(string)
 	if !ok || id == "" {
-		return nil, errors.New("field 'id' in cloud config must be a non-empty string")
+		return nil, errw.New("field 'id' in cloud config must be a non-empty string")
 	}
 
 	cloudCreds, err := utils.ParseCloudCreds(cloud)
 	if err != nil {
-		return nil, errors.New("no cloud config field for cloud creds")
+		return nil, errw.Wrap(err, "invalid cloud config creds")
 	}
 
 	cloudConfig := &logging.CloudConfig{

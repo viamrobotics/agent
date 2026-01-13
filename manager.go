@@ -120,7 +120,7 @@ func (m *Manager) LoadAppConfig() error {
 
 	cloudCreds, err := utils.ParseCloudCreds(cloud)
 	if err != nil {
-		return errw.New("no cloud config field for cloud creds")
+		return errw.Wrap(err, "invalid cloud config creds")
 	}
 
 	m.cloudConfig = &logging.CloudConfig{
