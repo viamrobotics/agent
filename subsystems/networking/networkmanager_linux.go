@@ -265,14 +265,17 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 		return ctx.Err()
 	}
 
-	// rebase the current config onto the default. since we no longer merge configs once a cloud config is available,
+	// try to rebase the current config onto the default. since we no longer merge configs once a cloud config is available,
 	// it may not include provisioning settings that were in the viam-defaults.json.
 	if provisioningCfg, err := rebaseNetworkConfiguration(n.cfg); err != nil {
 		n.logger.Infof("merging current networking config over viam-defaults.json failed with err. Continuing with current config.",
 			"err", err, "current_cfg", n.cfg)
-	} else {
+	} else if provisioningCfg != n.cfg {
+		// only log if merge produced diffs: current cfg should be either base+cloud or base+defaults; rebased cfg should be base+defaults+cloud.
+		// diffs should be entirely the fields set in viam-defaults that are not present in cloud.
+		n.logger.Infof("starting provisioning. temporarily merging current networking config with 'viam-defaults' (if available)",
+			"defaults_path", utils.DefaultsFilePath)
 		// this has either 1) no change if we've never been online 2) will be restored to options from cloud-only once we're online & refetch.
-		n.logger.Infof("starting provisioning. temporarily merging current config with 'viam-defaults' (if available)")
 		n.cfg = provisioningCfg
 	}
 
@@ -298,19 +301,19 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 func rebaseNetworkConfiguration(nCfg utils.NetworkConfiguration) (utils.NetworkConfiguration, error) {
 	asJSON, err := json.Marshal(nCfg)
 	if err != nil {
-		return utils.NetworkConfiguration{}, err
+		return nCfg, err
 	}
 
 	// get default cfg. Hardcoded values + viam_defaults.json (if available - does not err if file does not exist).
 	newCfg, err := utils.StackOfflineConfig()
 	if err != nil {
-		return utils.NetworkConfiguration{}, err
+		return nCfg, err
 	}
 
 	// merge current cfg on over
 	err = json.Unmarshal(asJSON, &newCfg.NetworkConfiguration)
 	if err != nil {
-		return utils.NetworkConfiguration{}, err
+		return nCfg, err
 	}
 
 	return newCfg.NetworkConfiguration, err
