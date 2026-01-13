@@ -1,6 +1,4 @@
 // Package agent is the viam-agent itself. It contains code to install/update the systemd service as well.
-//
-//nolint:goconst
 package agent
 
 import (
@@ -29,9 +27,9 @@ const (
 var serviceFileContents []byte
 
 type systemdManager interface {
-	IsAvailable() error
-	InstallService(serviceName string, serviceFileContents []byte) (string, bool, error)
-	Enable(serviceName string) error
+	IsAvailable(ctx context.Context) error
+	InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error)
+	Enable(ctx context.Context, serviceName string) error
 }
 
 // InstallNewVersion runs the newly downloaded binary's Install() for installation of systemd files and the like.
@@ -44,7 +42,7 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 
 	// Run the newly updated version to install systemd and other service files.
 	//nolint:gosec
-	cmd := exec.Command(expectedPath, "--install")
+	cmd := exec.CommandContext(ctx, expectedPath, "--install")
 	output, err := cmd.CombinedOutput()
 	logger.Info("running viam-agent --install for new version")
 	logger.Info(string(output))
@@ -55,9 +53,9 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 }
 
 // Install is directly executed from main() when --install is passed.
-func Install(logger logging.Logger, sdManager systemdManager) error {
+func Install(ctx context.Context, logger logging.Logger, sdManager systemdManager) error {
 	// Check for systemd
-	err := sdManager.IsAvailable()
+	err := sdManager.IsAvailable(ctx)
 	if err != nil {
 		return errw.Wrap(err, "can only install on systems using systemd")
 	}
@@ -102,7 +100,7 @@ func Install(logger logging.Logger, sdManager systemdManager) error {
 			// Version cache doesn't exist, so assume this is a fresh install and write
 			// a minimal version cache to avoid downloading a copy of this same version
 			// on first run.
-			versionCache := NewVersionCache(logger)
+			versionCache := NewVersionCache(logger.Sublogger("version_cache"))
 			trimmedVersion, _ := strings.CutPrefix(utils.Version, "v")
 			versionCache.ViamAgent.CurrentVersion = trimmedVersion
 			versionCache.ViamAgent.Versions[trimmedVersion] = &VersionInfo{
@@ -118,12 +116,12 @@ func Install(logger logging.Logger, sdManager systemdManager) error {
 		}
 	}
 
-	serviceFilePath, newInstall, err := sdManager.InstallService(serviceName, serviceFileContents)
+	serviceFilePath, newInstall, err := sdManager.InstallService(ctx, serviceName, serviceFileContents)
 	if err != nil {
 		return errw.Wrap(err, "installing systemd service")
 	}
 	if newInstall {
-		if err := sdManager.Enable("viam-agent"); err != nil {
+		if err := sdManager.Enable(ctx, "viam-agent"); err != nil {
 			return err
 		}
 	}

@@ -1,4 +1,3 @@
-//nolint:goconst
 package utils
 
 import (
@@ -61,16 +60,31 @@ var (
 	configCacheFilename = "config_cache.json"
 
 	// Can be overwritten via cli arguments.
-	AppConfigFilePath     = "/etc/viam.json"
-	DefaultsFilePath      = "/etc/viam-defaults.json"
-	CLIDebug              = false
-	CLIWaitForUpdateCheck = false
+	AppConfigFilePath            = "/etc/viam.json"
+	DefaultsFilePath             = "/etc/viam-defaults.json"
+	CLIDebug                     = false
+	CLIWaitForUpdateCheck        = false
+	CLIEnableSyscfgSubsystem     = false
+	CLIEnableNetworkingSubsystem = false
 )
 
 func init() {
 	if runtime.GOOS == "windows" {
 		DefaultConfiguration.AdvancedSettings.ViamServerStartTimeoutMinutes = Timeout(time.Minute)
 	}
+	// We've experenced wifi power save to be a source of networking instability on Raspberry Pis. Disable by default.
+	if isRaspberryPi() {
+		DefaultConfiguration.NetworkConfiguration.WifiPowerSave = -1
+	}
+}
+
+// isRaspberryPi provides a best guess as to whether the current device is a Raspberry Pi (any model).
+func isRaspberryPi() bool {
+	model, err := os.ReadFile("/proc/device-tree/model")
+	if err == nil && strings.Contains(string(model), "Raspberry Pi") {
+		return true
+	}
+	return false
 }
 
 //nolint:recvcheck
@@ -120,16 +134,22 @@ type AdvancedSettings struct {
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
 
-// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes.
+// GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-networking.
 func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
+	if !CLIEnableNetworkingSubsystem {
+		return true
+	}
 	if runtime.GOOS == "windows" {
 		return true
 	}
 	return as.DisableNetworkConfiguration.Get()
 }
 
-// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes.
+// GetDisableSystemConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-syscfg.
 func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
+	if !CLIEnableSyscfgSubsystem {
+		return true
+	}
 	if runtime.GOOS == "windows" {
 		return true
 	}
@@ -286,14 +306,17 @@ func LoadConfigFromCache() (AgentConfig, error) {
 	return validateConfig(cfg)
 }
 
+// ApplyCLIArgs merges incoming cfg (e.g. from cloud or cache) with provided command line options,
+// prioritizing the latter for most, but with some exceptions.
 func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
+	newCfg := cfg
 	if CLIDebug {
-		cfg.AdvancedSettings.Debug = 1
+		newCfg.AdvancedSettings.Debug = 1
 	}
 	if CLIWaitForUpdateCheck {
-		cfg.AdvancedSettings.WaitForUpdateCheck = 1
+		newCfg.AdvancedSettings.WaitForUpdateCheck = 1
 	}
-	return cfg
+	return newCfg
 }
 
 // StackOldProvisioningConfig reads viam-provisioning.json if available and merges it over startCfg.

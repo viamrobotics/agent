@@ -78,7 +78,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 
 		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
 		networking: networking.NewSubsystem(ctx, logger, cfg),
-		cache:      NewVersionCache(logger),
+		cache:      NewVersionCache(logger.Sublogger("version_cache")),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
@@ -200,12 +200,17 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	if err != nil {
 		m.logger.Warn(err)
 	}
+	// if running locally (not via systemd), download but don't install & exit
 	if needRestart {
-		_, err := InstallNewVersion(ctx, m.logger)
-		if err != nil {
-			m.logger.Warnw("running install of new agent version", "error", err)
+		if utils.IsRunningLocally {
+			m.logger.Infof("Agent is running locally. Downloaded latest update to version cache, but skipping install.")
+		} else {
+			_, err := InstallNewVersion(ctx, m.logger)
+			if err != nil {
+				m.logger.Warnw("running install of new agent version", "error", err)
+			}
+			m.viamAgentNeedsRestart = true
 		}
-		m.viamAgentNeedsRestart = true
 	}
 
 	// Viam Server
@@ -544,13 +549,24 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 		})
 		defer m.activeBackgroundWorkers.Done()
 
-		deviceAgentConfigCheckInterval := minimalDeviceAgentConfigCheckInterval
+		var deviceAgentConfigCheckInterval time.Duration
 		m.cfgMu.RLock()
 		wait := m.cfg.AdvancedSettings.WaitForUpdateCheck.Get()
 		m.cfgMu.RUnlock()
 		if wait {
 			deviceAgentConfigCheckInterval = m.CheckUpdates(ctx)
 		} else {
+			// on initial run without --wait, quickly check for & apply any config update with a short timeout to not delay startup.
+			// if it fails, fall back to cached config if available, otherwise default config.
+			// note: if running with --enable-*, config retreival fails, and there is no cached config, they will be enabled by default.
+			// if you have Disable* in your config, the subsystems will turn off after the next successful GetConfig.
+			ctxInit, ctxInitCancel := context.WithTimeout(ctx, 2*time.Second)
+			var err error
+			deviceAgentConfigCheckInterval, err = m.GetConfig(ctxInit)
+			if err != nil {
+				m.logger.Infow("initial config retreival failed. will use cached config if available", "err", err)
+			}
+			ctxInitCancel()
 			// premptively start things before we go into the regular update/check/restart
 			m.SubsystemHealthChecks(ctx)
 		}
@@ -691,16 +707,16 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		m.logger.Error(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
 	}
 
-	cfg, err := utils.StackProtoConfig(resp)
+	cfgFromCloud, err := utils.StackProtoConfig(resp)
 	if err != nil {
 		m.logger.Warn(errw.Wrap(err, "processing config"))
 	}
 
-	if err := utils.SaveConfigToCache(cfg); err != nil {
+	if err := utils.SaveConfigToCache(cfgFromCloud); err != nil {
 		m.logger.Warn(err)
 	}
 
-	cfg = utils.ApplyCLIArgs(cfg)
+	cfg := utils.ApplyCLIArgs(cfgFromCloud)
 	m.setDebug(cfg.AdvancedSettings.Debug.Get())
 
 	m.cfgMu.Lock()
@@ -716,7 +732,7 @@ func fixWindowsPaths(resp *pb.DeviceAgentConfigResponse) {
 		return
 	}
 	if resp.GetAgentUpdateInfo() != nil && !strings.HasSuffix(resp.GetAgentUpdateInfo().GetFilename(), ".exe") {
-		resp.AgentUpdateInfo.Filename += ".exe" //nolint:goconst
+		resp.AgentUpdateInfo.Filename += ".exe"
 	}
 	if resp.GetViamServerUpdateInfo() != nil && !strings.HasSuffix(resp.GetViamServerUpdateInfo().GetFilename(), ".exe") {
 		resp.ViamServerUpdateInfo.Filename += ".exe"

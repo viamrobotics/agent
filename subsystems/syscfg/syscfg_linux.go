@@ -52,7 +52,7 @@ func (s *syscfg) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart
 	}
 
 	s.cfg = cfg.SystemConfiguration
-	return
+	return needRestart
 }
 
 func (s *syscfg) Start(ctx context.Context) error {
@@ -64,7 +64,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 		return nil
 	}
 
-	s.logger.Debugf("Starting syscfg")
+	s.logger.Infof("Starting syscfg subsystem")
 
 	s.started = true
 	var healthyLog, healthyUpgrades bool
@@ -74,7 +74,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 	defer utils.Recover(s.logger, nil)
 
 	// set journald max size limits
-	err := s.EnforceLogging()
+	err := s.EnforceLogging(ctx)
 	if err != nil {
 		s.logger.Warn(errw.Wrap(err, "configuring journald logging"))
 	} else {
@@ -101,6 +101,9 @@ func (s *syscfg) Start(ctx context.Context) error {
 func (s *syscfg) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.started {
+		s.logger.Infof("Stopping syscfg subsystem")
+	}
 	s.started = false
 
 	return errw.Wrap(s.stopLogForwarding(), "stopping kernel log forwarding")

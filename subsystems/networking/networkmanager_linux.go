@@ -1100,7 +1100,7 @@ func (n *Networking) doReboot(ctx context.Context) bool {
 		"configuredRebootTimeout",
 		time.Duration(n.Config().DeviceRebootAfterOfflineMinutes),
 	)
-	cmd := exec.Command("systemctl", "reboot")
+	cmd := exec.CommandContext(ctx, "systemctl", "reboot")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		n.logger.Warnw("Error running systemctl reboot", "output", output, "err", err)

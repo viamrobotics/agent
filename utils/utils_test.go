@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -31,7 +34,7 @@ func TestDecompressFile(t *testing.T) {
 
 	// compress an empty file
 	Touch(t, orig)
-	_, err := exec.Command("xz", orig).Output()
+	_, err := exec.CommandContext(t.Context(), "xz", orig).Output()
 	test.That(t, err, test.ShouldBeNil)
 
 	// decompress
@@ -357,6 +360,63 @@ func TestDownloadFile(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, string(content), test.ShouldEqual, testContent)
 	})
+
+	t.Run("resume", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("hello "), 10)
+		modtime := time.Now()
+
+		maxBytesForTesting = int64(2 * len(payload) / 3)
+		t.Cleanup(func() {
+			maxBytesForTesting = 0
+		})
+
+		t.Run("etag-match", func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Add("ETag", "matches")
+				http.ServeContent(w, r, "hello", modtime, bytes.NewReader(payload))
+			}))
+			t.Cleanup(func() {
+				server.Close()
+			})
+
+			_, err := DownloadFile(t.Context(), server.URL, logger)
+			// first attempt fails with partial read
+			test.That(t, err, test.ShouldNotBeNil)
+
+			path, err := DownloadFile(t.Context(), server.URL, logger)
+			// second attempt succeeds
+			test.That(t, err, test.ShouldBeNil)
+			downloaded, err := os.ReadFile(path)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, downloaded, test.ShouldResemble, payload)
+		})
+
+		t.Run("etag-mismatch", func(t *testing.T) {
+			var etag int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Add("ETag", strconv.Itoa(etag))
+				if r.Method == http.MethodGet {
+					etag += 1
+				}
+				http.ServeContent(w, r, "hello", modtime, bytes.NewReader(payload))
+			}))
+			t.Cleanup(func() {
+				server.Close()
+			})
+
+			maxBytesForTesting = int64(2 * len(payload) / 3)
+			t.Cleanup(func() {
+				maxBytesForTesting = 0
+				server.Close()
+			})
+			_, err := DownloadFile(t.Context(), server.URL, logger)
+			test.That(t, err, test.ShouldNotBeNil)
+
+			// second attempt fails again because the etag has changed
+			_, err = DownloadFile(t.Context(), server.URL, logger)
+			test.That(t, err, test.ShouldNotBeNil)
+		})
+	})
 }
 
 // If either of the tests on ViamDirsData become outdated be sure there is at
@@ -420,7 +480,7 @@ func TestInitPaths(t *testing.T) {
 
 	t.Run("failure not directory", func(t *testing.T) {
 		MockViamDirs(t)
-		err := os.MkdirAll(ViamDirs.Viam, os.ModePerm)
+		err := os.MkdirAll(ViamDirs.Viam, 0o755)
 		test.That(t, err, test.ShouldBeNil)
 		_, err = os.Create(ViamDirs.Bin)
 		test.That(t, err, test.ShouldBeNil)
@@ -434,9 +494,11 @@ func TestInitPaths(t *testing.T) {
 			t.SkipNow()
 		}
 		MockViamDirs(t)
-		err := os.MkdirAll(ViamDirs.Bin, os.ModePerm)
+		err := errors.Join(
+			os.MkdirAll(ViamDirs.Viam, 0o755),
+			os.MkdirAll(ViamDirs.Bin, 0o700),
+		)
 		test.That(t, err, test.ShouldBeNil)
-		os.Chmod(ViamDirs.Bin, 0o700)
 		err = InitPaths()
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
@@ -444,13 +506,14 @@ func TestInitPaths(t *testing.T) {
 }
 
 func TestPartialPath(t *testing.T) {
-	path := CreatePartialPath("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-latest-x86_64")
+	partPath, etagPath := CreatePartialPath("https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-latest-x86_64")
 	maxPathLengths := map[string]int{
 		"linux":   4096,
 		"windows": 260,
 	}
 	for _, maxPath := range maxPathLengths {
-		test.That(t, len(path), test.ShouldBeLessThanOrEqualTo, maxPath)
+		test.That(t, len(partPath), test.ShouldBeLessThanOrEqualTo, maxPath)
+		test.That(t, len(etagPath), test.ShouldBeLessThanOrEqualTo, maxPath)
 	}
 }
 
@@ -472,4 +535,47 @@ func TestRewriteGCPDownload(t *testing.T) {
 	test.That(t, rewrite3, test.ShouldResemble, u2)
 	test.That(t, b3, test.ShouldBeTrue)
 	test.That(t, rewrite3.EscapedPath(), test.ShouldResemble, u2.EscapedPath())
+}
+
+func TestIsValidAgentBinary(t *testing.T) {
+	t.Parallel()
+
+	// TODO(RSDK-12820): Remove this conditional once we support more agent features on
+	// MacOS.
+	if runtime.GOOS == "darwin" {
+		t.Skip("Built viam-agent binary will not run -version on MacOS; skipping")
+	}
+
+	nonBinaryPath := filepath.Join(t.TempDir(), "text.txt")
+	err := os.WriteFile(nonBinaryPath, []byte("Hello, World!"), 0o644)
+	test.That(t, err, test.ShouldBeNil)
+
+	testCases := []struct {
+		name  string
+		path  string
+		valid bool
+	}{
+		{
+			name:  "non-binary file",
+			path:  nonBinaryPath,
+			valid: false,
+		},
+		{
+			name:  "non-agent binary file",
+			path:  os.Args[0], // use test binary
+			valid: false,
+		},
+		{
+			name:  "valid file",
+			path:  BuildViamAgent(t),
+			valid: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			test.That(t, IsValidAgentBinary(t.Context(), tc.path, "viam-agent"), test.ShouldEqual, tc.valid)
+		})
+	}
 }

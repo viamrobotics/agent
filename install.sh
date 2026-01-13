@@ -301,10 +301,8 @@ main() {
 	systemctl restart viam-agent
 
 	echo && echo && echo
-	echo "Viam Agent installed successfully. You may start/stop/restart it via systemd's 'systemctl' command."
-	echo "Example: 'systemctl restart viam-agent'"
-	echo
-	echo "It has already been started for you and set to start automatically at boot time."
+	echo "Viam Agent has been installed and started successfully."
+	echo "You may return to your machine at https://app.viam.com/ to continue configuring."
 }
 
 main

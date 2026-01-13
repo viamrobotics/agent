@@ -7,7 +7,7 @@ import (
 	"html/template"
 	"net"
 	"net/http"
-	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -55,6 +55,7 @@ func (n *Networking) startWeb(bindAddr string, bindPort int) error {
 	}
 	n.dataMu.Unlock()
 	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
+	//nolint: noctx
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
 		return errw.Wrapf(err, "listening on: %s", bind)
@@ -120,9 +121,10 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 	}
 
-	if os.Getenv("VIAM_AGENT_DEVMODE") != "" {
-		n.logger.Warn("devmode enabled, using templates from /opt/viam/tmp/templates/")
-		newT, err := template.ParseGlob("/opt/viam/tmp/templates/*.html")
+	if utils.IsRunningLocally {
+		templatesDir := filepath.Join(utils.ViamDirs.Tmp, "templates")
+		n.logger.Warnf("running locally, using templates from %s", templatesDir)
+		newT, err := template.ParseGlob(templatesDir + "/*.html")
 		if err == nil {
 			t = newT
 		}
