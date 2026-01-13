@@ -266,7 +266,7 @@ func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- use
 	}
 
 	// rebase the current config onto the default. since we no longer merge configs once a cloud config is available,
-	// we it may not include provisioning settings that were in the viam-defaults.json.
+	// it may not include provisioning settings that were in the viam-defaults.json.
 	if provisioningCfg, err := rebaseNetworkConfiguration(n.cfg); err != nil {
 		n.logger.Infof("rebase existing networking config over viam-defaults.json failed with err. Continuing with existing config.", "err", err)
 	} else {
