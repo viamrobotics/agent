@@ -2,6 +2,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"errors"
 
 	rutils "go.viam.com/rdk/utils"
@@ -15,6 +16,19 @@ type APIKey struct {
 
 func (a APIKey) IsEmpty() bool {
 	return a.ID == "" && a.Key == ""
+}
+
+func (a APIKey) IsFullySet() bool {
+	return a.ID != "" && a.Key != ""
+}
+
+func APIKeyFromString(value string) APIKey {
+	var apiKey APIKey
+	// Return empty on error or invalid key, will be validated downstream
+	if err := json.Unmarshal([]byte(value), &apiKey); err != nil || apiKey.IsEmpty() || !apiKey.IsFullySet() {
+		return APIKey{}
+	}
+	return apiKey
 }
 
 func ParseCloudCreds(cloudCfg map[string]interface{}) (rpc.DialOption, error) {

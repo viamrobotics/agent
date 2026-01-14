@@ -102,7 +102,7 @@ func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id
 		},
 	}
 
-	if !apiKey.IsEmpty() {
+	if apiKey.IsFullySet() {
 		req.Cloud.ApiKey = &pb.APIKey{
 			Id:  apiKey.ID,
 			Key: apiKey.Key,

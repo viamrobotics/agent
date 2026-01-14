@@ -57,13 +57,21 @@ func parseOpts() bool {
 		return false
 	}
 
-	hasPartialOpts := opts.PartID != "" || opts.Secret != "" || !opts.APIKey.IsEmpty()
-	if hasPartialOpts {
-		missingRequired := opts.PartID == "" || opts.AppAddr == ""
-		missingAuth := opts.Secret == "" && opts.APIKey.IsEmpty()
+	if opts.PartID != "" || opts.Secret != "" || !opts.APIKey.IsEmpty() {
+		if opts.PartID == "" || opts.AppAddr == "" {
+			fmt.Println("Error: Must set PartID and AppAddr when configuring credentials!")
+			return false
+		}
 
-		if missingRequired || missingAuth {
-			fmt.Println("Error: Must set PartID, AppAddr, and either Secret or API Key!")
+		// API Key validation - must be empty or fully set
+		if !opts.APIKey.IsEmpty() && !opts.APIKey.IsFullySet() {
+			fmt.Println("Error: API Key must have both ID and Key set, or neither!")
+			return false
+		}
+
+		// Auth requirement - need at least one auth method
+		if opts.Secret == "" && !opts.APIKey.IsFullySet() {
+			fmt.Println("Error: Must provide either Secret or complete API Key!")
 			return false
 		}
 	}

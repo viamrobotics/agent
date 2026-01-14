@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -277,17 +276,8 @@ func (b *btCharacteristics) recordInput(ctx context.Context, cName, value string
 	case appAddressKey:
 		b.userInputData.input.AppAddr = value
 	case apiKeyCredsKey:
-		b.userInputData.input.APIKey = apiKeyFromString(value)
+		b.userInputData.input.APIKey = utils.APIKeyFromString(value)
 	case exitProvisioningKey:
 		b.userInputData.sendInput(ctx)
 	}
-}
-
-func apiKeyFromString(value string) utils.APIKey {
-	var apiKey utils.APIKey
-	if err := json.Unmarshal([]byte(value), &apiKey); err != nil {
-		// Return empty on error, will be validated downstream
-		return utils.APIKey{}
-	}
-	return apiKey
 }

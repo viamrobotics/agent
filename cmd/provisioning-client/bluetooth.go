@@ -313,7 +313,7 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return errw.Wrap(err, "writing secret")
 	}
 
-	if !opts.APIKey.IsEmpty() {
+	if opts.APIKey.IsFullySet() {
 		apiKeyJSON, err := json.Marshal(opts.APIKey)
 		if err != nil {
 			return err
