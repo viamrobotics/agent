@@ -17,6 +17,76 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const journalctlNAWarningMessage = "journalctl not available, log forwarding disabled"
+
+// Forwards all `systemd` logs related to shutdown from the last boot and startup from
+// this boot. These logs will contain information like whether the last viam-agent was OOM
+// killed.
+func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
+	s.logger.Info("DEBUG: Starting experimental recent systemd agent logging...")
+
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+
+	s.logger.Info("DEBUG: Checking for journalctl...")
+	if s.noJournald {
+		s.logger.Warn(journalctlNAWarningMessage)
+		return nil
+	}
+	if _, err := exec.LookPath("journalctl"); err != nil {
+		s.logger.Warn(journalctlNAWarningMessage)
+		s.noJournald = true
+		return nil
+	}
+
+	// TODO(benji): Don't assume we have a net appender. Might be fine though given startup
+	// orderings. A non-nil appender doesn't mean we have internet access but it can at
+	// least hold these logs in its internal queue.
+	s.logger.Info("DEBUG: Checking for net appender...")
+	appender := s.appender()
+	if appender == nil {
+		return errors.New("net appender not yet available to forward recent systemd agent logs")
+	}
+
+	// `journalctl -u viam-agent -t systemd -S [lastShutdown.Format(...)] -o json` gets logs
+	// from the viam-agent systemd service (-u viam-agent), from systemd itself (-t
+	// systemd), as JSON (-o JSON), and from only the last shutdown time (-S
+	// [lastShutdown.Format()]) if available.
+	s.logger.Info("DEBUG: Actually running journalctl...")
+	journalctlArgs := []string{"-u", "viam-agent", "-t", "systemd", "-o", "json"}
+	// A zero-valued lastShutdown means none was saved in the cache.
+	if !s.lastShutdown.IsZero() {
+		journalctlArgs = append(journalctlArgs, "-S", s.lastShutdown.Format("2006-01-02 15:04:05"))
+	}
+	out, err := exec.CommandContext(ctx, "journalctl", journalctlArgs...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("running journalctl to forward recent systemd agent logs. out: %v, err: %v", string(out), err.Error())
+	}
+
+	s.logger.Info("DEBUG: Decoding logs...")
+	var recentAgentJournaldEntries []*journaldEntry
+	if err := json.Unmarshal(out, recentAgentJournaldEntries); err != nil {
+		return errw.Wrap(err, "parsing recent systemd agent logs")
+	}
+
+	for _, recentAgentJournaldEntry := range recentAgentJournaldEntries {
+		logEntry := zapcore.Entry{
+			Level:      recentAgentJournaldEntry.getLevel(),
+			Time:       recentAgentJournaldEntry.getTime(),
+			LoggerName: recentAgentJournaldEntry.getName(),
+			Message:    recentAgentJournaldEntry.getMessage(),
+		}
+
+		s.logger.Info("DEBUG: Writing a log...")
+		if err := appender.Write(logEntry, nil); err != nil {
+			s.logger.Warn(err)
+		}
+	}
+
+	s.logger.Info("DEBUG: Finished experimental recent systemd agent logging")
+	return nil
+}
+
 func (s *syscfg) startLogForwarding() error {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
@@ -27,8 +97,12 @@ func (s *syscfg) startLogForwarding() error {
 		return nil
 	}
 
+	if s.noJournald {
+		s.logger.Warn(journalctlNAWarningMessage)
+		return nil
+	}
 	if _, err := exec.LookPath("journalctl"); err != nil {
-		s.logger.Warn("journalctl not available, kernel log forwarding disabled")
+		s.logger.Warn(journalctlNAWarningMessage)
 		s.noJournald = true
 		return nil
 	}
