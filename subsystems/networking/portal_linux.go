@@ -182,7 +182,7 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 			n.errors.Add(errors.New("incomplete cloud config provided"))
 			return
 		}
-		if !cfg.Cloud.APIKey.IsEmpty() && !cfg.Cloud.APIKey.IsFullySet() {
+		if cfg.Cloud.APIKey.IsPartiallySet() {
 			n.errors.Add(errors.New("API Key must have both ID and Key set, or neither"))
 			return
 		}

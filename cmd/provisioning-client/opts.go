@@ -22,10 +22,11 @@ var opts struct {
 
 	PSK string `description:"psk for bluetooth security" long:"psk"`
 
-	AppAddr string       `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
-	PartID  string       `description:"PartID to set in viam.json"        long:"part-id"`
-	Secret  string       `description:"Device secret to set in viam.json" long:"secret"`
-	APIKey  utils.APIKey `description:"Device secret to set in viam.json" long:"api-key"`
+	AppAddr   string `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
+	PartID    string `description:"PartID to set in viam.json"        long:"part-id"`
+	Secret    string `description:"Device secret to set in viam.json" long:"secret"`
+	APIKeyID  string `description:"API Key ID" long:"api-key-id"`
+	APIKeyKey string `description:"API Key secret" long:"api-key-key"`
 
 	Exit bool `description:"Tell the device to exit provisioning mode" long:"exit" short:"e"`
 
@@ -33,6 +34,13 @@ var opts struct {
 	Info     bool `description:"Get device info"        long:"info"     short:"i"`
 	Networks bool `description:"List networks"          long:"networks" short:"n"`
 	Help     bool `description:"Show this help message" long:"help"     short:"h"`
+}
+
+func APIKey() utils.APIKey {
+	return utils.APIKey{
+		ID:  opts.APIKeyID,
+		Key: opts.APIKeyKey,
+	}
 }
 
 func parseOpts() bool {
@@ -57,20 +65,18 @@ func parseOpts() bool {
 		return false
 	}
 
-	if opts.PartID != "" || opts.Secret != "" || !opts.APIKey.IsEmpty() {
+	if opts.PartID != "" || opts.Secret != "" || !APIKey().IsEmpty() {
 		if opts.PartID == "" || opts.AppAddr == "" {
 			fmt.Println("Error: Must set PartID and AppAddr when configuring credentials!")
 			return false
 		}
 
-		// API Key validation - must be empty or fully set
-		if !opts.APIKey.IsEmpty() && !opts.APIKey.IsFullySet() {
+		if APIKey().IsPartiallySet() {
 			fmt.Println("Error: API Key must have both ID and Key set, or neither!")
 			return false
 		}
 
-		// Auth requirement - need at least one auth method
-		if opts.Secret == "" && !opts.APIKey.IsFullySet() {
+		if opts.Secret == "" && !APIKey().IsFullySet() {
 			fmt.Println("Error: Must provide either Secret or complete API Key!")
 			return false
 		}

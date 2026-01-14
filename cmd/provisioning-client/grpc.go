@@ -41,7 +41,7 @@ func grpcClient() error {
 	}
 
 	if opts.PartID != "" {
-		if err := SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr, opts.APIKey); err != nil {
+		if err := SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr, APIKey()); err != nil {
 			return err
 		}
 	}
@@ -99,14 +99,11 @@ func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id
 			Id:         id,
 			Secret:     secret,
 			AppAddress: appaddr,
+			ApiKey: &pb.APIKey{
+				Id:  apiKey.ID,
+				Key: apiKey.Key,
+			},
 		},
-	}
-
-	if apiKey.IsFullySet() {
-		req.Cloud.ApiKey = &pb.APIKey{
-			Id:  apiKey.ID,
-			Key: apiKey.Key,
-		}
 	}
 
 	_, err := client.SetSmartMachineCredentials(ctx, req)

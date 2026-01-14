@@ -22,10 +22,14 @@ func (a APIKey) IsFullySet() bool {
 	return a.ID != "" && a.Key != ""
 }
 
+func (a APIKey) IsPartiallySet() bool {
+	return !a.IsEmpty() && !a.IsFullySet()
+}
+
 func APIKeyFromString(value string) APIKey {
 	var apiKey APIKey
 	// Return empty on error or invalid key, will be validated downstream
-	if err := json.Unmarshal([]byte(value), &apiKey); err != nil || apiKey.IsEmpty() || !apiKey.IsFullySet() {
+	if err := json.Unmarshal([]byte(value), &apiKey); err != nil || !apiKey.IsFullySet() {
 		return APIKey{}
 	}
 	return apiKey
