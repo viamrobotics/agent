@@ -143,8 +143,14 @@ func WriteDeviceConfig(file string, input userInput) error {
 		},
 	}
 
-	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || (cfg.Cloud.Secret == "" && cfg.Cloud.APIKey.IsEmpty()) {
+	if cfg.Cloud.ID == "" || cfg.Cloud.AppAddress == "" {
 		return errors.New("incomplete machine credentials received, please try again")
+	}
+	if !cfg.Cloud.APIKey.IsEmpty() && !cfg.Cloud.APIKey.IsFullySet() {
+		return errors.New("API Key must have both ID and Key set, or neither")
+	}
+	if cfg.Cloud.Secret == "" && !cfg.Cloud.APIKey.IsFullySet() {
+		return errors.New("must provide either Secret or complete API Key")
 	}
 
 	jsonBytes, err := json.Marshal(cfg)
