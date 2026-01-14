@@ -81,7 +81,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cache:      NewVersionCache(logger.Sublogger("version_cache")),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
-	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
+	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender, manager.cache.LastShutdown)
 
 	return manager
 }
@@ -485,6 +485,12 @@ func (m *Manager) CloseAll() {
 		}
 
 		m.conn = nil
+
+		// Mark the current time as the last shutdown and save the cache once more before
+		// exiting.
+		if err := m.cache.MarkShutdownAndSave(time.Now()); err != nil {
+			m.logger.Warn(err)
+		}
 	})
 
 	checkDone := func() bool {
