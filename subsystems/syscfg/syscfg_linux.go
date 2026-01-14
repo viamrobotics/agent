@@ -29,14 +29,14 @@ type syscfg struct {
 	journalCmd   *exec.Cmd
 	cancelFunc   context.CancelFunc
 	noJournald   bool
-	lastShutdown time.Time
+	lastShutdown *time.Time
 }
 
 func NewSubsystem(ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
 	getAppenderFunc func() logging.Appender,
-	lastShutdown time.Time,
+	lastShutdown *time.Time,
 ) subsystems.Subsystem {
 	return &syscfg{
 		appender:     getAppenderFunc,

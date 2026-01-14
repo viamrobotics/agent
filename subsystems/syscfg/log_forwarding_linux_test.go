@@ -195,7 +195,7 @@ func TestLogForwarderFilter(t *testing.T) {
 
 			sys := NewSubsystem(ctx, logger, cfg, func() logging.Appender {
 				return appender
-			})
+			}, nil)
 
 			// On start, we should see kernel forwarder start log
 			err := sys.Start(t.Context())
