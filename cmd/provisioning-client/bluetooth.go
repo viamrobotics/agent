@@ -298,15 +298,6 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	apiKeyJSON, err := json.Marshal(opts.APIKey)
-	if err != nil {
-		return err
-	}
-	cryptAPIKey, err := encrypt(apiKeyJSON)
-	if err != nil {
-		return err
-	}
-
 	cryptAppAddr, err := encrypt([]byte(opts.AppAddr))
 	if err != nil {
 		return err
@@ -322,9 +313,21 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return errw.Wrap(err, "writing secret")
 	}
 
-	_, err = chars[apiKeyCredsKey].WriteWithoutResponse(cryptAPIKey)
-	if err != nil {
-		return errw.Wrap(err, "writing api key")
+	if !opts.APIKey.IsEmpty() {
+		apiKeyJSON, err := json.Marshal(opts.APIKey)
+		if err != nil {
+			return err
+		}
+		cryptAPIKey, err := encrypt(apiKeyJSON)
+		if err != nil {
+			return err
+		}
+
+		_, err = chars[apiKeyCredsKey].WriteWithoutResponse(cryptAPIKey)
+		if err != nil {
+			return errw.Wrap(err, "writing api key")
+		}
+
 	}
 
 	_, err = chars[appAddressKey].WriteWithoutResponse(cryptAppAddr)

@@ -99,11 +99,14 @@ func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id
 			Id:         id,
 			Secret:     secret,
 			AppAddress: appaddr,
-			ApiKey: &pb.APIKey{
-				Id:  apiKey.ID,
-				Key: apiKey.Key,
-			},
 		},
+	}
+
+	if !apiKey.IsEmpty() {
+		req.Cloud.ApiKey = &pb.APIKey{
+			Id:  apiKey.ID,
+			Key: apiKey.Key,
+		}
 	}
 
 	_, err := client.SetSmartMachineCredentials(ctx, req)
