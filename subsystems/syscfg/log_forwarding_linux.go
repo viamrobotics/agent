@@ -1,6 +1,7 @@
 package syscfg
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,16 +20,31 @@ import (
 
 const journalctlNAWarningMessage = "journalctl not available, log forwarding disabled"
 
-// Forwards all `systemd` logs related to shutdown from the last boot and startup from
-// this boot. These logs will contain information like whether the last viam-agent was OOM
-// killed.
+// Forwards all systemd logs related to shutdown from the last viam-agent instance and
+// startup from this viam-agent instance. These logs will contain information like whether
+// the last viam-agent instance was OOM killed. e.g., the following can make it up to app after
+// the part is restarted via the UI:
+//
+// 1/14/2026, 4:38:58 PM info viam-agent.systemd    Started viam-agent.service - Viam Services Agent.
+// 1/14/2026, 4:38:58 PM info viam-agent.systemd    Starting viam-agent.service - Viam Services Agent...
+// 1/14/2026, 4:38:58 PM info viam-agent.systemd    viam-agent.service: Consumed 55.548s CPU time.
+// 1/14/2026, 4:38:58 PM info viam-agent.systemd    Stopped viam-agent.service - Viam Services Agent.
+// 1/14/2026, 4:38:58 PM info viam-agent.systemd    viam-agent.service: Scheduled restart job, restart counter is at 2.
+// 1/14/2026, 4:38:52 PM info viam-agent.systemd    viam-agent.service: Consumed 55.548s CPU time.
+// 1/14/2026, 4:38:52 PM info viam-agent.systemd    viam-agent.service: Deactivated successfully.
 func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
-	s.logger.Info("DEBUG: Starting experimental recent systemd agent logging...")
-
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
 
-	s.logger.Info("DEBUG: Checking for journalctl...")
+	// A nil lastShutdown value means none was saved in the cache. Bail in this case. We
+	// _could_ attempt to upload all historical systemd agent logs if we do not know when
+	// the agent last shutdown, but there may be quite a few of these logs, and doing so
+	// could slow startup.
+	if s.lastShutdown == nil {
+		s.logger.Debug("unknown last shutdown time; will not forward recent systemd agent logs until next startup")
+		return nil
+	}
+
 	if s.noJournald {
 		s.logger.Warn(journalctlNAWarningMessage)
 		return nil
@@ -39,10 +55,6 @@ func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 		return nil
 	}
 
-	// TODO(benji): Don't assume we have a net appender. Might be fine though given startup
-	// orderings. A non-nil appender doesn't mean we have internet access but it can at
-	// least hold these logs in its internal queue.
-	s.logger.Info("DEBUG: Checking for net appender...")
 	appender := s.appender()
 	if appender == nil {
 		return errors.New("net appender not yet available to forward recent systemd agent logs")
@@ -51,39 +63,37 @@ func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 	// `journalctl -u viam-agent -t systemd -S [lastShutdown.Format(...)] -o json` gets logs
 	// from the viam-agent systemd service (-u viam-agent), from systemd itself (-t
 	// systemd), as JSON (-o JSON), and from only the last shutdown time (-S
-	// [lastShutdown.Format()]) if available.
-	s.logger.Info("DEBUG: Actually running journalctl...")
-	journalctlArgs := []string{"-u", "viam-agent", "-t", "systemd", "-o", "json"}
-	// A zero-valued lastShutdown means none was saved in the cache.
-	if !s.lastShutdown.IsZero() {
-		journalctlArgs = append(journalctlArgs, "-S", s.lastShutdown.Format("2006-01-02 15:04:05"))
-	}
-	out, err := exec.CommandContext(ctx, "journalctl", journalctlArgs...).CombinedOutput()
+	// [lastShutdown.Format()]).
+	//nolint:gosec
+	out, err := exec.CommandContext(ctx, "journalctl", "-u", "viam-agent", "-t", "systemd", "-o", "json",
+		"-S", s.lastShutdown.Format("2006-01-02 15:04:05" /* systemd time format */)).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("running journalctl to forward recent systemd agent logs. out: %v, err: %v", string(out), err.Error())
+		return errw.Wrap(err, "running journalctl to forward recent systemd agent logs")
 	}
 
-	s.logger.Info("DEBUG: Decoding logs...")
-	var recentAgentJournaldEntries []*journaldEntry
-	if err := json.Unmarshal(out, recentAgentJournaldEntries); err != nil {
-		return errw.Wrap(err, "parsing recent systemd agent logs")
-	}
-
-	for _, recentAgentJournaldEntry := range recentAgentJournaldEntries {
-		logEntry := zapcore.Entry{
-			Level:      recentAgentJournaldEntry.getLevel(),
-			Time:       recentAgentJournaldEntry.getTime(),
-			LoggerName: recentAgentJournaldEntry.getName(),
-			Message:    recentAgentJournaldEntry.getMessage(),
+	decoder := json.NewDecoder(bytes.NewBuffer(out))
+	for decoder.More() {
+		var recentAgentJournaldEntry journaldEntry
+		if err := decoder.Decode(&recentAgentJournaldEntry); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return errw.Wrap(err, "parsing recent systemd agent logs")
 		}
 
-		s.logger.Info("DEBUG: Writing a log...")
+		logEntry := zapcore.Entry{
+			Level: recentAgentJournaldEntry.getLevel(),
+			Time:  recentAgentJournaldEntry.getTime(),
+			// Hardcode logger name instead of using recentAgentJournaldEntry.getName() which
+			// would be "systemd[1]".
+			LoggerName: "viam-agent.systemd",
+			Message:    recentAgentJournaldEntry.getMessage(),
+		}
 		if err := appender.Write(logEntry, nil); err != nil {
 			s.logger.Warn(err)
 		}
 	}
 
-	s.logger.Info("DEBUG: Finished experimental recent systemd agent logging")
 	return nil
 }
 

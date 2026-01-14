@@ -485,6 +485,12 @@ func (m *Manager) CloseAll() {
 		}
 
 		m.conn = nil
+
+		// Mark the current time as the last shutdown and save the cache once more before
+		// exiting.
+		if err := m.cache.MarkShutdownAndSave(time.Now()); err != nil {
+			m.logger.Warn(err)
+		}
 	})
 
 	checkDone := func() bool {
