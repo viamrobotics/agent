@@ -41,7 +41,6 @@ func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 	// the agent last shutdown, but there may be quite a few of these logs, and doing so
 	// could slow startup.
 	if s.lastShutdown == nil {
-		s.logger.Debug("unknown last shutdown time; will not forward recent systemd agent logs until next startup")
 		return nil
 	}
 
