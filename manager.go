@@ -81,7 +81,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cache:      NewVersionCache(logger),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
-	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
+	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender, manager.cache.LastShutdown)
 
 	return manager
 }

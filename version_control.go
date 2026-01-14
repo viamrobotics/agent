@@ -60,11 +60,12 @@ func NewVersionCache(logger logging.Logger) *VersionCache {
 }
 
 type VersionCache struct {
-	mu          sync.Mutex
-	ViamAgent   *Versions `json:"viam_agent"`
-	ViamServer  *Versions `json:"viam_server"`
-	LastCleaned time.Time `json:"last_cleaned"`
-	logger      logging.Logger
+	mu           sync.Mutex
+	ViamAgent    *Versions `json:"viam_agent"`
+	ViamServer   *Versions `json:"viam_server"`
+	LastCleaned  time.Time `json:"last_cleaned"`
+	LastShutdown time.Time `json:"last_shutdown"`
+	logger       logging.Logger
 
 	// usually it wouldn't make sense to have multiple loggers on a struct, but this struct is doing
 	// two wildly different things
@@ -516,4 +517,13 @@ func (c *VersionCache) CleanPartials(ctx context.Context) error {
 		}
 	}
 	return joinedErrors
+}
+
+// MarkShutdownAndSave writes the current timestamp as LastShutdown and saves the cache.
+// LastShutdown is referenced in forwardRecentSystemdAgentLogs.
+func (c *VersionCache) MarkShutdownAndSave() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.LastShutdown = time.Now()
+	return c.save()
 }
