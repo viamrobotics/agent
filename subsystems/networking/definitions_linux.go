@@ -125,7 +125,7 @@ type MachineConfig struct {
 type CloudConfig struct {
 	AppAddress string        `json:"app_address"`
 	ID         string        `json:"id"`
-	Secret     string        `json:"secret"`
+	Secret     string        `json:"secret,omitempty"`
 	APIKey     *utils.APIKey `json:"api_key,omitempty"`
 }
 
