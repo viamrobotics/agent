@@ -121,12 +121,12 @@ func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
 
 	if apiKey := cloud.GetApiKey(); apiKey != nil &&
 		apiKey.GetId() != "" && apiKey.GetKey() != "" {
-		n.portalData.input.APIKey = utils.APIKey{
+		n.portalData.input.APIKey = &utils.APIKey{
 			ID:  apiKey.GetId(),
 			Key: apiKey.GetKey(),
 		}
 	} else {
-		n.portalData.input.APIKey = utils.APIKey{}
+		n.portalData.input.APIKey = nil
 	}
 
 	return &pb.SetSmartMachineCredentialsResponse{}, nil

@@ -25,8 +25,8 @@ var opts struct {
 	AppAddr   string `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
 	PartID    string `description:"PartID to set in viam.json"        long:"part-id"`
 	Secret    string `description:"Device secret to set in viam.json" long:"secret"`
-	APIKeyID  string `description:"API Key ID" long:"api-key-id"`
-	APIKeyKey string `description:"API Key secret" long:"api-key-key"`
+	APIKeyID  string `description:"API Key ID"                        long:"api-key-id"`
+	APIKeyKey string `description:"API Key secret"                    long:"api-key-key"`
 
 	Exit bool `description:"Tell the device to exit provisioning mode" long:"exit" short:"e"`
 

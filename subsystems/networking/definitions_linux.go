@@ -123,17 +123,17 @@ type MachineConfig struct {
 }
 
 type CloudConfig struct {
-	AppAddress string       `json:"app_address"`
-	ID         string       `json:"id"`
-	Secret     string       `json:"secret"`
-	APIKey     utils.APIKey `json:"api_key,omitempty"`
+	AppAddress string        `json:"app_address"`
+	ID         string        `json:"id"`
+	Secret     string        `json:"secret"`
+	APIKey     *utils.APIKey `json:"api_key,omitempty"`
 }
 
 func (cfg CloudConfig) IsValid() error {
 	if cfg.ID == "" || cfg.AppAddress == "" {
 		return errors.New("invalid cloud config: 'id' and 'app_address' must be provided")
 	}
-	if cfg.APIKey.IsPartiallySet() {
+	if cfg.APIKey.IsPartiallySet() || cfg.APIKey.IsEmpty() {
 		return errors.New("invalid cloud config: 'api_key' is partially set, both 'id' and 'key' must be provided")
 	}
 	if cfg.Secret == "" && !cfg.APIKey.IsFullySet() {
@@ -215,7 +215,7 @@ type userInput struct {
 	PartID  string
 	Secret  string
 	AppAddr string
-	APIKey  utils.APIKey
+	APIKey  *utils.APIKey
 
 	// raw /etc/viam.json contents
 	RawConfig string

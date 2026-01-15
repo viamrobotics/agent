@@ -26,13 +26,13 @@ func (a APIKey) IsPartiallySet() bool {
 	return !a.IsEmpty() && !a.IsFullySet()
 }
 
-func APIKeyFromString(value string) APIKey {
+func APIKeyFromString(value string) *APIKey {
 	var apiKey APIKey
 	if err := json.Unmarshal([]byte(value), &apiKey); err != nil || !apiKey.IsFullySet() {
 		// If unmarshal fails or the result is not fully set, return empty APIKey. Empty APIKey won't be written to config.
-		return APIKey{}
+		return nil
 	}
-	return apiKey
+	return &apiKey
 }
 
 func ParseCloudCreds(cloudCfg map[string]interface{}) (rpc.DialOption, error) {
