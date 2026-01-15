@@ -133,10 +133,10 @@ func (cfg CloudConfig) IsValid() error {
 	if cfg.ID == "" || cfg.AppAddress == "" {
 		return errors.New("invalid cloud config: 'id' and 'app_address' must be provided")
 	}
-	if cfg.APIKey.IsPartiallySet() || cfg.APIKey.IsEmpty() {
-		return errors.New("invalid cloud config: 'api_key' is partially set, both 'id' and 'key' must be provided")
+	if cfg.APIKey != nil && (cfg.APIKey.IsPartiallySet() || cfg.APIKey.IsEmpty()) {
+		return errors.New("invalid cloud config: 'api_key' must have both 'id' and 'key' set")
 	}
-	if cfg.Secret == "" && !cfg.APIKey.IsFullySet() {
+	if cfg.Secret == "" && cfg.APIKey == nil {
 		return errors.New("invalid cloud config: at least one of 'secret' or 'api_key' must be provided")
 	}
 	return nil

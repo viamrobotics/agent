@@ -41,7 +41,7 @@ func grpcClient() error {
 	}
 
 	if opts.PartID != "" {
-		if err := SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr, APIKey()); err != nil {
+		if err := SetDeviceCreds(ctx, client, opts.PartID, opts.Secret, opts.AppAddr, opts.APIKey); err != nil {
 			return err
 		}
 	}
@@ -92,11 +92,11 @@ func GetNetworks(ctx context.Context, client pb.ProvisioningServiceClient) error
 	return nil
 }
 
-func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string, apiKey utils.APIKey) error {
+func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string, apiKey *utils.APIKey) error {
 	fmt.Println("Writing device credentials...")
 
 	var key *pb.APIKey
-	if apiKey.IsFullySet() {
+	if apiKey != nil && apiKey.IsFullySet() {
 		key = &pb.APIKey{
 			Id:  apiKey.ID,
 			Key: apiKey.Key,

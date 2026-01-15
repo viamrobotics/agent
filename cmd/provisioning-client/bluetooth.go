@@ -298,7 +298,7 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	apiKeyJSON, err := json.Marshal(APIKey())
+	apiKeyJSON, err := json.Marshal(*opts.APIKey)
 	if err != nil {
 		return err
 	}
