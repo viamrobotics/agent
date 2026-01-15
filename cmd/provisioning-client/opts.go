@@ -78,7 +78,7 @@ func parseOpts() bool {
 			return false
 		}
 
-		if opts.Secret == "" && !opts.APIKey.IsFullySet() {
+		if opts.Secret == "" && opts.APIKey.IsEmpty() {
 			fmt.Println("Error: Must provide either Secret or complete API Key!")
 			return false
 		}
