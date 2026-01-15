@@ -178,8 +178,12 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 			n.errors.Add(errw.Wrap(err, "invalid json config contents"))
 			return
 		}
-		if cfg.Cloud == nil || (cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" || cfg.Cloud.AppAddress == "") {
+		if cfg.Cloud == nil {
 			n.errors.Add(errors.New("incomplete cloud config provided"))
+			return
+		}
+		if err := cfg.Cloud.IsValid(); err != nil {
+			n.errors.Add(err)
 			return
 		}
 		n.portalData.input.RawConfig = rawConfig

@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,6 +28,7 @@ const (
 	pskKey                   = "psk"
 	robotPartIDKey           = "id"
 	robotPartSecretKey       = "secret"
+	apiKeyCredsKey           = "api_key"
 	appAddressKey            = "app_address"
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
@@ -296,6 +298,15 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
+	apiKeyJSON, err := json.Marshal(opts.APIKey)
+	if err != nil {
+		return err
+	}
+	cryptAPIKey, err := encrypt(apiKeyJSON)
+	if err != nil {
+		return err
+	}
+
 	cryptAppAddr, err := encrypt([]byte(opts.AppAddr))
 	if err != nil {
 		return err
@@ -309,6 +320,11 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 	_, err = chars[robotPartSecretKey].WriteWithoutResponse(cryptSecret)
 	if err != nil {
 		return errw.Wrap(err, "writing secret")
+	}
+
+	_, err = chars[apiKeyCredsKey].WriteWithoutResponse(cryptAPIKey)
+	if err != nil {
+		return errw.Wrap(err, "writing api key")
 	}
 
 	_, err = chars[appAddressKey].WriteWithoutResponse(cryptAppAddr)
@@ -450,6 +466,9 @@ func getCharicteristicsMap(device *bluetooth.Device) (map[string]bluetooth.Devic
 		case getUUID(robotPartSecretKey):
 			key = robotPartSecretKey
 			charMap[robotPartSecretKey] = char
+		case getUUID(apiKeyCredsKey):
+			key = apiKeyCredsKey
+			charMap[apiKeyCredsKey] = char
 		case getUUID(cryptoKey):
 			key = cryptoKey
 			charMap[cryptoKey] = char
