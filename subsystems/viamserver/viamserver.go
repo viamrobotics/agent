@@ -220,6 +220,15 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Infof("Stopping %s", SubsysName)
+
+	// Send SIGUSR1 first to request stack trace dump before shutdown.
+	if err := utils.SignalForStackTrace(s.cmd.Process.Pid); err != nil {
+		s.logger.Warn(errw.Wrap(err, "requesting stack trace from viam-server"))
+	} else {
+		// Give viam-server time to dump the stack traces before sending SIGTERM.
+		time.Sleep(time.Second)
+	}
+
 	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 	}
