@@ -116,7 +116,7 @@ func loadCredentials(path string) (*logging.CloudConfig, error) {
 
 	cloudCreds, err := utils.ParseCloudCreds(cloud)
 	if err != nil {
-		return nil, errw.Wrap(err, "invalid cloud config creds")
+		return nil, err
 	}
 
 	cloudConfig := &logging.CloudConfig{

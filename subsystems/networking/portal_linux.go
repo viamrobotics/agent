@@ -178,16 +178,8 @@ func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
 			n.errors.Add(errw.Wrap(err, "invalid json config contents"))
 			return
 		}
-		if cfg.Cloud == nil || (cfg.Cloud.ID == "" || cfg.Cloud.AppAddress == "") {
-			n.errors.Add(errors.New("incomplete cloud config provided"))
-			return
-		}
-		if cfg.Cloud.APIKey.IsPartiallySet() {
-			n.errors.Add(errors.New("API Key must have both ID and Key set, or neither"))
-			return
-		}
-		if cfg.Cloud.Secret == "" && !cfg.Cloud.APIKey.IsFullySet() {
-			n.errors.Add(errors.New("must provide either Secret or complete API Key"))
+		if err := cfg.Cloud.IsValid(); err != nil {
+			n.errors.Add(err)
 			return
 		}
 		n.portalData.input.RawConfig = rawConfig

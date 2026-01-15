@@ -28,8 +28,8 @@ func (a APIKey) IsPartiallySet() bool {
 
 func APIKeyFromString(value string) APIKey {
 	var apiKey APIKey
-	// Return empty on error or invalid key, will be validated downstream
 	if err := json.Unmarshal([]byte(value), &apiKey); err != nil || !apiKey.IsFullySet() {
+		// If unmarshal fails or the result is not fully set, return empty APIKey. Empty APIKey won't be written to config.
 		return APIKey{}
 	}
 	return apiKey

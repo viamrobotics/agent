@@ -126,7 +126,20 @@ type CloudConfig struct {
 	AppAddress string       `json:"app_address"`
 	ID         string       `json:"id"`
 	Secret     string       `json:"secret"`
-	APIKey     utils.APIKey `json:"api_key"`
+	APIKey     utils.APIKey `json:"api_key,omitempty"`
+}
+
+func (cfg CloudConfig) IsValid() error {
+	if cfg.ID == "" || cfg.AppAddress == "" {
+		return errors.New("invalid cloud config: 'id' and 'app_address' must be provided")
+	}
+	if cfg.APIKey.IsPartiallySet() {
+		return errors.New("invalid cloud config: 'api_key' is partially set, both 'id' and 'key' must be provided")
+	}
+	if cfg.Secret == "" && !cfg.APIKey.IsFullySet() {
+		return errors.New("invalid cloud config: at least one of 'secret' or 'api_key' must be provided")
+	}
+	return nil
 }
 
 func WriteDeviceConfig(file string, input userInput) error {
@@ -143,14 +156,8 @@ func WriteDeviceConfig(file string, input userInput) error {
 		},
 	}
 
-	if cfg.Cloud.ID == "" || cfg.Cloud.AppAddress == "" {
-		return errors.New("incomplete machine credentials received, please try again")
-	}
-	if cfg.Cloud.APIKey.IsPartiallySet() {
-		return errors.New("API Key must have both ID and Key set, or neither")
-	}
-	if cfg.Cloud.Secret == "" && !cfg.Cloud.APIKey.IsFullySet() {
-		return errors.New("must provide either Secret or complete API Key")
+	if err := cfg.Cloud.IsValid(); err != nil {
+		return err
 	}
 
 	jsonBytes, err := json.Marshal(cfg)
