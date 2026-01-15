@@ -92,23 +92,18 @@ func GetNetworks(ctx context.Context, client pb.ProvisioningServiceClient) error
 	return nil
 }
 
-func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string, apiKey *utils.APIKey) error {
+func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string, apiKey utils.APIKey) error {
 	fmt.Println("Writing device credentials...")
-
-	var key *pb.APIKey
-	if apiKey != nil && apiKey.IsFullySet() {
-		key = &pb.APIKey{
-			Id:  apiKey.ID,
-			Key: apiKey.Key,
-		}
-	}
 
 	req := &pb.SetSmartMachineCredentialsRequest{
 		Cloud: &pb.CloudConfig{
 			Id:         id,
 			Secret:     secret,
 			AppAddress: appaddr,
-			ApiKey:     key,
+			ApiKey: &pb.APIKey{
+				Id:  apiKey.ID,
+				Key: apiKey.Key,
+			},
 		},
 	}
 
