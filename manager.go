@@ -71,17 +71,15 @@ type Manager struct {
 // NewManager returns a new Manager.
 func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig, globalCancel context.CancelFunc) *Manager {
 	manager := &Manager{
-		logger: logger,
-		cfg:    cfg,
-
+		logger:       logger,
+		cfg:          cfg,
 		globalCancel: globalCancel,
-
-		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
-		networking: networking.NewSubsystem(ctx, logger, cfg),
-		cache:      NewVersionCache(logger.Sublogger("version_cache")),
+		networking:   networking.NewSubsystem(ctx, logger, cfg),
+		cache:        NewVersionCache(logger.Sublogger("version_cache")),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
+	manager.viamServer = viamserver.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
 
 	return manager
 }
@@ -139,7 +137,7 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 	return m.netAppender, err
 }
 
-// GetNetAppender is a somewhat ugly workaround to pass the (constructed later) netAppender to the syscfg subsystem.
+// GetNetAppender is a somewhat ugly workaround to pass the (constructed later) netAppender to the syscfg and viam-server subsystem.
 func (m *Manager) GetNetAppender() logging.Appender {
 	m.connMu.RLock()
 	defer m.connMu.RUnlock()
