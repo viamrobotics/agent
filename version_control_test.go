@@ -429,7 +429,10 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 
 func TestCleanPartials(t *testing.T) {
 	utils.MockAndCreateViamDirs(t)
-	vc := VersionCache{logger: logging.NewTestLogger(t)}
+	vc := VersionCache{
+		logger:             logging.NewTestLogger(t),
+		cacheCleanupLogger: logging.NewTestLogger(t),
+	}
 
 	// make a part file to clean up
 	oldPath, _ := utils.CreatePartialPath("https://viam.com/old.part")
