@@ -100,7 +100,7 @@ func Install(ctx context.Context, logger logging.Logger, sdManager systemdManage
 			// Version cache doesn't exist, so assume this is a fresh install and write
 			// a minimal version cache to avoid downloading a copy of this same version
 			// on first run.
-			versionCache := NewVersionCache(logger.Sublogger("version_cache"))
+			versionCache := NewVersionCache(logger)
 			trimmedVersion, _ := strings.CutPrefix(utils.Version, "v")
 			versionCache.ViamAgent.CurrentVersion = trimmedVersion
 			versionCache.ViamAgent.Versions[trimmedVersion] = &VersionInfo{

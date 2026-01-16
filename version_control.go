@@ -43,9 +43,10 @@ func VersionCacheExists() bool {
 
 func NewVersionCache(logger logging.Logger) *VersionCache {
 	cache := &VersionCache{
-		ViamAgent:  &Versions{Versions: map[string]*VersionInfo{}},
-		ViamServer: &Versions{Versions: map[string]*VersionInfo{}},
-		logger:     logger,
+		ViamAgent:          &Versions{Versions: map[string]*VersionInfo{}},
+		ViamServer:         &Versions{Versions: map[string]*VersionInfo{}},
+		logger:             logger,
+		cacheCleanupLogger: logger.Sublogger("cache_cleanup"),
 	}
 	cache.load()
 
@@ -64,6 +65,10 @@ type VersionCache struct {
 	ViamServer  *Versions `json:"viam_server"`
 	LastCleaned time.Time `json:"last_cleaned"`
 	logger      logging.Logger
+
+	// usually it wouldn't make sense to have multiple loggers on a struct, but this struct is doing
+	// two wildly different things
+	cacheCleanupLogger logging.Logger
 }
 
 // Versions stores VersionInfo and the current/previous versions for (TODO) rollback.
@@ -398,7 +403,7 @@ func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, ma
 
 		destPath, err := filepath.EvalSymlinks(filepath.Join(utils.ViamDirs.Bin, path))
 		if err != nil {
-			c.logger.Warn(err)
+			c.cacheCleanupLogger.Warn(err)
 			continue
 		}
 		protectedFiles = append(protectedFiles, filepath.Base(destPath))
@@ -444,7 +449,7 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 	if time.Now().Before(c.LastCleaned.Add(time.Hour*24)) && forceVal == "" {
 		return
 	}
-	c.logger.Info("Starting cache cleanup")
+	c.cacheCleanupLogger.Info("Starting cache cleanup")
 	c.LastCleaned = time.Now()
 
 	protectedFiles := c.getProtectedFilesAndCleanVersions(ctx, maxAgeDays)
@@ -454,14 +459,14 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 
 	// save the cleaned cache
 	if err := c.save(); err != nil {
-		c.logger.Error(err)
+		c.cacheCleanupLogger.Error(err)
 	}
 
 	// actually remove files
 	for _, dir := range []string{utils.ViamDirs.Cache, utils.ViamDirs.Tmp} {
 		files, err := os.ReadDir(dir)
 		if err != nil {
-			c.logger.Error(err)
+			c.cacheCleanupLogger.Error(err)
 			continue
 		}
 		for _, f := range files {
@@ -469,44 +474,44 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 				return
 			}
 			if slices.Contains(protectedFiles, f.Name()) {
-				c.logger.Debugf("cache cleanup skipping: %s", f.Name())
+				c.cacheCleanupLogger.Debugf("cache cleanup skipping: %s", f.Name())
 				continue
 			}
-			c.logger.Infof("cache cleanup removing: %s", f.Name())
+			c.cacheCleanupLogger.Infof("cache cleanup removing: %s", f.Name())
 			if err := os.Remove(filepath.Join(dir, f.Name())); err != nil {
-				c.logger.Error(errw.Wrapf(err, "removing file %s", f.Name()))
+				c.cacheCleanupLogger.Error(errw.Wrapf(err, "removing file %s", f.Name()))
 			}
 		}
 	}
 
-	c.logger.Info("Finished cache cleanup")
+	c.cacheCleanupLogger.Info("Finished cache cleanup")
 	c.CleanPartials(ctx) //nolint:errcheck,gosec
 }
 
 // CleanPartials is called by CleanCache and cleans up incomplete partial downloads that have not been modified for 3 days.
 // The 3-day grace period is 1) to avoid breaking ongoing downloads and 2) to give spotty connections a chance to resolve.
 func (c *VersionCache) CleanPartials(ctx context.Context) error {
-	c.logger.Info("Starting partials cleanup")
+	c.cacheCleanupLogger.Info("Starting partials cleanup")
 	matches, err := filepath.Glob(filepath.Join(utils.ViamDirs.Partials, "*", "*.part"))
 	if err != nil {
-		c.logger.Errorw("error cleaning partials", "matches", strings.Join(matches, ", ")[:200])
+		c.cacheCleanupLogger.Errorw("error cleaning partials", "matches", strings.Join(matches, ", ")[:200])
 		return err
 	}
 	var joinedErrors error
 	for _, match := range matches {
 		if stat, err := os.Stat(match); err != nil {
-			c.logger.Errorw("error statting partial", "match", match, "err", err)
+			c.cacheCleanupLogger.Errorw("error statting partial", "match", match, "err", err)
 			joinedErrors = errors.Join(joinedErrors, err)
 		} else {
 			if stat.ModTime().Add(time.Hour * 24 * 3).Before(time.Now()) {
 				if err := errors.Join(os.Remove(match), os.Remove(filepath.Dir(match))); err != nil {
-					c.logger.Errorw("error removing partial or parent dir", "match", match, "err", err)
+					c.cacheCleanupLogger.Errorw("error removing partial or parent dir", "match", match, "err", err)
 					joinedErrors = errors.Join(joinedErrors, err)
 				} else {
-					c.logger.Infow("removed expired partial download", "match", match)
+					c.cacheCleanupLogger.Infow("removed expired partial download", "match", match)
 				}
 			} else {
-				c.logger.Debugw("keeping recent partial download", "match", match)
+				c.cacheCleanupLogger.Debugw("keeping recent partial download", "match", match)
 			}
 		}
 	}

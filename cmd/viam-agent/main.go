@@ -30,8 +30,8 @@ var (
 	activeBackgroundWorkers sync.WaitGroup
 
 	// only changed/set at startup, so no mutex.
-	globalLogger = logging.NewLogger("viam-agent")
-	globalCancel context.CancelFunc
+	globalLogger, registry = logging.NewLoggerWithRegistry("viam-agent")
+	globalCancel           context.CancelFunc
 )
 
 //nolint:lll
@@ -199,7 +199,7 @@ func commonMain() {
 	if err != nil {
 		globalLogger.Warnf("error creating NetAppender: %s", err)
 	} else {
-		globalLogger.AddAppender(netAppender)
+		registry.AddAppenderToAll(netAppender)
 	}
 
 	// wait until now when we (potentially) have a network logger to record this

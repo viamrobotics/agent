@@ -47,7 +47,8 @@ func TestUpdateBinary(t *testing.T) {
 		}
 
 		vc := VersionCache{
-			logger: logger,
+			logger:             logger,
+			cacheCleanupLogger: logger,
 			ViamServer: &Versions{
 				TargetVersion: vi.Version,
 				Versions: map[string]*VersionInfo{
@@ -254,7 +255,8 @@ func TestUpdateBinary(t *testing.T) {
 		}
 
 		vc := VersionCache{
-			logger: logger,
+			logger:             logger,
+			cacheCleanupLogger: logger,
 			ViamAgent: &Versions{
 				TargetVersion: vi.Version,
 				Versions: map[string]*VersionInfo{
@@ -363,9 +365,10 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 	t.Run("symlinks", func(t *testing.T) {
 		utils.MockAndCreateViamDirs(t)
 		vc := VersionCache{
-			logger:     logging.NewTestLogger(t),
-			ViamAgent:  &Versions{},
-			ViamServer: &Versions{},
+			logger:             logging.NewTestLogger(t),
+			cacheCleanupLogger: logging.NewTestLogger(t),
+			ViamAgent:          &Versions{},
+			ViamServer:         &Versions{},
 		}
 
 		expected := make([]string, len(baseProtectedFiles))
@@ -392,8 +395,9 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 	t.Run("expired", func(t *testing.T) {
 		utils.MockAndCreateViamDirs(t)
 		vc := VersionCache{
-			logger:    logging.NewTestLogger(t),
-			ViamAgent: &Versions{},
+			logger:             logging.NewTestLogger(t),
+			cacheCleanupLogger: logging.NewTestLogger(t),
+			ViamAgent:          &Versions{},
 			ViamServer: &Versions{
 				PreviousVersion: "prev",
 				TargetVersion:   "target",
@@ -425,7 +429,10 @@ func TestGetProtectedFilesAndCleanVersions(t *testing.T) {
 
 func TestCleanPartials(t *testing.T) {
 	utils.MockAndCreateViamDirs(t)
-	vc := VersionCache{logger: logging.NewTestLogger(t)}
+	vc := VersionCache{
+		logger:             logging.NewTestLogger(t),
+		cacheCleanupLogger: logging.NewTestLogger(t),
+	}
 
 	// make a part file to clean up
 	oldPath, _ := utils.CreatePartialPath("https://viam.com/old.part")
