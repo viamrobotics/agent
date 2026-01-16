@@ -58,7 +58,8 @@ type viamServer struct {
 	// versions)
 	doesNotHandleNeedsRestart bool
 
-	logger logging.Logger
+	logger         logging.Logger
+	getNetAppender func() logging.Appender
 }
 
 // Returns true if path is definitely missing,
@@ -224,9 +225,15 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	// Send SIGUSR1 first to request stack trace dump before shutdown.
 	if err := utils.SignalForStackTrace(s.cmd.Process.Pid); err != nil {
 		s.logger.Warn(errw.Wrap(err, "requesting stack trace from viam-server"))
-	} else {
-		// Give viam-server time to dump the stack traces before sending SIGTERM.
-		time.Sleep(time.Second)
+	}
+	if appender := s.getNetAppender(); appender != nil {
+		_, ok := appender.(*logging.NetAppender)
+		if ok {
+			netAppender.WaitForQueueEmpty(ctx, time.Second*10)
+		} else {
+			s.logger.Warnf(`%s: expected NetAppender type to flush logs before exiting but got %T type, 
+			some logs may not be uploaded.`, SubsysName, appender)
+		}
 	}
 
 	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
@@ -320,10 +327,16 @@ func (s *viamServer) Property(ctx context.Context, property string) bool {
 	}
 }
 
-func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
+func NewSubsystem(
+	ctx context.Context,
+	logger logging.Logger,
+	cfg utils.AgentConfig,
+	getNetAppender func() logging.Appender,
+) subsystems.Subsystem {
 	return &viamServer{
-		logger:       logger,
-		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
-		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
+		logger:         logger,
+		startTimeout:   time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
+		extraEnvVars:   cfg.AdvancedSettings.ViamServerExtraEnvVars,
+		getNetAppender: getNetAppender,
 	}
 }
