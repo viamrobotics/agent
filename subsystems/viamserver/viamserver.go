@@ -220,25 +220,6 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Infof("Stopping %s", SubsysName)
-<<<<<<< Updated upstream
-=======
-
-	// Send SIGUSR1 first to request stack trace dump before shutdown.
-	if err := utils.SignalForStackTrace(s.cmd.Process.Pid); err != nil {
-		s.logger.Warn(errw.Wrap(err, "requesting stack trace from viam-server"))
-	}
-	// TODO(RSDK-XXXXX): Fix WaitForQueueEmpty - method doesn't exist on NetAppender
-	// if appender := s.getNetAppender(); appender != nil {
-	// 	netAppender, ok := appender.(*logging.NetAppender)
-	// 	if ok {
-	// 		netAppender.WaitForQueueEmpty(ctx, time.Second*10)
-	// 	} else {
-	// 		s.logger.Warnf(`%s: expected NetAppender type to flush logs before exiting but got %T type,
-	// 		some logs may not be uploaded.`, SubsysName, appender)
-	// 	}
-	// }
-
->>>>>>> Stashed changes
 	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 	}
