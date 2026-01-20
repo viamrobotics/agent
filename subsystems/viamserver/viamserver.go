@@ -227,7 +227,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		s.logger.Warn(errw.Wrap(err, "requesting stack trace from viam-server"))
 	}
 	if appender := s.getNetAppender(); appender != nil {
-		_, ok := appender.(*logging.NetAppender)
+		netAppender, ok := appender.(*logging.NetAppender)
 		if ok {
 			netAppender.WaitForQueueEmpty(ctx, time.Second*10)
 		} else {
