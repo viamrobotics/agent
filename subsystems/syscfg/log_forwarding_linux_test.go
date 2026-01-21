@@ -13,46 +13,16 @@ import (
 	"go.viam.com/test"
 )
 
-// createMockJournalctl creates a temporary mock journalctl command and modifies PATH to find it.
-func createMockJournalctl(t *testing.T) func() {
-	// Create a temporary directory for the mock command
+// createMockJournalctl creates a temporary mock journalctl command that executes the
+// arbitrary content passed in as mockCommand and modifies PATH to find it.
+func createMockJournalctl(t *testing.T, mockCommand string) {
 	tmpDir := t.TempDir()
 	mockPath := filepath.Join(tmpDir, "journalctl")
-
-	// Create the mock command that outputs test log entries and reads from stdin for new entries
-	//nolint:lll
-	mockContent := `#!/bin/bash
-trap exit TERM
-# Initial entries
-echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890123","__MONOTONIC_TIMESTAMP":"1234567890","MESSAGE":"Test kernel error"}'
-echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"Test kernel warning"}'
-echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890125","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test kernel info"}'
-
-# Sleep to simulate time passing
-sleep 2
-
-# Output new entries after delay
-echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"foobar","_PID":"666","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890133","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test foobar info"}'
-echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"NetworkManager","_PID":"555","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890134","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"New NetworkManager entry after forwarder started"}'
-echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"foobar","_PID":"666","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890135","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test foobar info"}'
-
-# keep sleeping because journalctl should not exit
-while true; do sleep 1; done
-`
-	if err := os.WriteFile(mockPath, []byte(mockContent), 0o755); err != nil {
+	if err := os.WriteFile(mockPath, []byte(mockCommand), 0o755); err != nil {
 		t.Fatalf("Failed to create mock journalctl: %v", err)
 	}
-
-	// Save original PATH
-	oldPath := os.Getenv("PATH")
-
-	// Modify PATH to find our mock command
-	t.Setenv("PATH", tmpDir+":"+oldPath)
-
-	// Return cleanup function
-	return func() {
-		t.Setenv("PATH", oldPath)
-	}
+	// Modify PATH to find our mock command (will be set back after test).
+	t.Setenv("PATH", tmpDir+":"+os.Getenv("PATH"))
 }
 
 type mockAppender struct {
@@ -78,7 +48,27 @@ func (m *mockAppender) All() []zapcore.Entry {
 }
 
 func TestLogForwarderFilter(t *testing.T) {
-	t.Cleanup(createMockJournalctl(t))
+	// Create the mock command that outputs test log entries and sleeps.
+	//nolint:lll
+	mockCommand := `#!/bin/bash
+trap exit TERM
+# Initial entries
+echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890123","__MONOTONIC_TIMESTAMP":"1234567890","MESSAGE":"Test kernel error"}'
+echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"Test kernel warning"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"kernel","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890125","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test kernel info"}'
+
+# Sleep to simulate time passing
+sleep 2
+
+# Output new entries after delay
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"foobar","_PID":"666","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890133","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test foobar info"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"NetworkManager","_PID":"555","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890134","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"New NetworkManager entry after forwarder started"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"foobar","_PID":"666","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890135","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"Test foobar info"}'
+
+# keep sleeping because journalctl should not exit
+while true; do sleep 1; done
+`
+	createMockJournalctl(t, mockCommand)
 	ctx := t.Context()
 
 	expectedEntries := map[string][]zapcore.Entry{
@@ -243,4 +233,59 @@ func TestLogForwarderFilter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestForwardRecentSystemdAgentLogs(t *testing.T) {
+	// All this test does is assert that forwardRecentSystemdAgentLogs gets the logs that
+	// journalctl returns into a mock appender. The other "logic" of the
+	// forwardRecentSystemdAgentLogs is reliant on the LastShutdown field of the cache
+	// getting saved correctly and `journalctl -u viam-agent -t systemd -o json -S
+	// [LastShutdown]` working as it should.
+
+	// Create the mock command that outputs test log entries.
+	//nolint:lll
+	mockCommand := `#!/bin/bash
+echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890123","__MONOTONIC_TIMESTAMP":"1234567890","MESSAGE":"just OOM killed viam-agent"}'
+echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"because viam-agent consumed all my CPU"}'
+echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890125","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"restarting viam-agent"}'
+`
+	createMockJournalctl(t, mockCommand)
+	logger := logging.NewTestLogger(t)
+	appender := &mockAppender{}
+	startTime, err := time.Parse("2006-01-02 15:04:05", "2011-11-11 00:00:00" /* https://tinyurl.com/dm4ytr3c */)
+	test.That(t, err, test.ShouldBeNil)
+	cfg := utils.AgentConfig{
+		SystemConfiguration: utils.SystemConfiguration{
+			LoggingJournaldSystemMaxUseMegabytes:  -1,
+			LoggingJournaldRuntimeMaxUseMegabytes: -1,
+		},
+	}
+	sys := NewSubsystem(t.Context(), logger, cfg, func() logging.Appender {
+		return appender
+	}, &startTime)
+
+	expectedLogs := []zapcore.Entry{
+		{
+			Level:      zapcore.ErrorLevel,
+			Time:       time.UnixMicro(1709234567890123),
+			LoggerName: "viam-agent.systemd",
+			Message:    "just OOM killed viam-agent",
+		},
+		{
+			Level:      zapcore.WarnLevel,
+			Time:       time.UnixMicro(1709234567890124),
+			LoggerName: "viam-agent.systemd",
+			Message:    "because viam-agent consumed all my CPU",
+		},
+		{
+			Level:      zapcore.InfoLevel,
+			Time:       time.UnixMicro(1709234567890125),
+			LoggerName: "viam-agent.systemd",
+			Message:    "restarting viam-agent",
+		},
+	}
+	test.That(t, sys.Start(t.Context()), test.ShouldBeNil)
+	test.That(t, sys.Stop(t.Context()), test.ShouldBeNil)
+
+	test.That(t, appender.All(), test.ShouldResemble, expectedLogs)
 }

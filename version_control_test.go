@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -458,4 +459,44 @@ func TestCleanPartials(t *testing.T) {
 	test.That(t, errors.As(err, &pathError), test.ShouldBeTrue)
 	_, err = os.Stat(newPath)
 	test.That(t, err, test.ShouldBeNil)
+}
+
+func TestVersionCacheJSONRoundtrip(t *testing.T) {
+	someTime, err := time.Parse("2006-01-02 15:04:05", "2011-11-11 00:00:00" /* https://tinyurl.com/dm4ytr3c */)
+	test.That(t, err, test.ShouldBeNil)
+	lastShutdown := someTime.Add(time.Hour * -2)
+	vc := &VersionCache{
+		ViamAgent: &Versions{
+			PreviousVersion: "prev",
+			TargetVersion:   "target",
+			Versions: map[string]*VersionInfo{
+				"prev":    {UnpackedPath: "prev"},
+				"target":  {UnpackedPath: "target"},
+				"running": {UnpackedPath: "running"},
+				"recent":  {UnpackedPath: "recent", Installed: someTime.Add(time.Hour * -23)},
+				"stale":   {UnpackedPath: "stale", Installed: someTime.Add(time.Hour * -25)},
+			},
+		},
+		ViamServer: &Versions{
+			PreviousVersion: "prev",
+			TargetVersion:   "target",
+			Versions: map[string]*VersionInfo{
+				"prev":    {UnpackedPath: "prev"},
+				"target":  {UnpackedPath: "target"},
+				"running": {UnpackedPath: "running"},
+				"recent":  {UnpackedPath: "recent", Installed: someTime.Add(time.Hour * -23)},
+				"stale":   {UnpackedPath: "stale", Installed: someTime.Add(time.Hour * -25)},
+			},
+		},
+		LastCleaned:  someTime.Add(time.Hour * -1),
+		LastShutdown: &lastShutdown,
+	}
+
+	jsonBytes, err := json.Marshal(vc)
+	test.That(t, err, test.ShouldBeNil)
+
+	var unmarshaledVC VersionCache
+	test.That(t, json.Unmarshal(jsonBytes, &unmarshaledVC), test.ShouldBeNil)
+
+	test.That(t, &unmarshaledVC, test.ShouldResemble, vc)
 }
