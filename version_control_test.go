@@ -464,7 +464,6 @@ func TestCleanPartials(t *testing.T) {
 func TestVersionCacheJSONRoundtrip(t *testing.T) {
 	someTime, err := time.Parse("2006-01-02 15:04:05", "2011-11-11 00:00:00" /* https://tinyurl.com/dm4ytr3c */)
 	test.That(t, err, test.ShouldBeNil)
-	lastShutdown := someTime.Add(time.Hour * -2)
 	vc := &VersionCache{
 		ViamAgent: &Versions{
 			PreviousVersion: "prev",
@@ -488,8 +487,7 @@ func TestVersionCacheJSONRoundtrip(t *testing.T) {
 				"stale":   {UnpackedPath: "stale", Installed: someTime.Add(time.Hour * -25)},
 			},
 		},
-		LastCleaned:  someTime.Add(time.Hour * -1),
-		LastShutdown: &lastShutdown,
+		LastCleaned: someTime.Add(time.Hour * -1),
 	}
 
 	jsonBytes, err := json.Marshal(vc)

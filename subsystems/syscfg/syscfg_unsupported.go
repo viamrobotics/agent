@@ -4,13 +4,12 @@ package syscfg
 
 import (
 	"context"
-	"time"
 
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 )
 
-func NewSubsystem(_ context.Context, _ logging.Logger, _ utils.AgentConfig, _ func() logging.Appender, _ *time.Time) subsystems.Subsystem {
+func NewSubsystem(_ context.Context, _ logging.Logger, _ utils.AgentConfig, _ func() logging.Appender, _ bool) subsystems.Subsystem {
 	return &subsystems.Dummy{}
 }

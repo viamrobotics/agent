@@ -1,6 +1,7 @@
 package syscfg
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -185,7 +186,7 @@ while true; do sleep 1; done
 
 			sys := NewSubsystem(ctx, logger, cfg, func() logging.Appender {
 				return appender
-			}, nil)
+			}, false /* should not forward recent systemd agent logs */)
 
 			// On start, we should see kernel forwarder start log
 			err := sys.Start(t.Context())
@@ -238,9 +239,9 @@ while true; do sleep 1; done
 func TestForwardRecentSystemdAgentLogs(t *testing.T) {
 	// All this test does is assert that forwardRecentSystemdAgentLogs gets the logs that
 	// journalctl returns into a mock appender. The other "logic" of the
-	// forwardRecentSystemdAgentLogs is reliant on the LastShutdown field of the cache
-	// getting saved correctly and `journalctl -u viam-agent -t systemd -o json -S
-	// [LastShutdown]` working as it should.
+	// forwardRecentSystemdAgentLogs is reliant on the SystemdAgentLogsLastForwarded field
+	// of the syscfg cache getting saved correctly and `journalctl -u viam-agent -t systemd
+	// -o json -S [sinceArg]` working as it should.
 
 	// Create the mock command that outputs test log entries.
 	//nolint:lll
@@ -252,8 +253,6 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 	createMockJournalctl(t, mockCommand)
 	logger := logging.NewTestLogger(t)
 	appender := &mockAppender{}
-	startTime, err := time.Parse("2006-01-02 15:04:05", "2011-11-11 00:00:00" /* https://tinyurl.com/dm4ytr3c */)
-	test.That(t, err, test.ShouldBeNil)
 	cfg := utils.AgentConfig{
 		SystemConfiguration: utils.SystemConfiguration{
 			LoggingJournaldSystemMaxUseMegabytes:  -1,
@@ -262,7 +261,7 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 	}
 	sys := NewSubsystem(t.Context(), logger, cfg, func() logging.Appender {
 		return appender
-	}, &startTime)
+	}, true /* should forward recent systemd agent logs */)
 
 	expectedLogs := []zapcore.Entry{
 		{
@@ -288,4 +287,20 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 	test.That(t, sys.Stop(t.Context()), test.ShouldBeNil)
 
 	test.That(t, appender.All(), test.ShouldResemble, expectedLogs)
+}
+
+func TestSyscfgCacheJSONRoundtrip(t *testing.T) {
+	someTime, err := time.Parse("2006-01-02 15:04:05", "2011-11-11 00:00:00" /* https://tinyurl.com/dm4ytr3c */)
+	test.That(t, err, test.ShouldBeNil)
+	sc := &logForwardingCache{
+		SystemdAgentLogsLastForwarded: &someTime,
+	}
+
+	jsonBytes, err := json.Marshal(sc)
+	test.That(t, err, test.ShouldBeNil)
+
+	var unmarshaledSC *logForwardingCache
+	test.That(t, json.Unmarshal(jsonBytes, &unmarshaledSC), test.ShouldBeNil)
+
+	test.That(t, &unmarshaledSC, test.ShouldResemble, sc)
 }

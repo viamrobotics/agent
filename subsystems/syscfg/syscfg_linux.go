@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"reflect"
 	"sync"
-	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems"
@@ -22,28 +21,28 @@ type syscfg struct {
 	started bool
 
 	// Log Forwarding
-	logMu        sync.Mutex
-	logWorkers   sync.WaitGroup
-	appender     func() logging.Appender
-	logHealth    *utils.Health
-	journalCmd   *exec.Cmd
-	cancelFunc   context.CancelFunc
-	noJournald   bool
-	lastShutdown *time.Time
+	logMu                               sync.Mutex
+	logWorkers                          sync.WaitGroup
+	appender                            func() logging.Appender
+	logHealth                           *utils.Health
+	journalCmd                          *exec.Cmd
+	cancelFunc                          context.CancelFunc
+	noJournald                          bool
+	shouldForwardRecentSystemdAgentLogs bool
 }
 
 func NewSubsystem(ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
 	getAppenderFunc func() logging.Appender,
-	lastShutdown *time.Time,
+	shouldForwardRecentSystemdAgentLogs bool,
 ) subsystems.Subsystem {
 	return &syscfg{
-		appender:     getAppenderFunc,
-		logger:       logger,
-		cfg:          cfg.SystemConfiguration,
-		logHealth:    utils.NewHealth(),
-		lastShutdown: lastShutdown,
+		appender:                            getAppenderFunc,
+		logger:                              logger,
+		cfg:                                 cfg.SystemConfiguration,
+		logHealth:                           utils.NewHealth(),
+		shouldForwardRecentSystemdAgentLogs: shouldForwardRecentSystemdAgentLogs,
 	}
 }
 
@@ -93,7 +92,7 @@ func (s *syscfg) Start(ctx context.Context) error {
 		healthyUpgrades = true
 	}
 
-	// forward last boot's systemd shutdown logs
+	// forward recent systemd agent logs if enabled and possible
 	err = s.forwardRecentSystemdAgentLogs(ctx)
 	if err != nil {
 		s.logger.Warn(errw.Wrap(err, "forwarding recent systemd agent logs"))

@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -18,7 +21,42 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const journalctlNAWarningMessage = "journalctl not available, log forwarding disabled"
+const (
+	journalctlNAWarningMessage = "journalctl not available, log forwarding disabled"
+
+	logForwardingCacheFilename = "log_forwarding_cache.json"
+)
+
+type logForwardingCache struct {
+	SystemdAgentLogsLastForwarded *time.Time `json:"systemd_agent_logs_last_forwarded,omitempty"`
+}
+
+// Loads the log forwarding cache from disk.
+func (lfc *logForwardingCache) load() error {
+	logForwardingCacheFilePath := filepath.Join(utils.ViamDirs.Cache, logForwardingCacheFilename)
+	//nolint:gosec
+	logForwardingCacheBytes, err := os.ReadFile(logForwardingCacheFilePath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
+	return json.Unmarshal(logForwardingCacheBytes, lfc)
+}
+
+// Saves the log forwarding cache to disk.
+func (lfc *logForwardingCache) save() error {
+	logForwardingCacheData, err := json.Marshal(lfc)
+	if err != nil {
+		return err
+	}
+
+	logForwardingCacheFilePath := filepath.Join(utils.ViamDirs.Cache, logForwardingCacheFilename)
+	_, err = utils.WriteFileIfNew(logForwardingCacheFilePath, logForwardingCacheData)
+	return err
+}
 
 // Forwards all systemd logs related to shutdown from the last viam-agent instance and
 // startup from this viam-agent instance. These logs will contain information like whether
@@ -36,11 +74,30 @@ func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
 
-	// A nil lastShutdown value means none was saved in the cache. Bail in this case. We
-	// _could_ attempt to upload all historical systemd agent logs if we do not know when
-	// the agent last shutdown, but there may be quite a few of these logs, and doing so
-	// could slow startup.
-	if s.lastShutdown == nil {
+	if !s.shouldForwardRecentSystemdAgentLogs {
+		return nil
+	}
+
+	cache := &logForwardingCache{}
+	if err := cache.load(); err != nil {
+		// A non-existent cache will not return an error here.
+		return fmt.Errorf("error loading the log forwarding cache: %w", err)
+	}
+
+	bumpSystemdAgentLogsLastForwardedAndSave := func() {
+		now := time.Now()
+		cache.SystemdAgentLogsLastForwarded = &now
+		if err := cache.save(); err != nil {
+			s.logger.Warnw("Error saving the log forwarding cache", "error", err.Error())
+		}
+	}
+
+	// Bail early if the existing cache does not exist or has no timestamp, but still bump
+	// SystemdAgentLogsLastForwarded and save &time.Now() to disk in this case. We do not
+	// want to slow down startup by trying to forward all historical logs. On its next run,
+	// agent will start forwarding recent systemd agent logs as expected.
+	if cache == nil || cache.SystemdAgentLogsLastForwarded == nil {
+		bumpSystemdAgentLogsLastForwardedAndSave()
 		return nil
 	}
 
@@ -59,13 +116,14 @@ func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 		return errors.New("net appender not yet available to forward recent systemd agent logs")
 	}
 
-	// `journalctl -u viam-agent -t systemd -S [lastShutdown.Format(...)] -o json` gets logs
-	// from the viam-agent systemd service (-u viam-agent), from systemd itself (-t
-	// systemd), as JSON (-o JSON), and from only the last shutdown time (-S
-	// [lastShutdown.Format()]).
+	sinceArg := cache.SystemdAgentLogsLastForwarded.Format("2006-01-02 15:04:05" /* systemd time format */)
+	// `journalctl -u viam-agent -t systemd -S [sinceArg] -o json` gets logs from the
+	// viam-agent systemd service (-u viam-agent), from systemd itself (-t systemd), as JSON
+	// (-o JSON), and from only the last time systemd agent logs were forwarded (-S
+	// [sinceArg]).
 	//nolint:gosec
-	out, err := exec.CommandContext(ctx, "journalctl", "-u", "viam-agent", "-t", "systemd", "-o", "json",
-		"-S", s.lastShutdown.Format("2006-01-02 15:04:05" /* systemd time format */)).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "journalctl", "-u", "viam-agent", "-t", "systemd", "-o", "json", "-S", sinceArg).
+		CombinedOutput()
 	if err != nil {
 		return errw.Wrap(err, "running journalctl to forward recent systemd agent logs")
 	}
@@ -93,6 +151,7 @@ func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 		}
 	}
 
+	bumpSystemdAgentLogsLastForwardedAndSave()
 	return nil
 }
 
