@@ -302,5 +302,5 @@ func TestSyscfgCacheJSONRoundtrip(t *testing.T) {
 	var unmarshaledSC *logForwardingCache
 	test.That(t, json.Unmarshal(jsonBytes, &unmarshaledSC), test.ShouldBeNil)
 
-	test.That(t, &unmarshaledSC, test.ShouldResemble, sc)
+	test.That(t, unmarshaledSC, test.ShouldResemble, sc)
 }
