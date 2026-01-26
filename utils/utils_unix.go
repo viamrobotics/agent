@@ -42,14 +42,6 @@ func SignalForTermination(pid int) error {
 	return nil
 }
 
-// SignalForStackTrace sends SIGUSR1 to a process to request a stack trace dump.
-func SignalForStackTrace(pid int) error {
-	if err := syscall.Kill(pid, syscall.SIGUSR1); err != nil {
-		return errw.Wrapf(err, "signaling PID %d for stack trace", pid)
-	}
-	return nil
-}
-
 // KillTree sends SIGKILL to the process group.
 func KillTree(ctx context.Context, pid int) error {
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {

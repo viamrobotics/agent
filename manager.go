@@ -81,7 +81,6 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
-	manager.viamServer = viamserver.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
 
 	return manager
 }
@@ -147,7 +146,7 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 	return m.netAppender, err
 }
 
-// GetNetAppender is a somewhat ugly workaround to pass the (constructed later) netAppender to the syscfg and viam-server subsystem.
+// GetNetAppender is a somewhat ugly workaround to pass the (constructed later) netAppender to the syscfg subsystem.
 func (m *Manager) GetNetAppender() logging.Appender {
 	m.connMu.RLock()
 	defer m.connMu.RUnlock()

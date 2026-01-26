@@ -68,8 +68,7 @@ type viamServer struct {
 	// This is set to true when the app's NeedsRestart API triggers a restart.
 	appTriggeredRestart bool
 
-	logger         logging.Logger
-	getNetAppender func() logging.Appender
+	logger logging.Logger
 }
 
 // Returns true if path is definitely missing,
@@ -251,7 +250,6 @@ func (s *viamServer) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Wait for the process to exit after either RPC or signal shutdown.
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
@@ -298,6 +296,7 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 	// Create gRPC connection with TLS (skip verification for local connection).
 	//nolint:gosec
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	//nolint:staticcheck
 	conn, err := grpc.DialContext(
 		shutdownCtx,
 		address,
@@ -406,12 +405,10 @@ func NewSubsystem(
 	ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
-	getNetAppender func() logging.Appender,
 ) subsystems.Subsystem {
 	return &viamServer{
-		logger:         logger,
-		startTimeout:   time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
-		extraEnvVars:   cfg.AdvancedSettings.ViamServerExtraEnvVars,
-		getNetAppender: getNetAppender,
+		logger:       logger,
+		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
+		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
 }
