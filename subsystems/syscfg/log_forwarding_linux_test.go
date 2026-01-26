@@ -240,8 +240,8 @@ func TestForwardRecentSystemdAgentLogs(t *testing.T) {
 	// All this test does is assert that forwardRecentSystemdAgentLogs gets the logs that
 	// journalctl returns into a mock appender. The other "logic" of the
 	// forwardRecentSystemdAgentLogs is reliant on the SystemdAgentLogsLastForwarded field
-	// of the syscfg cache getting saved correctly and `journalctl -u viam-agent -t systemd
-	// -o json -S [sinceArg]` working as it should.
+	// of the log forwarding cache getting saved correctly and `journalctl -u viam-agent -t
+	// systemd -o json -S [sinceArg]` working as it should.
 
 	// Create the mock command that outputs test log entries.
 	//nolint:lll
@@ -259,6 +259,10 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 			LoggingJournaldRuntimeMaxUseMegabytes: -1,
 		},
 	}
+	systemdAgentLogsLastForwarded, err := time.Parse("2006-01-02 15:04:05", "2011-11-11 00:00:00" /* https://tinyurl.com/dm4ytr3c */)
+	test.That(t, err, test.ShouldBeNil)
+	mockLogForwardingCache := &logForwardingCache{&systemdAgentLogsLastForwarded}
+	test.That(t, mockLogForwardingCache.save(), test.ShouldBeNil)
 	sys := NewSubsystem(t.Context(), logger, cfg, func() logging.Appender {
 		return appender
 	}, true /* should forward recent systemd agent logs */)
