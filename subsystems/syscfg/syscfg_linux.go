@@ -122,3 +122,7 @@ func (s *syscfg) HealthCheck(ctx context.Context) error {
 func (s *syscfg) Property(_ context.Context, _ string) bool {
 	return false
 }
+
+// MarkAppTriggeredRestart implements subsystems.Subsystem.
+func (s *syscfg) MarkAppTriggeredRestart() {
+}

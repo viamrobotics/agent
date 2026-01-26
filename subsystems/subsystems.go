@@ -22,6 +22,9 @@ type Subsystem interface {
 
 	// Property gets an arbitrary property about the running subystem.
 	Property(ctx context.Context, property string) bool
+
+	// MarkAppTriggeredRestart marks the subsystem for a special shutdown procedure when triggered via app.
+	MarkAppTriggeredRestart()
 }
 
 // Dummy is a fake subsystem for when a particular OS doesn't (yet) have support.
@@ -46,3 +49,5 @@ func (d *Dummy) HealthCheck(_ context.Context) error {
 func (d *Dummy) Property(_ context.Context, _ string) bool {
 	return false
 }
+
+func (d *Dummy) MarkAppTriggeredRestart() {}

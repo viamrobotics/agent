@@ -3,7 +3,9 @@ package viamserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -17,7 +19,10 @@ import (
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
+	pb "go.viam.com/api/robot/v1"
 	"go.viam.com/rdk/logging"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -57,6 +62,11 @@ type viamServer struct {
 	// needs restart checking on viamserver's behalf (this is the case for new viamserver
 	// versions)
 	doesNotHandleNeedsRestart bool
+
+	// appTriggeredRestart indicates whether the next Stop should use Shutdown RPC
+	// to allow viam-server to dump stack traces and gracefully shut down modules.
+	// This is set to true when the app's NeedsRestart API triggers a restart.
+	appTriggeredRestart bool
 
 	logger         logging.Logger
 	getNetAppender func() logging.Appender
@@ -209,6 +219,9 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	running := s.running
 	s.shouldRun = false
+	checkURL := s.checkURL
+	appTriggeredRestart := s.appTriggeredRestart
+	s.appTriggeredRestart = false // Reset the flag
 	s.mu.Unlock()
 
 	if !running {
@@ -222,23 +235,23 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 	s.logger.Infof("Stopping %s", SubsysName)
 
-	// Send SIGUSR1 first to request stack trace dump before shutdown.
-	if err := utils.SignalForStackTrace(s.cmd.Process.Pid); err != nil {
-		s.logger.Warn(errw.Wrap(err, "requesting stack trace from viam-server"))
-	}
-	if appender := s.getNetAppender(); appender != nil {
-		netAppender, ok := appender.(*logging.NetAppender)
-		if ok {
-			netAppender.WaitForQueueEmpty(ctx, time.Second*10)
-		} else {
-			s.logger.Warnf(`%s: expected NetAppender type to flush logs before exiting but got %T type, 
-			some logs may not be uploaded.`, SubsysName, appender)
+	// For app-triggered restarts, use the Shutdown RPC to allow viam-server to dump
+	// stack traces and gracefully shut down modules. For other shutdowns (binary updates,
+	// config changes, etc.), use signal-based termination for faster shutdown.
+	if appTriggeredRestart {
+		if err := s.tryShutdownRPC(ctx, checkURL); err != nil {
+			s.logger.Warnw("Shutdown RPC failed, falling back to signal-based termination", "error", err)
+			if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
+				s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
+			}
+		}
+	} else {
+		if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
+			s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 		}
 	}
 
-	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
-		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
-	}
+	// Wait for the process to exit after either RPC or signal shutdown.
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
@@ -255,6 +268,59 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	return errw.Errorf("%s process couldn't be killed", SubsysName)
+}
+
+// tryShutdownRPC attempts to shut down viam-server via the Shutdown RPC.
+// The RPC triggers stack trace dumping and module signaling on the server side.
+func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error {
+	if checkURL == "" {
+		return errw.New("no checkURL available for Shutdown RPC")
+	}
+
+	// Parse the checkURL to get the host:port for gRPC connection.
+	// checkURL is like "https://localhost:8080" or "https://0.0.0.0:8080"
+	parsed, err := url.Parse(checkURL)
+	if err != nil {
+		return errw.Wrap(err, "parsing checkURL")
+	}
+
+	// Use the host (including port) for gRPC connection.
+	// Replace 0.0.0.0 with localhost for connectivity.
+	address := parsed.Host
+	address = strings.Replace(address, "0.0.0.0", "localhost", 1)
+
+	s.logger.Infof("Attempting Shutdown RPC to %s", address)
+
+	// Use a timeout for the shutdown RPC call.
+	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Create gRPC connection with TLS (skip verification for local connection).
+	//nolint:gosec
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	conn, err := grpc.DialContext(
+		shutdownCtx,
+		address,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+	)
+	if err != nil {
+		return errw.Wrap(err, "dialing viam-server for Shutdown RPC")
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			s.logger.Warnw("error closing gRPC connection", "error", err)
+		}
+	}()
+
+	// Create the robot service client and call Shutdown.
+	robotClient := pb.NewRobotServiceClient(conn)
+	_, err = robotClient.Shutdown(shutdownCtx, &pb.ShutdownRequest{})
+	if err != nil {
+		return errw.Wrap(err, "calling Shutdown RPC")
+	}
+
+	s.logger.Info("Shutdown RPC completed successfully")
+	return nil
 }
 
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
@@ -325,6 +391,15 @@ func (s *viamServer) Property(ctx context.Context, property string) bool {
 		s.logger.Errorw("Unknown property requested from viamserver", "property", property)
 		return false
 	}
+}
+
+// MarkAppTriggeredRestart marks viam-server for a graceful shutdown via Shutdown RPC.
+// This should be called before Stop() when the restart is triggered by the app's NeedsRestart API.
+// The Shutdown RPC allows viam-server to dump stack traces and gracefully shut down modules.
+func (s *viamServer) MarkAppTriggeredRestart() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appTriggeredRestart = true
 }
 
 func NewSubsystem(

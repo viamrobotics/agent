@@ -476,3 +476,7 @@ func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 func (n *Networking) Property(_ context.Context, _ string) bool {
 	return false
 }
+
+// MarkAppTriggeredRestart implements subsystems.Subsystem.
+func (s *Networking) MarkAppTriggeredRestart() {
+}
