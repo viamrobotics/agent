@@ -10,6 +10,8 @@ import (
 	"os"
 
 	"github.com/jessevdk/go-flags"
+	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
@@ -91,28 +93,36 @@ func loadCredentials(path string) (*logging.CloudConfig, error) {
 		return nil, err
 	}
 
-	cfg := make(map[string]map[string]string)
+	var cfg map[string]interface{}
 	err = json.Unmarshal(b, &cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	cloud, ok := cfg["cloud"]
+	cloud, ok := cfg["cloud"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("no cloud section in file %s", path)
+		return nil, errw.Errorf("no cloud section in file %s", path)
 	}
 
-	for _, req := range []string{"app_address", "id", "secret"} {
-		field, ok := cloud[req]
-		if !ok {
-			return nil, fmt.Errorf("no cloud config field for %s", field)
-		}
+	appAddress, ok := cloud["app_address"].(string)
+	if !ok || appAddress == "" {
+		return nil, errw.New("field 'app_address' in cloud config must be a non-empty string")
+	}
+
+	id, ok := cloud["id"].(string)
+	if !ok || id == "" {
+		return nil, errw.New("field 'id' in cloud config must be a non-empty string")
+	}
+
+	cloudCreds, err := utils.ParseCloudCreds(cloud)
+	if err != nil {
+		return nil, err
 	}
 
 	cloudConfig := &logging.CloudConfig{
-		AppAddress: cloud["app_address"],
-		ID:         cloud["id"],
-		Secret:     cloud["secret"],
+		AppAddress: appAddress,
+		ID:         id,
+		CloudCred:  cloudCreds,
 	}
 
 	return cloudConfig, nil
@@ -125,14 +135,10 @@ func dial(ctx context.Context, logger logging.Logger, cloudConfig *logging.Cloud
 	}
 
 	dialOpts := make([]rpc.DialOption, 0, 2)
-	// Only add credentials when secret is set.
-	if cloudConfig.Secret != "" {
-		dialOpts = append(dialOpts, rpc.WithEntityCredentials(cloudConfig.ID,
-			rpc.Credentials{
-				Type:    "robot-secret",
-				Payload: cloudConfig.Secret,
-			},
-		))
+
+	// Only add credentials when they are set.
+	if cloudConfig.CloudCred != nil {
+		dialOpts = append(dialOpts, cloudConfig.CloudCred)
 	}
 
 	if u.Scheme == "http" {

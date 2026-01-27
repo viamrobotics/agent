@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/viamrobotics/agent/utils"
 )
 
 var opts struct {
@@ -21,9 +22,12 @@ var opts struct {
 
 	PSK string `description:"psk for bluetooth security" long:"psk"`
 
-	AppAddr string `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
-	PartID  string `description:"PartID to set in viam.json"        long:"part-id"`
-	Secret  string `description:"Device secret to set in viam.json" long:"secret"`
+	AppAddr   string `default:"https://app.viam.com:443"              description:"Cloud address to set in viam.json" long:"app-addr"`
+	PartID    string `description:"PartID to set in viam.json"        long:"part-id"`
+	Secret    string `description:"Device secret to set in viam.json" long:"secret"`
+	APIKeyID  string `description:"API Key ID"                        long:"api-key-id"`
+	APIKeyKey string `description:"API Key secret"                    long:"api-key-key"`
+	APIKey    utils.APIKey
 
 	Exit bool `description:"Tell the device to exit provisioning mode" long:"exit" short:"e"`
 
@@ -31,6 +35,13 @@ var opts struct {
 	Info     bool `description:"Get device info"        long:"info"     short:"i"`
 	Networks bool `description:"List networks"          long:"networks" short:"n"`
 	Help     bool `description:"Show this help message" long:"help"     short:"h"`
+}
+
+func SetAPIKey() {
+	opts.APIKey = utils.APIKey{
+		ID:  opts.APIKeyID,
+		Key: opts.APIKeyKey,
+	}
 }
 
 func parseOpts() bool {
@@ -55,9 +66,20 @@ func parseOpts() bool {
 		return false
 	}
 
-	if opts.PartID != "" || opts.Secret != "" {
-		if opts.PartID == "" || opts.Secret == "" || opts.AppAddr == "" {
-			fmt.Println("Error: Must set both Secret and PartID (and optionally AppAddr) at the same time!")
+	SetAPIKey()
+	if opts.PartID != "" || opts.Secret != "" || !opts.APIKey.IsEmpty() {
+		if opts.PartID == "" || opts.AppAddr == "" {
+			fmt.Println("Error: Must set PartID and AppAddr when configuring credentials!")
+			return false
+		}
+
+		if opts.APIKey.IsPartiallySet() {
+			fmt.Println("Error: API Key must have both ID and Key set, or neither!")
+			return false
+		}
+
+		if opts.Secret == "" && opts.APIKey.IsEmpty() {
+			fmt.Println("Error: Must provide either Secret or complete API Key!")
 			return false
 		}
 	}

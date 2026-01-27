@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/viamrobotics/agent/utils"
 	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
 )
@@ -122,9 +123,23 @@ type MachineConfig struct {
 }
 
 type CloudConfig struct {
-	AppAddress string `json:"app_address"`
-	ID         string `json:"id"`
-	Secret     string `json:"secret"`
+	AppAddress string        `json:"app_address"`
+	ID         string        `json:"id"`
+	Secret     string        `json:"secret,omitempty"`
+	APIKey     *utils.APIKey `json:"api_key,omitempty"`
+}
+
+func (cfg CloudConfig) IsValid() error {
+	if cfg.ID == "" || cfg.AppAddress == "" {
+		return errors.New("invalid cloud config: 'id' and 'app_address' must be provided")
+	}
+	if cfg.APIKey != nil && !cfg.APIKey.IsFullySet() {
+		return errors.New("invalid cloud config: 'api_key' must have both 'id' and 'key' set")
+	}
+	if cfg.Secret == "" && cfg.APIKey == nil {
+		return errors.New("invalid cloud config: at least one of 'secret' or 'api_key' must be provided")
+	}
+	return nil
 }
 
 func WriteDeviceConfig(file string, input userInput) error {
@@ -137,11 +152,12 @@ func WriteDeviceConfig(file string, input userInput) error {
 			AppAddress: input.AppAddr,
 			ID:         input.PartID,
 			Secret:     input.Secret,
+			APIKey:     input.APIKey,
 		},
 	}
 
-	if cfg.Cloud.AppAddress == "" || cfg.Cloud.ID == "" || cfg.Cloud.Secret == "" {
-		return errors.New("incomplete machine credentials received, please try again")
+	if err := cfg.Cloud.IsValid(); err != nil {
+		return err
 	}
 
 	jsonBytes, err := json.Marshal(cfg)
@@ -199,6 +215,7 @@ type userInput struct {
 	PartID  string
 	Secret  string
 	AppAddr string
+	APIKey  *utils.APIKey
 
 	// raw /etc/viam.json contents
 	RawConfig string

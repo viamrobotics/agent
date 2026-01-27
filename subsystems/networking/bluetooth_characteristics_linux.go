@@ -28,6 +28,7 @@ const (
 	pskKey                   = "psk"
 	robotPartIDKey           = "id"
 	robotPartSecretKey       = "secret"
+	apiKeyCredsKey           = "api_key"
 	appAddressKey            = "app_address"
 	availableWiFiNetworksKey = "networks"
 	statusKey                = "status"
@@ -43,7 +44,7 @@ const (
 
 var (
 	characteristicsWriteOnly = []string{
-		ssidKey, pskKey, robotPartIDKey, robotPartSecretKey,
+		ssidKey, pskKey, robotPartIDKey, robotPartSecretKey, apiKeyCredsKey,
 		appAddressKey, exitProvisioningKey, unlockPairingKey,
 	}
 	characteristicsReadOnly = []string{
@@ -274,6 +275,8 @@ func (b *btCharacteristics) recordInput(ctx context.Context, cName, value string
 		b.userInputData.input.Secret = value
 	case appAddressKey:
 		b.userInputData.input.AppAddr = value
+	case apiKeyCredsKey:
+		b.userInputData.input.APIKey = utils.APIKeyFromString(value)
 	case exitProvisioningKey:
 		b.userInputData.sendInput(ctx)
 	}
