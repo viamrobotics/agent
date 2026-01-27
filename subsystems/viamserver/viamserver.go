@@ -282,10 +282,11 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 		return errw.Wrap(err, "parsing checkURL")
 	}
 
-	// Use the host (including port) for gRPC connection.
-	// Replace 0.0.0.0 with localhost for connectivity.
-	address := parsed.Host
-	address = strings.Replace(address, "0.0.0.0", "localhost", 1)
+	port := parsed.Port()
+	if port == "" {
+		return errw.New("no port in checkURL")
+	}
+	address := "localhost:" + port
 
 	s.logger.Infof("Attempting Shutdown RPC to %s", address)
 
