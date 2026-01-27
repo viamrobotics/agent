@@ -109,7 +109,11 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stdio := utils.NewMatchingLogger(s.logger, true, "viam-server.StdOut")
 	stderr := utils.NewMatchingLogger(s.logger, false, "viam-server.StdErr")
 	//nolint:gosec
-	s.cmd = exec.Command(binPath, "-config", utils.AppConfigFilePath)
+	s.cmd = exec.CommandContext(ctx, binPath, "-config", utils.AppConfigFilePath)
+	// Override the default Cancel behavior (which kills the process) to do nothing.
+	// The Stop() method handles process lifecycle explicitly, including the Shutdown RPC
+	// for graceful shutdown with stack trace dumping.
+	s.cmd.Cancel = func() error { return nil }
 	s.cmd.Dir = utils.ViamDirs.Viam
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
