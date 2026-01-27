@@ -3,7 +3,7 @@ package viamserver
 
 import (
 	"context"
-	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"os"
@@ -21,8 +21,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/robot/v1"
 	"go.viam.com/rdk/logging"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"go.viam.com/utils/rpc"
 )
 
 const (
@@ -109,7 +108,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	stdio := utils.NewMatchingLogger(s.logger, true, "viam-server.StdOut")
 	stderr := utils.NewMatchingLogger(s.logger, false, "viam-server.StdErr")
 	//nolint:gosec
-	s.cmd = exec.CommandContext(ctx, binPath, "-config", utils.AppConfigFilePath)
+	s.cmd = exec.Command(binPath, "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs.Viam
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
@@ -268,15 +267,11 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	return errw.Errorf("%s process couldn't be killed", SubsysName)
 }
 
-// tryShutdownRPC attempts to shut down viam-server via the Shutdown RPC.
-// The RPC triggers stack trace dumping and module signaling on the server side.
 func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error {
 	if checkURL == "" {
 		return errw.New("no checkURL available for Shutdown RPC")
 	}
 
-	// Parse the checkURL to get the host:port for gRPC connection.
-	// checkURL is like "https://localhost:8080" or "https://0.0.0.0:8080"
 	parsed, err := url.Parse(checkURL)
 	if err != nil {
 		return errw.Wrap(err, "parsing checkURL")
@@ -290,19 +285,15 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 
 	s.logger.Infof("Attempting Shutdown RPC to %s", address)
 
-	// Use a timeout for the shutdown RPC call.
 	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Create gRPC connection with TLS (skip verification for local connection).
-	//nolint:gosec
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	//nolint:staticcheck
-	conn, err := grpc.DialContext(
-		shutdownCtx,
-		address,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
-	)
+	creds, err := s.readCredentialsFromConfig()
+	if err != nil {
+		return errw.Wrap(err, "reading credentials for Shutdown RPC")
+	}
+
+	conn, err := rpc.DialDirectGRPC(shutdownCtx, address, s.logger, creds)
 	if err != nil {
 		return errw.Wrap(err, "dialing viam-server for Shutdown RPC")
 	}
@@ -312,7 +303,6 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 		}
 	}()
 
-	// Create the robot service client and call Shutdown.
 	robotClient := pb.NewRobotServiceClient(conn)
 	_, err = robotClient.Shutdown(shutdownCtx, &pb.ShutdownRequest{})
 	if err != nil {
@@ -321,6 +311,25 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 
 	s.logger.Info("Shutdown RPC completed successfully")
 	return nil
+}
+
+func (s *viamServer) readCredentialsFromConfig() (rpc.DialOption, error) {
+	data, err := os.ReadFile(utils.AppConfigFilePath)
+	if err != nil {
+		return nil, errw.Wrap(err, "reading config file")
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, errw.Wrap(err, "parsing config file")
+	}
+
+	cloud, ok := cfg["cloud"].(map[string]interface{})
+	if !ok {
+		return nil, errw.New("no cloud config found in config file")
+	}
+
+	return utils.ParseCloudCreds(cloud)
 }
 
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
