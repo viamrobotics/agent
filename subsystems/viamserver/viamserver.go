@@ -3,6 +3,7 @@ package viamserver
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -293,7 +294,10 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 		return errw.Wrap(err, "reading credentials for Shutdown RPC")
 	}
 
-	conn, err := rpc.DialDirectGRPC(shutdownCtx, address, s.logger, creds)
+	//nolint:gosec
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	dialOpts := []rpc.DialOption{creds, rpc.WithTLSConfig(tlsConfig)}
+	conn, err := rpc.DialDirectGRPC(shutdownCtx, address, s.logger.AsZap(), dialOpts...)
 	if err != nil {
 		return errw.Wrap(err, "dialing viam-server for Shutdown RPC")
 	}
