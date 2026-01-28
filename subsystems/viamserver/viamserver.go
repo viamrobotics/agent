@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -23,6 +22,8 @@ import (
 	pb "go.viam.com/api/robot/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -43,6 +44,7 @@ const (
 type viamServer struct {
 	mu           sync.Mutex
 	cmd          *exec.Cmd
+	cancelCmd    context.CancelFunc
 	running      bool
 	shouldRun    bool
 	lastExit     int
@@ -106,14 +108,15 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.shouldRun = true
 	}
 
+	// We need to create a new context for the command with its own cancel function otherwise CommandContext will race kill the viam-server
+	// process with our call to Stop() when the global context is done.
+	cmdCtx, cancelCmd := context.WithTimeout(ctx, s.startTimeout)
+	s.cancelCmd = cancelCmd
+
 	stdio := utils.NewMatchingLogger(s.logger, true, "viam-server.StdOut")
 	stderr := utils.NewMatchingLogger(s.logger, false, "viam-server.StdErr")
 	//nolint:gosec
-	s.cmd = exec.CommandContext(ctx, binPath, "-config", utils.AppConfigFilePath)
-	// Override the default Cancel behavior (which kills the process) to do nothing.
-	// The Stop() method handles process lifecycle explicitly, including the Shutdown RPC
-	// for graceful shutdown with stack trace dumping.
-	s.cmd.Cancel = func() error { return nil }
+	s.cmd = exec.CommandContext(cmdCtx, binPath, "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs.Viam
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
@@ -218,11 +221,12 @@ func (s *viamServer) Start(ctx context.Context) error {
 func (s *viamServer) Stop(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
+	defer s.cancelCmd()
 
 	s.mu.Lock()
 	running := s.running
 	s.shouldRun = false
-	checkURL := s.checkURL
+	connURL := s.checkURLAlt
 	appTriggeredRestart := s.appTriggeredRestart
 	s.appTriggeredRestart = false // Reset the flag
 	s.mu.Unlock()
@@ -242,7 +246,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	// stack traces and gracefully shut down modules. For other shutdowns (binary updates,
 	// config changes, etc.), use signal-based termination for faster shutdown.
 	if appTriggeredRestart {
-		if err := s.tryShutdownRPC(ctx, checkURL); err != nil {
+		if err := s.tryShutdownRPC(ctx, connURL); err != nil {
 			s.logger.Warnw("Shutdown RPC failed, falling back to signal-based termination", "error", err)
 			if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 				s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
@@ -272,23 +276,12 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	return errw.Errorf("%s process couldn't be killed", SubsysName)
 }
 
-func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error {
-	if checkURL == "" {
-		return errw.New("no checkURL available for Shutdown RPC")
+func (s *viamServer) tryShutdownRPC(ctx context.Context, connURL string) error {
+	if connURL == "" {
+		return errw.New("no connURL available for Shutdown RPC")
 	}
 
-	parsed, err := url.Parse(checkURL)
-	if err != nil {
-		return errw.Wrap(err, "parsing checkURL")
-	}
-
-	port := parsed.Port()
-	if port == "" {
-		return errw.New("no port in checkURL")
-	}
-	address := "localhost:" + port
-
-	s.logger.Infof("Attempting Shutdown RPC to %s", address)
+	s.logger.Infof("Attempting Shutdown RPC to %s", connURL)
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -301,7 +294,7 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 	//nolint:gosec
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	dialOpts := []rpc.DialOption{creds, rpc.WithTLSConfig(tlsConfig)}
-	conn, err := rpc.DialDirectGRPC(shutdownCtx, address, s.logger.AsZap(), dialOpts...)
+	conn, err := rpc.DialDirectGRPC(shutdownCtx, connURL, s.logger.AsZap(), dialOpts...)
 	if err != nil {
 		return errw.Wrap(err, "dialing viam-server for Shutdown RPC")
 	}
@@ -314,7 +307,13 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, checkURL string) error 
 	robotClient := pb.NewRobotServiceClient(conn)
 	_, err = robotClient.Shutdown(shutdownCtx, &pb.ShutdownRequest{})
 	if err != nil {
-		return errw.Wrap(err, "calling Shutdown RPC")
+		// Shutdown RPC may return DeadlineExceeded or Unavailable errors on successful shutdown
+		// because the server may close the connection before sending a response. Handle these gracefully.
+		if status, ok := status.FromError(err); ok && (status.Code() == codes.DeadlineExceeded || status.Code() == codes.Unavailable) {
+			return nil
+		} else {
+			return errw.Wrap(err, "calling Shutdown RPC")
+		}
 	}
 
 	s.logger.Info("Shutdown RPC completed successfully")
