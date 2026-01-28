@@ -75,11 +75,11 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cfg:          cfg,
 		globalCancel: globalCancel,
 
-		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
 		networking: networking.NewSubsystem(ctx, logger, cfg),
 		cache:      NewVersionCache(logger),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
+	manager.viamServer = viamserver.NewSubsystem(ctx, logger, cfg, manager.GetAuthCreds)
 	manager.sysConfig = syscfg.NewSubsystem(ctx, logger, cfg, manager.GetNetAppender)
 
 	return manager
@@ -151,6 +151,16 @@ func (m *Manager) GetNetAppender() logging.Appender {
 	m.connMu.RLock()
 	defer m.connMu.RUnlock()
 	return m.netAppender
+}
+
+// GetAuthCreds is a callback that passes the auth credentials to the viam-server subsystem for dialing viam-server.
+func (m *Manager) GetAuthCreds() rpc.DialOption {
+	m.connMu.RLock()
+	defer m.connMu.RUnlock()
+	if m.cloudConfig == nil {
+		return nil
+	}
+	return m.cloudConfig.CloudCred
 }
 
 // StartSubsystem may be called early in startup when no cloud connectivity is configured.

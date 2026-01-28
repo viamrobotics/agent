@@ -4,8 +4,8 @@ package viamserver
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -70,6 +70,9 @@ type viamServer struct {
 	// This is set to true when the app's NeedsRestart API triggers a restart.
 	appTriggeredRestart bool
 
+	// getAuthCreds returns credentials from the manager for dialing viam-server.
+	getAuthCreds func() rpc.DialOption
+
 	logger logging.Logger
 }
 
@@ -108,9 +111,9 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.shouldRun = true
 	}
 
-	// We need to create a new context for the command with its own cancel function otherwise CommandContext will race kill the viam-server
-	// process with our call to Stop() when the global context is done.
-	cmdCtx, cancelCmd := context.WithTimeout(ctx, s.startTimeout)
+	// We need to create a new context for the command with its own cancel function otherwise CommandContext will race to kill
+	// the viam-server process with our call to Stop() when the global context is done.
+	cmdCtx, cancelCmd := context.WithCancel(context.Background())
 	s.cancelCmd = cancelCmd
 
 	stdio := utils.NewMatchingLogger(s.logger, true, "viam-server.StdOut")
@@ -247,7 +250,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	// config changes, etc.), use signal-based termination for faster shutdown.
 	if appTriggeredRestart {
 		if err := s.tryShutdownRPC(ctx, connURL); err != nil {
-			s.logger.Warnw("Shutdown RPC failed, falling back to signal-based termination", "error", err)
+			s.logger.Debugw("Shutdown RPC failed, falling back to signal-based termination", "error", err)
 			if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 				s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 			}
@@ -281,20 +284,26 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, connURL string) error {
 		return errw.New("no connURL available for Shutdown RPC")
 	}
 
-	s.logger.Infof("Attempting Shutdown RPC to %s", connURL)
+	s.logger.Debugf("Attempting Shutdown RPC to %s", connURL)
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	creds, err := s.readCredentialsFromConfig()
-	if err != nil {
-		return errw.Wrap(err, "reading credentials for Shutdown RPC")
+	creds := s.getAuthCreds()
+	if creds == nil {
+		return errw.New("cloud credentials not available for Shutdown RPC")
 	}
+
+	parsedURL, err := url.Parse(connURL)
+	if err != nil {
+		return errw.Wrap(err, "parsing connURL")
+	}
+	dialAddr := parsedURL.Host
 
 	//nolint:gosec
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	dialOpts := []rpc.DialOption{creds, rpc.WithTLSConfig(tlsConfig)}
-	conn, err := rpc.DialDirectGRPC(shutdownCtx, connURL, s.logger.AsZap(), dialOpts...)
+	conn, err := rpc.DialDirectGRPC(shutdownCtx, dialAddr, s.logger, dialOpts...)
 	if err != nil {
 		return errw.Wrap(err, "dialing viam-server for Shutdown RPC")
 	}
@@ -316,27 +325,8 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, connURL string) error {
 		}
 	}
 
-	s.logger.Info("Shutdown RPC completed successfully")
+	s.logger.Debug("Shutdown RPC completed successfully")
 	return nil
-}
-
-func (s *viamServer) readCredentialsFromConfig() (rpc.DialOption, error) {
-	data, err := os.ReadFile(utils.AppConfigFilePath)
-	if err != nil {
-		return nil, errw.Wrap(err, "reading config file")
-	}
-
-	var cfg map[string]interface{}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, errw.Wrap(err, "parsing config file")
-	}
-
-	cloud, ok := cfg["cloud"].(map[string]interface{})
-	if !ok {
-		return nil, errw.New("no cloud config found in config file")
-	}
-
-	return utils.ParseCloudCreds(cloud)
 }
 
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
@@ -422,10 +412,12 @@ func NewSubsystem(
 	ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
+	getAuthCreds func() rpc.DialOption,
 ) subsystems.Subsystem {
 	return &viamServer{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
+		getAuthCreds: getAuthCreds,
 	}
 }
