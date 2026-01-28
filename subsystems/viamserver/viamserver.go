@@ -17,7 +17,11 @@ import (
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
+	pb "go.viam.com/api/robot/v1"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/utils/rpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -38,6 +42,7 @@ const (
 type viamServer struct {
 	mu           sync.Mutex
 	cmd          *exec.Cmd
+	cancelCmd    context.CancelFunc
 	running      bool
 	shouldRun    bool
 	lastExit     int
@@ -57,6 +62,11 @@ type viamServer struct {
 	// needs restart checking on viamserver's behalf (this is the case for new viamserver
 	// versions)
 	doesNotHandleNeedsRestart bool
+
+	// appTriggeredRestart indicates whether the next Stop should use Shutdown RPC
+	// to allow viam-server to dump stack traces and gracefully shut down modules.
+	// This is set to true when the app's NeedsRestart API triggers a restart.
+	appTriggeredRestart bool
 
 	logger logging.Logger
 }
@@ -96,10 +106,15 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.shouldRun = true
 	}
 
+	// We need to create a new context for the command with its own cancel function otherwise CommandContext will race to kill
+	// the viam-server process with our call to Stop() when the global context is done.
+	cmdCtx, cancelCmd := context.WithCancel(context.Background())
+	s.cancelCmd = cancelCmd
+
 	stdio := utils.NewMatchingLogger(s.logger, true, "viam-server.StdOut")
 	stderr := utils.NewMatchingLogger(s.logger, false, "viam-server.StdErr")
 	//nolint:gosec
-	s.cmd = exec.CommandContext(ctx, binPath, "-config", utils.AppConfigFilePath)
+	s.cmd = exec.CommandContext(cmdCtx, binPath, "-config", utils.AppConfigFilePath)
 	s.cmd.Dir = utils.ViamDirs.Viam
 	utils.PlatformProcSettings(s.cmd)
 	s.cmd.Stdout = stdio
@@ -204,25 +219,47 @@ func (s *viamServer) Start(ctx context.Context) error {
 func (s *viamServer) Stop(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
+	defer s.cancelCmd()
 
 	s.mu.Lock()
 	running := s.running
 	s.shouldRun = false
-	s.mu.Unlock()
+	appTriggeredRestart := s.appTriggeredRestart
+	s.appTriggeredRestart = false // Reset the flag
 
 	if !running {
+		s.mu.Unlock()
 		return nil
 	}
 
 	// interrupt early in startup
 	if s.cmd == nil {
+		s.mu.Unlock()
 		return nil
 	}
 
 	s.logger.Infof("Stopping %s", SubsysName)
-	if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
-		s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
+
+	// For app-triggered restarts, use the Shutdown RPC to allow viam-server to dump
+	// stack traces and gracefully shut down modules. For other shutdowns (binary updates,
+	// config changes, etc.), use signal-based termination for faster shutdown.
+	if appTriggeredRestart {
+		// tryShutdownRPC requires s.mu to be held for fetchRestartStatus
+		err := s.tryShutdownRPC(ctx)
+		s.mu.Unlock()
+		if err != nil {
+			s.logger.Debugw("Shutdown RPC failed, falling back to signal-based termination", "error", err)
+			if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
+				s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
+			}
+		}
+	} else {
+		s.mu.Unlock()
+		if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
+			s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
+		}
 	}
+
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
 		return nil
@@ -239,6 +276,51 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	}
 
 	return errw.Errorf("%s process couldn't be killed", SubsysName)
+}
+
+// tryShutdownRPC attempts to call the Shutdown RPC on viam-server's module server.
+// The module server is unauthenticated and designed for trusted local communication.
+// Must be called with s.mu held, as fetchRestartStatus requires it.
+func (s *viamServer) tryShutdownRPC(ctx context.Context) error {
+	restartStatus, err := s.fetchRestartStatus(ctx)
+	if err != nil {
+		return errw.Wrap(err, "fetching restart_status for module server address")
+	}
+	dialAddr := restartStatus.ModuleServerTCPAddr
+	if dialAddr == "" {
+		return errw.New("no module server TCP address available")
+	}
+
+	s.logger.Debugf("Attempting Shutdown RPC to module server at %s", dialAddr)
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	dialOpts := []rpc.DialOption{rpc.WithInsecure()}
+	conn, err := rpc.DialDirectGRPC(shutdownCtx, dialAddr, s.logger, dialOpts...)
+	if err != nil {
+		return errw.Wrap(err, "dialing module server for Shutdown RPC")
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			s.logger.Warnw("error closing gRPC connection", "error", err)
+		}
+	}()
+
+	robotClient := pb.NewRobotServiceClient(conn)
+	_, err = robotClient.Shutdown(shutdownCtx, &pb.ShutdownRequest{})
+	if err != nil {
+		// Shutdown RPC may return DeadlineExceeded or Unavailable errors on successful shutdown
+		// because the server may close the connection before sending a response. Handle these gracefully.
+		if status, ok := status.FromError(err); ok && (status.Code() == codes.DeadlineExceeded || status.Code() == codes.Unavailable) {
+			return nil
+		} else {
+			return errw.Wrap(err, "calling Shutdown RPC")
+		}
+	}
+
+	s.logger.Debug("Shutdown RPC completed successfully")
+	return nil
 }
 
 func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
@@ -308,7 +390,20 @@ func (s *viamServer) Property(ctx context.Context, property string) bool {
 	}
 }
 
-func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
+// MarkAppTriggeredRestart marks viam-server for a graceful shutdown via Shutdown RPC.
+// This should be called before Stop() when the restart is triggered by the app's NeedsRestart API.
+// The Shutdown RPC allows viam-server to dump stack traces and gracefully shut down modules.
+func (s *viamServer) MarkAppTriggeredRestart() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appTriggeredRestart = true
+}
+
+func NewSubsystem(
+	ctx context.Context,
+	logger logging.Logger,
+	cfg utils.AgentConfig,
+) subsystems.Subsystem {
 	return &viamServer{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
