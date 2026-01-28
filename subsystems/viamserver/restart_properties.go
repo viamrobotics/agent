@@ -30,6 +30,9 @@ type (
 		// older versions won't report it at all, and agent should let viamserver handle
 		// NeedsRestart logic.
 		DoesNotHandleNeedsRestart bool `json:"does_not_handle_needs_restart,omitempty"`
+		// ModuleServerTCPAddr is the TCP address of the module server, if available.
+		// The module server can be used for unauthenticated local RPC calls.
+		ModuleServerTCPAddr string `json:"module_server_tcp_addr,omitempty"`
 	}
 
 	// restartProperty is a property related to restarting about which agent can query
@@ -201,4 +204,78 @@ func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartPropert
 		}
 	}
 	return false, combinedErr
+}
+
+// fetchRestartStatus fetches the full RestartStatusResponse from viam-server.
+// Must be called with s.mu held, as makeTestURLs is called.
+func (s *viamServer) fetchRestartStatus(ctx context.Context) (*RestartStatusResponse, error) {
+	urls, err := s.makeTestURLs("restart status")
+	if err != nil {
+		return nil, err
+	}
+
+	resultChan := make(chan mo.Result[*RestartStatusResponse], len(urls))
+
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, checkRestartPropertyTimeout)
+	defer cancelFunc()
+
+	//nolint:gosec
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	defer func() {
+		client.CloseIdleConnections()
+	}()
+
+	for _, url := range urls {
+		go func() {
+			restartURL := url + restartURLSuffix
+
+			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)
+			if err != nil {
+				resultChan <- mo.Err[*RestartStatusResponse](
+					errw.Wrapf(err, "creating HTTP request for restart status via %s", restartURL))
+				return
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				resultChan <- mo.Err[*RestartStatusResponse](
+					errw.Wrapf(err, "sending HTTP request for restart status via %s", restartURL))
+				return
+			}
+			defer func() {
+				goutils.UncheckedError(resp.Body.Close())
+			}()
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				resultChan <- mo.Errf[*RestartStatusResponse](
+					"checking restart status via %s, got code: %d", restartURL, resp.StatusCode)
+				return
+			}
+
+			var restartStatusResponse RestartStatusResponse
+			if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
+				resultChan <- mo.Err[*RestartStatusResponse](
+					errw.Wrapf(err, "decoding HTTP response for restart status via %s", restartURL))
+				return
+			}
+
+			resultChan <- mo.Ok(&restartStatusResponse)
+		}()
+	}
+
+	var combinedErr error
+	for range urls {
+		select {
+		case result := <-resultChan:
+			response, err := result.Get()
+			if err != nil {
+				combinedErr = errors.Join(combinedErr, err)
+			} else {
+				return response, nil
+			}
+		case <-timeoutCtx.Done():
+			return nil, errors.Join(combinedErr, ctx.Err())
+		}
+	}
+	return nil, combinedErr
 }

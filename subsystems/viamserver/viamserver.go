@@ -3,9 +3,7 @@ package viamserver
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -69,9 +67,6 @@ type viamServer struct {
 	// to allow viam-server to dump stack traces and gracefully shut down modules.
 	// This is set to true when the app's NeedsRestart API triggers a restart.
 	appTriggeredRestart bool
-
-	// getAuthCreds returns credentials from the manager for dialing viam-server.
-	getAuthCreds func() rpc.DialOption
 
 	logger logging.Logger
 }
@@ -229,17 +224,17 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	running := s.running
 	s.shouldRun = false
-	connURL := s.checkURLAlt
 	appTriggeredRestart := s.appTriggeredRestart
 	s.appTriggeredRestart = false // Reset the flag
-	s.mu.Unlock()
 
 	if !running {
+		s.mu.Unlock()
 		return nil
 	}
 
 	// interrupt early in startup
 	if s.cmd == nil {
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -249,13 +244,17 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	// stack traces and gracefully shut down modules. For other shutdowns (binary updates,
 	// config changes, etc.), use signal-based termination for faster shutdown.
 	if appTriggeredRestart {
-		if err := s.tryShutdownRPC(ctx, connURL); err != nil {
+		// tryShutdownRPC requires s.mu to be held for fetchRestartStatus
+		err := s.tryShutdownRPC(ctx)
+		s.mu.Unlock()
+		if err != nil {
 			s.logger.Debugw("Shutdown RPC failed, falling back to signal-based termination", "error", err)
 			if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 				s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 			}
 		}
 	} else {
+		s.mu.Unlock()
 		if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 			s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 		}
@@ -279,33 +278,28 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	return errw.Errorf("%s process couldn't be killed", SubsysName)
 }
 
-func (s *viamServer) tryShutdownRPC(ctx context.Context, connURL string) error {
-	if connURL == "" {
-		return errw.New("no connURL available for Shutdown RPC")
+// tryShutdownRPC attempts to call the Shutdown RPC on viam-server's module server.
+// The module server is unauthenticated and designed for trusted local communication.
+// Must be called with s.mu held, as fetchRestartStatus requires it.
+func (s *viamServer) tryShutdownRPC(ctx context.Context) error {
+	restartStatus, err := s.fetchRestartStatus(ctx)
+	if err != nil {
+		return errw.Wrap(err, "fetching restart_status for module server address")
+	}
+	dialAddr := restartStatus.ModuleServerTCPAddr
+	if dialAddr == "" {
+		return errw.New("no module server TCP address available")
 	}
 
-	s.logger.Debugf("Attempting Shutdown RPC to %s", connURL)
+	s.logger.Debugf("Attempting Shutdown RPC to module server at %s", dialAddr)
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	creds := s.getAuthCreds()
-	if creds == nil {
-		return errw.New("cloud credentials not available for Shutdown RPC")
-	}
-
-	parsedURL, err := url.Parse(connURL)
-	if err != nil {
-		return errw.Wrap(err, "parsing connURL")
-	}
-	dialAddr := parsedURL.Host
-
-	//nolint:gosec
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	dialOpts := []rpc.DialOption{creds, rpc.WithTLSConfig(tlsConfig)}
+	dialOpts := []rpc.DialOption{rpc.WithInsecure()}
 	conn, err := rpc.DialDirectGRPC(shutdownCtx, dialAddr, s.logger, dialOpts...)
 	if err != nil {
-		return errw.Wrap(err, "dialing viam-server for Shutdown RPC")
+		return errw.Wrap(err, "dialing module server for Shutdown RPC")
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
@@ -412,12 +406,10 @@ func NewSubsystem(
 	ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
-	getAuthCreds func() rpc.DialOption,
 ) subsystems.Subsystem {
 	return &viamServer{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
-		getAuthCreds: getAuthCreds,
 	}
 }
