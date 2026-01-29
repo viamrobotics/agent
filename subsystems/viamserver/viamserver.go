@@ -282,7 +282,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 // The module server is unauthenticated and designed for trusted local communication.
 // Must be called with s.mu held, as fetchRestartStatus requires it.
 func (s *viamServer) tryShutdownRPC(ctx context.Context) error {
-	restartStatus, err := s.fetchRestartStatus(ctx)
+	restartStatus, err := s.fetchRestartStatus(ctx, "restart_status")
 	if err != nil {
 		return errw.Wrap(err, "fetching restart_status for module server address")
 	}
