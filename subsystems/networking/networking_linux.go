@@ -477,6 +477,6 @@ func (n *Networking) Property(_ context.Context, _ string) bool {
 	return false
 }
 
-// MarkAppTriggeredRestart implements subsystems.Subsystem.
+// MarkAppTriggeredRestart is a noop for the networking subsystem.
 func (s *Networking) MarkAppTriggeredRestart() {
 }

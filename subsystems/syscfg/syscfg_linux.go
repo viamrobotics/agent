@@ -123,6 +123,6 @@ func (s *syscfg) Property(_ context.Context, _ string) bool {
 	return false
 }
 
-// MarkAppTriggeredRestart implements subsystems.Subsystem.
+// MarkAppTriggeredRestart is a noop for the syscfg subsystem.
 func (s *syscfg) MarkAppTriggeredRestart() {
 }
