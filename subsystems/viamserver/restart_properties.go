@@ -30,8 +30,10 @@ type (
 		// older versions won't report it at all, and agent should let viamserver handle
 		// NeedsRestart logic.
 		DoesNotHandleNeedsRestart bool `json:"does_not_handle_needs_restart,omitempty"`
-		// ModuleServerTCPAddr is the TCP address of the module server, if available.
+		// ModuleServerTCPAddr is the TCP address of the module server.
 		// The module server can be used for unauthenticated local RPC calls.
+		// Newer versions of viamserver (>= v0.112.0) will return the address, while
+		// older versions won't, and therefore won't dump stack traces on app triggered restarts.
 		ModuleServerTCPAddr string `json:"module_server_tcp_addr,omitempty"`
 	}
 
