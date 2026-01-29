@@ -184,7 +184,7 @@ while true; do sleep 1; done
 
 			appender := &mockAppender{}
 
-			sys := NewSubsystem(ctx, logger, cfg, func() logging.Appender {
+			sys := New(ctx, logger, cfg, func() logging.Appender {
 				return appender
 			}, false /* should not forward recent systemd agent logs */)
 
@@ -263,7 +263,7 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 	test.That(t, err, test.ShouldBeNil)
 	mockLogForwardingCache := &logForwardingCache{&systemdAgentLogsLastForwarded}
 	test.That(t, mockLogForwardingCache.save(), test.ShouldBeNil)
-	sys := NewSubsystem(t.Context(), logger, cfg, func() logging.Appender {
+	sys := New(t.Context(), logger, cfg, func() logging.Appender {
 		return appender
 	}, true /* should forward recent systemd agent logs */)
 

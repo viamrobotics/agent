@@ -15,7 +15,6 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/robot/v1"
 	"go.viam.com/rdk/logging"
@@ -39,7 +38,8 @@ const (
 	ViamAgentHandlesNeedsRestartChecking = "VIAM_AGENT_HANDLES_NEEDS_RESTART_CHECKING"
 )
 
-type viamServer struct {
+// Subsystem represents the subsystem for viam-server.
+type Subsystem struct {
 	mu           sync.Mutex
 	cmd          *exec.Cmd
 	cancelCmd    context.CancelFunc
@@ -82,7 +82,7 @@ func pathMissing(path string) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-func (s *viamServer) Start(ctx context.Context) error {
+func (s *Subsystem) Start(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
 
@@ -225,7 +225,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	}
 }
 
-func (s *viamServer) Stop(ctx context.Context) error {
+func (s *Subsystem) Stop(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
 	defer s.cancelCmd()
@@ -286,7 +286,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 // tryShutdownRPC attempts to call the Shutdown RPC on viam-server's module server.
 // The module server is unauthenticated and designed for trusted local communication.
-func (s *viamServer) tryShutdownRPC(ctx context.Context, dialAddr string) error {
+func (s *Subsystem) tryShutdownRPC(ctx context.Context, dialAddr string) error {
 	if dialAddr == "" {
 		return errw.New("no module server TCP address available")
 	}
@@ -323,7 +323,7 @@ func (s *viamServer) tryShutdownRPC(ctx context.Context, dialAddr string) error 
 	return nil
 }
 
-func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
+func (s *Subsystem) waitForExit(ctx context.Context, timeout time.Duration) bool {
 	s.mu.Lock()
 	exitChan := s.exitChan
 	running := s.running
@@ -343,12 +343,7 @@ func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) boo
 	}
 }
 
-// HealthCheck for viam server is unimplemented.
-func (s *viamServer) HealthCheck(ctx context.Context) error {
-	return nil
-}
-
-func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
+func (s *Subsystem) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.startTimeout = time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes)
@@ -365,7 +360,7 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 
 // RestartAllowed makes a request to the /restart_status endpoint to check if viam-server
 // allows a restart at this time.
-func (s *viamServer) RestartAllowed(ctx context.Context) bool {
+func (s *Subsystem) RestartAllowed(ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -384,7 +379,7 @@ func (s *viamServer) RestartAllowed(ctx context.Context) bool {
 
 // DoesNotHandleNeedsRestart returns the cached value from startup indicating whether
 // viam-server handles needs restart checking itself.
-func (s *viamServer) DoesNotHandleNeedsRestart() bool {
+func (s *Subsystem) DoesNotHandleNeedsRestart() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.doesNotHandleNeedsRestart
@@ -393,18 +388,18 @@ func (s *viamServer) DoesNotHandleNeedsRestart() bool {
 // MarkAppTriggeredRestart marks viam-server for a graceful shutdown via Shutdown RPC.
 // This should be called before Stop() when the restart is triggered by the app's NeedsRestart API.
 // The Shutdown RPC allows viam-server to dump stack traces and gracefully shut down modules.
-func (s *viamServer) MarkAppTriggeredRestart() {
+func (s *Subsystem) MarkAppTriggeredRestart() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.appTriggeredRestart = true
 }
 
-func NewSubsystem(
+func New(
 	ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
-) subsystems.Subsystem {
-	return &viamServer{
+) *Subsystem {
+	return &Subsystem{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,

@@ -42,8 +42,7 @@ const (
 	fetchRestartStatusTimeout = 10 * time.Second
 )
 
-// Creates test URLs for restart status checks. Must be called with s.mu locked.
-func (s *viamServer) makeTestURLs() ([]string, error) {
+func (s *Subsystem) makeTestURLs() ([]string, error) {
 	urls := []string{s.checkURL, s.checkURLAlt}
 	// On Windows, the local IPV4 addresses created below this check will not be reachable.
 	// Tests for fetchRestartStatus are also unable to reach the local IPV4s created below
@@ -108,7 +107,7 @@ func getAllLocalIPv4s() ([]string, error) {
 
 // fetchRestartStatus fetches the full RestartStatusResponse from viam-server.
 // Must be called with s.mu held, as makeTestURLs is called.
-func (s *viamServer) fetchRestartStatus(ctx context.Context) (*RestartStatusResponse, error) {
+func (s *Subsystem) fetchRestartStatus(ctx context.Context) (*RestartStatusResponse, error) {
 	urls, err := s.makeTestURLs()
 	if err != nil {
 		return nil, err

@@ -31,7 +31,7 @@ type templateData struct {
 //go:embed templates/*
 var templates embed.FS
 
-func (n *Networking) startPortal(bindAddr string) error {
+func (n *Subsystem) startPortal(bindAddr string) error {
 	if err := n.startGRPC(bindAddr, 4772); err != nil {
 		return errw.Wrap(err, "starting GRPC service")
 	}
@@ -43,7 +43,7 @@ func (n *Networking) startPortal(bindAddr string) error {
 	return nil
 }
 
-func (n *Networking) startWeb(bindAddr string, bindPort int) error {
+func (n *Subsystem) startWeb(bindAddr string, bindPort int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", n.portalIndex)
 	mux.HandleFunc("/save", n.portalSave)
@@ -79,7 +79,7 @@ func (n *Networking) startWeb(bindAddr string, bindPort int) error {
 	return nil
 }
 
-func (n *Networking) stopPortal() error {
+func (n *Subsystem) stopPortal() error {
 	if n.grpcServer != nil {
 		n.grpcServer.Stop()
 		n.grpcServer = nil
@@ -91,7 +91,7 @@ func (n *Networking) stopPortal() error {
 	return nil
 }
 
-func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
+func (n *Subsystem) portalIndex(resp http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := req.Body.Close(); err != nil {
 			n.logger.Warn(err)
@@ -141,7 +141,7 @@ func (n *Networking) portalIndex(resp http.ResponseWriter, req *http.Request) {
 	n.errors.Clear()
 }
 
-func (n *Networking) portalSave(resp http.ResponseWriter, req *http.Request) {
+func (n *Subsystem) portalSave(resp http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := req.Body.Close(); err != nil {
 			n.logger.Warn(err)
