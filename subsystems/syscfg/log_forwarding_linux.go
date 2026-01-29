@@ -70,7 +70,7 @@ func (lfc *logForwardingCache) save() error {
 // 1/14/2026, 4:38:58 PM info viam-agent.systemd    viam-agent.service: Scheduled restart job, restart counter is at 2.
 // 1/14/2026, 4:38:52 PM info viam-agent.systemd    viam-agent.service: Consumed 55.548s CPU time.
 // 1/14/2026, 4:38:52 PM info viam-agent.systemd    viam-agent.service: Deactivated successfully.
-func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
+func (s *Subsystem) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
 
@@ -155,7 +155,7 @@ func (s *syscfg) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 	return nil
 }
 
-func (s *syscfg) startLogForwarding() error {
+func (s *Subsystem) startLogForwarding() error {
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
 	s.logHealth.MarkGood()
@@ -278,7 +278,7 @@ func (s *syscfg) startLogForwarding() error {
 	return nil
 }
 
-func (s *syscfg) stopLogForwarding() error {
+func (s *Subsystem) stopLogForwarding() error {
 	if s.journalCmd == nil {
 		return nil
 	}

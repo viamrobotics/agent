@@ -18,7 +18,7 @@ var (
 	ErrNoWifi = errw.New("No WiFi devices available. Disabling networking until next restart.")
 )
 
-func (n *Networking) writeDNSMasq() error {
+func (n *Subsystem) writeDNSMasq() error {
 	DNSMasqContents := DNSMasqContentsRedirect
 	if n.cfg.DisableCaptivePortalRedirect.Get() {
 		DNSMasqContents = DNSMasqContentsSetupOnly
@@ -28,7 +28,7 @@ func (n *Networking) writeDNSMasq() error {
 	return err
 }
 
-func (n *Networking) testConnCheck() error {
+func (n *Subsystem) testConnCheck() error {
 	connCheckEnabled, err := n.nm.GetPropertyConnectivityCheckEnabled()
 	if err != nil {
 		return errw.Wrap(err, "getting NetworkManager connectivity check state")
@@ -69,13 +69,13 @@ func (n *Networking) testConnCheck() error {
 	return nil
 }
 
-func (n *Networking) writeConnCheck() error {
+func (n *Subsystem) writeConnCheck() error {
 	_, err := utils.WriteFileIfNew(ConnCheckFilepath, []byte(ConnCheckContents))
 	return err
 }
 
 // must be run inside dataMu lock.
-func (n *Networking) initDevices() error {
+func (n *Subsystem) initDevices() error {
 	devices, err := n.nm.GetDevices()
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (n *Networking) initDevices() error {
 	return nil
 }
 
-func (n *Networking) enableWifi(ctx context.Context) error {
+func (n *Subsystem) enableWifi(ctx context.Context) error {
 	if err := n.nm.SetPropertyWirelessEnabled(true); err != nil {
 		return err
 	}

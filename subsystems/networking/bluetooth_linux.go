@@ -20,7 +20,7 @@ const (
 )
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
+func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 	if !n.bluetoothEnabled() {
 		return nil
 	}
@@ -68,7 +68,7 @@ func (n *Networking) startProvisioningBluetooth(ctx context.Context) error {
 }
 
 // stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.
-func (n *Networking) stopProvisioningBluetooth() error {
+func (n *Subsystem) stopProvisioningBluetooth() error {
 	if n.btAdv == nil {
 		n.logger.Warnf("bluetooth already stopped")
 		return nil
@@ -98,7 +98,7 @@ func (n *Networking) stopProvisioningBluetooth() error {
 }
 
 // initializeBluetoothService performs low-level system configuration to enable bluetooth advertisement.
-func (n *Networking) initializeBluetoothService(
+func (n *Subsystem) initializeBluetoothService(
 	ctx context.Context, deviceName string, characteristics []bluetooth.CharacteristicConfig,
 ) error {
 	if err := rfkillUnblock(ctx); err != nil {
@@ -153,7 +153,7 @@ func getBluetoothDBus() (*dbus.Conn, dbus.BusObject, error) {
 	return conn, hci0Adapter, nil
 }
 
-func (n *Networking) removeServices() error {
+func (n *Subsystem) removeServices() error {
 	_, adapter, err := getBluetoothDBus()
 	if err != nil {
 		return err
@@ -177,7 +177,7 @@ func (n *Networking) removeServices() error {
 	return errors.New("could not find previous gatt service to remove")
 }
 
-func (n *Networking) bluetoothEnabled() bool {
+func (n *Subsystem) bluetoothEnabled() bool {
 	n.dataMu.RLock()
 	noBT := n.noBT
 	n.dataMu.RUnlock()

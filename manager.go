@@ -16,7 +16,6 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/tidwall/jsonc"
-	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/subsystems/networking"
 	"github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/subsystems/viamserver"
@@ -38,7 +37,6 @@ const (
 	// stopAllTimeout must be lower than systemd subsystems/viamagent/viam-agent.service timeout of 4mins
 	// and higher than subsystems/viamserver/viamserver.go timeout of 2mins.
 	stopAllTimeout = time.Minute * 3
-	agentCachePath = "agent-config.json"
 	SubsystemName  = "viam-agent"
 )
 
@@ -61,9 +59,9 @@ type Manager struct {
 	viamServerNeedsRestart bool
 	globalCancel           context.CancelFunc
 
-	viamServer subsystems.Subsystem
-	networking subsystems.Subsystem
-	sysConfig  subsystems.Subsystem
+	viamServer *viamserver.Subsystem
+	networking *networking.Subsystem
+	sysConfig  *syscfg.Subsystem
 
 	cache *VersionCache
 }
@@ -76,12 +74,12 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 
 		globalCancel: globalCancel,
 
-		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
-		networking: networking.NewSubsystem(ctx, logger, cfg),
+		viamServer: viamserver.New(ctx, logger, cfg),
+		networking: networking.New(ctx, logger, cfg),
 		cache:      NewVersionCache(logger),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
-	manager.sysConfig = syscfg.NewSubsystem(
+	manager.sysConfig = syscfg.New(
 		ctx,
 		logger,
 		cfg,
@@ -347,65 +345,72 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 	m.cfgMu.RLock()
 	defer m.cfgMu.RUnlock()
 
-	// simpler map wouldn't preserve ordering
-	for _, entry := range []struct {
-		name string
-		sub  subsystems.Subsystem
-	}{
-		{"viam-server", m.viamServer},
-		{"sysconfig", m.sysConfig},
-		{"networking", m.networking},
-	} {
-		if ctx.Err() != nil {
-			return
+	// Start each of the three subsystems if not disabled; each implementation should return
+	// near-instantly if already started. Run health checks for syscfg and networking and
+	// restart upon failure. The ordering of subsystem starts is significant here.
+	if !m.cfg.AdvancedSettings.DisableViamServer.Get() {
+		if err := m.viamServer.Start(ctx); err != nil {
+			m.logger.Warn(err)
 		}
-
-		switch entry.name {
-		case "viam-server":
-			if m.cfg.AdvancedSettings.DisableViamServer.Get() {
-				continue
-			}
-		case "sysconfig":
-			if m.cfg.AdvancedSettings.GetDisableSystemConfiguration() {
-				continue
-			}
-		case "networking":
-			if m.cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
-				continue
-			}
-		}
-
-		// Start should return near-instantly if already started.
-		if err := entry.sub.Start(ctx); err != nil {
+	}
+	//nolint:dupl
+	if !m.cfg.AdvancedSettings.DisableSystemConfiguration.Get() {
+		if err := m.sysConfig.Start(ctx); err != nil {
 			m.logger.Warn(err)
 		}
 
 		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
 		defer cancelFunc()
-		if err := entry.sub.HealthCheck(ctxTimeout); err != nil {
+		if err := m.sysConfig.HealthCheck(ctxTimeout); err != nil {
 			if ctx.Err() != nil {
 				return
 			}
 			m.logger.Errorw(
-				"Subsystem healthcheck failed, subsystem will be shut down",
-				"subsystem", entry.name,
+				"sysconfig healthcheck failed, subsystem will be shut down",
 				"err", err,
 			)
-			if err := entry.sub.Stop(ctx); err != nil {
-				m.logger.Warn(errw.Wrapf(err, "stopping subsystem %s", entry.name))
+			if err := m.sysConfig.Stop(ctx); err != nil {
+				m.logger.Warn(errw.Wrap(err, "stopping syscfg subsystem"))
 			}
 			if ctx.Err() != nil {
 				return
 			}
 
-			if entry.name == "viam-server" {
-				m.cache.MarkViamServerRunningVersion()
-			}
-			if err := entry.sub.Start(ctx); err != nil {
-				m.logger.Warn(errw.Wrapf(err, "restarting subsystem %s", entry.name))
+			if err := m.sysConfig.Start(ctx); err != nil {
+				m.logger.Warn(errw.Wrap(err, "restarting syscfg subsystem"))
 			}
 		} else {
-			m.logger.Debugf("Subsystem healthcheck succeeded for %s", entry.name)
+			m.logger.Debugf("Subsystem healthcheck succeeded for syscfg")
+		}
+	}
+	//nolint:dupl
+	if !m.cfg.AdvancedSettings.DisableNetworkConfiguration.Get() {
+		if err := m.networking.Start(ctx); err != nil {
+			m.logger.Warn(err)
+		}
+
+		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
+		defer cancelFunc()
+		if err := m.networking.HealthCheck(ctxTimeout); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			m.logger.Errorw(
+				"networking healthcheck failed, subsystem will be shut down",
+				"err", err,
+			)
+			if err := m.networking.Stop(ctx); err != nil {
+				m.logger.Warn(errw.Wrap(err, "stopping networking subsystem"))
+			}
+			if ctx.Err() != nil {
+				return
+			}
+
+			if err := m.networking.Start(ctx); err != nil {
+				m.logger.Warn(errw.Wrap(err, "restarting networking subsystem"))
+			}
+		} else {
+			m.logger.Debugf("Subsystem healthcheck succeeded for networking")
 		}
 	}
 }
@@ -465,19 +470,21 @@ func (m *Manager) CloseAll() {
 		defer slowWatcherCancel()
 		defer cancel()
 
-		for _, entry := range []struct {
-			name string
-			sub  subsystems.Subsystem
-		}{
-			{"viam-server", m.viamServer},
-			{"sysconfig", m.sysConfig},
-			{"networking", m.networking},
-		} {
-			if err := entry.sub.Stop(ctx); err != nil {
-				m.logger.Warn(err)
-			} else {
-				m.logger.Infof("Subsystem %s shut down successfully", entry.name)
-			}
+		// Stop all three subsystems. The ordering is significant here.
+		if err := m.viamServer.Stop(ctx); err != nil {
+			m.logger.Warn(err)
+		} else {
+			m.logger.Infof("Subsystem %s shut down successfully", viamserver.SubsysName)
+		}
+		if err := m.sysConfig.Stop(ctx); err != nil {
+			m.logger.Warn(err)
+		} else {
+			m.logger.Infof("Subsystem %s shut down successfully", syscfg.SubsysName)
+		}
+		if err := m.networking.Stop(ctx); err != nil {
+			m.logger.Warn(err)
+		} else {
+			m.logger.Infof("Subsystem %s shut down successfully", networking.SubsysName)
 		}
 
 		m.activeBackgroundWorkers.Wait()

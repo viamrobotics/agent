@@ -15,7 +15,6 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 )
@@ -35,7 +34,8 @@ const (
 	ViamAgentHandlesNeedsRestartChecking = "VIAM_AGENT_HANDLES_NEEDS_RESTART_CHECKING"
 )
 
-type viamServer struct {
+// Subsystem represents the subsystem for viam-server.
+type Subsystem struct {
 	mu           sync.Mutex
 	cmd          *exec.Cmd
 	running      bool
@@ -68,7 +68,7 @@ func pathMissing(path string) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-func (s *viamServer) Start(ctx context.Context) error {
+func (s *Subsystem) Start(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
 
@@ -201,7 +201,7 @@ func (s *viamServer) Start(ctx context.Context) error {
 	}
 }
 
-func (s *viamServer) Stop(ctx context.Context) error {
+func (s *Subsystem) Stop(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
 
@@ -241,7 +241,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	return errw.Errorf("%s process couldn't be killed", SubsysName)
 }
 
-func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) bool {
+func (s *Subsystem) waitForExit(ctx context.Context, timeout time.Duration) bool {
 	s.mu.Lock()
 	exitChan := s.exitChan
 	running := s.running
@@ -261,12 +261,7 @@ func (s *viamServer) waitForExit(ctx context.Context, timeout time.Duration) boo
 	}
 }
 
-// HealthCheck for viam server is unimplemented.
-func (s *viamServer) HealthCheck(ctx context.Context) error {
-	return nil
-}
-
-func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
+func (s *Subsystem) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.startTimeout = time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes)
@@ -282,7 +277,7 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 }
 
 // Property returns a single property of the currently running viamserver.
-func (s *viamServer) Property(ctx context.Context, property string) bool {
+func (s *Subsystem) Property(ctx context.Context, property string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -308,8 +303,8 @@ func (s *viamServer) Property(ctx context.Context, property string) bool {
 	}
 }
 
-func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
-	return &viamServer{
+func New(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) *Subsystem {
+	return &Subsystem{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
