@@ -21,25 +21,28 @@ type syscfg struct {
 	started bool
 
 	// Log Forwarding
-	logMu      sync.Mutex
-	logWorkers sync.WaitGroup
-	appender   func() logging.Appender
-	logHealth  *utils.Health
-	journalCmd *exec.Cmd
-	cancelFunc context.CancelFunc
-	noJournald bool
+	logMu                               sync.Mutex
+	logWorkers                          sync.WaitGroup
+	appender                            func() logging.Appender
+	logHealth                           *utils.Health
+	journalCmd                          *exec.Cmd
+	cancelFunc                          context.CancelFunc
+	noJournald                          bool
+	shouldForwardRecentSystemdAgentLogs bool
 }
 
 func NewSubsystem(ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
 	getAppenderFunc func() logging.Appender,
+	shouldForwardRecentSystemdAgentLogs bool,
 ) subsystems.Subsystem {
 	return &syscfg{
-		appender:  getAppenderFunc,
-		logger:    logger,
-		cfg:       cfg.SystemConfiguration,
-		logHealth: utils.NewHealth(),
+		appender:                            getAppenderFunc,
+		logger:                              logger,
+		cfg:                                 cfg.SystemConfiguration,
+		logHealth:                           utils.NewHealth(),
+		shouldForwardRecentSystemdAgentLogs: shouldForwardRecentSystemdAgentLogs,
 	}
 }
 
@@ -87,6 +90,12 @@ func (s *syscfg) Start(ctx context.Context) error {
 		s.logger.Warn(errw.Wrap(err, "configuring unattended upgrades"))
 	} else {
 		healthyUpgrades = true
+	}
+
+	// forward recent systemd agent logs if enabled and possible
+	err = s.forwardRecentSystemdAgentLogs(ctx)
+	if err != nil {
+		s.logger.Warn(errw.Wrap(err, "forwarding recent systemd agent logs"))
 	}
 
 	// start kernel log forwarding
