@@ -69,8 +69,7 @@ func splitTerminal(data []byte, atEOF bool) (advance int, token []byte, err erro
 // Connect opens a serial connection and establishes basic IO. Further setup
 // such as calling [Client.Sudo] is likely necessary before the Client is fully
 // usable.
-func Connect(logger logging.Logger) mo.Result[*Client] {
-	const serialPortPath = "/dev/ttyUSB0"
+func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 	clientLogger := logger.Sublogger("serialClient")
 	terminalLogger := clientLogger.Sublogger("terminal")
 	return result.Pipe1(
@@ -134,7 +133,7 @@ func (c *Client) runCmd(cmd string) mo.Result[string] {
 				if len(output) < 1 {
 					continue
 				}
-				c.terminalLogger.Info(output)
+				c.terminalLogger.Debug(output)
 				res.WriteString(output)
 				res.WriteByte('\n')
 			}

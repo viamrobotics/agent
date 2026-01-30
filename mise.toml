@@ -13,4 +13,4 @@ run = [
 
 [tasks.run-serial-tests]
 description = "Run tests on a real device connected serial"
-run = "go run ./cmd/agent-tester"
+run = "go test . -count 1 -v -run TestFeatures -tags=serialtests"

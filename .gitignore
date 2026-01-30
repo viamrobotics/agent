@@ -6,5 +6,5 @@ gha-creds-*.json
 viam-agent-windows-installer*.exe
 *.pem
 
-# Config file containing secrets used by agent-tester
+# Config file containing secrets used for serial console tests
 agent-test.json
