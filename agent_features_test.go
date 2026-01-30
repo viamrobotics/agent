@@ -78,8 +78,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is (not |un)installed$`, uninstallAgent)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running`, testAgentRunning)
-	// l := logging.NewLogger("agent-feature-tests")
-	// sc := serialcontrol.Connect(l)
 }
 
 func uninstallAgent(ctx context.Context, prefixMatch string) (context.Context, error) {
@@ -87,6 +85,8 @@ func uninstallAgent(ctx context.Context, prefixMatch string) (context.Context, e
 		return ctx, err
 	}
 	if prefixMatch == "not " {
+		// If the step is phrased as "is not installed" then double check that the
+		// uninstallation succeeded.
 		return testAgentState(ctx, "LoadState", "not-found")
 	}
 	return ctx, nil

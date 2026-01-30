@@ -1,3 +1,5 @@
+// Package serialcontrol provides utilities to control a Linux machine,
+// probably a Raspberry Pi running Rasbian, via a serial terminal.
 package serialcontrol
 
 import (
@@ -16,10 +18,9 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-var (
-	startCommandOutput = []byte("\x1B[?2004l")
-	startPrompt        = []byte("\x1B[?2004h")
-)
+// Control sequence for xterm's bracketed paste mode:
+// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Bracketed-Paste-Mode.
+var startPrompt = []byte("\x1B[?2004h")
 
 // Client is used to control a raspberry pi over a serial console.
 type Client struct {
@@ -29,6 +30,7 @@ type Client struct {
 	extraShellLevels int
 }
 
+// Copied from bufio.
 func dropCR(data []byte) []byte {
 	if len(data) > 0 && data[len(data)-1] == '\r' {
 		return data[0 : len(data)-1]
@@ -38,23 +40,22 @@ func dropCR(data []byte) []byte {
 
 // splitTerminal is a bufio.SplitFunc that splits terminal output into lines,
 // then terminates when a new prompt is rendered. It looks for ANSI escape
-// sequences to find the next prompt.
+// sequences to find the next prompt. Mostly copied from [bufio.ScanLines].
 func splitTerminal(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if atEOF && len(data) == 0 {
 		return 0, nil, nil
 	}
 
 	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		// Found a newline, presumably as part of ongoing command output. Return the
+		// line with the trailing newline removed + keep scanning.
 		return i + 1, dropCR(data[0:i]), nil
 	}
 
-	cmdStartIndex := bytes.Index(data, startCommandOutput)
 	promptStartIndex := bytes.Index(data, startPrompt)
-	if cmdStartIndex >= 0 && (promptStartIndex < 0 || cmdStartIndex < promptStartIndex) {
-		return cmdStartIndex + len(startCommandOutput), data[0:cmdStartIndex], nil
-	}
-
-	if promptStartIndex >= 0 && (cmdStartIndex < 0 || promptStartIndex < cmdStartIndex) {
+	if promptStartIndex >= 0 {
+		// Found the next prompt and no newlines precede it; return whatever output
+		// remains and terminate scanning.
 		return promptStartIndex + len(startPrompt), data[0:promptStartIndex], bufio.ErrFinalToken
 	}
 
@@ -67,7 +68,7 @@ func splitTerminal(data []byte, atEOF bool) (advance int, token []byte, err erro
 }
 
 // Connect opens a serial connection and establishes basic IO. Further setup
-// such as calling [Client.Sudo] is likely necessary before the Client is fully
+// such as calling [Client.Sudo] is necessary before the Client is fully
 // usable.
 func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 	clientLogger := logger.Sublogger("serialClient")
@@ -102,7 +103,7 @@ func (c *Client) Close() error {
 	return c.port.Close()
 }
 
-func (c *Client) runCmd(cmd string) mo.Result[string] {
+func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	if c.extraShellLevels < 1 {
 		// Sudo() does more setup than just elevating privileges to make the serial
 		// console output easier to parse, so we require it to be called first.
@@ -110,9 +111,10 @@ func (c *Client) runCmd(cmd string) mo.Result[string] {
 	}
 	c.logger.Infow("Running command", "cmd", cmd)
 	// Clear the serial output (this method has a confusing name) to avoid any
-	// lingering bytes from the prompt rendering or something.
+	// lingering bytes from the prompt rendering. All we should see after this
+	// the command output followed by the next prompt.
 	if err := c.port.ResetInputBuffer(); err != nil {
-		return mo.Err[string](err)
+		return mo.Err[[]string](err)
 	}
 
 	// Scan the output by lines until we reach the next prompt.
@@ -121,11 +123,8 @@ func (c *Client) runCmd(cmd string) mo.Result[string] {
 
 	return result.Pipe1(
 		mo.TupleToResult(c.port.Write([]byte(cmd+"\r"))),
-		result.FlatMap(func(int) mo.Result[string] {
-			// Kinda gross but we want to log by line but return the entire output as
-			// one string. Maybe we drop the single string requirement and just return
-			// a []string instead?
-			res := strings.Builder{}
+		result.FlatMap(func(int) mo.Result[[]string] {
+			res := []string{}
 			for scanner.Scan() {
 				output := strings.TrimSpace(scanner.Text())
 				// Ignore blank lines. Does any command output have significant
@@ -134,10 +133,9 @@ func (c *Client) runCmd(cmd string) mo.Result[string] {
 					continue
 				}
 				c.terminalLogger.Debug(output)
-				res.WriteString(output)
-				res.WriteByte('\n')
+				res = append(res, output)
 			}
-			return mo.Ok(res.String())
+			return mo.Ok(res)
 		}),
 	)
 }
@@ -168,18 +166,18 @@ func (c *Client) Sudo() mo.Result[string] {
 }
 
 // joinOutputs is a helper to concatenate chained [mo.Result]s that
-// all contain strings.
-func joinOutputs(prev string) func(string) string {
-	return func(curr string) string {
-		return prev + "\n" + curr
+// all contain string slices from [Client.runCmd] calls.
+func joinOutputs(prev []string) func([]string) []string {
+	return func(curr []string) []string {
+		return append(prev, curr...)
 	}
 }
 
 // RemoveViam stops the viam-agent process and removes all viam-agent +
 // viam-server files from the disk.
-func (c *Client) RemoveViam() mo.Result[string] {
+func (c *Client) RemoveViam() mo.Result[[]string] {
 	return c.StopAgent().
-		FlatMap(func(prevOutput string) mo.Result[string] {
+		FlatMap(func(prevOutput []string) mo.Result[[]string] {
 			toDelete := strings.Join([]string{
 				"/opt/viam",
 				"/etc/viam.json",
@@ -189,47 +187,50 @@ func (c *Client) RemoveViam() mo.Result[string] {
 			}, " ")
 			return c.runCmd("rm -rf " + toDelete).MapValue(joinOutputs(prevOutput))
 		}).
-		FlatMap(func(prevOutput string) mo.Result[string] {
+		FlatMap(func(prevOutput []string) mo.Result[[]string] {
 			return c.runCmd("systemctl daemon-reload").MapValue(joinOutputs(prevOutput))
 		})
 }
 
 // InstallViam installs viam-agent using the process presented to the user in
 // the setup flow on app.viam.com.
-func (c *Client) InstallViam(partID, keyID, key string) mo.Result[string] {
+func (c *Client) InstallViam(partID, keyID, key string) mo.Result[[]string] {
 	cmd := fmt.Sprintf(
 		//nolint: lll
 		`/bin/sh -c "VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"`,
 		keyID, key, partID,
 	)
+	// TODO: this will log the command being run, including the API key in
+	// plaintext. This should change if we ever plan to run this anywhere other
+	// than local environments.
 	return c.runCmd(cmd)
 }
 
 // StartAgent starts the viam-agent systemd unit.
-func (c *Client) StartAgent() mo.Result[string] {
+func (c *Client) StartAgent() mo.Result[[]string] {
 	return c.runCmd("systemctl start viam-agent")
 }
 
 // StartAgent stops the viam-agent systemd unit.
-func (c *Client) StopAgent() mo.Result[string] {
+func (c *Client) StopAgent() mo.Result[[]string] {
 	return c.runCmd("systemctl stop viam-agent")
 }
 
 // RFKill enables a soft block on Bluetooth on the target device. It is used to
 // test that the agent correctly removes the lock when enabling bluetooth.
-func (c *Client) RFKill() mo.Result[string] {
+func (c *Client) RFKill() mo.Result[[]string] {
 	return c.runCmd("rfkill block bluetooth")
 }
 
 // GetAgentStatus retrieves the status of the viam-agent systemd unit via the
-// `systemctl show` command.
+// `systemctl show` command and converts the output into a Go map.
 func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 	return result.Pipe1(
 		c.runCmd("systemctl show viam-agent -l --no-pager"),
 		// Collect output in key=value format into a map
-		result.Map(func(s string) map[string]string {
+		result.Map(func(s []string) map[string]string {
 			return it.FilterSeqToMap(
-				slices.Values(strings.Split(s, "\n")),
+				slices.Values(s),
 				func(item string) (string, string, bool) {
 					kv := strings.SplitN(item, "=", 2)
 					if len(kv) != 2 {
@@ -244,6 +245,6 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 }
 
 // ForceProvisioning forces the agent into provisioning mode.
-func (c *Client) ForceProvisioning() mo.Result[string] {
+func (c *Client) ForceProvisioning() mo.Result[[]string] {
 	return c.runCmd("touch /opt/viam/etc/force_provisioning_mode")
 }
