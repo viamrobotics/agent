@@ -139,7 +139,7 @@ func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	if !CLIEnableNetworkingSubsystem {
 		return true
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return true
 	}
 	return as.DisableNetworkConfiguration.Get()
@@ -150,7 +150,7 @@ func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 	if !CLIEnableSyscfgSubsystem {
 		return true
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return true
 	}
 	return as.DisableSystemConfiguration.Get()

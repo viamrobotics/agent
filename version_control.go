@@ -340,6 +340,9 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			if runtime.GOOS == "windows" {
 				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 			}
+			if runtime.GOOS == "darwin" {
+				expectedMimes = []string{"application/x-mach-binary"}
+			}
 
 			if !slices.ContainsFunc(expectedMimes, mtype.Is) {
 				data.brokenTarget = true
