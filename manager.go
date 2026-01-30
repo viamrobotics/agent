@@ -349,69 +349,52 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 	// near-instantly if already started. Run health checks for syscfg and networking and
 	// restart upon failure. The ordering of subsystem starts is significant here.
 	if !m.cfg.AdvancedSettings.DisableViamServer.Get() {
-		if err := m.viamServer.Start(ctx); err != nil {
-			m.logger.Warn(err)
-		}
+		m.startAndHealthCheck(ctx, "viam-server", m.viamServer.Start, m.viamServer.Stop, nil)
 	}
-	//nolint:dupl
 	if !m.cfg.AdvancedSettings.DisableSystemConfiguration.Get() {
-		if err := m.sysConfig.Start(ctx); err != nil {
-			m.logger.Warn(err)
-		}
-
-		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
-		defer cancelFunc()
-		if err := m.sysConfig.HealthCheck(ctxTimeout); err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			m.logger.Errorw(
-				"sysconfig healthcheck failed, subsystem will be shut down",
-				"err", err,
-			)
-			if err := m.sysConfig.Stop(ctx); err != nil {
-				m.logger.Warn(errw.Wrap(err, "stopping syscfg subsystem"))
-			}
-			if ctx.Err() != nil {
-				return
-			}
-
-			if err := m.sysConfig.Start(ctx); err != nil {
-				m.logger.Warn(errw.Wrap(err, "restarting syscfg subsystem"))
-			}
-		} else {
-			m.logger.Debug("Subsystem healthcheck succeeded for syscfg")
-		}
+		m.startAndHealthCheck(ctx, "sysconfig", m.sysConfig.Start, m.sysConfig.Stop, m.sysConfig.HealthCheck)
 	}
-	//nolint:dupl
 	if !m.cfg.AdvancedSettings.DisableNetworkConfiguration.Get() {
-		if err := m.networking.Start(ctx); err != nil {
-			m.logger.Warn(err)
+		m.startAndHealthCheck(ctx, "networking", m.networking.Start, m.networking.Stop, m.networking.HealthCheck)
+	}
+}
+
+func (m *Manager) startAndHealthCheck(ctx context.Context, subsysName string, start, stop, healthCheck func(context.Context) error) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	if err := start(ctx); err != nil {
+		m.logger.Warn(err)
+	}
+
+	if healthCheck == nil {
+		return
+	}
+
+	ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
+	defer cancelFunc()
+	if err := healthCheck(ctxTimeout); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		m.logger.Errorw(
+			"Subsystem healthcheck failed, subsystem will be shut down",
+			"subsystem", subsysName,
+			"err", err,
+		)
+		if err := stop(ctx); err != nil {
+			m.logger.Warn(errw.Wrapf(err, "stopping %s subsystem", subsysName))
+		}
+		if ctx.Err() != nil {
+			return
 		}
 
-		ctxTimeout, cancelFunc := context.WithTimeout(ctx, time.Second*15)
-		defer cancelFunc()
-		if err := m.networking.HealthCheck(ctxTimeout); err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			m.logger.Errorw(
-				"networking healthcheck failed, subsystem will be shut down",
-				"err", err,
-			)
-			if err := m.networking.Stop(ctx); err != nil {
-				m.logger.Warn(errw.Wrap(err, "stopping networking subsystem"))
-			}
-			if ctx.Err() != nil {
-				return
-			}
-
-			if err := m.networking.Start(ctx); err != nil {
-				m.logger.Warn(errw.Wrap(err, "restarting networking subsystem"))
-			}
-		} else {
-			m.logger.Debug("Subsystem healthcheck succeeded for networking")
+		if err := start(ctx); err != nil {
+			m.logger.Warn(errw.Wrapf(err, "restarting %s subsystem", subsysName))
 		}
+	} else {
+		m.logger.Debugf("Subsystem healthcheck succeeded for %s", subsysName)
 	}
 }
 
