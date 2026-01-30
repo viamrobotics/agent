@@ -93,14 +93,17 @@ func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 
 // Close attempts to reset the serial terminal to the state it was in before
 // the Client was attached, then closes the underlying connection.
-func (c *Client) Close() error {
+func (c *Client) Close() mo.Result[any] {
 	for range c.extraShellLevels {
-		_, err := c.port.Write([]byte("exit\r"))
-		if err != nil {
-			return err
+		res := mo.TupleToResult(c.port.Write([]byte("exit\r")))
+		if res.IsError() {
+			return mo.Err[any](res.Error())
 		}
 	}
-	return c.port.Close()
+	if err := c.port.Close(); err != nil {
+		return mo.Err[any](err)
+	}
+	return mo.Ok[any](nil)
 }
 
 func (c *Client) runCmd(cmd string) mo.Result[[]string] {

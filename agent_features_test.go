@@ -66,8 +66,8 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			serialClient.Sudo().MustGet()
 		})
 		tsc.AfterSuite(func() {
-			if err := serialClient.Close(); err != nil {
-				t.Error("closing serial client", err)
+			if res := serialClient.Close(); res.IsError() {
+				t.Error("closing serial client", res.Error())
 			}
 		})
 	}
