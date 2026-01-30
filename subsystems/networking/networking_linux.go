@@ -10,7 +10,6 @@ import (
 
 	semver "github.com/Masterminds/semver/v3"
 	errw "github.com/pkg/errors"
-	"github.com/viamrobotics/agent/subsystems"
 	"github.com/viamrobotics/agent/utils"
 	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
@@ -19,7 +18,8 @@ import (
 	"tinygo.org/x/bluetooth"
 )
 
-type Networking struct {
+// Subsystem represents the networking subsystem.
+type Subsystem struct {
 	monitorWorkers sync.WaitGroup
 
 	// blocks start/stop/update operations for the subsystem
@@ -67,8 +67,8 @@ type Networking struct {
 	pb.UnimplementedProvisioningServiceServer
 }
 
-func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) subsystems.Subsystem {
-	subsys := &Networking{
+func New(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) *Subsystem {
+	subsys := &Subsystem{
 		cfg:    cfg.NetworkConfiguration,
 		nets:   cfg.AdditionalNetworks,
 		logger: logger,
@@ -93,17 +93,17 @@ func NewSubsystem(ctx context.Context, logger logging.Logger, cfg utils.AgentCon
 	return subsys
 }
 
-func (n *Networking) IsRunning() bool {
+func (n *Subsystem) IsRunning() bool {
 	n.externalOpMu.RLock()
 	defer n.externalOpMu.RUnlock()
 	return n.isRunning()
 }
 
-func (n *Networking) isRunning() bool {
+func (n *Subsystem) isRunning() bool {
 	return n.running || n.noNM
 }
 
-func (n *Networking) getNM() (gnm.NetworkManager, error) {
+func (n *Subsystem) getNM() (gnm.NetworkManager, error) {
 	nm, err := gnm.NewNetworkManager()
 	if err != nil {
 		n.logger.Warn(err)
@@ -145,7 +145,7 @@ func (n *Networking) getNM() (gnm.NetworkManager, error) {
 	return nm, nil
 }
 
-func (n *Networking) init(ctx context.Context) error {
+func (n *Subsystem) init(ctx context.Context) error {
 	n.mainLoopHealth.MarkGood()
 	n.bgLoopHealth.MarkGood()
 
@@ -217,7 +217,7 @@ func (n *Networking) init(ctx context.Context) error {
 	return nil
 }
 
-func (n *Networking) Start(ctx context.Context) error {
+func (n *Subsystem) Start(ctx context.Context) error {
 	// don't hold the write lock if we'd basically do nothing
 	if n.IsRunning() {
 		return nil
@@ -270,7 +270,7 @@ func (n *Networking) Start(ctx context.Context) error {
 	return nil
 }
 
-func (n *Networking) Stop(ctx context.Context) error {
+func (n *Subsystem) Stop(ctx context.Context) error {
 	// don't hold the write lock if we'd basically do nothing
 	if !n.IsRunning() {
 		return nil
@@ -299,7 +299,7 @@ func (n *Networking) Stop(ctx context.Context) error {
 }
 
 // Update validates and/or updates a subsystem, returns true if subsystem should be restarted.
-func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
+func (n *Subsystem) Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool) {
 	if ctx.Err() != nil {
 		return false
 	}
@@ -348,7 +348,7 @@ func (n *Networking) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 }
 
 // HealthCheck reports if a subsystem is running correctly (it is restarted if not).
-func (n *Networking) HealthCheck(ctx context.Context) error {
+func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -407,19 +407,19 @@ func (e networkingUnresponsiveError) Error() string {
 		")"
 }
 
-func (n *Networking) Config() utils.NetworkConfiguration {
+func (n *Subsystem) Config() utils.NetworkConfiguration {
 	n.dataMu.RLock()
 	defer n.dataMu.RUnlock()
 	return n.cfg
 }
 
-func (n *Networking) Nets() utils.AdditionalNetworks {
+func (n *Subsystem) Nets() utils.AdditionalNetworks {
 	n.dataMu.RLock()
 	defer n.dataMu.RUnlock()
 	return n.nets
 }
 
-func (n *Networking) processAdditionalnetworks(ctx context.Context) {
+func (n *Subsystem) processAdditionalnetworks(ctx context.Context) {
 	if !n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() && len(n.Nets()) > 0 {
 		n.logger.Warn("Additional networks configured, but internet checking is not enabled. Additional networks may be unused.")
 	}
@@ -439,7 +439,7 @@ func (n *Networking) processAdditionalnetworks(ctx context.Context) {
 }
 
 // must be run inside dataMu lock.
-func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
+func (n *Subsystem) writeWifiPowerSave(ctx context.Context) error {
 	contents := wifiPowerSaveContentsDefault
 	if n.Config().WifiPowerSave.IsSet() {
 		if n.Config().WifiPowerSave.Get() {
@@ -470,9 +470,4 @@ func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// Property is a noop for the networking subsystem.
-func (n *Networking) Property(_ context.Context, _ string) bool {
-	return false
 }

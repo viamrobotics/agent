@@ -28,7 +28,7 @@ type pairingAgent struct {
 	workers sync.WaitGroup
 	cancel  context.CancelFunc
 
-	networking *Networking
+	networking *Subsystem
 }
 
 func (b *pairingAgent) TrustAll(trust bool) {
@@ -186,7 +186,7 @@ func rfkillUnblock(ctx context.Context) error {
 	return errw.Wrapf(err, "failed to unblock bluetooth: %v", output)
 }
 
-func (n *Networking) enablePairing(deviceName string) error {
+func (n *Subsystem) enablePairing(deviceName string) error {
 	conn, adapter, err := getBluetoothDBus()
 	if err != nil {
 		return err
@@ -239,7 +239,7 @@ func (n *Networking) enablePairing(deviceName string) error {
 	return nil
 }
 
-func (n *Networking) disablePairing() error {
+func (n *Subsystem) disablePairing() error {
 	conn, adapter, err := getBluetoothDBus()
 	if err != nil {
 		return err

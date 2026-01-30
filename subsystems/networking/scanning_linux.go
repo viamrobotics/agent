@@ -19,7 +19,7 @@ var (
 	VisibleNetworkTimeout = time.Minute
 )
 
-func (n *Networking) networkScan(ctx context.Context) error {
+func (n *Subsystem) networkScan(ctx context.Context) error {
 	if n.connState.getProvisioning() && n.netState.NoScanInHotspot() {
 		return nil
 	}
@@ -186,7 +186,7 @@ func parseWPAFlags(apFlags, wpaFlags, rsnFlags uint32) string {
 }
 
 // updates connections/settings from those known to NetworkManager.
-func (n *Networking) updateKnownConnections(ctx context.Context) error {
+func (n *Subsystem) updateKnownConnections(ctx context.Context) error {
 	conns, err := n.settings.ListConnections()
 	if err != nil {
 		return err
@@ -369,7 +369,7 @@ func formatHexWithColons(data []byte) string {
 	return strings.Join(hexValues, ":")
 }
 
-func (n *Networking) getNetKeyFromSettings(settings gnm.ConnectionSettings) NetKey {
+func (n *Subsystem) getNetKeyFromSettings(settings gnm.ConnectionSettings) NetKey {
 	_, wired := settings["802-3-ethernet"]
 	_, wireless := settings["802-11-wireless"]
 	_, bluetooth := settings["bluetooth"]

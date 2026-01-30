@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func (n *Networking) startGRPC(bindAddr string, bindPort int) error {
+func (n *Subsystem) startGRPC(bindAddr string, bindPort int) error {
 	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
 	//nolint: noctx
 	lis, err := net.Listen("tcp", bind)
@@ -43,7 +43,7 @@ func (n *Networking) startGRPC(bindAddr string, bindPort int) error {
 	return nil
 }
 
-func (n *Networking) GetSmartMachineStatus(ctx context.Context,
+func (n *Subsystem) GetSmartMachineStatus(ctx context.Context,
 	req *pb.GetSmartMachineStatusRequest,
 ) (*pb.GetSmartMachineStatusResponse, error) {
 	n.connState.setLastInteraction()
@@ -73,7 +73,7 @@ func (n *Networking) GetSmartMachineStatus(ctx context.Context,
 	return ret, nil
 }
 
-func (n *Networking) SetNetworkCredentials(ctx context.Context,
+func (n *Subsystem) SetNetworkCredentials(ctx context.Context,
 	req *pb.SetNetworkCredentialsRequest,
 ) (*pb.SetNetworkCredentialsResponse, error) {
 	n.connState.setLastInteraction()
@@ -99,12 +99,12 @@ func (n *Networking) SetNetworkCredentials(ctx context.Context,
 	return &pb.SetNetworkCredentialsResponse{}, nil
 }
 
-func (n *Networking) ExitProvisioning(ctx context.Context, req *pb.ExitProvisioningRequest) (*pb.ExitProvisioningResponse, error) {
+func (n *Subsystem) ExitProvisioning(ctx context.Context, req *pb.ExitProvisioningRequest) (*pb.ExitProvisioningResponse, error) {
 	n.portalData.sendInput(ctx)
 	return &pb.ExitProvisioningResponse{}, nil
 }
 
-func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
+func (n *Subsystem) SetSmartMachineCredentials(ctx context.Context,
 	req *pb.SetSmartMachineCredentialsRequest,
 ) (*pb.SetSmartMachineCredentialsResponse, error) {
 	n.connState.setLastInteraction()
@@ -132,7 +132,7 @@ func (n *Networking) SetSmartMachineCredentials(ctx context.Context,
 	return &pb.SetSmartMachineCredentialsResponse{}, nil
 }
 
-func (n *Networking) GetNetworkList(ctx context.Context,
+func (n *Subsystem) GetNetworkList(ctx context.Context,
 	req *pb.GetNetworkListRequest,
 ) (*pb.GetNetworkListResponse, error) {
 	n.connState.setLastInteraction()
@@ -147,7 +147,7 @@ func (n *Networking) GetNetworkList(ctx context.Context,
 	return &pb.GetNetworkListResponse{Networks: networks}, nil
 }
 
-func (n *Networking) errListAsStrings() []string {
+func (n *Subsystem) errListAsStrings() []string {
 	errList := []string{}
 
 	lastNetwork := n.netState.Network(

@@ -47,7 +47,7 @@ const (
 )
 
 // Creates test URLs for property checks. Must be called with s.mu locked.
-func (s *viamServer) makeTestURLs(rp restartProperty) ([]string, error) {
+func (s *Subsystem) makeTestURLs(rp restartProperty) ([]string, error) {
 	urls := []string{s.checkURL, s.checkURLAlt}
 	// On Windows, the local IPV4 addresses created below this check will not be reachable.
 	// Tests for checkRestartProperty are also unable to reach the local IPV4s created below
@@ -113,7 +113,7 @@ func getAllLocalIPv4s() ([]string, error) {
 
 // Returns the value of the requested restart property (false if not determined) and any
 // encountered errors. Must be called with s.mu held, as makeTestURLs is called.
-func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartProperty) (bool, error) {
+func (s *Subsystem) checkRestartProperty(ctx context.Context, rp restartProperty) (bool, error) {
 	urls, err := s.makeTestURLs(rp)
 	if err != nil {
 		return false, err

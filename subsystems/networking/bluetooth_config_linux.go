@@ -13,7 +13,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 )
 
-func (n *Networking) checkBluetoothdVersion(ctx context.Context) error {
+func (n *Subsystem) checkBluetoothdVersion(ctx context.Context) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()
 	cmd := exec.CommandContext(timeoutCtx, "bluetoothctl", "version")
@@ -68,7 +68,7 @@ func getKeyValue(line string) (string, string, bool) {
 	return matches[2], matches[3], isCommented
 }
 
-func (n *Networking) ensureBluetoothConfiguration(ctx context.Context) error {
+func (n *Subsystem) ensureBluetoothConfiguration(ctx context.Context) error {
 	// Read the entire config file
 	content, err := os.ReadFile(BluezConfigPath)
 	if err != nil {

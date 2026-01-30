@@ -24,7 +24,7 @@ func TestCheckRestartProperty(t *testing.T) {
 	ctx := t.Context()
 
 	targetAddr := "localhost:8080"
-	s := &viamServer{
+	s := &Subsystem{
 		logger: logger,
 		// checkURL will normally be the .cloud address of the machine; use localhost instead
 		// here.
