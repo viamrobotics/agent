@@ -472,7 +472,15 @@ func (n *Networking) writeWifiPowerSave(ctx context.Context) error {
 	return nil
 }
 
-// Property is a noop for the networking subsystem.
-func (n *Networking) Property(_ context.Context, _ string) bool {
+// MarkAppTriggeredRestart is a noop for the networking subsystem.
+func (s *Networking) MarkAppTriggeredRestart() {}
+
+// RestartAllowed always returns true for the networking subsystem.
+func (n *Networking) RestartAllowed(_ context.Context) bool {
+	return true
+}
+
+// DoesNotHandleNeedsRestart always returns false for the networking subsystem.
+func (n *Networking) DoesNotHandleNeedsRestart() bool {
 	return false
 }

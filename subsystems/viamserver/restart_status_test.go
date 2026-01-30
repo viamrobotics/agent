@@ -17,9 +17,9 @@ type oldRestartStatusResponse struct {
 	RestartAllowed bool `json:"restart_allowed"`
 }
 
-// Ensures that checkRestartProperty works correctly for restart_allowed and
+// Ensures that fetchRestartStatus works correctly for restart_allowed and
 // does_not_handle_needs_restart against a fake viamserver instance (HTTP server).
-func TestCheckRestartProperty(t *testing.T) {
+func TestFetchRestartStatus(t *testing.T) {
 	logger := logging.NewTestLogger(t)
 	ctx := t.Context()
 
@@ -117,19 +117,17 @@ func TestCheckRestartProperty(t *testing.T) {
 			s.mu.Lock()
 			t.Cleanup(s.mu.Unlock)
 
-			restartAllowed, err := s.checkRestartProperty(ctx, RestartPropertyRestartAllowed)
+			restartStatus, err := s.fetchRestartStatus(ctx)
 			test.That(t, err, test.ShouldBeNil)
-			test.That(t, restartAllowed, test.ShouldEqual, tc.expectedRestartAllowed)
+			test.That(t, restartStatus.RestartAllowed, test.ShouldEqual, tc.expectedRestartAllowed)
 
-			doesNotHandleNeedsRestart, err := s.checkRestartProperty(ctx, RestartPropertyDoesNotHandleNeedsRestart)
-			test.That(t, err, test.ShouldBeNil)
 			// does_not_handle_restart should be false if explicitly false or unset in the test
 			// case.
 			var expectedDoesNotHandleNeedsRestart bool
 			if tc.expectedDoesNotHandleNeedsRestart != nil {
 				expectedDoesNotHandleNeedsRestart = *tc.expectedDoesNotHandleNeedsRestart
 			}
-			test.That(t, doesNotHandleNeedsRestart, test.ShouldEqual, expectedDoesNotHandleNeedsRestart)
+			test.That(t, restartStatus.DoesNotHandleNeedsRestart, test.ShouldEqual, expectedDoesNotHandleNeedsRestart)
 		})
 	}
 }

@@ -71,9 +71,8 @@ type Manager struct {
 // NewManager returns a new Manager.
 func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig, globalCancel context.CancelFunc) *Manager {
 	manager := &Manager{
-		logger: logger,
-		cfg:    cfg,
-
+		logger:       logger,
+		cfg:          cfg,
 		globalCancel: globalCancel,
 
 		viamServer: viamserver.NewSubsystem(ctx, logger, cfg),
@@ -245,7 +244,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			if m.viamServer.Property(ctx, viamserver.RestartPropertyRestartAllowed) {
+			if m.viamServer.RestartAllowed(ctx) {
 				m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
 				if err := m.viamServer.Stop(ctx); err != nil {
 					m.logger.Warn(err)
@@ -421,7 +420,7 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 
 	// Only continue this check if viam-server does not handle restart checking itself
 	// (return early if viamserver _does_ handle restart checking).
-	if !m.viamServer.Property(ctx, viamserver.RestartPropertyDoesNotHandleNeedsRestart) {
+	if !m.viamServer.DoesNotHandleNeedsRestart() {
 		return minimalNeedsRestartCheckInterval, false
 	}
 
@@ -623,6 +622,8 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 				if needsRestart {
 					// Do not mark m.agentNeedsRestart and instead Exit immediately; we do not want
 					// to wait for viam-server to allow a restart as it may be in a bad state.
+					// Prepare viam-server for graceful shutdown with stack traces and module signaling.
+					m.viamServer.MarkAppTriggeredRestart()
 					m.Exit(fmt.Sprintf("A restart of %s was requested from app", SubsystemName))
 				}
 				// As with the device agent config check interval, randomly fuzz the interval by

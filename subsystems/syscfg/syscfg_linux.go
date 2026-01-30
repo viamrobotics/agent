@@ -127,7 +127,15 @@ func (s *syscfg) HealthCheck(ctx context.Context) error {
 	return errors.New("healthcheck failed")
 }
 
-// Property is a noop for the syscfg subsystem.
-func (s *syscfg) Property(_ context.Context, _ string) bool {
+// MarkAppTriggeredRestart is a noop for the syscfg subsystem.
+func (s *syscfg) MarkAppTriggeredRestart() {}
+
+// RestartAllowed always returns true for the syscfg subsystem.
+func (s *syscfg) RestartAllowed(_ context.Context) bool {
+	return true
+}
+
+// DoesNotHandleNeedsRestart always returns false for the syscfg subsystem.
+func (s *syscfg) DoesNotHandleNeedsRestart() bool {
 	return false
 }
