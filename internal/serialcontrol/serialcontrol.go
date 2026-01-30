@@ -124,48 +124,41 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	scanner := bufio.NewScanner(c.port)
 	scanner.Split(splitTerminal)
 
-	return result.Pipe1(
-		mo.TupleToResult(c.port.Write([]byte(cmd+"\r"))),
-		result.FlatMap(func(int) mo.Result[[]string] {
-			res := []string{}
-			for scanner.Scan() {
-				output := strings.TrimSpace(scanner.Text())
-				// Ignore blank lines. Does any command output have significant
-				// whitespace such that we'll need to remove this?
-				if len(output) < 1 {
-					continue
-				}
-				c.terminalLogger.Debug(output)
-				res = append(res, output)
-			}
-			return mo.Ok(res)
-		}),
-	)
+	if _, err := c.port.Write([]byte(cmd + "\r")); err != nil {
+		return mo.Err[[]string](err)
+	}
+	res := []string{}
+	for scanner.Scan() {
+		output := strings.TrimSpace(scanner.Text())
+		// Ignore blank lines. Does any command output have significant
+		// whitespace such that we'll need to remove this?
+		if len(output) < 1 {
+			continue
+		}
+		c.terminalLogger.Debug(output)
+		res = append(res, output)
+	}
+	return mo.Ok(res)
 }
 
 // Sudo elevates the privileges on the client and performs some environment
 // setup in the newly elevated shell. It's actions will be automatically
 // reversed by [Client.Close]. This method assumes that it is possible to sudo
 // without a password.
-func (c *Client) Sudo() mo.Result[string] {
-	return result.Pipe1(
-		mo.TupleToResult(c.port.Write([]byte("sudo -s\r"))).
-			MapValue(func(value int) int {
-				c.extraShellLevels++
-				time.Sleep(time.Second * 2)
-				return 0
-			}).
-			Map(func(value int) (int, error) {
-				return c.port.Write([]byte("stty -echo\r"))
-			}).
-			MapValue(func(value int) int {
-				time.Sleep(time.Second * 2)
-				return 0
-			}),
-		result.Map(func(int) string {
-			return ""
-		}),
-	)
+func (c *Client) Sudo() mo.Result[any] {
+	if _, err := c.port.Write([]byte("sudo -s\r")); err != nil {
+		return mo.Err[any](err)
+	}
+	c.extraShellLevels++
+	time.Sleep(time.Second * 2)
+
+	// Disable echo in the terminal so we don't have to deal with ignoring the
+	// text of the commands we send in the output.
+	if _, err := c.port.Write([]byte("stty -echo\r")); err != nil {
+		return mo.Err[any](err)
+	}
+
+	return mo.Ok[any](nil)
 }
 
 // joinOutputs is a helper to concatenate chained [mo.Result]s that
