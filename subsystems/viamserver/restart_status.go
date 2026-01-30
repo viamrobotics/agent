@@ -133,6 +133,8 @@ func (s *viamServer) fetchRestartStatus(ctx context.Context) (*RestartStatusResp
 
 	for _, url := range urls {
 		go func() {
+			s.logger.Debugf("Starting restart_status check for %s using %s", SubsysName, url)
+
 			restartURL := url + restartURLSuffix
 
 			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)

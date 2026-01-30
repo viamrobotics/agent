@@ -205,15 +205,15 @@ func (s *viamServer) Start(ctx context.Context) error {
 		if err != nil {
 			s.mu.Unlock()
 			s.logger.Warn(err)
-		} else {
-			s.doesNotHandleNeedsRestart = restartStatus.DoesNotHandleNeedsRestart
-			s.moduleServerTCPAddr = restartStatus.ModuleServerTCPAddr
-			s.mu.Unlock()
+			return nil
+		}
+		s.doesNotHandleNeedsRestart = restartStatus.DoesNotHandleNeedsRestart
+		s.moduleServerTCPAddr = restartStatus.ModuleServerTCPAddr
+		s.mu.Unlock()
 
-			if !s.doesNotHandleNeedsRestart {
-				s.logger.Warnf("%s may already handle checking needs restart functionality; will not handle in agent",
-					SubsysName)
-			}
+		if !s.doesNotHandleNeedsRestart {
+			s.logger.Warnf("%s may already handle checking needs restart functionality; will not handle in agent",
+				SubsysName)
 		}
 		return nil
 	case <-ctx.Done():
