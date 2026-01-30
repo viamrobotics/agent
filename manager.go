@@ -215,7 +215,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	// if running locally (not via systemd), download but don't install & exit
 	if needRestart {
 		if utils.IsRunningLocally {
-			m.logger.Infof("Agent is running locally. Downloaded latest update to version cache, but skipping install.")
+			m.logger.Info("Agent is running locally. Downloaded latest update to version cache, but skipping install.")
 		} else {
 			_, err := InstallNewVersion(ctx, m.logger)
 			if err != nil {
@@ -380,7 +380,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 				m.logger.Warn(errw.Wrap(err, "restarting syscfg subsystem"))
 			}
 		} else {
-			m.logger.Debugf("Subsystem healthcheck succeeded for syscfg")
+			m.logger.Debug("Subsystem healthcheck succeeded for syscfg")
 		}
 	}
 	//nolint:dupl
@@ -410,7 +410,7 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 				m.logger.Warn(errw.Wrap(err, "restarting networking subsystem"))
 			}
 		} else {
-			m.logger.Debugf("Subsystem healthcheck succeeded for networking")
+			m.logger.Debug("Subsystem healthcheck succeeded for networking")
 		}
 	}
 }
@@ -680,7 +680,7 @@ func (m *Manager) dial(ctx context.Context) error {
 	if m.netAppender != nil {
 		m.netAppender.SetConn(conn, true)
 	} else {
-		m.logger.Warnf("unintialized NetAppender in dial() -- agent logs won't be uploaded")
+		m.logger.Warn("unintialized NetAppender in dial() -- agent logs won't be uploaded")
 	}
 	return nil
 }
