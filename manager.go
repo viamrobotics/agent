@@ -238,7 +238,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			if m.viamServer.Property(ctx, viamserver.RestartPropertyRestartAllowed) {
+			if m.viamServer.RestartAllowed(ctx) {
 				m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
 				if err := m.viamServer.Stop(ctx); err != nil {
 					m.logger.Warn(err)
@@ -414,7 +414,7 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 
 	// Only continue this check if viam-server does not handle restart checking itself
 	// (return early if viamserver _does_ handle restart checking).
-	if !m.viamServer.Property(ctx, viamserver.RestartPropertyDoesNotHandleNeedsRestart) {
+	if !m.viamServer.DoesNotHandleNeedsRestart() {
 		return minimalNeedsRestartCheckInterval, false
 	}
 

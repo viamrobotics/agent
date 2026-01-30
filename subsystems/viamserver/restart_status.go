@@ -18,44 +18,35 @@ import (
 	goutils "go.viam.com/utils"
 )
 
-type (
-	// RestartStatusResponse is the http/json response from viamserver's /restart_status URL.
-	RestartStatusResponse struct {
-		// RestartAllowed represents whether this instance of the viamserver can be
-		// safely restarted.
-		RestartAllowed bool `json:"restart_allowed"`
-		// DoesNotHandleNeedsRestart represents whether this instance of the viamserver does
-		// not check for the need to restart against app itself and, thus, needs agent to do so.
-		// Newer versions of viamserver (>= v0.9x.0) will report true for this value, while
-		// older versions won't report it at all, and agent should let viamserver handle
-		// NeedsRestart logic.
-		DoesNotHandleNeedsRestart bool `json:"does_not_handle_needs_restart,omitempty"`
-		// ModuleServerTCPAddr is the TCP address of the module server.
-		// The module server can be used for unauthenticated local RPC calls.
-		// Newer versions of viamserver (>= v0.112.0) will return the address, while
-		// older versions won't, and therefore won't dump stack traces on app triggered restarts.
-		ModuleServerTCPAddr string `json:"module_server_tcp_addr,omitempty"`
-	}
-
-	// restartProperty is a property related to restarting about which agent can query
-	// viamserver.
-	restartProperty = string
-)
+// RestartStatusResponse is the http/json response from viamserver's /restart_status URL.
+type RestartStatusResponse struct {
+	// RestartAllowed represents whether this instance of the viamserver can be
+	// safely restarted.
+	RestartAllowed bool `json:"restart_allowed"`
+	// DoesNotHandleNeedsRestart represents whether this instance of the viamserver does
+	// not check for the need to restart against app itself and, thus, needs agent to do so.
+	// Newer versions of viamserver (>= v0.9x.0) will report true for this value, while
+	// older versions won't report it at all, and agent should let viamserver handle
+	// NeedsRestart logic.
+	DoesNotHandleNeedsRestart bool `json:"does_not_handle_needs_restart,omitempty"`
+	// ModuleServerTCPAddr is the TCP address of the module server.
+	// The module server can be used for unauthenticated local RPC calls.
+	// Newer versions of viamserver (>= v0.112.0) will return the address, while
+	// older versions won't, and therefore won't dump stack traces on app triggered restarts.
+	ModuleServerTCPAddr string `json:"module_server_tcp_addr,omitempty"`
+}
 
 const (
-	RestartPropertyRestartAllowed            restartProperty = "restart allowed"
-	RestartPropertyDoesNotHandleNeedsRestart restartProperty = "does not handle needs restart"
-
 	restartURLSuffix = "/restart_status"
 
-	checkRestartPropertyTimeout = 10 * time.Second
+	fetchRestartStatusTimeout = 10 * time.Second
 )
 
-// Creates test URLs for property checks. Must be called with s.mu locked.
-func (s *viamServer) makeTestURLs(rp restartProperty) ([]string, error) {
+// Creates test URLs for restart status checks. Must be called with s.mu locked.
+func (s *viamServer) makeTestURLs() ([]string, error) {
 	urls := []string{s.checkURL, s.checkURLAlt}
 	// On Windows, the local IPV4 addresses created below this check will not be reachable.
-	// Tests for checkRestartProperty are also unable to reach the local IPV4s created below
+	// Tests for fetchRestartStatus are also unable to reach the local IPV4s created below
 	// due to how the test server is set up.
 	if runtime.GOOS == "windows" || testing.Testing() {
 		return urls, nil
@@ -64,10 +55,9 @@ func (s *viamServer) makeTestURLs(rp restartProperty) ([]string, error) {
 	port := "8080"
 	mainURL, err := url.Parse(s.checkURL)
 	if err != nil {
-		s.logger.Warnf("Cannot determine port for %s check, using default of 8080", rp)
+		s.logger.Warn("Cannot determine port for restart status check, using default of 8080")
 	} else {
 		port = mainURL.Port()
-		s.logger.Debugf("Using port %s for %s check", port, rp)
 	}
 
 	ips, err := getAllLocalIPv4s()
@@ -116,28 +106,10 @@ func getAllLocalIPv4s() ([]string, error) {
 	return all, nil
 }
 
-// Returns the value of the requested restart property (false if not determined) and any
-// encountered errors. Must be called with s.mu held, as makeTestURLs is called.
-func (s *viamServer) checkRestartProperty(ctx context.Context, rp restartProperty) (bool, error) {
-	resp, err := s.fetchRestartStatus(ctx, rp)
-	if err != nil {
-		return false, err
-	}
-
-	switch rp {
-	case RestartPropertyRestartAllowed:
-		return resp.RestartAllowed, nil
-	case RestartPropertyDoesNotHandleNeedsRestart:
-		return resp.DoesNotHandleNeedsRestart, nil
-	default:
-		return false, errw.Errorf("unknown restart property: %s", rp)
-	}
-}
-
 // fetchRestartStatus fetches the full RestartStatusResponse from viam-server.
 // Must be called with s.mu held, as makeTestURLs is called.
-func (s *viamServer) fetchRestartStatus(ctx context.Context, rp restartProperty) (*RestartStatusResponse, error) {
-	urls, err := s.makeTestURLs(rp)
+func (s *viamServer) fetchRestartStatus(ctx context.Context) (*RestartStatusResponse, error) {
+	urls, err := s.makeTestURLs()
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +118,7 @@ func (s *viamServer) fetchRestartStatus(ctx context.Context, rp restartProperty)
 	// block, as we'll only ever have len(urls) goroutines trying to send one value.
 	resultChan := make(chan mo.Result[*RestartStatusResponse], len(urls))
 
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, checkRestartPropertyTimeout)
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, fetchRestartStatusTimeout)
 	defer cancelFunc()
 
 	// Disabling the cert verification because it doesn't work in offline mode (when
@@ -161,23 +133,19 @@ func (s *viamServer) fetchRestartStatus(ctx context.Context, rp restartProperty)
 
 	for _, url := range urls {
 		go func() {
-			s.logger.Debugf("Starting %s check for %s using %s", rp, SubsysName, url)
-
 			restartURL := url + restartURLSuffix
 
 			req, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, restartURL, nil)
 			if err != nil {
 				resultChan <- mo.Err[*RestartStatusResponse](
-					errw.Wrapf(err, "creating HTTP request for %s check for %s via %s",
-						rp, SubsysName, restartURL))
+					errw.Wrapf(err, "creating HTTP request for restart status via %s", restartURL))
 				return
 			}
 
 			resp, err := client.Do(req)
 			if err != nil {
 				resultChan <- mo.Err[*RestartStatusResponse](
-					errw.Wrapf(err, "sending HTTP request for %s check for %s via %s",
-						rp, SubsysName, restartURL))
+					errw.Wrapf(err, "sending HTTP request for restart status via %s", restartURL))
 				return
 			}
 			defer func() {
@@ -188,15 +156,14 @@ func (s *viamServer) fetchRestartStatus(ctx context.Context, rp restartProperty)
 				// Interacting with older viam-server instances will result in a non-successful
 				// HTTP response status code, as the /restart_status endpoint will not be
 				// available.
-				resultChan <- mo.Errf[*RestartStatusResponse]("checking %s status via %s, got code: %d", SubsysName, restartURL, resp.StatusCode)
+				resultChan <- mo.Errf[*RestartStatusResponse]("checking restart status via %s, got code: %d", restartURL, resp.StatusCode)
 				return
 			}
 
 			var restartStatusResponse RestartStatusResponse
 			if err = json.NewDecoder(resp.Body).Decode(&restartStatusResponse); err != nil {
 				resultChan <- mo.Err[*RestartStatusResponse](
-					errw.Wrapf(err, "decoding HTTP response for %s check for %s via %s",
-						rp, SubsysName, restartURL))
+					errw.Wrapf(err, "decoding HTTP response for restart status via %s", restartURL))
 				return
 			}
 

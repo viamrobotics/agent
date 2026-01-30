@@ -20,11 +20,14 @@ type Subsystem interface {
 	// HealthCheck reports if a subsystem is running correctly (it is restarted if not)
 	HealthCheck(ctx context.Context) error
 
-	// Property gets an arbitrary property about the running subystem.
-	Property(ctx context.Context, property string) bool
-
 	// MarkAppTriggeredRestart marks the subsystem for a special shutdown procedure when triggered via app.
 	MarkAppTriggeredRestart()
+
+	// RestartAllowed checks if the subsystem allows a restart.
+	RestartAllowed(ctx context.Context) bool
+
+	// DoesNotHandleNeedsRestart returns whether the subsystem handles needs restart checking itself.
+	DoesNotHandleNeedsRestart() bool
 }
 
 // Dummy is a fake subsystem for when a particular OS doesn't (yet) have support.
@@ -46,8 +49,12 @@ func (d *Dummy) HealthCheck(_ context.Context) error {
 	return nil
 }
 
-func (d *Dummy) Property(_ context.Context, _ string) bool {
-	return false
+func (d *Dummy) MarkAppTriggeredRestart() {}
+
+func (d *Dummy) RestartAllowed(_ context.Context) bool {
+	return true
 }
 
-func (d *Dummy) MarkAppTriggeredRestart() {}
+func (d *Dummy) DoesNotHandleNeedsRestart() bool {
+	return false
+}

@@ -63,6 +63,10 @@ type viamServer struct {
 	// versions)
 	doesNotHandleNeedsRestart bool
 
+	// moduleServerTCPAddr is the TCP address of the module server, cached at startup.
+	// Used for Shutdown RPC during app-triggered restarts.
+	moduleServerTCPAddr string
+
 	// appTriggeredRestart indicates whether the next Stop should use Shutdown RPC
 	// to allow viam-server to dump stack traces and gracefully shut down modules.
 	// This is set to true when the app's NeedsRestart API triggers a restart.
@@ -192,19 +196,24 @@ func (s *viamServer) Start(ctx context.Context) error {
 		s.logger.Infof("%s started", SubsysName)
 		s.logger.Infof("%s found serving at the following URLs: %s %s", SubsysName, s.checkURL, s.checkURLAlt)
 
-		// Once the subsystem has successfully started, check whether it handles needs restart
-		// logic. We can calculate this value only once at startup and cache it, with the
-		// assumption that it will not change over the course of the lifetime of the
-		// subsystem.
+		// Once the subsystem has successfully started, fetch restart status and cache
+		// relevant properties. These values are calculated once at startup and cached,
+		// with the assumption that they will not change over the course of the lifetime
+		// of the subsystem.
 		s.mu.Lock()
-		s.doesNotHandleNeedsRestart, err = s.checkRestartProperty(ctx, RestartPropertyDoesNotHandleNeedsRestart)
-		s.mu.Unlock()
+		restartStatus, err := s.fetchRestartStatus(ctx)
 		if err != nil {
+			s.mu.Unlock()
 			s.logger.Warn(err)
-		}
-		if !s.doesNotHandleNeedsRestart {
-			s.logger.Warnf("%s may already handle checking needs restart functionality; will not handle in agent",
-				SubsysName)
+		} else {
+			s.doesNotHandleNeedsRestart = restartStatus.DoesNotHandleNeedsRestart
+			s.moduleServerTCPAddr = restartStatus.ModuleServerTCPAddr
+			s.mu.Unlock()
+
+			if !s.doesNotHandleNeedsRestart {
+				s.logger.Warnf("%s may already handle checking needs restart functionality; will not handle in agent",
+					SubsysName)
+			}
 		}
 		return nil
 	case <-ctx.Done():
@@ -226,15 +235,15 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	s.shouldRun = false
 	appTriggeredRestart := s.appTriggeredRestart
 	s.appTriggeredRestart = false // Reset the flag
+	moduleServerTCPAddr := s.moduleServerTCPAddr
+	s.mu.Unlock()
 
 	if !running {
-		s.mu.Unlock()
 		return nil
 	}
 
 	// interrupt early in startup
 	if s.cmd == nil {
-		s.mu.Unlock()
 		return nil
 	}
 
@@ -244,9 +253,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 	// stack traces and gracefully shut down modules. For other shutdowns (binary updates,
 	// config changes, etc.), use signal-based termination for faster shutdown.
 	if appTriggeredRestart {
-		// tryShutdownRPC requires s.mu to be held for fetchRestartStatus
-		err := s.tryShutdownRPC(ctx)
-		s.mu.Unlock()
+		err := s.tryShutdownRPC(ctx, moduleServerTCPAddr)
 		if err != nil {
 			s.logger.Debugw("Shutdown RPC failed, falling back to signal-based termination", "error", err)
 			if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
@@ -254,7 +261,6 @@ func (s *viamServer) Stop(ctx context.Context) error {
 			}
 		}
 	} else {
-		s.mu.Unlock()
 		if err := utils.SignalForTermination(s.cmd.Process.Pid); err != nil {
 			s.logger.Warn(errw.Wrap(err, "signaling viam-server process"))
 		}
@@ -280,13 +286,7 @@ func (s *viamServer) Stop(ctx context.Context) error {
 
 // tryShutdownRPC attempts to call the Shutdown RPC on viam-server's module server.
 // The module server is unauthenticated and designed for trusted local communication.
-// Must be called with s.mu held, as fetchRestartStatus requires it.
-func (s *viamServer) tryShutdownRPC(ctx context.Context) error {
-	restartStatus, err := s.fetchRestartStatus(ctx, "restart_status")
-	if err != nil {
-		return errw.Wrap(err, "fetching restart_status for module server address")
-	}
-	dialAddr := restartStatus.ModuleServerTCPAddr
+func (s *viamServer) tryShutdownRPC(ctx context.Context, dialAddr string) error {
 	if dialAddr == "" {
 		return errw.New("no module server TCP address available")
 	}
@@ -363,34 +363,31 @@ func (s *viamServer) Update(ctx context.Context, cfg utils.AgentConfig) (needRes
 	return false
 }
 
-// Property returns a single property of the currently running viamserver.
-func (s *viamServer) Property(ctx context.Context, property string) bool {
+// RestartAllowed makes a request to the /restart_status endpoint to check if viam-server
+// allows a restart at this time.
+func (s *viamServer) RestartAllowed(ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	switch property {
-	case RestartPropertyRestartAllowed:
-		if !s.running || runtime.GOOS == "windows" {
-			// Assume agent can restart viamserver if the subsystem is not running or we are on
-			// Windows.
-			//
-			// TODO(RSDK-12271): Allow checks of restart_allowed on Windows.
-			return true
-		}
+	if !s.running {
+		// Assume agent can restart viamserver if the subsystem is not running.
+		return true
+	}
 
-		restartAllowed, err := s.checkRestartProperty(ctx, RestartPropertyRestartAllowed)
-		if err != nil {
-			s.logger.Warn(err)
-		}
-		return restartAllowed
-	case RestartPropertyDoesNotHandleNeedsRestart:
-		// We can use the cached value (calculated in Start) for handle needs restart
-		// property.
-		return s.doesNotHandleNeedsRestart
-	default:
-		s.logger.Errorw("Unknown property requested from viamserver", "property", property)
+	restartStatus, err := s.fetchRestartStatus(ctx)
+	if err != nil {
+		s.logger.Warn(err)
 		return false
 	}
+	return restartStatus.RestartAllowed
+}
+
+// DoesNotHandleNeedsRestart returns the cached value from startup indicating whether
+// viam-server handles needs restart checking itself.
+func (s *viamServer) DoesNotHandleNeedsRestart() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.doesNotHandleNeedsRestart
 }
 
 // MarkAppTriggeredRestart marks viam-server for a graceful shutdown via Shutdown RPC.
