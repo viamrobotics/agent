@@ -1,9 +1,16 @@
 [tools]
 golangci-lint = "2.8.0"
 
+[env]
+GOEXPERIMENT = 'jsonv2'
+
 [tasks.lint]
 run = [
   'go mod tidy',
   'GOOS=linux golangci-lint run -v --fix --timeout 10m',
   'GOOS=windows golangci-lint run -v --fix --timeout 10m',
 ]
+
+[tasks.test-e2e-serial]
+description = "Run tests on a real device connected via serial. See readme for setup requirements."
+run = "go test . -count 1 -v -run TestSerialFeatures -tags=serialtests"

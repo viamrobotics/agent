@@ -35,5 +35,16 @@ Agent can be run directly (`./viam-agent`) outside of systemd for local developm
 ### Systemd
 The service configration lives in both `viam-agent.service` and `preinstall.sh`, and the two should be kept in sync when making changes.
 
+### Testing via serial
+
+Some end-to-end workflows can be tested by connecting to a Raspberry Pi with a serial adapter. These tests can be run via a mise task but require additional setup:
+
+- You must have a USB to serial adapter or some other means to connect to the serial port on your Raspberry Pi.
+- Your Raspberry Pi must be configured to enable login on the serial port. This can be accomplished with the `raspi-config` cli or by manually editing config files. Refer to the upstream Raspberry Pi docs for details.
+- The serial connection must already have a shell logged in as a user that can use sudo to become root without a password. To log in over the serial connection we recommend [picocom]. You can use it to connect to the serial terminal and login with `picocom -b 115200 /dev/ttyUSB0`. Depending on your setup the previous command may require sudo and the path to the tty device may be different. Once you have logged in you can disconnect from the serial console by typing `Ctrl-a Ctrl-x`.
+
+Once these dependencies are satisfied you can execute the serial tests with `mise r test-e2e-serial`.
+
 [mise]: https://mise.jdx.dev/
 [install-mise]: https://mise.jdx.dev/installing-mise.html
+[picocom]: https://github.com/npat-efault/picocom
