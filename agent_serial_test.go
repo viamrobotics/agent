@@ -27,20 +27,20 @@ type config struct {
 
 var cfg config
 
-func TestFeatures(t *testing.T) {
+func TestSerialFeatures(t *testing.T) {
 	suite := godog.TestSuite{
 		TestSuiteInitializer: InitializeSuite(t),
 		ScenarioInitializer:  InitializeScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"features"},
+			Paths:    []string{"features/serial"},
 			TestingT: t,
 			Strict:   true,
 		},
 	}
 
 	if exit := suite.Run(); exit != 0 {
-		t.Fatalf("non-zero exit of from features test suite %v", exit)
+		t.Fatalf("non-zero exit of from serial features test suite %v", exit)
 	}
 }
 
@@ -51,7 +51,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			// Load config file + store it in global variable. This contains secrets
 			// like the app API key as well as parameters that could change between
 			// setups like the path to the serial device.
-			cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_FEATURES_CFG")).
+			cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_SERIAL_CFG")).
 				OrElse("./agent-test.json")
 			cfgFile := mo.TupleToResult(os.Open(cfgPath)).MustGet()
 			if err := json.UnmarshalRead(cfgFile, &cfg); err != nil {

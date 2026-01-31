@@ -13,4 +13,4 @@ run = [
 
 [tasks.test-e2e-serial]
 description = "Run tests on a real device connected via serial. See readme for setup requirements."
-run = "go test . -count 1 -v -run TestFeatures -tags=serialtests"
+run = "go test . -count 1 -v -run TestSerialFeatures -tags=serialtests"
