@@ -11,6 +11,6 @@ run = [
   'GOOS=windows golangci-lint run -v --fix --timeout 10m',
 ]
 
-[tasks.run-serial-tests]
-description = "Run tests on a real device connected serial"
+[tasks.test-e2e-serial]
+description = "Run tests on a real device connected via serial. See readme for setup requirements."
 run = "go test . -count 1 -v -run TestFeatures -tags=serialtests"
