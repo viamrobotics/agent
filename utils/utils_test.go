@@ -504,6 +504,23 @@ func TestInitPaths(t *testing.T) {
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
 	})
+
+	t.Run("success wrong mode for only partials", func(t *testing.T) {
+		// Primarily a regression test for RSDK-13310.
+		if runtime.GOOS == "windows" {
+			// Windows doesn't have Unix style file modes
+			t.SkipNow()
+		}
+		MockViamDirs(t)
+		err := errors.Join(
+			os.MkdirAll(ViamDirs.Viam, 0o755),
+			os.MkdirAll(ViamDirs.Bin, 0o755),
+			os.MkdirAll(ViamDirs.Partials, 0o750),
+		)
+		test.That(t, err, test.ShouldBeNil)
+		err = InitPaths()
+		test.That(t, err, test.ShouldBeNil)
+	})
 }
 
 func TestPartialPath(t *testing.T) {
