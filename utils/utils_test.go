@@ -464,9 +464,11 @@ func TestViamDirsValuesEmpty(t *testing.T) {
 }
 
 func TestInitPaths(t *testing.T) {
+	logger, logs := logging.NewObservedTestLogger(t)
+
 	t.Run("success", func(t *testing.T) {
 		MockViamDirs(t)
-		err := InitPaths()
+		err := InitPaths(logger)
 		test.That(t, err, test.ShouldBeNil)
 	})
 
@@ -474,7 +476,7 @@ func TestInitPaths(t *testing.T) {
 		td := MockViamDirs(t)
 		err := os.Chmod(td, 0o500)
 		test.That(t, err, test.ShouldBeNil)
-		err = InitPaths()
+		err = InitPaths(logger)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "creating directory")
 	})
@@ -485,27 +487,11 @@ func TestInitPaths(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 		_, err = os.Create(ViamDirs.Bin)
 		test.That(t, err, test.ShouldBeNil)
-		err = InitPaths()
+		err = InitPaths(logger)
 		test.That(t, err, test.ShouldBeError, ViamDirs.Bin+" should be a directory, but is not")
 	})
 
-	t.Run("failure wrong mode", func(t *testing.T) {
-		if runtime.GOOS == "windows" {
-			// Windows doesn't have Unix style file modes
-			t.SkipNow()
-		}
-		MockViamDirs(t)
-		err := errors.Join(
-			os.MkdirAll(ViamDirs.Viam, 0o755),
-			os.MkdirAll(ViamDirs.Bin, 0o700),
-		)
-		test.That(t, err, test.ShouldBeNil)
-		err = InitPaths()
-		test.That(t, err, test.ShouldNotBeNil)
-		test.That(t, err.Error(), test.ShouldContainSubstring, ViamDirs.Bin+" should have permission set to")
-	})
-
-	t.Run("success wrong mode for only partials", func(t *testing.T) {
+	t.Run("success wrong mode", func(t *testing.T) {
 		// Primarily a regression test for RSDK-13310.
 		if runtime.GOOS == "windows" {
 			// Windows doesn't have Unix style file modes
@@ -514,12 +500,15 @@ func TestInitPaths(t *testing.T) {
 		MockViamDirs(t)
 		err := errors.Join(
 			os.MkdirAll(ViamDirs.Viam, 0o755),
-			os.MkdirAll(ViamDirs.Bin, 0o755),
+			os.MkdirAll(ViamDirs.Bin, 0o700),
 			os.MkdirAll(ViamDirs.Partials, 0o750),
 		)
 		test.That(t, err, test.ShouldBeNil)
-		err = InitPaths()
+		err = InitPaths(logger)
 		test.That(t, err, test.ShouldBeNil)
+		// We should get three warning logs: one for `bin`, one for `cache/part`, and one for
+		// `cache` (which was also created with 0o750).
+		test.That(t, logs.FilterMessageSnippet("should have permission set to").Len(), test.ShouldEqual, 3)
 	})
 }
 

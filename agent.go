@@ -61,7 +61,7 @@ func Install(ctx context.Context, logger logging.Logger, sdManager systemdManage
 	}
 
 	// Create/check required folder structure exists.
-	if err := utils.InitPaths(); err != nil {
+	if err := utils.InitPaths(logger); err != nil {
 		return err
 	}
 
