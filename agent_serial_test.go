@@ -4,7 +4,7 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json/v2"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -32,6 +32,7 @@ func TestSerialFeatures(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite(t),
 		ScenarioInitializer:  InitializeScenario,
 		Options: &godog.Options{
+			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
 			Paths:    []string{"features/serial"},
 			TestingT: t,
@@ -53,8 +54,8 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			// setups like the path to the serial device.
 			cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_SERIAL_CFG")).
 				OrElse("./agent-test.json")
-			cfgFile := mo.TupleToResult(os.Open(cfgPath)).MustGet()
-			if err := json.UnmarshalRead(cfgFile, &cfg); err != nil {
+			cfgData := mo.TupleToResult(os.ReadFile(cfgPath)).MustGet()
+			if err := json.Unmarshal(cfgData, &cfg); err != nil {
 				panic(err)
 			}
 

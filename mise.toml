@@ -1,9 +1,6 @@
 [tools]
 golangci-lint = "2.8.0"
 
-[env]
-GOEXPERIMENT = 'jsonv2'
-
 [tasks.lint]
 run = [
   'go mod tidy',
