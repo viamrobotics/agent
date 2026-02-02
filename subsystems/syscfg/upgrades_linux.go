@@ -23,7 +23,7 @@ const (
 )
 
 // runs inside s.mu.Lock().
-func (s *syscfg) EnforceUpgrades(ctx context.Context) error {
+func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 	cfg := s.cfg.OSAutoUpgradeType
 	if cfg == "" {
 		return nil

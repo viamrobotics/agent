@@ -32,7 +32,7 @@ const (
 	socksManualCheckIntervalLong  = time.Minute * 2
 )
 
-func (n *Networking) warnIfMultiplePrimaryNetworks() {
+func (n *Subsystem) warnIfMultiplePrimaryNetworks() {
 	if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 		return
 	}
@@ -60,7 +60,7 @@ func (n *Networking) warnIfMultiplePrimaryNetworks() {
 	}
 }
 
-func (n *Networking) getVisibleNetworks() []NetworkInfo {
+func (n *Subsystem) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
 	for _, nw := range n.netState.Networks() {
 		// note this does NOT use VisibleNetworkTimeout (like getCandidates does)
@@ -80,12 +80,12 @@ func (n *Networking) getVisibleNetworks() []NetworkInfo {
 	return visible
 }
 
-func (n *Networking) getLastNetworkTried() NetworkInfo {
+func (n *Subsystem) getLastNetworkTried() NetworkInfo {
 	lastNetwork := n.netState.LastNetwork(NetworkTypeWifi, n.Config().HotspotInterface)
 	return lastNetwork.getInfo()
 }
 
-func (n *Networking) checkOnline(ctx context.Context, force bool) error {
+func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 	networkStatusLogger := n.logger.Sublogger("network_status")
 	if force {
 		// note: this call blocks; may take 30s+
@@ -167,7 +167,7 @@ func isObjectNotExistError(err error) bool {
 	return strings.Contains(err.Error(), "Object does not exist at path")
 }
 
-func (n *Networking) checkConnections() {
+func (n *Subsystem) checkConnections() {
 	var connected bool
 	defer func() {
 		n.connState.setConnected(connected)
@@ -254,7 +254,7 @@ func (n *Networking) checkConnections() {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (n *Networking) startProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- userInput) error {
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
@@ -321,7 +321,7 @@ func rebaseNetworkConfiguration(nCfg utils.NetworkConfiguration) (utils.NetworkC
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to
 // ensure opMutex is acquired).
-func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
+func (n *Subsystem) startProvisioningHotspot(ctx context.Context) error {
 	if n.Config().DisableWifiProvisioning.Get() {
 		return nil
 	}
@@ -346,7 +346,7 @@ func (n *Networking) startProvisioningHotspot(ctx context.Context) error {
 	return nil
 }
 
-func (n *Networking) stopProvisioning() error {
+func (n *Subsystem) stopProvisioning() error {
 	n.errors.Clear()
 	err := errors.Join(
 		n.stopProvisioningHotspot(),
@@ -359,7 +359,7 @@ func (n *Networking) stopProvisioning() error {
 	return nil
 }
 
-func (n *Networking) stopProvisioningHotspot() error {
+func (n *Subsystem) stopProvisioningHotspot() error {
 	// Always attempt to stop the portal, if it's not running this is just a noop.
 	err := n.stopPortal()
 
@@ -389,7 +389,7 @@ func (n *Networking) stopProvisioningHotspot() error {
 	return nil
 }
 
-func (n *Networking) ActivateConnection(ctx context.Context, id NetKey) error {
+func (n *Subsystem) ActivateConnection(ctx context.Context, id NetKey) error {
 	if n.connState.getProvisioning() && id.Interface() == n.Config().HotspotInterface {
 		return errors.New("cannot activate another connection while in provisioning mode")
 	}
@@ -401,7 +401,7 @@ func (n *Networking) ActivateConnection(ctx context.Context, id NetKey) error {
 	return n.activateConnection(ctx, id)
 }
 
-func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
+func (n *Subsystem) activateConnection(ctx context.Context, id NetKey) error {
 	now := time.Now()
 	nw := n.netState.LockingNetwork(id)
 	nw.mu.Lock()
@@ -463,7 +463,7 @@ func (n *Networking) activateConnection(ctx context.Context, id NetKey) error {
 	return nil
 }
 
-func (n *Networking) DeactivateConnection(id NetKey) error {
+func (n *Subsystem) DeactivateConnection(id NetKey) error {
 	if n.connState.getProvisioning() && id.Interface() == n.Config().HotspotInterface {
 		return errors.New("cannot deactivate another connection while in provisioning mode")
 	}
@@ -473,7 +473,7 @@ func (n *Networking) DeactivateConnection(id NetKey) error {
 	return n.deactivateConnection(id)
 }
 
-func (n *Networking) deactivateConnection(id NetKey) error {
+func (n *Subsystem) deactivateConnection(id NetKey) error {
 	activeConn := n.netState.ActiveConn(id.Interface())
 	if activeConn == nil {
 		return errw.Wrapf(ErrNoActiveConnectionFound, "interface: %s", id.Interface())
@@ -505,7 +505,7 @@ func (n *Networking) deactivateConnection(id NetKey) error {
 }
 
 // waitForConnect activates a network after subscribing to state changes to monitor. The nw object should already be locked.
-func (n *Networking) waitForConnect(ctx context.Context, nw *lockingNetwork, device gnm.Device) (gnm.ActiveConnection, error) {
+func (n *Subsystem) waitForConnect(ctx context.Context, nw *lockingNetwork, device gnm.Device) (gnm.ActiveConnection, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 
@@ -550,14 +550,14 @@ func (n *Networking) waitForConnect(ctx context.Context, nw *lockingNetwork, dev
 	}
 }
 
-func (n *Networking) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
+func (n *Subsystem) AddOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
 	n.internalOpMu.Lock()
 	defer n.internalOpMu.Unlock()
 	return n.addOrUpdateConnection(cfg)
 }
 
 // returns true if network was new (added) and not updated.
-func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
+func (n *Subsystem) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, error) {
 	var changesMade bool
 
 	if !slices.Contains(NetworkTypesKnown, cfg.Type) {
@@ -640,7 +640,7 @@ func (n *Networking) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, e
 }
 
 // this doesn't error as it's not technically fatal if it fails.
-func (n *Networking) lowerMaxNetPriorities(skip NetKey) {
+func (n *Subsystem) lowerMaxNetPriorities(skip NetKey) {
 	for _, nw := range n.netState.LockingNetworks() {
 		netKey := n.netState.GenNetKey(NetworkTypeWifi, nw.interfaceName, nw.ssid)
 		if netKey == skip || netKey == n.netState.GenNetKey(NetworkTypeWifi, "", n.Config().HotspotSSID) ||
@@ -679,12 +679,12 @@ func (n *Networking) lowerMaxNetPriorities(skip NetKey) {
 	}
 }
 
-func (n *Networking) checkConfigured() {
+func (n *Subsystem) checkConfigured() {
 	_, err := os.ReadFile(utils.AppConfigFilePath)
 	n.connState.setConfigured(err == nil)
 }
 
-func (n *Networking) tryBluetoothTether(ctx context.Context) bool {
+func (n *Subsystem) tryBluetoothTether(ctx context.Context) bool {
 	if !n.bluetoothEnabled() {
 		return false
 	}
@@ -724,7 +724,7 @@ func (n *Networking) tryBluetoothTether(ctx context.Context) bool {
 }
 
 // tryCandidates returns true if a network activated.
-func (n *Networking) tryCandidates(ctx context.Context) bool {
+func (n *Subsystem) tryCandidates(ctx context.Context) bool {
 	for _, ssid := range n.getCandidates(n.Config().HotspotInterface) {
 		err := n.ActivateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", ssid))
 		if err != nil {
@@ -747,7 +747,7 @@ func (n *Networking) tryCandidates(ctx context.Context) bool {
 	return false
 }
 
-func (n *Networking) getCandidates(ifName string) []string {
+func (n *Subsystem) getCandidates(ifName string) []string {
 	var candidates []network
 	for _, nw := range n.netState.Networks() {
 		if nw.netType != NetworkTypeWifi || (nw.interfaceName != "" && nw.interfaceName != ifName) {
@@ -787,7 +787,7 @@ func (n *Networking) getCandidates(ifName string) []string {
 	return out
 }
 
-func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
+func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
 	n.logger.Info("Background state monitors started")
@@ -821,7 +821,7 @@ func (n *Networking) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 }
 
 // Process user input (viam.json and/or Wifi settings) and return true if everything succeeded without error, false otherwise.
-func (n *Networking) processUserInput(userInput userInput) bool {
+func (n *Subsystem) processUserInput(userInput userInput) bool {
 	if userInput.RawConfig != "" || userInput.PartID != "" {
 		n.logger.Info("Device config received")
 		err := WriteDeviceConfig(utils.AppConfigFilePath, userInput)
@@ -856,7 +856,7 @@ func (n *Networking) processUserInput(userInput userInput) bool {
 	return true
 }
 
-func (n *Networking) checkForceProvisioning() bool {
+func (n *Subsystem) checkForceProvisioning() bool {
 	touchFile := path.Join(utils.ViamDirs.Etc, "force_provisioning_mode")
 
 	// Check if the touch file exists
@@ -878,7 +878,7 @@ func (n *Networking) checkForceProvisioning() bool {
 	return time.Since(n.connState.getForceProvisioningTime()) < time.Duration(n.Config().RetryConnectionTimeoutMinutes)
 }
 
-func (n *Networking) mainLoop(ctx context.Context) {
+func (n *Subsystem) mainLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
 	defer func() {
@@ -1097,7 +1097,7 @@ func (n *Networking) mainLoop(ctx context.Context) {
 	}
 }
 
-func (n *Networking) doReboot(ctx context.Context) bool {
+func (n *Subsystem) doReboot(ctx context.Context) bool {
 	n.logger.Infow(
 		"device has been offline too long, rebooting",
 		"configuredRebootTimeout",
@@ -1116,7 +1116,7 @@ func (n *Networking) doReboot(ctx context.Context) bool {
 	return false
 }
 
-func (n *Networking) CheckInternetManual(ctx context.Context, behindSocksProxy bool) (bool, error) {
+func (n *Subsystem) CheckInternetManual(ctx context.Context, behindSocksProxy bool) (bool, error) {
 	n.logger.Debug("checking internet by attempting to download test file.")
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()

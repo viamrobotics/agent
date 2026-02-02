@@ -22,7 +22,7 @@ var (
 )
 
 // runs inside s.mu.Lock().
-func (s *syscfg) EnforceLogging(ctx context.Context) error {
+func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 	if s.cfg.LoggingJournaldRuntimeMaxUseMegabytes < 0 && s.cfg.LoggingJournaldSystemMaxUseMegabytes < 0 {
 		if err := os.Remove(journaldConfPath); err != nil {
 			if errw.Is(err, fs.ErrNotExist) {

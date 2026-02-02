@@ -69,7 +69,7 @@ func TestCheckForceProvisioning(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a fresh networking instance for each test
-			n := &Networking{
+			n := &Subsystem{
 				logger: logging.NewTestLogger(t),
 				connState: &connectionState{
 					forceProvisioning: tt.setupForceProvisioning,
