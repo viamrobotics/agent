@@ -406,7 +406,7 @@ func readIfExists(destPath string) (string, error) {
 
 // writeWithDirs writes a file at path, creating dirs if necessary.
 func writeWithDirs(destPath, contents string) error {
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return errw.Wrapf(err, "creating directory for %s", destPath)
 	}
 	return errw.Wrapf(os.WriteFile(destPath, []byte(contents), 0o600), "writing %s", destPath)
