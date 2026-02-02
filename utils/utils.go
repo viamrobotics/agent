@@ -128,7 +128,7 @@ func InitViamDirs(viamDirRoot string) {
 	ViamDirs.Etc = filepath.Join(ViamDirs.Viam, "etc")
 }
 
-func InitPaths() error {
+func InitPaths(logger logging.Logger) error {
 	uid := os.Getuid()
 	expectedPerms := os.FileMode(0o755)
 	if runtime.GOOS == "windows" {
@@ -153,7 +153,10 @@ func InitPaths() error {
 			return errw.Errorf("%s should be a directory, but is not", p)
 		}
 		if info.Mode().Perm() != expectedPerms {
-			return errw.Errorf("%s should have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
+			// RSDK-13310: A previous version of viam-agent created the partials directory with
+			// 0o750 instead of the expected 0o755 permissions. If we get a permissions error
+			// here, just a log a debug message.
+			logger.Debugf("%s should have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
 		}
 	}
 	return nil

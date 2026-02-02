@@ -156,7 +156,7 @@ func commonMain() {
 	}
 
 	// set up folder structure
-	exitIfError(utils.InitPaths())
+	exitIfError(utils.InitPaths(globalLogger))
 
 	// use a lockfile to prevent running two agents on the same machine
 	pidFile, err := getLock()
