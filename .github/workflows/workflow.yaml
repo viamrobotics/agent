@@ -37,10 +37,25 @@ jobs:
     - name: Test
       run: make test
     - name: Build
-      run: make all
+      run: make amd64 arm64 windows
+
+  test-macos:
+    name: Test and Build MacOS
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required to be able to generate prerelease tags
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Test
+      run: make test
+    - name: Build
+      run: make darwin
 
   build:
-    name: Build and Upload
+    name: Build and Upload Linux/Windows
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.event_name == 'release'
     needs: test
@@ -52,7 +67,11 @@ jobs:
       with:
         go-version-file: go.mod
     - name: Build
-      run: make all manifest
+      run: |
+        make amd64 arm64 windows
+        ./manifest.sh bin/viam-agent-*-x86_64
+        ./manifest.sh bin/viam-agent-*-aarch64
+        ./manifest.sh bin/viam-agent-*-windows-x86_64
     - uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
@@ -61,6 +80,37 @@ jobs:
       if: github.event_name == 'release'
       run: |
         gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* install.sh uninstall.sh preinstall.sh gs://packages.viam.com/apps/viam-agent/
+        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+    - name: Upload binaries to GCS (Prerelease)
+      if: github.event_name != 'release'
+      run: |
+        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
+        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+
+  build-macos:
+    name: Build and Upload MacOS
+    runs-on: macos-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    needs: test-macos
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required to be able to generate prerelease tags
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Build
+      run: |
+        make darwin
+        ./manifest.sh bin/viam-agent-*-darwin-aarch64
+    - uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+    - uses: google-github-actions/setup-gcloud@v2
+    - name: Upload binaries to GCS (Release)
+      if: github.event_name == 'release'
+      run: |
+        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/
         gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
     - name: Upload binaries to GCS (Prerelease)
       if: github.event_name != 'release'
