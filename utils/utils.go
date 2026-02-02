@@ -155,8 +155,8 @@ func InitPaths(logger logging.Logger) error {
 		if info.Mode().Perm() != expectedPerms {
 			// RSDK-13310: A previous version of viam-agent created the partials directory with
 			// 0o750 instead of the expected 0o755 permissions. If we get a permissions error
-			// here, just a log a warning.
-			logger.Warnf("%s should have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
+			// here, just a log a debug message.
+			logger.Debugf("%s should have permission set to %#o, but has permissions %#o", p, expectedPerms, info.Mode().Perm())
 		}
 	}
 	return nil
