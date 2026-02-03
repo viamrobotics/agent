@@ -509,6 +509,13 @@ func TestInitPaths(t *testing.T) {
 		// We should get three warning logs: one for `bin`, one for `cache/part`, and one for
 		// `cache` (which was also created with 0o750).
 		test.That(t, logs.FilterMessageSnippet("should have permission set to").Len(), test.ShouldEqual, 3)
+
+		info, err := os.Stat(ViamDirs.Bin)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, info.Mode().Perm(), test.ShouldEqual, os.FileMode(0o755))
+		info, err = os.Stat(ViamDirs.Partials)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, info.Mode().Perm(), test.ShouldEqual, os.FileMode(0o755))
 	})
 }
 
