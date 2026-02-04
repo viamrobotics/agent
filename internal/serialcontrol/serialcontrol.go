@@ -17,7 +17,6 @@ import (
 	errw "github.com/pkg/errors"
 	"github.com/samber/lo/it"
 	"github.com/samber/mo"
-	"github.com/samber/mo/result"
 	"go.bug.st/serial"
 	"go.viam.com/rdk/logging"
 )
@@ -77,22 +76,21 @@ func splitTerminal(data []byte, atEOF bool) (advance int, token []byte, err erro
 func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 	clientLogger := logger.Sublogger("serialClient")
 	terminalLogger := clientLogger.Sublogger("terminal")
-	return result.Pipe1(
-		mo.TupleToResult(serial.Open(serialPortPath, &serial.Mode{
-			BaudRate: 115200,
-			DataBits: 8,
-			Parity:   serial.NoParity,
-		})).MapErr(func(err error) (serial.Port, error) {
-			return nil, errw.Wrapf(err, "failed to open serial port at %s", serialPortPath)
-		}),
-		result.Map(func(port serial.Port) *Client {
-			return &Client{
-				port:           port,
-				logger:         clientLogger,
-				terminalLogger: terminalLogger,
-			}
-		}),
-	)
+	serialPortRes := mo.TupleToResult(serial.Open(serialPortPath, &serial.Mode{
+		BaudRate: 115200,
+		DataBits: 8,
+		Parity:   serial.NoParity,
+	}))
+	if serialPortRes.IsError() {
+		return mo.Err[*Client](
+			errw.Wrapf(serialPortRes.Error(), "failed to open serial port at %s", serialPortPath),
+		)
+	}
+	return mo.Ok(&Client{
+		port:           serialPortRes.MustGet(),
+		logger:         clientLogger,
+		terminalLogger: terminalLogger,
+	})
 }
 
 // Close attempts to reset the serial terminal to the state it was in before
@@ -235,23 +233,22 @@ func (c *Client) RFKill() mo.Result[[]string] {
 // GetAgentStatus retrieves the status of the viam-agent systemd unit via the
 // `systemctl show` command and converts the output into a Go map.
 func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
-	return result.Pipe1(
-		c.runCmd("systemctl show viam-agent -l --no-pager"),
-		// Collect output in key=value format into a map
-		result.Map(func(s []string) map[string]string {
-			return it.FilterSeqToMap(
-				slices.Values(s),
-				func(item string) (string, string, bool) {
-					kv := strings.SplitN(item, "=", 2)
-					if len(kv) != 2 {
-						// Probably just a blank line, ignore.
-						return "", "", false
-					}
-					return kv[0], kv[1], true
-				},
-			)
-		}),
-	)
+	cmdRes := c.runCmd("systemctl show viam-agent -l --no-pager")
+	if cmdRes.IsError() {
+		return mo.Err[map[string]string](cmdRes.Error())
+	}
+	// Collect output in key=value format into a map
+	return mo.Ok(it.FilterSeqToMap(
+		slices.Values(cmdRes.MustGet()),
+		func(item string) (string, string, bool) {
+			kv := strings.SplitN(item, "=", 2)
+			if len(kv) != 2 {
+				// Probably just a blank line, ignore.
+				return "", "", false
+			}
+			return kv[0], kv[1], true
+		},
+	))
 }
 
 // EnsureOnline verifies that the device has an internet connection and attempts
@@ -261,6 +258,7 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 	if packetLossRes.IsError() {
 		return packetLossRes.Error()
 	}
+	packetLossRes.Get()
 	if packetLossRes.MustGet() != 0 {
 		// If we're already online then don't meddle with the internet connection.
 		return nil
