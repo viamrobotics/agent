@@ -5,5 +5,9 @@
   "part_id": "<part id>",
 
   "$comment": "optional fields",
-  "serial_path": "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
+  "serial_path": "<path to serial device, on Linux usually starts with /dev/ttyUSB>",
+  "wifi": {
+    "ssid": "<wifi ssid>",
+    "password": "<wifi password>"
+  }
 }
