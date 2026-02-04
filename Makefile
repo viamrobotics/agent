@@ -1,4 +1,4 @@
-GOOS ?= "linux"
+GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 ifeq ($(GOARCH),amd64)
 ARCH = x86_64
