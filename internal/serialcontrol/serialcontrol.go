@@ -97,17 +97,16 @@ func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 
 // Close attempts to reset the serial terminal to the state it was in before
 // the Client was attached, then closes the underlying connection.
-func (c *Client) Close() mo.Result[any] {
+func (c *Client) Close() error {
 	for range c.extraShellLevels {
-		res := mo.TupleToResult(c.port.Write([]byte("exit\r")))
-		if res.IsError() {
-			return mo.Err[any](res.Error())
+		if _, err := c.port.Write([]byte("exit\r")); err != nil {
+			return errw.Wrap(err, "failed to exit shell")
 		}
 	}
 	if err := c.port.Close(); err != nil {
-		return mo.Err[any](err)
+		return errw.Wrap(err, "failed to close serial port")
 	}
-	return mo.Ok[any](nil)
+	return nil
 }
 
 func (c *Client) runCmd(cmd string) mo.Result[[]string] {
@@ -160,21 +159,20 @@ func scannerToStrSeq(scanner *bufio.Scanner) loz.Seq[string] {
 // setup in the newly elevated shell. It's actions will be automatically
 // reversed by [Client.Close]. This method assumes that it is possible to sudo
 // without a password.
-func (c *Client) Sudo() mo.Result[any] {
+func (c *Client) Sudo() error {
 	if _, err := c.port.Write([]byte("sudo -s\r")); err != nil {
-		return mo.Err[any](err)
+		return errw.Wrap(err, `failed to execute "sudo -s"`)
 	}
 	c.extraShellLevels++
 
 	// Disable echo in the terminal so we don't have to deal with ignoring the
 	// text of the commands we send in the output.
 	if _, err := c.port.Write([]byte("stty -echo\r")); err != nil {
-		return mo.Err[any](err)
+		return errw.Wrap(err, `failed to execute "stty -echo"`)
 	}
 
 	time.Sleep(time.Second * 2)
-
-	return mo.Ok[any](nil)
+	return nil
 }
 
 // joinOutputs is a helper to concatenate chained [mo.Result]s that
@@ -258,39 +256,46 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
-func (c *Client) EnsureOnline(ssid, password string) mo.Result[any] {
-	initialCheckRes := c.getPingPacketLoss()
-	if initialCheckRes.IsOk() {
+func (c *Client) EnsureOnline(ssid, password string) error {
+	packetLossRes := c.getPingPacketLoss()
+	if packetLossRes.IsError() {
+		return packetLossRes.Error()
+	}
+	if packetLossRes.MustGet() != 0 {
 		// If we're already online then don't meddle with the internet connection.
-		return mo.Ok[any](nil)
+		return nil
 	}
 
 	if ssid == "" || password == "" {
-		return mo.Err[any](errw.Wrap(
-			initialCheckRes.Error(),
-			"Device offline but no wifi credentials provided, cannot continue",
-		))
+		return fmt.Errorf(
+			"device offline with packet loss of %d%% but no wifi credentials provided, cannot continue",
+			packetLossRes.MustGet(),
+		)
 	}
 
 	// If we're offline try connecting to the specified wifi network.
 	connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
 	if connectWifiRes.IsError() {
-		return mo.Err[any](connectWifiRes.Error())
+		return errw.Wrap(connectWifiRes.Error(), "failed to connect to wifi network")
 	}
 
-	// Rerun the ping test. If this fails we have no way to recover so just
-	// propagate the result, whether it's error or success.
-	return c.getPingPacketLoss()
+	// Rerun the ping test. If this fails we have no way to recover
+	return c.getPingPacketLoss().FlatMap(func(value int) mo.Result[int] {
+		if value != 0 {
+			return mo.Err[int](fmt.Errorf("internet connection unstable with packet loss of %d%%", value))
+		}
+		return mo.Ok(value)
+	}).Error()
 }
 
 // getPingPacketLoss attempts to ping app.viam.com and returns the packet loss
 // percentage.
-func (c *Client) getPingPacketLoss() mo.Result[any] {
+func (c *Client) getPingPacketLoss() mo.Result[int] {
 	pingRegex := regexp.MustCompile(`\d+ packets transmitted, \d+ received, (\d+)% packet loss, time \d+\w+$`)
 	const pingCmd = "ping -c 2 -w 10 -q app.viam.com"
 	pingRes := c.runCmd(pingCmd)
 	if pingRes.IsError() {
-		return mo.Err[any](errw.Wrap(pingRes.Error(), "failed to ping app.viam.com"))
+		return mo.Err[int](errw.Wrap(pingRes.Error(), "failed to ping app.viam.com"))
 	}
 
 	packetLoss, err := lom.Map1[string, int](loz.IterSlice(pingRes.MustGet())).
@@ -307,12 +312,9 @@ func (c *Client) getPingPacketLoss() mo.Result[any] {
 		}).
 		TryFirst()
 	if err != nil {
-		return mo.Err[any](errw.Wrap(err, "failed to extract packet loss percentage from ping output"))
+		return mo.Err[int](errw.Wrap(err, "failed to extract packet loss percentage from ping output"))
 	}
-	if packetLoss != 0 {
-		return mo.Err[any](fmt.Errorf("found potential internet issues with packet loss of %d%%", packetLoss))
-	}
-	return mo.Ok[any](packetLoss)
+	return mo.Ok[int](packetLoss)
 }
 
 // ForceProvisioning forces the agent into provisioning mode.

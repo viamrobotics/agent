@@ -70,19 +70,21 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			// see the commands + any output they produce.
 			logger.SetLevel(logging.WARN)
 			serialClient = serialcontrol.Connect(logger, cfg.SerialPath.OrElse("/dev/ttyUSB0")).MustGet()
-			serialClient.Sudo().MustGet()
+			if err := serialClient.Sudo(); err != nil {
+				panic(err)
+			}
 
 			wifi := cfg.Wifi.OrEmpty()
-			if onlineRes := serialClient.EnsureOnline(wifi.SSID, wifi.Password); onlineRes.IsError() {
+			if err := serialClient.EnsureOnline(wifi.SSID, wifi.Password); err != nil {
 				// The AfterSuite hook doesn't run if we panic here so try to restore the terminal state manually
 				serialClient.Close()
 				// Setup failed, panic
-				onlineRes.MustGet()
+				panic(err)
 			}
 		})
 		tsc.AfterSuite(func() {
-			if res := serialClient.Close(); res.IsError() {
-				t.Error("closing serial client", res.Error())
+			if err := serialClient.Close(); err != nil {
+				t.Error("closing serial client", err)
 			}
 		})
 	}
