@@ -15,6 +15,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-getter v1.8.3
 	github.com/jessevdk/go-flags v1.6.1
+	github.com/jmatth/loz v0.0.0-20260120050243-3a5023cfa58e
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/pkg/errors v0.9.1
 	github.com/samber/lo v1.52.0

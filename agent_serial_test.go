@@ -19,10 +19,16 @@ import (
 var serialClient *serialcontrol.Client
 
 type config struct {
-	APIKeyID   string            `json:"api_key_id"`
-	APIKey     string            `json:"api_key"`
-	PartID     string            `json:"part_id"`
-	SerialPath mo.Option[string] `json:"serial_path"`
+	APIKeyID   string             `json:"api_key_id"`
+	APIKey     string             `json:"api_key"`
+	PartID     string             `json:"part_id"`
+	SerialPath mo.Option[string]  `json:"serial_path"`
+	Wifi       mo.Option[wifiCfg] `json:"wifi"`
+}
+
+type wifiCfg struct {
+	SSID     string `json:"ssid"`
+	Password string `json:"password"`
 }
 
 var cfg config
@@ -65,6 +71,14 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			logger.SetLevel(logging.WARN)
 			serialClient = serialcontrol.Connect(logger, cfg.SerialPath.OrElse("/dev/ttyUSB0")).MustGet()
 			serialClient.Sudo().MustGet()
+
+			wifi := cfg.Wifi.OrEmpty()
+			if onlineRes := serialClient.EnsureOnline(wifi.SSID, wifi.Password); onlineRes.IsError() {
+				// The AfterSuite hook doesn't run if we panic here so try to restore the terminal state manually
+				serialClient.Close()
+				// Setup failed, panic
+				onlineRes.MustGet()
+			}
 		})
 		tsc.AfterSuite(func() {
 			if res := serialClient.Close(); res.IsError() {

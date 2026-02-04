@@ -6,10 +6,14 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jmatth/loz"
+	lom "github.com/jmatth/loz/mapping"
 	errw "github.com/pkg/errors"
 	"github.com/samber/lo/it"
 	"github.com/samber/mo"
@@ -150,13 +154,14 @@ func (c *Client) Sudo() mo.Result[any] {
 		return mo.Err[any](err)
 	}
 	c.extraShellLevels++
-	time.Sleep(time.Second * 2)
 
 	// Disable echo in the terminal so we don't have to deal with ignoring the
 	// text of the commands we send in the output.
 	if _, err := c.port.Write([]byte("stty -echo\r")); err != nil {
 		return mo.Err[any](err)
 	}
+
+	time.Sleep(time.Second * 2)
 
 	return mo.Ok[any](nil)
 }
@@ -238,6 +243,65 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 			)
 		}),
 	)
+}
+
+// EnsureOnline verifies that the device has an internet connection and attempts
+// to connect to the specified WiFi network if it is not.
+func (c *Client) EnsureOnline(ssid, password string) mo.Result[any] {
+	initialCheckRes := c.getPingPacketLoss()
+	if initialCheckRes.IsOk() {
+		// If we're already online then don't meddle with the internet connection.
+		return mo.Ok[any](nil)
+	}
+
+	if ssid == "" || password == "" {
+		return mo.Err[any](errw.Wrap(
+			initialCheckRes.Error(),
+			"Device offline but no wifi credentials provided, cannot continue",
+		))
+	}
+
+	// If we're offline try connecting to the specified wifi network.
+	connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
+	if connectWifiRes.IsError() {
+		return mo.Err[any](connectWifiRes.Error())
+	}
+
+	// Rerun the ping test. If this fails we have no way to recover so just
+	// propagate the result, whether it's error or success.
+	return c.getPingPacketLoss()
+}
+
+// getPingPacketLoss attempts to ping app.viam.com and returns the packet loss
+// percentage.
+func (c *Client) getPingPacketLoss() mo.Result[any] {
+	pingRegex := regexp.MustCompile(`\d+ packets transmitted, \d+ received, (\d+)% packet loss, time \d+\w+$`)
+	const pingCmd = "ping -c 2 -w 10 -q app.viam.com"
+	pingRes := c.runCmd(pingCmd)
+	if pingRes.IsError() {
+		return mo.Err[any](errw.Wrap(pingRes.Error(), "failed to ping app.viam.com"))
+	}
+
+	packetLoss, err := lom.Map1[string, int](loz.IterSlice(pingRes.MustGet())).
+		FilterMap(func(line string) (int, bool) {
+			matches := pingRegex.FindStringSubmatch(line)
+			if len(matches) < 2 {
+				return 0, false
+			}
+			packetLoss, err := strconv.Atoi(matches[1])
+			if err != nil {
+				loz.PanicHaltIteration(errw.Wrapf(err, `expected match in "%s"`, line))
+			}
+			return packetLoss, true
+		}).
+		TryFirst()
+	if err != nil {
+		return mo.Err[any](errw.Wrap(err, "failed to extract packet loss percentage from ping output"))
+	}
+	if packetLoss != 0 {
+		return mo.Err[any](fmt.Errorf("found potential internet issues with packet loss of %d%%", packetLoss))
+	}
+	return mo.Ok[any](packetLoss)
 }
 
 // ForceProvisioning forces the agent into provisioning mode.
