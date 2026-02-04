@@ -131,18 +131,29 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	if _, err := c.port.Write([]byte(cmd + "\r")); err != nil {
 		return mo.Err[[]string](err)
 	}
-	res := []string{}
-	for scanner.Scan() {
-		output := strings.TrimSpace(scanner.Text())
-		// Ignore blank lines. Does any command output have significant
-		// whitespace such that we'll need to remove this?
-		if len(output) < 1 {
-			continue
-		}
-		c.terminalLogger.Debug(output)
-		res = append(res, output)
-	}
+	res := scannerToStrSeq(scanner).
+		Map(strings.TrimSpace).
+		FilterMap(func(output string) (string, bool) {
+			// Ignore blank lines. Does any command output have significant
+			// whitespace such that we'll need to remove this?
+			if len(output) < 1 {
+				return "", false
+			}
+			c.terminalLogger.Debug(output)
+			return output, true
+		}).
+		CollectSlice()
 	return mo.Ok(res)
+}
+
+func scannerToStrSeq(scanner *bufio.Scanner) loz.Seq[string] {
+	return func(yield func(string) bool) {
+		for scanner.Scan() {
+			if !yield(scanner.Text()) {
+				break
+			}
+		}
+	}
 }
 
 // Sudo elevates the privileges on the client and performs some environment
