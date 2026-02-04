@@ -1,0 +1,9 @@
+{
+  "$comment": "Required fields",
+  "api_key_id": "<app api key id taken from machine install instructions>",
+  "api_key": "<app api key taken from machine install instructions>",
+  "part_id": "<part id>",
+
+  "$comment": "optional fields",
+  "serial_path": "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
+}
