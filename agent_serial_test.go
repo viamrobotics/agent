@@ -19,10 +19,10 @@ import (
 var serialClient *serialcontrol.Client
 
 type config struct {
-	APIKeyID   string            `json:"apiKeyID"`
-	APIKey     string            `json:"apiKey"`
-	PartID     string            `json:"partID"`
-	SerialPath mo.Option[string] `json:"serialPath"`
+	APIKeyID   string            `json:"api_key_id"`
+	APIKey     string            `json:"api_key"`
+	PartID     string            `json:"part_id"`
+	SerialPath mo.Option[string] `json:"serial_path"`
 }
 
 var cfg config
