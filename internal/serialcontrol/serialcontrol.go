@@ -111,7 +111,7 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	if c.extraShellLevels < 1 {
 		// Sudo() does more setup than just elevating privileges to make the serial
 		// console output easier to parse, so we require it to be called first.
-		panic("Must call Sudo() first")
+		return mo.Errf[[]string]("must call Sudo() before running any commands")
 	}
 	c.logger.Infow("Running command", "cmd", cmd)
 	// Clear the serial output (this method has a confusing name) to avoid any
@@ -258,7 +258,6 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 	if packetLossRes.IsError() {
 		return packetLossRes.Error()
 	}
-	packetLossRes.Get()
 	if packetLossRes.MustGet() != 0 {
 		// If we're already online then don't meddle with the internet connection.
 		return nil
@@ -287,7 +286,8 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 }
 
 // getPingPacketLoss attempts to ping app.viam.com and returns the packet loss
-// percentage.
+// percentage. A successful result does not mean that the internet on the
+// device is working, only that we were able to run ping and parse its output.
 func (c *Client) getPingPacketLoss() mo.Result[int] {
 	pingRegex := regexp.MustCompile(`\d+ packets transmitted, \d+ received, (\d+)% packet loss, time \d+\w+$`)
 	const pingCmd = "ping -c 2 -w 10 -q app.viam.com"
