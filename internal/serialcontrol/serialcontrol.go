@@ -114,6 +114,15 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 		return mo.Errf[[]string]("must call Sudo() before running any commands")
 	}
 	c.logger.Infow("Running command", "cmd", cmd)
+
+	// Scan the output by lines until we reach the next prompt.
+	scanner := bufio.NewScanner(c.port)
+	scanner.Split(splitTerminal)
+
+	if _, err := c.port.Write([]byte(cmd)); err != nil {
+		return mo.Err[[]string](err)
+	}
+
 	// Clear the serial output (this method has a confusing name) to avoid any
 	// lingering bytes from the prompt rendering. All we should see after this
 	// the command output followed by the next prompt.
@@ -121,13 +130,11 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 		return mo.Err[[]string](err)
 	}
 
-	// Scan the output by lines until we reach the next prompt.
-	scanner := bufio.NewScanner(c.port)
-	scanner.Split(splitTerminal)
-
-	if _, err := c.port.Write([]byte(cmd + "\r")); err != nil {
+	// Send CR to execute the command
+	if _, err := c.port.Write([]byte("\r")); err != nil {
 		return mo.Err[[]string](err)
 	}
+
 	res := scannerToStrSeq(scanner).
 		Map(strings.TrimSpace).
 		FilterMap(func(output string) (string, bool) {
@@ -165,7 +172,7 @@ func (c *Client) Sudo() error {
 
 	// Disable echo in the terminal so we don't have to deal with ignoring the
 	// text of the commands we send in the output.
-	if _, err := c.port.Write([]byte("stty -echo\r")); err != nil {
+	if _, err := c.port.Write([]byte("stty -echo; set -x\r")); err != nil {
 		return errw.Wrap(err, `failed to execute "stty -echo"`)
 	}
 
@@ -173,31 +180,17 @@ func (c *Client) Sudo() error {
 	return nil
 }
 
-// joinOutputs is a helper to concatenate chained [mo.Result]s that
-// all contain string slices from [Client.runCmd] calls.
-func joinOutputs(prev []string) func([]string) []string {
-	return func(curr []string) []string {
-		return append(prev, curr...)
-	}
-}
-
 // RemoveViam stops the viam-agent process and removes all viam-agent +
-// viam-server files from the disk.
+// viam-server files from the disk using the official uninstall.sh script. Since
+// this script is fetched from the internet, the device must be online when this
+// is called.
+//
+// TODO: send the script contents over the serial connection using heredoc or
+//
+//	some other means? I tried this and it seemed to break the next prompt
+//	detection.
 func (c *Client) RemoveViam() mo.Result[[]string] {
-	return c.StopAgent().
-		FlatMap(func(prevOutput []string) mo.Result[[]string] {
-			toDelete := strings.Join([]string{
-				"/opt/viam",
-				"/etc/viam.json",
-				"/etc/systemd/system/viam-agent.service",
-				"/usr/local/lib/systemd/system/viam-agent.service",
-				"/etc/systemd/system/viam-server.service",
-			}, " ")
-			return c.runCmd("rm -rf " + toDelete).MapValue(joinOutputs(prevOutput))
-		}).
-		FlatMap(func(prevOutput []string) mo.Result[[]string] {
-			return c.runCmd("systemctl daemon-reload").MapValue(joinOutputs(prevOutput))
-		})
+	return c.runCmd("curl https://storage.googleapis.com/packages.viam.com/apps/viam-agent/uninstall.sh | FORCE=1 sh")
 }
 
 // InstallViam installs viam-agent using the process presented to the user in
@@ -241,6 +234,7 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 	return mo.Ok(it.FilterSeqToMap(
 		slices.Values(cmdRes.MustGet()),
 		func(item string) (string, string, bool) {
+			c.logger.Infof("systemctl show output: %s", item)
 			kv := strings.SplitN(item, "=", 2)
 			if len(kv) != 2 {
 				// Probably just a blank line, ignore.
@@ -258,7 +252,7 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 	if packetLossRes.IsError() {
 		return packetLossRes.Error()
 	}
-	if packetLossRes.MustGet() != 0 {
+	if packetLossRes.MustGet() == 0 {
 		// If we're already online then don't meddle with the internet connection.
 		return nil
 	}
@@ -312,7 +306,7 @@ func (c *Client) getPingPacketLoss() mo.Result[int] {
 	if err != nil {
 		return mo.Err[int](errw.Wrap(err, "failed to extract packet loss percentage from ping output"))
 	}
-	return mo.Ok[int](packetLoss)
+	return mo.Ok(packetLoss)
 }
 
 // ForceProvisioning forces the agent into provisioning mode.

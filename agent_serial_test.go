@@ -69,7 +69,10 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			// Set to INFO to see the commands being sent to the terminal, DEBUG to
 			// see the commands + any output they produce.
 			logger.SetLevel(logging.WARN)
-			serialClient = serialcontrol.Connect(logger, cfg.SerialPath.OrElse("/dev/ttyUSB0")).MustGet()
+			serialClient = serialcontrol.Connect(
+				logger,
+				cfg.SerialPath.OrElse("/dev/ttyUSB0"),
+			).MustGet()
 			if err := serialClient.Sudo(); err != nil {
 				panic(err)
 			}
@@ -92,12 +95,12 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^viam-agent is installed$`, installAgent)
-	ctx.Step(`viam-agent is (not |un)installed$`, uninstallAgent)
+	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running`, testAgentRunning)
 }
 
-func uninstallAgent(ctx context.Context) (context.Context, error) {
+func removeViam(ctx context.Context) (context.Context, error) {
 	if err := serialClient.RemoveViam().Error(); err != nil {
 		return ctx, err
 	}
