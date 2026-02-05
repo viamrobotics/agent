@@ -403,5 +403,6 @@ func New(
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
+		cancelCmd:    func() {},
 	}
 }
