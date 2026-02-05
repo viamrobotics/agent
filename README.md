@@ -42,7 +42,7 @@ Some end-to-end workflows can be tested by connecting to a Raspberry Pi with a s
 - You must have a USB to serial adapter or some other means to connect to the serial port on your Raspberry Pi.
 - Your Raspberry Pi must be configured to enable login on the serial port. This can be accomplished with the `raspi-config` cli or by manually editing config files. Refer to the upstream Raspberry Pi docs for details.
 - The serial connection must already have a shell logged in as a user that can use sudo to become root without a password. To log in over the serial connection we recommend [picocom]. You can use it to connect to the serial terminal and login with `picocom -b 115200 /dev/ttyUSB0`. Depending on your setup the previous command may require sudo and the path to the tty device may be different. Once you have logged in you can disconnect from the serial console by typing `Ctrl-a Ctrl-x`.
-- You must have a file named `agent-test.json` in the root of this repo with app.viam API keys and other values required by the tests. You can also use this file to specify optional parameters, such as the path to the serial device. Refer to `agent-test-example.json` for details.
+- You must have a file named `agent-test.toml` in the root of this repo with app.viam API keys and other values required by the tests. You can also use this file to specify optional parameters, such as the path to the serial device. Refer to `agent-test-example.toml` for details.
 
 Once these dependencies are satisfied you can execute the serial tests with `mise r test-e2e-serial`.
 

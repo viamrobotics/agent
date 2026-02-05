@@ -4,11 +4,11 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/cucumber/godog"
 	"github.com/samber/mo"
 	"github.com/viamrobotics/agent/internal/serialcontrol"
@@ -19,16 +19,16 @@ import (
 var serialClient *serialcontrol.Client
 
 type config struct {
-	APIKeyID   string             `json:"api_key_id"`
-	APIKey     string             `json:"api_key"`
-	PartID     string             `json:"part_id"`
-	SerialPath mo.Option[string]  `json:"serial_path"`
-	Wifi       mo.Option[wifiCfg] `json:"wifi"`
+	APIKeyID   string             `toml:"api_key_id"`
+	APIKey     string             `toml:"api_key"`
+	PartID     string             `toml:"part_id"`
+	SerialPath mo.Option[string]  `toml:"serial_path"`
+	Wifi       wifiCfg `toml:"wifi"`
 }
 
 type wifiCfg struct {
-	SSID     string `json:"ssid"`
-	Password string `json:"password"`
+	SSID     string `toml:"ssid"`
+	Password string `toml:"password"`
 }
 
 var cfg config
@@ -57,13 +57,10 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 		tsc.BeforeSuite(func() {
 			// Load config file + store it in global variable. This contains secrets
 			// like the app API key as well as parameters that could change between
-			// setups like the path to the serial device.
+			// setups like the path to the serial device. Panic on any error.
 			cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_SERIAL_CFG")).
-				OrElse("./agent-test.json")
-			cfgData := mo.TupleToResult(os.ReadFile(cfgPath)).MustGet()
-			if err := json.Unmarshal(cfgData, &cfg); err != nil {
-				panic(err)
-			}
+				OrElse("./agent-test.toml")
+			mo.TupleToResult(toml.DecodeFile(cfgPath, &cfg)).MustGet()
 
 			logger := logging.NewTestLogger(t)
 			// Set to INFO to see the commands being sent to the terminal, DEBUG to
@@ -77,8 +74,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				panic(err)
 			}
 
-			wifi := cfg.Wifi.OrEmpty()
-			if err := serialClient.EnsureOnline(wifi.SSID, wifi.Password); err != nil {
+			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
 				// The AfterSuite hook doesn't run if we panic here so try to restore the terminal state manually
 				serialClient.Close()
 				// Setup failed, panic

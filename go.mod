@@ -8,6 +8,7 @@ go 1.25.1
 replace github.com/hashicorp/go-getter => github.com/viam-labs/go-getter v0.0.0-20251022162721-98d73b852c8a
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/cucumber/godog v0.15.1
 	github.com/gabriel-vasile/mimetype v1.4.9
