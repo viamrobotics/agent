@@ -140,20 +140,31 @@ func TestUpdateBinary(t *testing.T) {
 			baseURL := fmt.Sprintf(":%d", port)
 			baseURLWithScheme := fmt.Sprintf("%s://localhost%s", "http", baseURL)
 
-			elfBytes := []byte{0x7f, 'E', 'L', 'F'}
+			var (
+				prefixBytes       []byte
+				contentTypeHeader string
+			)
+			switch runtime.GOOS {
+			case "linux":
+				prefixBytes = []byte{0x7f, 'E', 'L', 'F'}
+				contentTypeHeader = "application/x-executable"
+			case "darwin":
+				prefixBytes = []byte{0xcf, 0xfa, 0xed, 0xfe}
+				contentTypeHeader = "application/x-mach-binary"
+			}
 
 			mux := http.NewServeMux()
 			mux.HandleFunc("/nolm", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/x-executable")
-				w.Write(elfBytes)
+				w.Header().Set("Content-Type", contentTypeHeader)
+				w.Write(prefixBytes)
 			})
 			mux.HandleFunc("/lm", func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Last-Modified", "Tue, 09 Dec 2025 18:52:44 GMT")
-				w.Write(elfBytes)
+				w.Write(prefixBytes)
 			})
 			mux.HandleFunc("/badlm", func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Last-Modified", "asdfghjkl")
-				w.Write(elfBytes)
+				w.Write(prefixBytes)
 			})
 			server := &http.Server{Addr: baseURL, Handler: mux}
 			wg := sync.WaitGroup{}

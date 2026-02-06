@@ -39,6 +39,19 @@ jobs:
     - name: Build
       run: make all
 
+  test-macos:
+    name: Test on MacOS
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required to be able to generate prerelease tags
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Test
+      run: make test
+
   build:
     name: Build and Upload
     runs-on: ubuntu-latest

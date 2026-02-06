@@ -31,6 +31,8 @@ fi
 OS="linux"
 if [[ "$BINARY_NAME" == *"windows"* ]]; then
     OS="windows"
+elif [[ "$BINARY_NAME" == *"darwin"* ]]; then
+    OS="darwin"
 fi
 
 # Set platform

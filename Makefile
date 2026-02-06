@@ -1,14 +1,16 @@
-GOOS ?= "linux"
+GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 ifeq ($(GOARCH),amd64)
-LINUX_ARCH = x86_64
+ARCH = x86_64
 else ifeq ($(GOARCH),arm64)
-LINUX_ARCH = aarch64
+ARCH = aarch64
 endif
 
 OS_NAME =
 ifeq ($(GOOS),windows)
 	OS_NAME = -windows
+else ifeq ($(GOOS),darwin)
+	OS_NAME = -darwin
 endif
 
 GIT_REVISION = $(shell git rev-parse HEAD)
@@ -23,10 +25,10 @@ LDFLAGS = "-s -w -X 'github.com/viamrobotics/agent/utils.Version=${TAG_VERSION}'
 TAGS = osusergo,netgo
 
 
-.DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH)
+.DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(ARCH)
 
 .PHONY: all
-all: amd64 arm64 windows
+all: amd64 arm64 windows darwin
 
 .PHONY: arm64
 arm64:
@@ -40,9 +42,13 @@ amd64:
 windows:
 	make GOOS=windows GOARCH=amd64
 
-bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(LINUX_ARCH): go.* *.go */*.go */*/*.go *.service Makefile
+.PHONY: darwin
+darwin:
+	make GOOS=darwin GOARCH=arm64
+
+bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(ARCH): go.* *.go */*.go */*/*.go *.service Makefile
 	go build -o $@ -trimpath -tags $(TAGS) -ldflags $(LDFLAGS) ./cmd/viam-agent
-	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable$(OS_NAME)-$(LINUX_ARCH) || true
+	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' && cp $@ bin/viam-agent-stable$(OS_NAME)-$(ARCH) || true
 
 # Used for building agent binaries from within test suite.
 .PHONY: test-build
@@ -71,17 +77,18 @@ test:
 	go test -race ./...
 
 .PHONY: manifest
-manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-windows-x86_64
+manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-windows-x86_64 bin/viam-agent-$(PATH_VERSION)-darwin-aarch64
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+' || exit 1
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-x86_64
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-aarch64
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-windows-x86_64
+	./manifest.sh bin/viam-agent-$(PATH_VERSION)-darwin-aarch64
 
 .PHONY: upload-stable
 upload-stable: manifest
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
-	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 gs://packages.viam.com/apps/viam-agent/
-	gsutil cp etc/viam-agent-$(PATH_VERSION)-x86_64.json etc/viam-agent-$(PATH_VERSION)-aarch64.json gs://packages.viam.com/apps/viam-subsystems/
+	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-darwin-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 bin/viam-agent-stable-darwin-aarch64 gs://packages.viam.com/apps/viam-agent/
+	gsutil cp etc/viam-agent-$(PATH_VERSION)-x86_64.json etc/viam-agent-$(PATH_VERSION)-aarch64.json etc/viam-agent-$(PATH_VERSION)-darwin-aarch64.json gs://packages.viam.com/apps/viam-subsystems/
 
 .PHONY: upload-installer
 upload-installer:
