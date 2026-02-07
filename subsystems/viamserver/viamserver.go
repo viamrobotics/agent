@@ -228,7 +228,15 @@ func (s *Subsystem) Start(ctx context.Context) error {
 func (s *Subsystem) Stop(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
-	defer s.cancelCmd()
+	defer func() {
+		// cancelCmd is the cancel function for the *exec.CommandContext() context used to start
+		// viam-server. Calling this will cause the viam-server process to exit. We must check if
+		// cancelCmd is not nil before calling it to avoid panics in case Stop() is called before Start()
+		// since cancelCmd is only set in Start().
+		if s.cancelCmd != nil {
+			s.cancelCmd()
+		}
+	}()
 
 	s.mu.Lock()
 	running := s.running
