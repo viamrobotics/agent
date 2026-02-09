@@ -225,7 +225,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	}
 
 	// Viam Server
-	if m.cfg.AdvancedSettings.DisableViamServer.Get() {
+	if m.cfg.AdvancedSettings.GetDisableViamServer() {
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
 		}
