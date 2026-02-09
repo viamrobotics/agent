@@ -156,6 +156,11 @@ func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 	return as.DisableSystemConfiguration.Get()
 }
 
+// GetDisableViamServer is a wrapper which checks agent's advanced settings DisableViamServer field.
+func (as AdvancedSettings) GetDisableViamServer() bool {
+	return as.DisableViamServer.Get()
+}
+
 type SystemConfiguration struct {
 	// can set either to -1 to disable, defaults to 512M (when int is 0)
 	LoggingJournaldSystemMaxUseMegabytes  int `json:"logging_journald_system_max_use_megabytes,omitempty"`
