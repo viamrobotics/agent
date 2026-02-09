@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -118,20 +119,17 @@ func (s *Subsystem) fetchRestartStatus(ctx context.Context) (*RestartStatusRespo
 	resultChan := make(chan mo.Result[*RestartStatusResponse], len(urls))
 
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, fetchRestartStatusTimeout)
-	defer cancelFunc()
 
 	// Disabling the cert verification because it doesn't work in offline mode (when
 	// connecting to localhost).
 	//nolint:gosec
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-	defer func() {
-		// CloseIdleConnections at the end of the method to ensure that any goroutine created
-		// below does not leave an idle HTTP connection open to the server.
-		client.CloseIdleConnections()
-	}()
 
+	var wg sync.WaitGroup
 	for _, url := range urls {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			s.logger.Debugf("Starting restart_status check for %s using %s", SubsysName, url)
 
 			restartURL := url + restartURLSuffix
@@ -171,6 +169,15 @@ func (s *Subsystem) fetchRestartStatus(ctx context.Context) (*RestartStatusRespo
 			resultChan <- mo.Ok(&restartStatusResponse)
 		}()
 	}
+
+	// Ensure all goroutines finish and resources are cleaned up before returning.
+	defer func() {
+		cancelFunc()
+		wg.Wait()
+		// // CloseIdleConnections at the end of the method to ensure that any goroutine created
+		// below does not leave an idle HTTP connection open to the server.
+		client.CloseIdleConnections()
+	}()
 
 	var combinedErr error
 	for range urls {
