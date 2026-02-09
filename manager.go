@@ -225,7 +225,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	}
 
 	// Viam Server
-	if m.cfg.AdvancedSettings.DisableViamServer.Get() {
+	if m.cfg.AdvancedSettings.GetDisableViamServer() {
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
 		}
@@ -347,13 +347,13 @@ func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 	// Start each of the three subsystems if not disabled; each implementation should return
 	// near-instantly if already started. Run health checks for syscfg and networking and
 	// restart upon failure. The ordering of subsystem starts is significant here.
-	if !m.cfg.AdvancedSettings.DisableViamServer.Get() {
+	if !m.cfg.AdvancedSettings.GetDisableViamServer() {
 		m.startAndHealthCheck(ctx, "viam-server", m.viamServer.Start, m.viamServer.Stop, nil)
 	}
-	if !m.cfg.AdvancedSettings.DisableSystemConfiguration.Get() {
+	if !m.cfg.AdvancedSettings.GetDisableSystemConfiguration() {
 		m.startAndHealthCheck(ctx, "sysconfig", m.sysConfig.Start, m.sysConfig.Stop, m.sysConfig.HealthCheck)
 	}
-	if !m.cfg.AdvancedSettings.DisableNetworkConfiguration.Get() {
+	if !m.cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
 		m.startAndHealthCheck(ctx, "networking", m.networking.Start, m.networking.Stop, m.networking.HealthCheck)
 	}
 }
