@@ -7,9 +7,16 @@
 # It should auto-generate a command in the following format (with key/id info filled in)
 # sudo /bin/sh -c "VIAM_API_KEY_ID=<KEYID> VIAM_API_KEY=<KEY> VIAM_PART_ID=<PARTID>; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
 
-
 ARCH=$(uname -m)
-URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$ARCH"
+if [ "$ARCH" = "arm64" ]; then
+	# Map MacOS arm64 to aarch64 for download URL compatibility.
+	ARCH="aarch64"
+fi
+OS = $(uname -s)
+if [ "$OS" = "Darwin" ]; then
+	BINARY_OS_PREFIX = "darwin-"
+fi
+URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$BINARY_OS_PREFIX$ARCH"
 
 # Force will bypass all prompts by treating them as yes. May also be set as an environment variable when running as download.
 # sudo /bin/sh -c "FORCE=1; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
@@ -23,11 +30,11 @@ uninstall_old_service() {
 		return
 	fi
 
-	echo 
+	echo
 	echo "A previous install of viam-server has been detected. It needs to be removed before proceeding."
 	echo
 	echo "Note: This will only remove the installed binary and service files. Your /etc/viam.json config will be left in place."
-	
+
 	if [ -z "$FORCE" ]; then
 		echo && echo
 		read -p "Remove previous viam-server service? (y/n): " REMOVE_OLD
@@ -48,7 +55,7 @@ fetch_config() {
 	if [ "$VIAM_API_KEY_ID" != "" ] && [ "$VIAM_API_KEY" != "" ] && [ "$VIAM_PART_ID" != "" ]; then
 
 		if [ -f /etc/viam.json ] && ! [ -z $FORCE ]; then
-			echo 
+			echo
 			echo "/etc/viam.json already exists."
 			echo
 			echo "Do you wish to overwrite it with an updated version fetched using the VIAM_PART_ID provided?"
@@ -95,9 +102,9 @@ add_network() {
 		FILENAME=
 
 		if [ "$PSK" != "" ]; then
-			nmcli --offline con add connection.id "$SSID" connection.type 802-11-wireless 802-11-wireless.ssid "$SSID" 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "$PSK" > /etc/NetworkManager/system-connections/"$SSID.nmconnection"
+			nmcli --offline con add connection.id "$SSID" connection.type 802-11-wireless 802-11-wireless.ssid "$SSID" 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "$PSK" >/etc/NetworkManager/system-connections/"$SSID.nmconnection"
 		else
-			nmcli --offline con add connection.id "$SSID" connection.type 802-11-wireless 802-11-wireless.ssid "$SSID" > /etc/NetworkManager/system-connections/"$SSID.nmconnection"
+			nmcli --offline con add connection.id "$SSID" connection.type 802-11-wireless 802-11-wireless.ssid "$SSID" >/etc/NetworkManager/system-connections/"$SSID.nmconnection"
 		fi
 	fi
 }
@@ -109,7 +116,7 @@ migrate_wpa_conf() {
 
 	while read -r line; do
 		if echo $line | grep -qE 'network[[:space:]]?='; then
-			NETWORK=$(( NETWORK + 1 ))
+			NETWORK=$((NETWORK + 1))
 			add_network
 			SSID=""
 			PSK=""
@@ -118,20 +125,20 @@ migrate_wpa_conf() {
 		elif echo $line | grep -qE 'psk[[:space:]]?='; then
 			PSK=$(echo $line | cut -d= -f2 | tr -d \")
 		fi
-	done < /etc/wpa_supplicant/wpa_supplicant.conf
+	done </etc/wpa_supplicant/wpa_supplicant.conf
 	add_network
 	chmod 600 /etc/NetworkManager/system-connections/*.nmconnection
 }
 
 warn_nonm() {
-		echo
-		echo "Please manually install/activate NetworkManager to use network/provisioning services. Until then, you may notice errors in your logs regarding this."
-		echo
-		echo "You may disable the \"agent-provisioning\" subsystem in your device's config to avoid these."
-		echo
-		echo "To do so, click the \"Raw Json\" on the \"Config\" tab for your device at https://app.viam.com/ and set \"disable_subsystem\" to \"true\" and save"
-		echo
-		echo "This should not affect other Viam services, nor viam-server itself."
+	echo
+	echo "Please manually install/activate NetworkManager to use network/provisioning services. Until then, you may notice errors in your logs regarding this."
+	echo
+	echo "You may disable the \"agent-provisioning\" subsystem in your device's config to avoid these."
+	echo
+	echo "To do so, click the \"Raw Json\" on the \"Config\" tab for your device at https://app.viam.com/ and set \"disable_subsystem\" to \"true\" and save"
+	echo
+	echo "This should not affect other Viam services, nor viam-server itself."
 }
 
 # Attempts to enable NetworkManager (only tested on Raspberry PiOS/Bullseye)
@@ -168,8 +175,8 @@ enable_networkmanager() {
 	fi
 
 	if is_bullseye; then
-		echo 'deb http://deb.debian.org/debian/ bullseye-backports main' > /etc/apt/sources.list.d/backports.list && \
-		apt update && apt install -y network-manager/bullseye-backports || (echo "Failed to upgrade NetworkManager" && return 1)
+		echo 'deb http://deb.debian.org/debian/ bullseye-backports main' >/etc/apt/sources.list.d/backports.list &&
+			apt update && apt install -y network-manager/bullseye-backports || (echo "Failed to upgrade NetworkManager" && return 1)
 	fi
 
 	if [ -f "/etc/wpa_supplicant/wpa_supplicant.conf" ]; then
@@ -186,7 +193,7 @@ enable_networkmanager() {
 	n=1
 	while [ "$n" -le 30 ]; do
 		systemctl is-enabled NetworkManager && break
-		n=$(( n + 1 ))
+		n=$((n + 1))
 		sleep 1
 	done
 
@@ -203,29 +210,43 @@ enable_networkmanager() {
 
 # Main
 main() {
-	if [ "$(uname -s)" != "Linux" ] || ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ]; then
+	if [ "$OS" = "Linux" ]; then
+		if ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ]; then
+			echo
+			echo "Viam Agent is currently only available for Linux on x86_64 (amd64) and aarch64 (arm64)."
+			echo
+			echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
+			exit 1
+		fi
+		if [ "$ARCH" = "aarch64" ] && ! [ -e /lib/ld-linux-aarch64.so.1 ]; then
+			echo
+			echo "Your Linux kernel reports as aarch64 (arm64), but userspace is missing /lib/ld-linux-aarch64.so.1"
+			echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
+			exit 1
+		elif [ "$ARCH" = "x86_64" ] && ! [ -e /lib64/ld-linux-x86-64.so.2 ]; then
+			echo
+			echo "Your Linux kernel reports as x86_64 (amd64), but userspace is missing /lib/ld-linux-x86-64.so.2"
+			echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
+			exit 1
+		fi
+		if ! [ -d /etc/systemd/system ]; then
+			echo
+			echo "Viam Agent is only supported on Linux systems using systemd."
+			exit 1
+		fi
+	elif [ "$OS" = "Darwin" ]; then
+		if [ "$ARCH" != "aarch64" ]; then
+			echo
+			echo "Viam Agent is currently only available for MacOS on arm64 (M2-series Macs)."
+			echo
+			echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
+			exit 1
+		fi
+	else
 		echo
-		echo "Viam Agent is currently only available for Linux on x86_64 (amd64) and aarch64 (arm64)."
+		echo "Viam Agent is currently only available for Linux and MacOS."
 		echo
 		echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
-		exit 1
-	fi
-
-	if [ "$ARCH" = "aarch64" ] && ! [ -e /lib/ld-linux-aarch64.so.1 ]; then
-		echo
-		echo "Your kernel reports as aarch64 (arm64), but userspace is missing /lib/ld-linux-aarch64.so.1"
-		echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
-		exit 1
-	elif [ "$ARCH" = "x86_64" ] && ! [ -e /lib64/ld-linux-x86-64.so.2 ]; then
-		echo
-		echo "Your kernel reports as x86_64 (amd64), but userspace is missing /lib/ld-linux-x86-64.so.2"
-		echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
-		exit 1
-	fi
-
-	if ! [ -d /etc/systemd/system ]; then
-		echo
-		echo "Viam Agent is only supported on systems using systemd."
 		exit 1
 	fi
 
@@ -235,8 +256,10 @@ main() {
 		exit 1
 	fi
 
-	# Remove old AppImage based install
-	uninstall_old_service
+	# Remove old AppImage based install if on Linux.
+	if [ "$OS" = "Linux" ]; then
+		uninstall_old_service
+	fi
 
 	# Attempt to fetch the config using API keys (if set)
 	fetch_config
@@ -245,7 +268,7 @@ main() {
 		echo
 		echo "WARNING: No configuration file found at /etc/viam.json and no (valid) API keys were provided to automatically download one."
 		echo
-		echo "Viam agent may fail to fully start, or may immediately enter provisioning mode after installation, which will disconnect wifi."
+		echo "Viam agent may fail to fully start, or may immediately enter provisioning mode after installation if on Linux, which will disconnect wifi."
 		echo
 		echo "It is recommended that you re-run this installer with the exact command (including API keys) provided on the \"Setup\" tab for your robot at https://app.viam.com/"
 		echo
@@ -261,9 +284,14 @@ main() {
 		fi
 	fi
 
-	if [ -f /etc/systemd/system/viam-agent.service ] || [ -f /usr/local/lib/systemd/system/viam-agent.service ]; then
+	PLIST_DEST="/Library/LaunchDaemons/com.viam.agent.plist"
+	if [ -f /etc/systemd/system/viam-agent.service ] || [ -f /usr/local/lib/systemd/system/viam-agent.service ] || [ -f "$PLIST_DEST" ]; then
+		RESTART_CMD = "systemctl restart viam-agent"
+		if [ "$OS" = Darwin ]; then
+			RESTART_CMD = "sudo launchctl kickstart -k system.com.viam.agent"
+		fi
 		echo
-		echo "It appears viam-agent is already installed. You can restart it with 'systemctl restart viam-agent' if it's not running."
+		echo "It appears viam-agent is already installed. You can restart it with '$RESTART_CMD' if it's not running."
 
 		if [ -z "$FORCE" ]; then
 			echo && echo
@@ -274,7 +302,11 @@ main() {
 			fi
 		fi
 
-		systemctl stop viam-agent
+		if [ "$OS" = "Linux" ]; then
+			systemctl stop viam-agent
+		else
+			launchctl bootout system/com.viam.agent
+		fi
 		if [ $? -ne 0 ]; then
 			echo
 			echo "Error stopping existing viam-agent service for reinstall."
@@ -282,7 +314,8 @@ main() {
 		fi
 	fi
 
-	mkdir -p /opt/viam/tmp && cd /opt/viam/tmp && curl -fL -o viam-agent-temp-$ARCH "$URL" && chmod 755 viam-agent-temp-$ARCH
+	mkdir -p /opt/viam/tmp && cd /opt/viam/tmp &&
+		curl -fL -o viam-agent-temp-$BINARY_OS_PREFIX$ARCH "$URL" && chmod 755 viam-agent-temp-$BINARY_OS_PREFIX$ARCH
 	if [ $? -ne 0 ]; then
 		echo
 		echo "Error downloading agent binary. Please correct any errors mentioned above and try again."
@@ -296,10 +329,12 @@ main() {
 		exit 2
 	fi
 
-	enable_networkmanager
-
-	systemctl restart viam-agent
-
+	if [ "$OS" = "Linux" ]; then
+		enable_networkmanager
+		systemctl restart viam-agent
+	else
+		launchctl kickstart -k system/com.viam.agent
+	fi
 	echo && echo && echo
 	echo "Viam Agent has been installed and started successfully."
 	echo "You may return to your machine at https://app.viam.com/ to continue configuring."
