@@ -1,6 +1,7 @@
 # Required fields
-api_key_id = "<app api key id taken from machine install instructions>"
-api_key = "<app api key taken from machine install instructions>"
+api_key_id = "<app location api key id with owner role>"
+api_key = "<app location api key with owner role>"
+robot_id = "<robot id>"
 part_id = "<part id>"
 
 # # Optional fields
