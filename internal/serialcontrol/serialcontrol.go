@@ -25,7 +25,7 @@ import (
 // https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Bracketed-Paste-Mode.
 var (
 	startPrompt = []byte("\x1B[?2004h")
-	// \r\r\n is not part of the escape sequence
+	// \r\r\n is not part of the escape sequence.
 	startOutput = []byte("\x1B[?2004l\r\r\n")
 )
 
@@ -57,7 +57,7 @@ func splitTerminal(data []byte, atEOF bool) (advance int, token []byte, err erro
 		if bytes.Equal(data, startOutput) {
 			// Found end of bracketed paste mode, which should appear right before the
 			// command output. Translate it to an empty string and keep going.
-			return i+1, []byte{}, nil
+			return i + 1, []byte{}, nil
 		}
 		// Found a newline, presumably as part of ongoing command output. Return the
 		// line with the trailing newline removed + keep scanning.
@@ -257,7 +257,7 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 	cmdRes := c.runCmd(
 		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
-		`head -n5 | grep 'Viam Agent Version'`,
+			`head -n5 | grep 'Viam Agent Version'`,
 	)
 	verRegex := regexp.MustCompile(`Viam Agent Version: ([^s]+) Git Revision: ([^\s]+)`)
 	if cmdRes.IsError() {

@@ -109,7 +109,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^viam-agent is installed$`, installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
-	ctx.Step(`the viam-agent systemd unit is running`, testAgentRunning)
+	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
+	ctx.Step(`the viam-agent systemd unit is running with version ([^\s]+)$`, testAgentRunningWithVersion)
 	ctx.Step(`the viam-agent systemd unit started with ([^\s)]+)`, testSystemdAgentStartVersion)
 	ctx.Step(`viam-agent is pinned to ([^\s)]+)`, applyAgentVersionPin)
 }
@@ -147,6 +148,35 @@ func testAgentEnabled(ctx context.Context) (context.Context, error) {
 
 func testAgentRunning(ctx context.Context) (context.Context, error) {
 	return testAgentState(ctx, "SubState", "running")
+}
+
+func testAgentRunningWithVersion(ctx context.Context, version string) (context.Context, error) {
+	ctx, err := testSystemdAgentStartVersion(ctx, version)
+	if err != nil {
+		return ctx, err
+	}
+	return testAgentState(ctx, "SubState", "running")
+}
+
+func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
+	var err error
+	// Agent needs time to fetch the new config, possibly download the new
+	// version, and restart.
+	for i := range 30 {
+		if i > 0 {
+			time.Sleep(time.Second * 2)
+		}
+		lastAgentVer := serialClient.GetAgentLastStartVersion()
+		if lastAgentVer.IsError() {
+			return ctx, lastAgentVer.Error()
+		}
+		if check := test.ShouldEqual(lastAgentVer.MustGet(), version); check != "" {
+			err = errors.New(check)
+			continue
+		}
+		return ctx, nil
+	}
+	return ctx, err
 }
 
 func testAgentState(ctx context.Context, key, expectedVal string) (context.Context, error) {
@@ -206,27 +236,6 @@ func applyAgentVersionPin(ctx context.Context, version string) (context.Context,
 		RobotConfig: partCfg,
 	})
 
-	return ctx, err
-}
-
-func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
-	var err error
-	// Agent needs time to fetch the new config, possibly download the new
-	// version, and restart.
-	for i := range 30 {
-		if i > 0 {
-			time.Sleep(time.Second * 2)
-		}
-		lastAgentVer := serialClient.GetAgentLastStartVersion()
-		if lastAgentVer.IsError() {
-			return ctx, lastAgentVer.Error()
-		}
-		if check := test.ShouldEqual(lastAgentVer.MustGet(), version); check != "" {
-			err = errors.New(check)
-			continue
-		}
-		return ctx, nil
-	}
 	return ctx, err
 }
 
