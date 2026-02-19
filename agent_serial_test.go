@@ -5,7 +5,9 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,8 +34,14 @@ type config struct {
 	APIKey     string            `toml:"api_key"`
 	RobotID    string            `toml:"robot_id"`
 	PartID     string            `toml:"part_id"`
+	Versions   versionsCfg       `toml:"versions"`
 	SerialPath mo.Option[string] `toml:"serial_path"`
 	Wifi       wifiCfg           `toml:"wifi"`
+}
+
+type versionsCfg struct {
+	Stable string `toml:"stable"`
+	Old    string `toml:"old"`
 }
 
 type wifiCfg struct {
@@ -95,7 +103,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 		})
 		tsc.AfterSuite(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second * 10)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer cancel()
 			applyAgentVersionPin(ctx, "stable")
 			if err := serialClient.Close(); err != nil {
@@ -106,13 +114,14 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
+	const versionGroup = `(an old version|stable|version [^\s]+)`
 	ctx.Step(`^viam-agent is installed$`, installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
-	ctx.Step(`the viam-agent systemd unit is running with version ([^\s]+)$`, testAgentRunningWithVersion)
-	ctx.Step(`the viam-agent systemd unit started with ([^\s)]+)`, testSystemdAgentStartVersion)
-	ctx.Step(`viam-agent is pinned to ([^\s)]+)`, applyAgentVersionPin)
+	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
+	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit started with %s`, versionGroup), testSystemdAgentStartVersion)
+	ctx.Step(fmt.Sprintf(`viam-agent is pinned to %s`, versionGroup), applyAgentVersionPin)
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {
@@ -159,6 +168,7 @@ func testAgentRunningWithVersion(ctx context.Context, version string) (context.C
 }
 
 func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
+	version = translateVersionAgent(version)
 	var err error
 	// Agent needs time to fetch the new config, possibly download the new
 	// version, and restart.
@@ -218,6 +228,7 @@ func setField(root *structpb.Struct, value *structpb.Value, path ...string) erro
 }
 
 func applyAgentVersionPin(ctx context.Context, version string) (context.Context, error) {
+	version = translateVersionApp(version)
 	partResp, err := appClient.GetRobotPart(ctx, &apppb.GetRobotPartRequest{
 		Id: cfg.PartID,
 	})
@@ -254,4 +265,33 @@ func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, 
 			return apppb.NewAppServiceClient(conn)
 		}),
 	)
+}
+
+// Translate version strings into the format app expects, which allows for some
+// magic strings such as "stable"
+func translateVersionApp(version string) string {
+	switch version {
+	case "an old version":
+		return cfg.Versions.Old
+	case "stable":
+		return version
+	}
+	if strings.HasPrefix(version, "version ") {
+		return strings.SplitN(version, " ", 2)[1]
+	}
+	panic(fmt.Sprintf(`unrecongnized version format "%s"`, version))
+}
+
+// Translate version strings into the format that agent expects/reports.
+func translateVersionAgent(version string) string {
+	switch version {
+	case "an old version":
+		return cfg.Versions.Old
+	case "stable":
+		return cfg.Versions.Stable
+	}
+	if strings.HasPrefix(version, "version ") {
+		return strings.SplitN(version, " ", 2)[1]
+	}
+	panic(fmt.Sprintf(`unrecongnized version format "%s"`, version))
 }

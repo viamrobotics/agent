@@ -1,9 +1,9 @@
-Feature: change viam-agent versions
+Feature: Downgrade viam-agent
   Background:
     Given viam-agent is uninstalled
     And viam-agent is pinned to stable
     And viam-agent is installed
   Scenario: Pin viam agent to an old version
-    When viam-agent is pinned to 0.24.2
-    Then the viam-agent systemd unit is running with version 0.24.2
+    When viam-agent is pinned to an old version
+    Then the viam-agent systemd unit is running with an old version
     And the viam-agent systemd unit is enabled
