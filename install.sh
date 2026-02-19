@@ -208,24 +208,6 @@ enable_networkmanager() {
 	return 1
 }
 
-# Installs brew dependencies for viam-server. Should only be invoked if on MacOS (Linux
-# binaries statically link in these dependencies). MacOS viam-server binaries DYNAMICALLY
-# link in nlopt-static and x264, so these brew installation commands are, while unideal,
-# critical for viam-server binaries installed by agent to run.
-install_brew_dependencies() {
-	if ! command -v brew &> /dev/null; then
-		echo "You must have Homebrew installed to continue installing Viam Agent on MacOS"
-		echo
-		echo "See https://brew.sh for installation instructions"
-		exit 1
-	fi
-
-	brew update
-	brew tap viamrobotics/brews
-	brew install nlopt-static
-	brew install x264
-}
-
 # Main
 main() {
 	if [ "$OS" = "Linux" ]; then
@@ -272,11 +254,6 @@ main() {
 		echo
 		echo "This install script must be run as root. Try running via sudo."
 		exit 1
-	fi
-
-	# Install brew dependencies for viam-server if on MacOS.
-	if [ "$OS" = "Darwin" ]; then
-		install_brew_dependencies
 	fi
 
 	# Remove old AppImage based install if on Linux.
