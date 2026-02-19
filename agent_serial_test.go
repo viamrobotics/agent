@@ -12,8 +12,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/cucumber/godog"
 	"github.com/samber/mo"
+	"github.com/samber/mo/result"
 	"github.com/viamrobotics/agent/internal/serialcontrol"
-	agentpb "go.viam.com/api/app/agent/v1"
 	apppb "go.viam.com/api/app/v1"
 	"go.viam.com/rdk/logging"
 	rutils "go.viam.com/rdk/utils"
@@ -24,7 +24,7 @@ import (
 
 var (
 	serialClient *serialcontrol.Client
-	appClient    *viamAppClient
+	appClient    apppb.AppServiceClient
 )
 
 type config struct {
@@ -81,13 +81,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				cfg.SerialPath.OrElse("/dev/ttyUSB0"),
 			).MustGet()
 
-			appClient = mo.Try(func() (*viamAppClient, error) {
-				c := &viamAppClient{
-					partID: cfg.PartID,
-					logger: logger.Sublogger("appClient"),
-				}
-				return c, c.Dial(t.Context(), "app.viam.com:443", cfg.APIKeyID, cfg.APIKey)
-			}).MustGet()
+			appClient = dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey).MustGet()
 
 			if err := serialClient.Sudo(); err != nil {
 				panic(err)
@@ -103,9 +97,6 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 		tsc.AfterSuite(func() {
 			if err := serialClient.Close(); err != nil {
 				t.Error("closing serial client", err)
-			}
-			if err := appClient.conn.Close(); err != nil {
-				t.Error("closing app client", err)
 			}
 		})
 	}
@@ -133,7 +124,7 @@ func installAgent(ctx context.Context) (context.Context, error) {
 		// Avoid wasting time and network traffic if agent is already running.
 		return ctx, nil
 	}
-	robotKeysResp, err := appClient.appClient.GetRobotAPIKeys(ctx, &apppb.GetRobotAPIKeysRequest{
+	robotKeysResp, err := appClient.GetRobotAPIKeys(ctx, &apppb.GetRobotAPIKeysRequest{
 		RobotId: cfg.RobotID,
 	})
 	if err != nil {
@@ -194,8 +185,8 @@ func setField(root *structpb.Struct, value *structpb.Value, path ...string) erro
 }
 
 func applyAgentVersionPin(ctx context.Context, version string) (context.Context, error) {
-	partResp, err := appClient.appClient.GetRobotPart(ctx, &apppb.GetRobotPartRequest{
-		Id: appClient.partID,
+	partResp, err := appClient.GetRobotPart(ctx, &apppb.GetRobotPartRequest{
+		Id: cfg.PartID,
 	})
 	if err != nil {
 		return ctx, err
@@ -206,8 +197,8 @@ func applyAgentVersionPin(ctx context.Context, version string) (context.Context,
 		return ctx, err
 	}
 
-	_, err = appClient.appClient.UpdateRobotPart(ctx, &apppb.UpdateRobotPartRequest{
-		Id:          appClient.partID,
+	_, err = appClient.UpdateRobotPart(ctx, &apppb.UpdateRobotPartRequest{
+		Id:          cfg.PartID,
 		Name:        partResp.Part.Name,
 		RobotConfig: partCfg,
 	})
@@ -236,16 +227,7 @@ func testSystemdAgentStartVersion(ctx context.Context, version string) (context.
 	return ctx, err
 }
 
-type viamAppClient struct {
-	partID      string
-	logger      logging.Logger
-	conn        rpc.ClientConn
-	robotClient apppb.RobotServiceClient
-	appClient   apppb.AppServiceClient
-	agentClient agentpb.AgentDeviceServiceClient
-}
-
-func (c *viamAppClient) Dial(ctx context.Context, address string, keyID, key string) error {
+func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
 	dialopts := []rpc.DialOption{
 		rpc.WithEntityCredentials(
 			keyID,
@@ -254,13 +236,10 @@ func (c *viamAppClient) Dial(ctx context.Context, address string, keyID, key str
 	}
 	dialCtx, dialCancel := context.WithTimeout(ctx, time.Second*10)
 	defer dialCancel()
-	conn, err := rpc.DialDirectGRPC(dialCtx, address, c.logger, dialopts...)
-	if err != nil {
-		return err
-	}
-	c.conn = conn
-	c.robotClient = apppb.NewRobotServiceClient(conn)
-	c.appClient = apppb.NewAppServiceClient(conn)
-	c.agentClient = agentpb.NewAgentDeviceServiceClient(conn)
-	return nil
+	return result.Pipe1(
+		mo.TupleToResult(rpc.DialDirectGRPC(dialCtx, address, logger, dialopts...)),
+		result.Map(func(conn rpc.ClientConn) apppb.AppServiceClient {
+			return apppb.NewAppServiceClient(conn)
+		}),
+	)
 }
