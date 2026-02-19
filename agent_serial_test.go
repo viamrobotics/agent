@@ -95,6 +95,9 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 		})
 		tsc.AfterSuite(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second * 10)
+			defer cancel()
+			applyAgentVersionPin(ctx, "stable")
 			if err := serialClient.Close(); err != nil {
 				t.Error("closing serial client", err)
 			}
