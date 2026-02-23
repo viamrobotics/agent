@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
-	const versionGroup = `(an old version|stable|version [^\s]+)`
+	const versionGroup = `(an old version|dev|stable|version [^\s]+)`
 	ctx.Step(`^viam-agent is installed$`, installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
@@ -168,19 +169,20 @@ func testAgentRunningWithVersion(ctx context.Context, version string) (context.C
 }
 
 func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
-	version = translateVersionAgent(version)
+	versionTest := versionStrToMatcher(version)
 	var err error
 	// Agent needs time to fetch the new config, possibly download the new
 	// version, and restart.
-	for i := range 30 {
+	for i := range 60 {
 		if i > 0 {
 			time.Sleep(time.Second * 2)
 		}
 		lastAgentVer := serialClient.GetAgentLastStartVersion()
 		if lastAgentVer.IsError() {
-			return ctx, lastAgentVer.Error()
+			err = lastAgentVer.Error()
+			continue
 		}
-		if check := test.ShouldEqual(lastAgentVer.MustGet(), version); check != "" {
+		if check := versionTest(lastAgentVer.MustGet()); check != "" {
 			err = errors.New(check)
 			continue
 		}
@@ -275,6 +277,8 @@ func translateVersionApp(version string) string {
 		return cfg.Versions.Old
 	case "stable":
 		return version
+	case "dev":
+		return version
 	}
 	if strings.HasPrefix(version, "version ") {
 		return strings.SplitN(version, " ", 2)[1]
@@ -283,15 +287,29 @@ func translateVersionApp(version string) string {
 }
 
 // Translate version strings into the format that agent expects/reports.
-func translateVersionAgent(version string) string {
+func versionStrToMatcher(version string) func(string) string {
 	switch version {
 	case "an old version":
-		return cfg.Versions.Old
+		return func(actual string) string {
+			return test.ShouldEqual(actual, cfg.Versions.Old)
+		}
 	case "stable":
-		return cfg.Versions.Stable
+		return func(actual string) string {
+			return test.ShouldEqual(actual, cfg.Versions.Stable)
+		}
+	case "dev":
+		return func(actual string) string {
+			devRegex := regexp.MustCompile(`-dev\.\d+$`)
+			if devRegex.MatchString(actual) {
+				return ""
+			}
+			return fmt.Sprintf(`Expected "%s" to match "%s"`, actual, devRegex.String())
+		}
 	}
 	if strings.HasPrefix(version, "version ") {
-		return strings.SplitN(version, " ", 2)[1]
+		return func(actual string) string {
+			return test.ShouldEqual(actual, strings.SplitN(version, " ", 2)[1])
+		}
 	}
 	panic(fmt.Sprintf(`unrecongnized version format "%s"`, version))
 }

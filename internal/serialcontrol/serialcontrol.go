@@ -25,8 +25,7 @@ import (
 // https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Bracketed-Paste-Mode.
 var (
 	startPrompt = []byte("\x1B[?2004h")
-	// \r\r\n is not part of the escape sequence.
-	startOutput = []byte("\x1B[?2004l\r\r\n")
+	startOutput = []byte("\x1B[?2004l")
 )
 
 // Client is used to control a raspberry pi over a serial console.
@@ -53,8 +52,13 @@ func splitTerminal(data []byte, atEOF bool) (advance int, token []byte, err erro
 		return 0, nil, nil
 	}
 
+	// Skip over end bracket paste control sequence
+	if bytes.HasPrefix(data, startOutput) {
+		return len(startOutput) + 1, []byte{}, nil
+	}
+
 	if i := bytes.IndexByte(data, '\n'); i >= 0 {
-		if bytes.Equal(data, startOutput) {
+		if bytes.Equal(data, []byte(strings.TrimSpace(string(startOutput)))) {
 			// Found end of bracketed paste mode, which should appear right before the
 			// command output. Translate it to an empty string and keep going.
 			return i + 1, []byte{}, nil
