@@ -31,13 +31,13 @@ var (
 )
 
 type config struct {
-	APIKeyID   string            `toml:"api_key_id"`
-	APIKey     string            `toml:"api_key"`
-	RobotID    string            `toml:"robot_id"`
-	PartID     string            `toml:"part_id"`
-	Versions   versionsCfg       `toml:"versions"`
-	SerialPath mo.Option[string] `toml:"serial_path"`
-	Wifi       wifiCfg           `toml:"wifi"`
+	APIKeyID   string             `toml:"api_key_id"`
+	APIKey     string             `toml:"api_key"`
+	RobotID    string             `toml:"robot_id"`
+	PartID     string             `toml:"part_id"`
+	Versions   versionsCfg        `toml:"versions"`
+	SerialPath tomlOption[string] `toml:"serial_path"`
+	Wifi       wifiCfg            `toml:"wifi"`
 }
 
 type versionsCfg struct {
@@ -313,3 +313,20 @@ func versionStrToMatcher(version string) func(string) string {
 	}
 	panic(fmt.Sprintf(`unrecongnized version format "%s"`, version))
 }
+
+// tomlOption wraps [mo.Option] such that it can unmarshal config values of all
+// the types we care about.
+type tomlOption[T any] struct {
+	mo.Option[T]
+}
+
+// UnmarshalTOML implements [toml.Unmarshaler].
+func (t *tomlOption[T]) UnmarshalTOML(val any) error {
+	switch v := val.(type) {
+	case string:
+		return t.UnmarshalText([]byte(`"` + v + `"`))
+	}
+	panic(fmt.Sprintf("don't know how to unmarshall optional toml value %s", val))
+}
+
+var _ toml.Unmarshaler = &tomlOption[string]{}
