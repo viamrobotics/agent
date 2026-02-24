@@ -260,7 +260,7 @@ func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
 			`head -n5 | grep 'Viam Agent Version'`,
 	)
-	verRegex := regexp.MustCompile(`Viam Agent Version: ([^s]+) Git Revision: ([^\s]+)`)
+	verRegex := regexp.MustCompile(`Viam Agent Version: ([^\s]+) Git Revision: ([^\s]+)`)
 	if cmdRes.IsError() {
 		return mo.Err[string](cmdRes.Error())
 	}
