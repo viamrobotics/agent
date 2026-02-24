@@ -291,10 +291,16 @@ func versionStrToMatcher(version string) func(string) string {
 	switch version {
 	case "an old version":
 		return func(actual string) string {
+			if cfg.Versions.Old == "" {
+				panic("must set old version in config")
+			}
 			return test.ShouldEqual(actual, cfg.Versions.Old)
 		}
 	case "stable":
 		return func(actual string) string {
+			if cfg.Versions.Stable == "" {
+				panic("must set stable version in config")
+			}
 			return test.ShouldEqual(actual, cfg.Versions.Stable)
 		}
 	case "dev":
