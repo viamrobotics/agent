@@ -283,7 +283,7 @@ func translateVersionApp(version string) string {
 	if strings.HasPrefix(version, "version ") {
 		return strings.SplitN(version, " ", 2)[1]
 	}
-	panic(fmt.Sprintf(`unrecongnized version format "%s"`, version))
+	panic(fmt.Sprintf(`unrecognized version format "%s"`, version))
 }
 
 // Translate version strings into the format that agent expects/reports.
