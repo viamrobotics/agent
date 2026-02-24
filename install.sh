@@ -304,9 +304,8 @@ main() {
 
 		if [ "$OS" = "Linux" ]; then
 			systemctl stop viam-agent
-		else
-			launchctl bootout system/com.viam.agent
 		fi
+		# MacOS will run `launchctl bootout` as part of `--install` below so no need to run here.
 		if [ $? -ne 0 ]; then
 			echo
 			echo "Error stopping existing viam-agent service for reinstall."
@@ -333,7 +332,7 @@ main() {
 		enable_networkmanager
 		systemctl restart viam-agent
 	fi
-	# MacOS runs `launchctl kickstart -k` as part of `--install`, so no need to run again here.
+	# MacOS ran `launchctl kickstart -k` as part of `--install` above so no need to run again here.
 	echo && echo && echo
 	echo "Viam Agent has been installed and started successfully."
 	echo "You may return to your machine at https://app.viam.com/ to continue configuring."
