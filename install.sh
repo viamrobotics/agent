@@ -332,9 +332,8 @@ main() {
 	if [ "$OS" = "Linux" ]; then
 		enable_networkmanager
 		systemctl restart viam-agent
-	else
-		launchctl kickstart -k system/com.viam.agent
 	fi
+	# MacOS runs `launchctl kickstart -k` as part of `--install`, so no need to run again here.
 	echo && echo && echo
 	echo "Viam Agent has been installed and started successfully."
 	echo "You may return to your machine at https://app.viam.com/ to continue configuring."

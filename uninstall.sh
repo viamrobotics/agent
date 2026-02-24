@@ -9,11 +9,12 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-OS = $(uname -s)
+OS=$(uname -s)
 if ! [ "$OS" = "Linux" -o "$OS" = "Darwin" ]; then
 	echo "This uninstall script can only be run on Linux or MacOS."
 	echo
 	echo "Please see https://docs.viam.com/manage/reference/viam-agent/manage-viam-agent/ to uninstall on other platforms."
+	exit 1
 fi
 
 echo
@@ -30,7 +31,7 @@ if [ -z "$FORCE" ]; then
 	fi
 fi
 
-if [ "$(uname -s)" = "Linux" ]; then
+if [ $OS = "Linux" ]; then
 	# systemd services
 	systemctl disable --now viam-agent
 	systemctl disable --now viam-server

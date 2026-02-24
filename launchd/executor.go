@@ -3,6 +3,7 @@ package launchd
 import (
 	"context"
 	"os/exec"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -26,6 +27,15 @@ type LaunchdExecutor interface {
 	// service name.
 	Bootout(ctx context.Context, service string) error
 
+	// Kickstart executes `launchctl kickstart` with the "system" domain and the provided
+	// service name and `-k` if killExisting == true.
+	Kickstart(ctx context.Context, service string, killExisting bool) error
+
+	// IsServiceRemoved executes `launchctl print` with the "system" domain and the name of
+	// the service to determine if the service has been removed. Any error from `launchctl
+	// print` is treated as "true" for the service being removed.
+	IsServiceRemoved(ctx context.Context, service string) bool
+
 	// Enable executes `launchctl enable` with the "system" domain and the provided service
 	// name.
 	Enable(ctx context.Context, service string) error
@@ -46,7 +56,7 @@ func (s realLaunchdExecutor) Bootstrap(ctx context.Context, serviceFilePath stri
 	cmd := exec.CommandContext(ctx, "launchctl", "bootstrap", systemDomain, serviceFilePath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return errors.Wrapf(err, "running 'launchctl bootstrap %s %s' output: %s", systemDomain, serviceFilePath, output)
+		return errors.Wrapf(err, "running 'launchctl bootstrap %s %s' output: %s for %s", systemDomain, serviceFilePath, output, cmd.Args)
 	}
 	return nil
 }
@@ -58,6 +68,28 @@ func (s realLaunchdExecutor) Bootout(ctx context.Context, service string) error 
 		return errors.Wrapf(err, "running 'launchctl bootout %s %s' output: %s", systemDomain, service, output)
 	}
 	return nil
+}
+
+func (s realLaunchdExecutor) Kickstart(ctx context.Context, service string, killExisting bool) error {
+	args := []string{"kickstart", systemDomain + "/" + service}
+	if killExisting {
+		args = []string{"kickstart", "-k", systemDomain + "/" + service}
+	}
+	cmd := exec.CommandContext(ctx, "launchctl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errors.Wrapf(err, "running 'launchctl %s' output: %s", strings.Join(args, " "), output)
+	}
+	return nil
+}
+
+func (s realLaunchdExecutor) IsServiceRemoved(ctx context.Context, service string) bool {
+	cmd := exec.CommandContext(ctx, "launchctl", "print", systemDomain+"/"+service)
+	_, err := cmd.CombinedOutput()
+	if err != nil {
+		return true
+	}
+	return false
 }
 
 func (s realLaunchdExecutor) Enable(ctx context.Context, service string) error {
