@@ -288,7 +288,7 @@ main() {
 	if [ -f /etc/systemd/system/viam-agent.service ] || [ -f /usr/local/lib/systemd/system/viam-agent.service ] || [ -f "$PLIST_DEST" ]; then
 		RESTART_CMD = "systemctl restart viam-agent"
 		if [ "$OS" = Darwin ]; then
-			RESTART_CMD = "sudo launchctl kickstart -k system.com.viam.agent"
+			RESTART_CMD = "sudo launchctl kickstart -k system/com.viam.agent"
 		fi
 		echo
 		echo "It appears viam-agent is already installed. You can restart it with '$RESTART_CMD' if it's not running."

@@ -19,14 +19,9 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-const (
-	serviceName = "viam-agent"
-)
-
-//go:embed viam-agent.service
-var serviceFileContents []byte
-
-type systemdManager interface {
+// systemManager is implemented by SystemdManager on Linux and LaunchdManager on MacOS. It
+// is unimplemented on Windows.
+type systemManager interface {
 	IsAvailable(ctx context.Context) error
 	InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error)
 	Enable(ctx context.Context, serviceName string) error
@@ -53,11 +48,11 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 }
 
 // Install is directly executed from main() when --install is passed.
-func Install(ctx context.Context, logger logging.Logger, sdManager systemdManager) error {
-	// Check for systemd
-	err := sdManager.IsAvailable(ctx)
+func Install(ctx context.Context, logger logging.Logger, sManager systemManager) error {
+	// Check for system manager availability.
+	err := sManager.IsAvailable(ctx)
 	if err != nil {
-		return errw.Wrap(err, "can only install on systems using systemd")
+		return errw.Wrap(err, "can only install on systems using system managers")
 	}
 
 	// Create/check required folder structure exists.
@@ -116,12 +111,12 @@ func Install(ctx context.Context, logger logging.Logger, sdManager systemdManage
 		}
 	}
 
-	serviceFilePath, newInstall, err := sdManager.InstallService(ctx, serviceName, serviceFileContents)
+	serviceFilePath, newInstall, err := sManager.InstallService(ctx, serviceName, serviceFileContents)
 	if err != nil {
-		return errw.Wrap(err, "installing systemd service")
+		return errw.Wrap(err, "installing system service")
 	}
 	if newInstall {
-		if err := sdManager.Enable(ctx, "viam-agent"); err != nil {
+		if err := sManager.Enable(ctx, serviceName); err != nil {
 			return err
 		}
 	}

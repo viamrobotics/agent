@@ -19,6 +19,7 @@ import (
 	"github.com/nightlyone/lockfile"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
+	"github.com/viamrobotics/agent/launchd"
 	_ "github.com/viamrobotics/agent/subsystems/syscfg"
 	"github.com/viamrobotics/agent/utils"
 	"github.com/viamrobotics/agent/utils/systemd"
@@ -133,8 +134,18 @@ func commonMain() {
 	}
 
 	if opts.Install {
-		sdmanager := systemd.NewSystemdManager(globalLogger.Sublogger("systemd"))
-		exitIfError(agent.Install(ctx, globalLogger, sdmanager))
+		switch runtime.GOOS {
+		case "linux":
+			sdmanager := systemd.NewSystemdManager(globalLogger.Sublogger("systemd"))
+			exitIfError(agent.Install(ctx, globalLogger, sdmanager))
+		case "darwin":
+			ldmanager := launchd.NewLaunchdManager(globalLogger.Sublogger("launchd"))
+			exitIfError(agent.Install(ctx, globalLogger, ldmanager))
+		default:
+			fmt.Printf("viam-agent cannot be run with --install on %s", runtime.GOOS)
+			fmt.Printf("See https://docs.viam.com/manage/reference/viam-agent/#installation")
+			return
+		}
 		return
 	}
 
