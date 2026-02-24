@@ -255,12 +255,13 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 	))
 }
 
+var agentVersionRegex = regexp.MustCompile(`Viam Agent Version: ([^\s]+) Git Revision: ([^\s]+)`)
+
 func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 	cmdRes := c.runCmd(
 		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
 			`head -n5 | grep 'Viam Agent Version'`,
 	)
-	verRegex := regexp.MustCompile(`Viam Agent Version: ([^\s]+) Git Revision: ([^\s]+)`)
 	if cmdRes.IsError() {
 		return mo.Err[string](cmdRes.Error())
 	}
@@ -268,7 +269,7 @@ func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 	if len(cmdOutput) != 1 {
 		return mo.Errf[string]("expected single matching journalctl line but got %d", len(cmdOutput))
 	}
-	matches := verRegex.FindStringSubmatch(cmdOutput[0])
+	matches := agentVersionRegex.FindStringSubmatch(cmdOutput[0])
 	return mo.Ok(matches[1])
 }
 
