@@ -142,7 +142,9 @@ func commonMain() {
 			ldmanager := launchd.NewLaunchdManager(globalLogger.Sublogger("launchd"))
 			exitIfError(agent.Install(ctx, globalLogger, ldmanager))
 		default:
+			//nolint:forbidigo
 			fmt.Printf("viam-agent cannot be run with --install on %s", runtime.GOOS)
+			//nolint:forbidigo
 			fmt.Printf("See https://docs.viam.com/manage/reference/viam-agent/#installation")
 			return
 		}

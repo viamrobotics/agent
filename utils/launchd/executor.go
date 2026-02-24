@@ -62,6 +62,7 @@ func (s realLaunchdExecutor) Bootstrap(ctx context.Context, serviceFilePath stri
 }
 
 func (s realLaunchdExecutor) Bootout(ctx context.Context, service string) error {
+	//nolint:gosec
 	cmd := exec.CommandContext(ctx, "launchctl", "bootout", systemDomain+"/"+service)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -75,6 +76,7 @@ func (s realLaunchdExecutor) Kickstart(ctx context.Context, service string, kill
 	if killExisting {
 		args = []string{"kickstart", "-k", systemDomain + "/" + service}
 	}
+	//nolint:gosec
 	cmd := exec.CommandContext(ctx, "launchctl", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -84,15 +86,14 @@ func (s realLaunchdExecutor) Kickstart(ctx context.Context, service string, kill
 }
 
 func (s realLaunchdExecutor) IsServiceRemoved(ctx context.Context, service string) bool {
+	//nolint:gosec
 	cmd := exec.CommandContext(ctx, "launchctl", "print", systemDomain+"/"+service)
 	_, err := cmd.CombinedOutput()
-	if err != nil {
-		return true
-	}
-	return false
+	return err != nil
 }
 
 func (s realLaunchdExecutor) Enable(ctx context.Context, service string) error {
+	//nolint:gosec
 	cmd := exec.CommandContext(ctx, "launchctl", "enable", systemDomain+"/"+service)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
