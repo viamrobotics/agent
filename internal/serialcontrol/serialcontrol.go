@@ -119,6 +119,9 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	scanner := bufio.NewScanner(c.port)
 	scanner.Split(splitTerminal)
 
+	// Clear the serial output (this method has a confusing name) to avoid any
+	// lingering bytes from the prompt rendering. All we should see after this
+	// the command output followed by the next prompt.
 	if err := c.port.ResetInputBuffer(); err != nil {
 		return mo.Err[[]string](err)
 	}
@@ -127,14 +130,6 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	if _, err := c.port.Write([]byte(cmd)); err != nil {
 		return mo.Err[[]string](err)
 	}
-
-	// Clear the serial output (this method has a confusing name) to avoid any
-	// lingering bytes from the prompt rendering. All we should see after this
-	// the command output followed by the next prompt.
-
-	// if err := c.port.ResetInputBuffer(); err != nil {
-	// 	return mo.Err[[]string](err)
-	// }
 
 	// Send CR to execute the command
 	time.Sleep(time.Second * 2)
