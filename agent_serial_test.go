@@ -22,12 +22,12 @@ import (
 var serialClient *serialcontrol.Client
 
 type config struct {
-	APIKeyID   string  		`toml:"api_key_id"`
-	APIKey     string  		`toml:"api_key"`
-	PartID     string  		`toml:"part_id"`
-	SerialPath string  		`toml:"serial_path"`
-	Wifi       wifiCfg 		`toml:"wifi"`
-	BLE        bleCfg  		`toml:"ble"`
+	APIKeyID   string  `toml:"api_key_id"`
+	APIKey     string  `toml:"api_key"`
+	PartID     string  `toml:"part_id"`
+	SerialPath string  `toml:"serial_path"`
+	Wifi       wifiCfg `toml:"wifi"`
+	BLE        bleCfg  `toml:"ble"`
 }
 
 type bleCfg struct {
