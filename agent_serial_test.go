@@ -168,11 +168,12 @@ func provisionViaBluetooth(ctx context.Context) (context.Context, error) {
 }
 
 func deviceIsOnline(ctx context.Context) (context.Context, error) {
-	// After BLE provisioning the agent should reconnect on its own.
-	// EnsureOnline will also attempt to reconnect WiFi as a fallback.
+	// Verify the device came online on its own after BLE provisioning.
+	// We intentionally do NOT use EnsureOnline here — if the device isn't
+	// online, provisioning failed and the test should fail.
 	// TODO: replace with an app API call (e.g. get robot status) for
 	// stronger verification that provisioning actually succeeded.
-	return ctx, serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password)
+	return ctx, serialClient.CheckOnline()
 }
 
 func testAgentState(ctx context.Context, key, expectedVal string) (context.Context, error) {
