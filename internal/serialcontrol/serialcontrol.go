@@ -119,18 +119,20 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	scanner := bufio.NewScanner(c.port)
 	scanner.Split(splitTerminal)
 
-	if _, err := c.port.Write([]byte(cmd)); err != nil {
-		return mo.Err[[]string](err)
-	}
-
 	// Clear the serial output (this method has a confusing name) to avoid any
 	// lingering bytes from the prompt rendering. All we should see after this
 	// the command output followed by the next prompt.
 	if err := c.port.ResetInputBuffer(); err != nil {
 		return mo.Err[[]string](err)
 	}
+	time.Sleep(time.Second * 2)
+
+	if _, err := c.port.Write([]byte(cmd)); err != nil {
+		return mo.Err[[]string](err)
+	}
 
 	// Send CR to execute the command
+	time.Sleep(time.Second * 2)
 	if _, err := c.port.Write([]byte("\r")); err != nil {
 		return mo.Err[[]string](err)
 	}
@@ -172,7 +174,7 @@ func (c *Client) Sudo() error {
 
 	// Disable echo in the terminal so we don't have to deal with ignoring the
 	// text of the commands we send in the output.
-	if _, err := c.port.Write([]byte("stty -echo; set -x\r")); err != nil {
+	if _, err := c.port.Write([]byte("stty raw -echo\r")); err != nil {
 		return errw.Wrap(err, `failed to execute "stty -echo"`)
 	}
 
@@ -312,4 +314,23 @@ func (c *Client) getPingPacketLoss() mo.Result[int] {
 // ForceProvisioning forces the agent into provisioning mode.
 func (c *Client) ForceProvisioning() mo.Result[[]string] {
 	return c.runCmd("touch /opt/viam/etc/force_provisioning_mode")
+}
+
+// DeleteWifiConnection removes a saved WiFi connection profile from
+// NetworkManager. This also disconnects the active connection if one exists.
+func (c *Client) DeleteWifiConnection(ssid string) mo.Result[[]string] {
+	return c.runCmd(fmt.Sprintf(`nmcli connection delete "%s"`, ssid))
+}
+
+// CheckOnline checks if the device has internet connectivity by pinging
+// app.viam.com. Returns nil if online, error otherwise.
+func (c *Client) CheckOnline() error {
+	packetLossRes := c.getPingPacketLoss()
+	if packetLossRes.IsError() {
+		return packetLossRes.Error()
+	}
+	if packetLossRes.MustGet() > 0 {
+		return fmt.Errorf("device has %d%% packet loss", packetLossRes.MustGet())
+	}
+	return nil
 }
