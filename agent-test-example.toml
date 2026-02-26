@@ -9,3 +9,6 @@ part_id = "<part id>"
 # [wifi]
 # ssid = "<wifi ssid>"
 # password = "<wifi password>"
+
+# [ble]
+# env_file = "<path to .env file for BLE provisioning test>"
