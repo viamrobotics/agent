@@ -334,4 +334,3 @@ func (c *Client) CheckOnline() error {
 	}
 	return nil
 }
-
