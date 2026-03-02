@@ -461,7 +461,8 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		cfg.SystemConfiguration.LoggingJournaldStorage != "none" {
 		defaultStorage := DefaultConfiguration.SystemConfiguration.LoggingJournaldStorage
 		errOut = errors.Join(errOut, errw.Errorf(
-			"agent.system_configuration.logging_journald_storage can only be 'volatile', 'persistent', 'auto', or 'none' (was: %s). Setting to default storage mode: %s",
+			"agent.system_configuration.logging_journald_storage can only be 'volatile', 'persistent', 'auto', or 'none' (was: %s). "+
+				"Setting to default storage mode: %s",
 			cfg.SystemConfiguration.LoggingJournaldStorage, defaultStorage))
 		cfg.SystemConfiguration.LoggingJournaldStorage = defaultStorage
 	}
