@@ -1,9 +1,15 @@
-# Required fields
-api_key_id = "<app api key id taken from machine install instructions>"
-api_key = "<app api key taken from machine install instructions>"
+# Uncommented fields are required. Text <in brackets> is a placeholder and
+# should be replaced with appropriate values.
+
+api_key_id = "<app location api key id with owner role>"
+api_key = "<app location api key with owner role>"
+robot_id = "<robot id>"
 part_id = "<part id>"
 
-# # Optional fields
+[versions]
+stable = '0.25.0'
+old = '0.24.2'
+
 # serial_path = "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
 
 # [wifi]

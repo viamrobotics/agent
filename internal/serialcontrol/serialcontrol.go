@@ -23,7 +23,10 @@ import (
 
 // Control sequence for xterm's bracketed paste mode:
 // https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Bracketed-Paste-Mode.
-var startPrompt = []byte("\x1B[?2004h")
+var (
+	startPrompt = []byte("\x1B[?2004h")
+	startOutput = []byte("\x1B[?2004l")
+)
 
 // Client is used to control a raspberry pi over a serial console.
 type Client struct {
@@ -49,7 +52,17 @@ func splitTerminal(data []byte, atEOF bool) (advance int, token []byte, err erro
 		return 0, nil, nil
 	}
 
+	// Skip over end bracket paste control sequence
+	if bytes.HasPrefix(data, startOutput) {
+		return len(startOutput) + 1, []byte{}, nil
+	}
+
 	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		if bytes.Equal(data, []byte(strings.TrimSpace(string(startOutput)))) {
+			// Found end of bracketed paste mode, which should appear right before the
+			// command output. Translate it to an empty string and keep going.
+			return i + 1, []byte{}, nil
+		}
 		// Found a newline, presumably as part of ongoing command output. Return the
 		// line with the trailing newline removed + keep scanning.
 		return i + 1, dropCR(data[0:i]), nil
@@ -119,19 +132,16 @@ func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	scanner := bufio.NewScanner(c.port)
 	scanner.Split(splitTerminal)
 
-	if _, err := c.port.Write([]byte(cmd)); err != nil {
-		return mo.Err[[]string](err)
-	}
-
 	// Clear the serial output (this method has a confusing name) to avoid any
-	// lingering bytes from the prompt rendering. All we should see after this
+	// lingering bytes from the prompt rendering. All we should see after this is
 	// the command output followed by the next prompt.
+	// NOTE: on macOS this actually resets both the input and output buffers, so
+	// this call must come before we send the command.
 	if err := c.port.ResetInputBuffer(); err != nil {
 		return mo.Err[[]string](err)
 	}
 
-	// Send CR to execute the command
-	if _, err := c.port.Write([]byte("\r")); err != nil {
+	if _, err := c.port.Write([]byte(cmd + "\r")); err != nil {
 		return mo.Err[[]string](err)
 	}
 
@@ -172,7 +182,7 @@ func (c *Client) Sudo() error {
 
 	// Disable echo in the terminal so we don't have to deal with ignoring the
 	// text of the commands we send in the output.
-	if _, err := c.port.Write([]byte("stty -echo; set -x\r")); err != nil {
+	if _, err := c.port.Write([]byte("stty -echo\r")); err != nil {
 		return errw.Wrap(err, `failed to execute "stty -echo"`)
 	}
 
@@ -198,7 +208,7 @@ func (c *Client) RemoveViam() mo.Result[[]string] {
 func (c *Client) InstallViam(partID, keyID, key string) mo.Result[[]string] {
 	cmd := fmt.Sprintf(
 		//nolint: lll
-		`/bin/sh -c "VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"`,
+		`yes | /bin/sh -c "FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"`,
 		keyID, key, partID,
 	)
 	// TODO: this will log the command being run, including the API key in
@@ -243,6 +253,24 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 			return kv[0], kv[1], true
 		},
 	))
+}
+
+var agentVersionRegex = regexp.MustCompile(`Viam Agent Version: ([^\s]+) Git Revision: ([^\s]+)`)
+
+func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
+	cmdRes := c.runCmd(
+		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
+			`head -n5 | grep 'Viam Agent Version'`,
+	)
+	if cmdRes.IsError() {
+		return mo.Err[string](cmdRes.Error())
+	}
+	cmdOutput := cmdRes.MustGet()
+	if len(cmdOutput) != 1 {
+		return mo.Errf[string]("expected single matching journalctl line but got %d", len(cmdOutput))
+	}
+	matches := agentVersionRegex.FindStringSubmatch(cmdOutput[0])
+	return mo.Ok(matches[1])
 }
 
 // EnsureOnline verifies that the device has an internet connection and attempts

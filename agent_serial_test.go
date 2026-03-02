@@ -5,25 +5,44 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/cucumber/godog"
 	"github.com/samber/mo"
+	"github.com/samber/mo/result"
 	"github.com/viamrobotics/agent/internal/serialcontrol"
+	apppb "go.viam.com/api/app/v1"
 	"go.viam.com/rdk/logging"
+	rutils "go.viam.com/rdk/utils"
 	"go.viam.com/test"
+	"go.viam.com/utils/rpc"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
-var serialClient *serialcontrol.Client
+var (
+	serialClient *serialcontrol.Client
+	appClient    apppb.AppServiceClient
+)
 
 type config struct {
 	APIKeyID   string             `toml:"api_key_id"`
 	APIKey     string             `toml:"api_key"`
+	RobotID    string             `toml:"robot_id"`
 	PartID     string             `toml:"part_id"`
-	SerialPath mo.Option[string]  `toml:"serial_path"`
-	Wifi       wifiCfg `toml:"wifi"`
+	Versions   versionsCfg        `toml:"versions"`
+	SerialPath tomlOption[string] `toml:"serial_path"`
+	Wifi       wifiCfg            `toml:"wifi"`
+}
+
+type versionsCfg struct {
+	Stable string `toml:"stable"`
+	Old    string `toml:"old"`
 }
 
 type wifiCfg struct {
@@ -70,6 +89,9 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				logger,
 				cfg.SerialPath.OrElse("/dev/ttyUSB0"),
 			).MustGet()
+
+			appClient = dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey).MustGet()
+
 			if err := serialClient.Sudo(); err != nil {
 				panic(err)
 			}
@@ -82,18 +104,27 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 		})
 		tsc.AfterSuite(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+			defer cancel()
+			if _, err := applyAgentVersionPin(ctx, "stable"); err != nil {
+				t.Logf("error pinning agent back to stable during cleanup: %v", err)
+			}
 			if err := serialClient.Close(); err != nil {
-				t.Error("closing serial client", err)
+				t.Logf("error closing serial client during cleanup: %v", err)
 			}
 		})
 	}
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
+	const versionGroup = `(an old version|dev|stable|version [^\s]+)`
 	ctx.Step(`^viam-agent is installed$`, installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
-	ctx.Step(`the viam-agent systemd unit is running`, testAgentRunning)
+	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
+	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
+	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit started with %s`, versionGroup), testSystemdAgentStartVersion)
+	ctx.Step(fmt.Sprintf(`viam-agent is pinned to %s`, versionGroup), applyAgentVersionPin)
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {
@@ -104,10 +135,22 @@ func removeViam(ctx context.Context) (context.Context, error) {
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
+	agentStatus := serialClient.GetAgentStatus().MustGet()
+	if agentStatus["SubState"] == "running" {
+		// Avoid wasting time and network traffic if agent is already running.
+		return ctx, nil
+	}
+	robotKeysResp, err := appClient.GetRobotAPIKeys(ctx, &apppb.GetRobotAPIKeysRequest{
+		RobotId: cfg.RobotID,
+	})
+	if err != nil {
+		return ctx, err
+	}
+	robotKeys := robotKeysResp.ApiKeys[0]
 	return ctx, serialClient.InstallViam(
 		cfg.PartID,
-		cfg.APIKeyID,
-		cfg.APIKey,
+		robotKeys.ApiKey.Id,
+		robotKeys.ApiKey.Key,
 	).Error()
 }
 
@@ -117,6 +160,37 @@ func testAgentEnabled(ctx context.Context) (context.Context, error) {
 
 func testAgentRunning(ctx context.Context) (context.Context, error) {
 	return testAgentState(ctx, "SubState", "running")
+}
+
+func testAgentRunningWithVersion(ctx context.Context, version string) (context.Context, error) {
+	ctx, err := testSystemdAgentStartVersion(ctx, version)
+	if err != nil {
+		return ctx, err
+	}
+	return testAgentState(ctx, "SubState", "running")
+}
+
+func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
+	versionTest := versionStrToMatcher(version)
+	var err error
+	// Agent needs time to fetch the new config, possibly download the new
+	// version, and restart.
+	for i := range 60 {
+		if i > 0 {
+			time.Sleep(time.Second * 2)
+		}
+		lastAgentVer := serialClient.GetAgentLastStartVersion()
+		if lastAgentVer.IsError() {
+			err = lastAgentVer.Error()
+			continue
+		}
+		if check := versionTest(lastAgentVer.MustGet()); check != "" {
+			err = errors.New(check)
+			continue
+		}
+		return ctx, nil
+	}
+	return ctx, err
 }
 
 func testAgentState(ctx context.Context, key, expectedVal string) (context.Context, error) {
@@ -130,3 +204,140 @@ func testAgentState(ctx context.Context, key, expectedVal string) (context.Conte
 	}
 	return ctx, nil
 }
+
+// setField sets a field nested in an arbitrarily deep tree of
+// [*structpb.Struct]s to the provided [*structpb.Value]. Any intermediary
+// fields that do not exist or are set to types other than structpb.Struct will
+// be overwritten.
+func setField(root *structpb.Struct, value *structpb.Value, path ...string) error {
+	if len(path) < 1 {
+		return nil
+	}
+
+	if root.Fields == nil {
+		root.Fields = make(map[string]*structpb.Value)
+	}
+	fields := root.Fields
+	for _, p := range path[:len(path)-1] {
+		next := fields[p].GetStructValue()
+		if next == nil {
+			var err error
+			next, err = structpb.NewStruct(nil)
+			if err != nil {
+				return err
+			}
+			fields[p] = structpb.NewStructValue(next)
+		}
+		fields = next.Fields
+	}
+	fields[path[len(path)-1]] = value
+	return nil
+}
+
+func applyAgentVersionPin(ctx context.Context, version string) (context.Context, error) {
+	version = translateVersionApp(version)
+	partResp, err := appClient.GetRobotPart(ctx, &apppb.GetRobotPartRequest{
+		Id: cfg.PartID,
+	})
+	if err != nil {
+		return ctx, err
+	}
+	partCfg := partResp.Part.RobotConfig
+	err = setField(partCfg, structpb.NewStringValue(version), "agent", "version_control", "agent")
+	if err != nil {
+		return ctx, err
+	}
+
+	_, err = appClient.UpdateRobotPart(ctx, &apppb.UpdateRobotPartRequest{
+		Id:          cfg.PartID,
+		Name:        partResp.Part.Name,
+		RobotConfig: partCfg,
+	})
+
+	return ctx, err
+}
+
+func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
+	dialopts := []rpc.DialOption{
+		rpc.WithEntityCredentials(
+			keyID,
+			rpc.Credentials{Type: rutils.CredentialsTypeAPIKey, Payload: key},
+		),
+	}
+	dialCtx, dialCancel := context.WithTimeout(ctx, time.Second*10)
+	defer dialCancel()
+	return result.Pipe1(
+		mo.TupleToResult(rpc.DialDirectGRPC(dialCtx, address, logger, dialopts...)),
+		result.Map(func(conn rpc.ClientConn) apppb.AppServiceClient {
+			return apppb.NewAppServiceClient(conn)
+		}),
+	)
+}
+
+// Translate version strings into the format app expects, which allows for some
+// magic strings such as "stable"
+func translateVersionApp(version string) string {
+	switch version {
+	case "an old version":
+		return cfg.Versions.Old
+	case "stable":
+		return version
+	case "dev":
+		return version
+	}
+	if strings.HasPrefix(version, "version ") {
+		return strings.SplitN(version, " ", 2)[1]
+	}
+	panic(fmt.Sprintf(`unrecognized version format "%s"`, version))
+}
+
+// Translate version strings into the format that agent expects/reports.
+func versionStrToMatcher(version string) func(string) string {
+	switch version {
+	case "an old version":
+		return func(actual string) string {
+			if cfg.Versions.Old == "" {
+				panic("must set old version in config")
+			}
+			return test.ShouldEqual(actual, cfg.Versions.Old)
+		}
+	case "stable":
+		return func(actual string) string {
+			if cfg.Versions.Stable == "" {
+				panic("must set stable version in config")
+			}
+			return test.ShouldEqual(actual, cfg.Versions.Stable)
+		}
+	case "dev":
+		return func(actual string) string {
+			devRegex := regexp.MustCompile(`-dev\.\d+$`)
+			if devRegex.MatchString(actual) {
+				return ""
+			}
+			return fmt.Sprintf(`Expected "%s" to match "%s"`, actual, devRegex.String())
+		}
+	}
+	if strings.HasPrefix(version, "version ") {
+		return func(actual string) string {
+			return test.ShouldEqual(actual, strings.SplitN(version, " ", 2)[1])
+		}
+	}
+	panic(fmt.Sprintf(`unrecongnized version format "%s"`, version))
+}
+
+// tomlOption wraps [mo.Option] such that it can unmarshal config values of all
+// the types we care about.
+type tomlOption[T any] struct {
+	mo.Option[T]
+}
+
+// UnmarshalTOML implements [toml.Unmarshaler].
+func (t *tomlOption[T]) UnmarshalTOML(val any) error {
+	switch v := val.(type) {
+	case string:
+		return t.UnmarshalText([]byte(`"` + v + `"`))
+	}
+	panic(fmt.Sprintf("don't know how to unmarshall optional toml value %s", val))
+}
+
+var _ toml.Unmarshaler = &tomlOption[string]{}
