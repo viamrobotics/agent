@@ -15,6 +15,7 @@ import (
 	"io"
 	"io/fs"
 	"iter"
+	"maps"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -27,8 +28,10 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/hashicorp/go-getter"
@@ -130,10 +133,7 @@ func InitViamDirs(viamDirRoot string) {
 
 func InitPaths(logger logging.Logger) error {
 	uid := os.Getuid()
-	expectedPerms := os.FileMode(0o755)
-	if runtime.GOOS == "windows" {
-		expectedPerms = 0o777
-	}
+	expectedPerms := expectedPerms()
 	for p := range ViamDirs.Values() {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -161,6 +161,138 @@ func InitPaths(logger logging.Logger) error {
 				logger.Warnf("Could not correct permissions of %s", p)
 			}
 		}
+	}
+	return nil
+}
+
+func expectedPerms() os.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0o777
+	}
+	return os.FileMode(0o755)
+}
+
+// TryResetAgent deletes nonessential files from ViamDirs.Viam and fixes remaining files' owner & permissions to
+// make it appear as if it had just been installed.
+func TryResetAgent(logger logging.Logger) error {
+	// convert ViamDirs path to absolute if not already
+	viamDirsPathAbs := ViamDirs.Viam
+	if !filepath.IsAbs(ViamDirs.Viam) {
+		maybeAbsPath, err := filepath.Abs(ViamDirs.Viam)
+		if err != nil {
+			return err
+		}
+		if maybeAbsPath != viamDirsPathAbs {
+			viamDirsPathAbs = maybeAbsPath
+		}
+	}
+
+	whitelistAbsPaths := make(map[string]struct{})
+	whitelistAbsPaths[filepath.Join(ViamDirs.Bin, "viam-agent")] = struct{}{}
+
+	// whitelist currently running executable (both symlink & target) from deletion
+	curExecutableMaybeSymlink, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	whitelistAbsPaths[curExecutableMaybeSymlink] = struct{}{}
+	if !filepath.IsAbs(curExecutableMaybeSymlink) {
+		absPath, err := filepath.Abs(curExecutableMaybeSymlink)
+		if err == nil {
+			whitelistAbsPaths[absPath] = struct{}{}
+		}
+	}
+
+	curExecutable, err := os.Readlink(curExecutableMaybeSymlink)
+	if err == nil && curExecutableMaybeSymlink != curExecutable {
+		whitelistAbsPaths[curExecutable] = struct{}{}
+		if !filepath.IsAbs(curExecutableMaybeSymlink) {
+			absPath, err := filepath.Abs(curExecutableMaybeSymlink)
+			if err == nil {
+				whitelistAbsPaths[absPath] = struct{}{}
+			}
+		}
+	}
+
+	// destructive changes starting from here
+	// will always return err == nil
+	filesToRemove := make([]string, 0, 10)
+	dirsToRemove := make([]string, 0, 10)
+
+	logger.Infof("removing all files in %v besides %v", viamDirsPathAbs, slices.Collect(maps.Keys(whitelistAbsPaths)))
+	err = filepath.WalkDir(viamDirsPathAbs, func(pathAbs string, d fs.DirEntry, err error) error {
+		if err != nil {
+			logger.Infow("skipping directory", "path", pathAbs, "err", err)
+			// return nil to continue processing other files (see WalkFunc docs)
+			return nil
+		}
+
+		switch {
+		case d.Type()&fs.ModeSymlink != 0:
+			// check if symlink or its target are in the whitelist
+			_, symlinkInWL := whitelistAbsPaths[pathAbs]
+			targetName, err := os.Readlink(pathAbs)
+			var targetInWL bool
+			if err == nil {
+				_, targetInWL = whitelistAbsPaths[targetName]
+			}
+			if !symlinkInWL && !targetInWL {
+				filesToRemove = append(filesToRemove, pathAbs)
+			}
+		case !d.IsDir():
+			// regular file
+			_, normalFileInWL := whitelistAbsPaths[pathAbs]
+			if !normalFileInWL {
+				filesToRemove = append(filesToRemove, pathAbs)
+			}
+		default:
+			// dir
+			dirsToRemove = append(dirsToRemove, pathAbs)
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Debugw("walk dir failed", "err", err)
+	}
+
+	for _, filePath := range filesToRemove {
+		err := os.Remove(filePath)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logger.Infow("error removing", "file", filePath, "err", err)
+		} else {
+			logger.Debugw("removed", "file", filePath)
+		}
+	}
+	for _, dirPath := range dirsToRemove {
+		// only removes if dir is empty
+		err := os.Remove(dirPath)
+		// don't log if remove fails for "directory not empty". ENOTEMPTY on *nix, EEXIST on Windows.
+		if err != nil {
+			if !errors.Is(err, syscall.ENOTEMPTY) && !errors.Is(err, syscall.EEXIST) {
+				logger.Infow("error removing", "dir", dirPath, "err", err)
+			}
+		} else {
+			logger.Debugw("removed", "dir", dirPath)
+		}
+	}
+
+	// reset remaining files to expected owner and permissions
+	expectedPerms := expectedPerms()
+	err = filepath.WalkDir(viamDirsPathAbs, func(pathAbs string, _ fs.DirEntry, _ error) error {
+		targetUID := os.Geteuid()
+		err := os.Chown(pathAbs, targetUID, -1)
+		if err != nil {
+			logger.Infow("could not chown file", "file", pathAbs, "targetUid", targetUID, "err", err)
+		}
+
+		err = os.Chmod(pathAbs, expectedPerms)
+		if err != nil {
+			logger.Infow("could not chmod file", "file", pathAbs, "targetPerms", expectedPerms, "err", err)
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Debugw("walk dir failed", "err", err)
 	}
 	return nil
 }
