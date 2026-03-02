@@ -71,6 +71,8 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		journalConf.Journal.RuntimeMaxUse = sysd.Value{tempSize}
 	}
 
+	journalConf.Journal.Storage = sysd.Value{s.cfg.LoggingJournaldStorage}
+
 	newFileBytes, err := sysd.Marshal(journalConf)
 	if err != nil {
 		return errw.Wrapf(err, "marshaling new file for %s", journaldConfPath)
