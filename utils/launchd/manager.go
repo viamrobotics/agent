@@ -26,18 +26,20 @@ type privateExecutor = LaunchdExecutor
 // service.
 type LaunchdManager struct {
 	privateExecutor
-	logger logging.Logger
+	serviceDir string
+	logger     logging.Logger
 }
 
 func NewLaunchdManager(logger logging.Logger) *LaunchdManager {
 	return &LaunchdManager{
 		privateExecutor: realLaunchdExecutor{},
+		serviceDir:      systemLaunchDaemonDir,
 		logger:          logger,
 	}
 }
 
 func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error) {
-	serviceFilePath := filepath.Join(systemLaunchDaemonDir, serviceName+".plist")
+	serviceFilePath := filepath.Join(l.serviceDir, serviceName+".plist")
 	var newInstall bool
 	if _, err := os.Stat(serviceFilePath); err != nil {
 		newInstall = true
