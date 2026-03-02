@@ -86,6 +86,12 @@ func (s realLaunchdExecutor) Kickstart(ctx context.Context, service string, kill
 }
 
 func (s realLaunchdExecutor) IsServiceRemoved(ctx context.Context, service string) bool {
+	// launchctl does not provide a very rich API, and `launchctl print` seems to be one of
+	// the only ways to check the existing launchd process' knowledge of services. The
+	// string output of that command is also not stable. A bit hacky, but the most
+	// consistent way I could find to check if a service has been removed is to check that
+	// `launchctl print` returned an error when trying to output that service's information.
+
 	//nolint:gosec
 	cmd := exec.CommandContext(ctx, "launchctl", "print", systemDomain+"/"+service)
 	_, err := cmd.CombinedOutput()
