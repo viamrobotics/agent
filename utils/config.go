@@ -455,7 +455,8 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		//nolint:lll
 		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
 	}
-	if cfg.SystemConfiguration.LoggingJournaldStorage != "volatile" &&
+	if cfg.SystemConfiguration.LoggingJournaldStorage != "" &&
+		cfg.SystemConfiguration.LoggingJournaldStorage != "volatile" &&
 		cfg.SystemConfiguration.LoggingJournaldStorage != "persistent" &&
 		cfg.SystemConfiguration.LoggingJournaldStorage != "auto" &&
 		cfg.SystemConfiguration.LoggingJournaldStorage != "none" {
