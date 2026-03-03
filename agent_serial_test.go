@@ -351,7 +351,7 @@ func versionStrToMatcher(version string) func(string) string {
 			return test.ShouldEqual(actual, strings.SplitN(version, " ", 2)[1])
 		}
 	}
-	panic(fmt.Sprintf(`unrecongnized version format "%s"`, version))
+	panic(fmt.Sprintf(`unrecognized version format "%s"`, version))
 }
 
 func applyAgentVersionPin(ctx context.Context, version string) (context.Context, error) {
@@ -405,6 +405,9 @@ func versionStrToMatcherViamServer(version string) func(string) string {
 	switch version {
 	case "an old version":
 		return func(actual string) string {
+			if cfg.Versions.ViamServerOld == "" {
+				panic("must set viam_server_old in config")
+			}
 			return test.ShouldEqual(actual, cfg.Versions.ViamServerOld)
 		}
 	case "stable":
