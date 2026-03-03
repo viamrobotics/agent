@@ -9,7 +9,8 @@ TEMPDIR=""
 TARBALL=""
 TARBALL_ONLY=0
 
-SERVICE_FILE=$(cat <<EOF
+SERVICE_FILE=$(
+	cat <<EOF
 [Unit]
 Description=Viam Services Agent
 After=NetworkManager.service
@@ -41,18 +42,18 @@ find_mountpoints_linux() {
 find_mountpoints_macos() {
 	if [ "$MOUNTS" = "" ]; then
 		volsplist=$(mktemp)
-		diskutil list -plist > "$volsplist"
+		diskutil list -plist >"$volsplist"
 		vols=$(/usr/libexec/PlistBuddy -c "Print :VolumesFromDisks" "$volsplist" | grep -vE '[{}]' | awk '{$1=$1};1')
 		while read -r vol; do
 			volplist=$(mktemp)
-			diskutil info -plist "$vol" > "$volplist"
+			diskutil info -plist "$vol" >"$volplist"
 			newMount=$(/usr/libexec/PlistBuddy -c "Print :MountPoint" "$volplist")
 			if [ "$newMount" != "" ]; then
 				MOUNTS=$(echo "$newMount\n$MOUNTS")
 			fi
 			rm "$volplist"
 		done <<-EOF
-		$vols
+			$vols
 		EOF
 		rm "$volsplist"
 	fi
@@ -88,7 +89,7 @@ check_fs() {
 			echo "Found Raspberry Pi bootfs mounted at $BOOTFS"
 		fi
 	done <<-EOF
-	$MOUNTS
+		$MOUNTS
 	EOF
 
 	if [ "$ARCH" != "" ] && ([ "$ROOTFS" != "" ] || [ "$BOOTFS" != "" ]); then
@@ -128,11 +129,10 @@ create_tarball() {
 		echo "Installing $VIAM_JSON_PATH as /etc/viam.json"
 	fi
 
-
 	TEMPDIR=$(mktemp -d)
 
 	mkdir -p "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/"
-	echo "$SERVICE_FILE" > "$TEMPDIR/usr/local/lib/systemd/system/viam-agent.service"
+	echo "$SERVICE_FILE" >"$TEMPDIR/usr/local/lib/systemd/system/viam-agent.service"
 	ln -s ../viam-agent.service "$TEMPDIR/usr/local/lib/systemd/system/multi-user.target.wants/viam-agent.service"
 
 	mkdir -p "$TEMPDIR/opt/viam/cache"
@@ -188,12 +188,12 @@ else
 	fi
 fi
 
-if [ "$TARBALL_ONLY" -ne 1 ] && ! check_fs ; then
+if [ "$TARBALL_ONLY" -ne 1 ] && ! check_fs; then
 	echo "Error: no valid image found at mountpoints (or manually provided path)"
 	echo "If installing on a Pi via sd card, please make sure it's freshly imaged (never booted) and customized with a unique hostname."
 	echo "If the imager auto-ejected the disk, you may need to remove and reinsert it to make it visible again."
-	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually,"\
-	"or explicitly specify the root path (/) if you want to install to the live/running system."
+	echo "Alternately, re-run this script with either '--x86_64' or '--aarch64' options to create a portable package to extract manually," \
+		"or explicitly specify the root path (/) if you want to install to the live/running system."
 	exit 1
 fi
 
@@ -246,7 +246,7 @@ if [ "$IS_PI" -eq "1" ]; then
 		echo "If you ran this script more than once WITHOUT booting the target SD card, then it should not cause issues."
 		echo "If you did boot, you should make a fresh image before running this installer."
 	else
-		sed 's/rm -f \/boot\/firstrun.sh/tar -xJpf \/boot\/firmware\/viam-preinstall.tar.xz -C \/\nrm -f \/boot\/firstrun.sh/' "$BOOTFS/firstrun.sh" > "$BOOTFS/firstrun.sh.new" 
+		sed 's/rm -f \/boot\/firstrun.sh/tar -xJpf \/boot\/firmware\/viam-preinstall.tar.xz -C \/\nrm -f \/boot\/firstrun.sh/' "$BOOTFS/firstrun.sh" >"$BOOTFS/firstrun.sh.new"
 		mv "$BOOTFS/firstrun.sh.new" "$BOOTFS/firstrun.sh"
 	fi
 elif [ "$ROOTFS" != "" ]; then
