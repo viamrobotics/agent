@@ -273,6 +273,59 @@ func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 	return mo.Ok(matches[1])
 }
 
+// GetViamServerStatus retrieves the status of the viam-server systemd unit via
+// the `systemctl show` command and converts the output into a Go map.
+func (c *Client) GetViamServerStatus() mo.Result[map[string]string] {
+	cmdRes := c.runCmd("systemctl show viam-server -l --no-pager")
+	if cmdRes.IsError() {
+		return mo.Err[map[string]string](cmdRes.Error())
+	}
+	return mo.Ok(it.FilterSeqToMap(
+		slices.Values(cmdRes.MustGet()),
+		func(item string) (string, string, bool) {
+			c.logger.Infof("systemctl show output: %s", item)
+			kv := strings.SplitN(item, "=", 2)
+			if len(kv) != 2 {
+				return "", "", false
+			}
+			return kv[0], kv[1], true
+		},
+	))
+}
+
+// viamServerVersionRegex matches the version from viam-server's startup log line, e.g.:
+// INFO rdk server/entrypoint.go:104 Viam RDK {"version":"0.95.0","git_rev":"..."}
+var viamServerVersionRegex = regexp.MustCompile(`"version":"([^"]+)"`)
+
+// GetViamServerLastStartVersion returns the viam-server version from the most
+// recent startup log entry in the viam-agent systemd journal. viam-server runs
+// as a subprocess of viam-agent (not its own systemd unit), so its logs appear
+// in the viam-agent journal.
+func (c *Client) GetViamServerLastStartVersion() mo.Result[string] {
+	cmdRes := c.runCmd(
+		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
+			`grep 'Viam RDK' | tail -n1`,
+	)
+	if cmdRes.IsError() {
+		return mo.Err[string](cmdRes.Error())
+	}
+	cmdOutput := cmdRes.MustGet()
+	if len(cmdOutput) != 1 {
+		return mo.Errf[string]("expected single matching journalctl line but got %d", len(cmdOutput))
+	}
+	matches := viamServerVersionRegex.FindStringSubmatch(cmdOutput[0])
+	if len(matches) < 2 {
+		return mo.Errf[string]("could not parse viam-server version from line: %s", cmdOutput[0])
+	}
+	return mo.Ok(matches[1])
+}
+
+// DownloadToDevice downloads a file from the given URL to the specified path on
+// the device and marks it executable.
+func (c *Client) DownloadToDevice(url, destPath string) mo.Result[[]string] {
+	return c.runCmd(fmt.Sprintf("curl -fsSL -o %s %s && chmod +x %s", destPath, url, destPath))
+}
+
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
 func (c *Client) EnsureOnline(ssid, password string) error {
