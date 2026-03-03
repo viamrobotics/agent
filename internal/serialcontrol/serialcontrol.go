@@ -273,26 +273,6 @@ func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 	return mo.Ok(matches[1])
 }
 
-// GetViamServerStatus retrieves the status of the viam-server systemd unit via
-// the `systemctl show` command and converts the output into a Go map.
-func (c *Client) GetViamServerStatus() mo.Result[map[string]string] {
-	cmdRes := c.runCmd("systemctl show viam-server -l --no-pager")
-	if cmdRes.IsError() {
-		return mo.Err[map[string]string](cmdRes.Error())
-	}
-	return mo.Ok(it.FilterSeqToMap(
-		slices.Values(cmdRes.MustGet()),
-		func(item string) (string, string, bool) {
-			c.logger.Infof("systemctl show output: %s", item)
-			kv := strings.SplitN(item, "=", 2)
-			if len(kv) != 2 {
-				return "", "", false
-			}
-			return kv[0], kv[1], true
-		},
-	))
-}
-
 // viamServerVersionRegex matches the version from viam-server's startup log line, e.g.:
 // INFO rdk server/entrypoint.go:104 Viam RDK {"version":"0.95.0","git_rev":"..."}
 var viamServerVersionRegex = regexp.MustCompile(`"version":"([^"]+)"`)
@@ -324,6 +304,19 @@ func (c *Client) GetViamServerLastStartVersion() mo.Result[string] {
 // the device and marks it executable.
 func (c *Client) DownloadToDevice(url, destPath string) mo.Result[[]string] {
 	return c.runCmd(fmt.Sprintf("curl -fsSL -o %s %s && chmod +x %s", destPath, url, destPath))
+}
+
+// GetDeviceArch returns the machine hardware name of the device (e.g., "aarch64", "x86_64").
+func (c *Client) GetDeviceArch() mo.Result[string] {
+	cmdRes := c.runCmd("uname -m")
+	if cmdRes.IsError() {
+		return mo.Err[string](cmdRes.Error())
+	}
+	output := cmdRes.MustGet()
+	if len(output) != 1 {
+		return mo.Errf[string]("expected single line from uname -m but got %d", len(output))
+	}
+	return mo.Ok(output[0])
 }
 
 // EnsureOnline verifies that the device has an internet connection and attempts

@@ -28,6 +28,7 @@ import (
 var (
 	serialClient *serialcontrol.Client
 	appClient    apppb.AppServiceClient
+	deviceArch   string
 )
 
 type config struct {
@@ -41,12 +42,9 @@ type config struct {
 }
 
 type versionsCfg struct {
-	Stable           string `toml:"viam_agent_stable"`
-	StableURL        string `toml:"viam_agent_stable_url"`
-	Old              string `toml:"viam_agent_old"`
-	OldAgentURL      string `toml:"viam_agent_old_url"`
-	ViamServerOld    string `toml:"viam_server_old"`
-	OldViamServerURL string `toml:"viam_server_old_url"`
+	Stable        string `toml:"viam_agent_stable"`
+	Old           string `toml:"viam_agent_old"`
+	ViamServerOld string `toml:"viam_server_old"`
 }
 
 type wifiCfg struct {
@@ -99,6 +97,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			if err := serialClient.Sudo(); err != nil {
 				panic(err)
 			}
+			deviceArch = serialClient.GetDeviceArch().MustGet()
 
 			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
 				// The AfterSuite hook doesn't run if we panic here so try to restore the terminal state manually
@@ -124,16 +123,6 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
-	ctx.After(func(c context.Context, sc *godog.Scenario, err error) (context.Context, error) {
-		if _, resetErr := applyAgentVersionPin(c, "stable"); resetErr != nil {
-			return c, resetErr
-		}
-		if _, resetErr := applyViamServerVersionPin(c, "stable"); resetErr != nil {
-			return c, resetErr
-		}
-		return c, nil
-	})
-
 	const versionGroup = `(an old version|dev|stable|version [^\s]+)`
 	ctx.Step(`^viam-agent is installed$`, installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
@@ -284,11 +273,7 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 }
 
 func applyAgentVersionPin(ctx context.Context, version string) (context.Context, error) {
-	versionStr := translateVersionApp(version)
-	if version == "stable" && cfg.Versions.StableURL != "" {
-		versionStr = cfg.Versions.StableURL
-	}
-	return applyVersionPin(ctx, versionStr, "agent", "version_control", "agent")
+	return applyVersionPin(ctx, translateVersionApp(version), "agent", "version_control", "agent")
 }
 
 func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
@@ -410,11 +395,20 @@ func testViamServerRunningWithVersion(ctx context.Context, version string) (cont
 	return ctx, err
 }
 
+// gcsURL constructs the GCS download URL for a viam binary given its subsystem
+// name (e.g. "viam-agent", "viam-server"), version string, and device arch.
+func gcsURL(subsystem, version string) string {
+	return fmt.Sprintf(
+		"https://storage.googleapis.com/packages.viam.com/apps/%s/%s-v%s-%s",
+		subsystem, subsystem, version, deviceArch,
+	)
+}
+
 func applyViamServerURLPin(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.OldViamServerURL == "" {
-		return ctx, errors.New("must set old_viam_server_url in config")
+	if cfg.Versions.ViamServerOld == "" {
+		return ctx, errors.New("must set viam_server_old in config")
 	}
-	return applyVersionPin(ctx, cfg.Versions.OldViamServerURL, "agent", "version_control", "viam-server")
+	return applyVersionPin(ctx, gcsURL("viam-server", cfg.Versions.ViamServerOld), "agent", "version_control", "viam-server")
 }
 
 func applyViamServerFilePin(ctx context.Context) (context.Context, error) {
@@ -422,17 +416,17 @@ func applyViamServerFilePin(ctx context.Context) (context.Context, error) {
 }
 
 func downloadOldViamServerBinary(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.OldViamServerURL == "" {
-		return ctx, errors.New("must set old_viam_server_url in config")
+	if cfg.Versions.ViamServerOld == "" {
+		return ctx, errors.New("must set viam_server_old in config")
 	}
-	return ctx, serialClient.DownloadToDevice(cfg.Versions.OldViamServerURL, "/tmp/viam-server-old").Error()
+	return ctx, serialClient.DownloadToDevice(gcsURL("viam-server", cfg.Versions.ViamServerOld), "/tmp/viam-server-old").Error()
 }
 
 func applyAgentURLPin(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.OldAgentURL == "" {
-		return ctx, errors.New("must set old_agent_url in config")
+	if cfg.Versions.Old == "" {
+		return ctx, errors.New("must set viam_agent_old in config")
 	}
-	return applyVersionPin(ctx, cfg.Versions.OldAgentURL, "agent", "version_control", "agent")
+	return applyVersionPin(ctx, gcsURL("viam-agent", cfg.Versions.Old), "agent", "version_control", "agent")
 }
 
 func applyAgentFilePin(ctx context.Context) (context.Context, error) {
@@ -440,17 +434,17 @@ func applyAgentFilePin(ctx context.Context) (context.Context, error) {
 }
 
 func applyAgentViamServerBinaryPin(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.OldViamServerURL == "" {
-		return ctx, errors.New("must set old_viam_server_url in config")
+	if cfg.Versions.ViamServerOld == "" {
+		return ctx, errors.New("must set viam_server_old in config")
 	}
-	return applyVersionPin(ctx, cfg.Versions.OldViamServerURL, "agent", "version_control", "agent")
+	return applyVersionPin(ctx, gcsURL("viam-server", cfg.Versions.ViamServerOld), "agent", "version_control", "agent")
 }
 
 func downloadOldAgentBinary(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.OldAgentURL == "" {
-		return ctx, errors.New("must set old_agent_url in config")
+	if cfg.Versions.Old == "" {
+		return ctx, errors.New("must set viam_agent_old in config")
 	}
-	return ctx, serialClient.DownloadToDevice(cfg.Versions.OldAgentURL, "/tmp/viam-agent-old").Error()
+	return ctx, serialClient.DownloadToDevice(gcsURL("viam-agent", cfg.Versions.Old), "/tmp/viam-agent-old").Error()
 }
 
 // tomlOption wraps [mo.Option] such that it can unmarshal config values of all

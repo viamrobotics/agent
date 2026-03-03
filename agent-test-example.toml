@@ -8,11 +8,8 @@ part_id = "<part id>"
 
 [versions]
 viam_agent_stable = '0.25.0'
-# viam_agent_stable_url = "<optional file:// or https:// URL to use instead of the 'stable' magic string when pinning back to stable>"
-viam_agent_old = '0.24.2'
-viam_agent_old_url = "<GCS URL for old viam-agent binary, required for agent-url.feature>"
-viam_server_old = "<old viam-server version string, required for viamserver-version.feature>"
-viam_server_old_url = "<GCS URL for old viam-server binary, required for viamserver-version.feature>"
+viam_agent_old = "<old viam-agent version string, required for agent-pin-url.feature and agent-pin-file.feature>"
+viam_server_old = "<old viam-server version string, required for viamserver-pin-*.feature>"
 
 # serial_path = "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
 
