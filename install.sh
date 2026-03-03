@@ -16,7 +16,7 @@ OS=$(uname -s)
 if [ "$OS" = "Darwin" ]; then
 	BINARY_OS_PREFIX="darwin-"
 fi
-URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-$BINARY_OS_PREFIX$ARCH"
+URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-${BINARY_OS_PREFIX}${ARCH}"
 
 # Force will bypass all prompts by treating them as yes. May also be set as an environment variable when running as download.
 # sudo /bin/sh -c "FORCE=1; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
@@ -314,7 +314,7 @@ main() {
 	fi
 
 	mkdir -p /opt/viam/tmp && cd /opt/viam/tmp &&
-		curl -fL -o viam-agent-temp-$BINARY_OS_PREFIX$ARCH "$URL" && chmod 755 viam-agent-temp-$BINARY_OS_PREFIX$ARCH
+		curl -fL -o "viam-agent-temp-${BINARY_OS_PREFIX}${ARCH}" "$URL" && chmod 755 viam-agent-temp-$BINARY_OS_PREFIX$ARCH
 	if [ $? -ne 0 ]; then
 		echo
 		echo "Error downloading agent binary. Please correct any errors mentioned above and try again."
