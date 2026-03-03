@@ -42,9 +42,10 @@ type config struct {
 }
 
 type versionsCfg struct {
-	Stable        string `toml:"viam_agent_stable"`
-	Old           string `toml:"viam_agent_old"`
-	ViamServerOld string `toml:"viam_server_old"`
+	Stable           string `toml:"viam_agent_stable"`
+	Old              string `toml:"viam_agent_old"`
+	ViamServerStable string `toml:"viam_server_stable"`
+	ViamServerOld    string `toml:"viam_server_old"`
 }
 
 type wifiCfg struct {
@@ -353,6 +354,8 @@ func translateVersionViamServer(version string) string {
 		return cfg.Versions.ViamServerOld
 	case "stable":
 		return version
+	case "dev":
+		return version
 	}
 	if strings.HasPrefix(version, "version ") {
 		return strings.SplitN(version, " ", 2)[1]
@@ -365,6 +368,26 @@ func versionStrToMatcherViamServer(version string) func(string) string {
 	case "an old version":
 		return func(actual string) string {
 			return test.ShouldEqual(actual, cfg.Versions.ViamServerOld)
+		}
+	case "stable":
+		return func(actual string) string {
+			if cfg.Versions.ViamServerStable == "" {
+				panic("must set viam_server_stable in config")
+			}
+			return test.ShouldEqual(actual, cfg.Versions.ViamServerStable)
+		}
+	case "dev":
+		return func(actual string) string {
+			devRegex := regexp.MustCompile(`-dev\.\d+$`)
+			if devRegex.MatchString(actual) {
+				return ""
+			}
+			return fmt.Sprintf(`Expected "%s" to match "%s"`, actual, devRegex.String())
+		}
+	}
+	if strings.HasPrefix(version, "version ") {
+		return func(actual string) string {
+			return test.ShouldEqual(actual, strings.SplitN(version, " ", 2)[1])
 		}
 	}
 	panic(fmt.Sprintf(`unrecognized viam-server version format "%s"`, version))

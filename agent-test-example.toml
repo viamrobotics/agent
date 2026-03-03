@@ -7,8 +7,9 @@ robot_id = "<robot id>"
 part_id = "<part id>"
 
 [versions]
-viam_agent_stable = '0.25.0'
+viam_agent_stable =  "<current stable viam-agent version string, required for viam-agent stable assertions>"
 viam_agent_old = "<old viam-agent version string, required for agent-pin-url.feature and agent-pin-file.feature>"
+viam_server_stable = "<current stable viam-server version string, required for viam-server stable assertions>"
 viam_server_old = "<old viam-server version string, required for viamserver-pin-*.feature>"
 
 # serial_path = "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
