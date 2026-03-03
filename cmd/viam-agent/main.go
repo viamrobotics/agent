@@ -51,6 +51,11 @@ type agentOpts struct {
 
 //nolint:gocognit
 func commonMain() {
+	// enable debug logging in case it is needed before args are parsed successfully.
+	if os.Getenv("VIAM_AGENT_DEBUG") != "" {
+		globalLogger.SetLevel(logging.DEBUG)
+	}
+
 	var ctx context.Context
 	ctx, globalCancel = setupExitSignalHandling()
 
@@ -74,7 +79,7 @@ func commonMain() {
 			os.Exit(0)
 		}
 	}
-	exitIfError(err)
+	exitIfError(err, false)
 
 	if opts.Help {
 		var b bytes.Buffer
@@ -120,7 +125,7 @@ func commonMain() {
 	needsRootToContinue := opts.Install || opts.EnableSyscfgSubsystem || opts.EnableNetworkingSubsystem
 
 	curUser, err := user.Current()
-	exitIfError(err)
+	exitIfError(err, false)
 	if runtime.GOOS != "windows" && curUser.Uid != "0" && needsRootToContinue {
 		//nolint:forbidigo
 		fmt.Printf("viam-agent with provided options should be run as root (uid 0), but current user is %s (uid %s).\n",
@@ -134,7 +139,7 @@ func commonMain() {
 
 	if opts.Install {
 		sdmanager := systemd.NewSystemdManager(globalLogger.Sublogger("systemd"))
-		exitIfError(agent.Install(ctx, globalLogger, sdmanager))
+		exitIfError(agent.Install(ctx, globalLogger, sdmanager), true)
 		return
 	}
 
@@ -156,11 +161,12 @@ func commonMain() {
 	}
 
 	// set up folder structure
-	exitIfError(utils.InitPaths(globalLogger))
+	exitIfError(utils.InitPaths(globalLogger), true)
 
 	// use a lockfile to prevent running two agents on the same machine
 	pidFile, err := getLock()
-	exitIfError(err)
+	// getLock handles the case (ie returns no err) where a lockfile remains if Agent crashes unexpectedly
+	exitIfError(err, true)
 	defer func() {
 		if err := pidFile.Unlock(); err != nil {
 			globalLogger.Error(errors.Wrapf(err, "unlocking %s", pidFile))
@@ -168,11 +174,11 @@ func commonMain() {
 	}()
 
 	utils.DefaultsFilePath, err = filepath.Abs(opts.DefaultsConfig)
-	exitIfError(err)
+	exitIfError(err, false)
 	globalLogger.Infof("manufacturer defaults file path: %s", utils.DefaultsFilePath)
 
 	utils.AppConfigFilePath, err = filepath.Abs(opts.Config)
-	exitIfError(err)
+	exitIfError(err, false)
 	globalLogger.Infof("machine credentials file path: %s", utils.AppConfigFilePath)
 
 	cfg, err := utils.LoadConfigFromCache()
@@ -278,8 +284,16 @@ func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 }
 
 // helper to log.Fatal if error is non-nil.
-func exitIfError(err error) {
+func exitIfError(err error, cleanupBeforeExit bool) {
 	if err != nil {
+		// note: utils.IsRunningLocally may not have been correctly set yet
+		if cleanupBeforeExit && !utils.IsRunningLocally {
+			globalLogger.Errorw("fatal error. resetting installation")
+			resetErr := utils.TryResetAgent(globalLogger)
+			if resetErr != nil {
+				globalLogger.Errorw("reset failed", "err", err)
+			}
+		}
 		globalLogger.WithOptions(zap.AddCallerSkip(1)).Fatal(err)
 	}
 }
