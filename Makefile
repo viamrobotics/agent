@@ -76,6 +76,10 @@ lint: ensure-mise
 fmt-sh: ensure-mise
 	@mise run fmt-sh
 
+.PHONY: check-fmt-sh
+check-fmt-sh: ensure-mise
+	@mise run check-fmt-sh
+
 .PHONY: test
 test:
 	go test -race ./...

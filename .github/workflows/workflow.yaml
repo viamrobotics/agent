@@ -35,7 +35,7 @@ jobs:
             exit 1
         fi
     - name: Shell script formatting
-      run: shfmt -d *.sh
+      run: make check-fmt-sh
     - name: Test
       run: make test
     - name: Build

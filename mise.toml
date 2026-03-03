@@ -5,6 +5,9 @@ shfmt = "3.12.0"
 [tasks.fmt-sh]
 run = "shfmt -w *.sh"
 
+[tasks.check-fmt-sh]
+run = "shfmt -d *.sh"
+
 [tasks.lint]
 run = [
   'go mod tidy',
