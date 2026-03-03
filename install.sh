@@ -237,7 +237,7 @@ main() {
 	elif [ "$OS" = "Darwin" ]; then
 		if [ "$ARCH" != "aarch64" ]; then
 			echo
-			echo "Viam Agent is currently only available for MacOS on arm64 (M2-series Macs)."
+			echo "Viam Agent is currently only available for MacOS on arm64 (M-series Macs)."
 			echo
 			echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
 			exit 1

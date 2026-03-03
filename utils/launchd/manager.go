@@ -83,7 +83,7 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 				case <-time.After(time.Second):
 					timesChecked++
 					if timesChecked%10 == 0 {
-						l.logger.Infof("Waited %d seconds for existing service to stop and be removed", timesChecked)
+						l.logger.Debugf("Waited %d seconds for existing service to stop and be removed", timesChecked)
 					}
 				case <-t.C:
 					return "", false, errors.Errorf("bootout failed to stop and remove existing service after %s",

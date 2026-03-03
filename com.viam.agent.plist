@@ -24,6 +24,7 @@
     <key>StandardErrorPath</key>
     <string>/var/log/viam-agent.log</string>
 
+    <!-- If you change this, make sure to update launchdExitTimeout in launchd code to match. -->
     <key>ExitTimeOut</key>
     <integer>240</integer>
 </dict>
