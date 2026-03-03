@@ -8,6 +8,7 @@ MOUNTS=""
 TEMPDIR=""
 TARBALL=""
 TARBALL_ONLY=0
+IS_CLOUDINIT=0
 
 SERVICE_FILE=$(
 	cat <<EOF
@@ -75,13 +76,20 @@ check_fs() {
 		fi
 
 		if stat "$mount/bootcode.bin" >/dev/null 2>&1; then
-			if ! stat "$mount/firstrun.sh" >/dev/null 2>&1; then
-				echo "Found possible Raspberry Pi bootfs mounted at $mount, but it is missing firstrun.sh"
+			stat "$mount/firstrun.sh" >/dev/null 2>&1
+			NO_FIRSTRUN=$?
+			stat "$mount/user-data" >/dev/null 2>&1
+			NO_CLOUDINIT=$?
+			if [ $NO_FIRSTRUN -eq 1 ] && [ $NO_CLOUDINIT -eq 1 ]; then
+				echo "Found possible Raspberry Pi bootfs mounted at $mount, but it is missing firstrun.sh or user-data"
 				echo "Please re-image using the offical Raspberry Pi Imager and choose 'yes' when asked to apply OS customisation settings."
 				echo "At minimum, you should set a hostname to uniquely identify the device."
 				echo "Then re-run this script BEFORE booting the SD card."
 				echo
 				continue
+			fi
+			if [ $NO_CLOUDINIT -eq 0 ]; then
+				IS_CLOUDINIT=1
 			fi
 			BOOTFS="$mount"
 			IS_PI=1
@@ -201,7 +209,11 @@ if [ "$TARBALL_ONLY" -ne 1 ]; then
 	echo && echo
 	if [ "$IS_PI" -eq 1 ]; then
 		echo "A Raspberry Pi boot partition has been found mounted at $BOOTFS"
-		echo "This script will modify firstrun.sh on that partition to install Viam agent."
+		if [ "$IS_CLOUDINIT" -eq 1 ]; then
+			echo "This script will modify cloud-init's user-data on that partition to install Viam agent."
+		else
+			echo "This script will modify firstrun.sh on that partition to install Viam agent."
+		fi
 	else
 		echo "A systemd install was found installed in $ROOTFS"
 		echo "Viam agent will be directly installed there."
@@ -241,13 +253,28 @@ fi
 
 if [ "$IS_PI" -eq "1" ]; then
 	cp "$TARBALL" "$BOOTFS/viam-preinstall.tar.xz"
-	if grep -q viam-preinstall.tar.xz "$BOOTFS/firstrun.sh"; then
-		echo "It appears firstrun.sh has already been modified."
-		echo "If you ran this script more than once WITHOUT booting the target SD card, then it should not cause issues."
-		echo "If you did boot, you should make a fresh image before running this installer."
+	if [ "$IS_CLOUDINIT" -eq "1" ]; then
+		if grep -q viam-preinstall.tar.xz "$BOOTFS/user-data"; then
+			echo "It appears cloud-init's user-data has already been modified."
+			echo "If you ran this script more than once WITHOUT booting the target SD card, then it should not cause issues."
+			echo "If you did boot, you should make a fresh image before running this installer."
+		else
+			cp "$BOOTFS/user-data" "$BOOTFS/user-data.new"
+			# note: if image starts including a runcmd: in user-data, this will need to be updated to merge since if there are multiple definitions, only last will be used.
+			# yaml tools like 'yq' are not ubiquitous yet, and we don't want to ask the user to install one.
+			printf "runcmd:\n  - tar -xJpf /boot/firmware/viam-preinstall.tar.xz -C /\n  - systemctl enable viam-agent.service\n  - systemctl start viam-agent.service\n" >>"$BOOTFS/user-data.new"
+			mv "$BOOTFS/user-data.new" "$BOOTFS/user-data"
+		fi
 	else
-		sed 's/rm -f \/boot\/firstrun.sh/tar -xJpf \/boot\/firmware\/viam-preinstall.tar.xz -C \/\nrm -f \/boot\/firstrun.sh/' "$BOOTFS/firstrun.sh" >"$BOOTFS/firstrun.sh.new"
-		mv "$BOOTFS/firstrun.sh.new" "$BOOTFS/firstrun.sh"
+		if grep -q viam-preinstall.tar.xz "$BOOTFS/firstrun.sh"; then
+			echo "It appears firstrun.sh has already been modified."
+			echo "If you ran this script more than once WITHOUT booting the target SD card, then it should not cause issues."
+			echo "If you did boot, you should make a fresh image before running this installer."
+		else
+			# add untar command before rm -f /boot/firstrun.sh. @ is used as sed seperator for readability (to avoid needing to escape /).
+			sed 's@rm -f /boot/firstrun.sh@tar -xJpf /boot/firmware/viam-preinstall.tar.xz -C /\nrm -f /boot/firstrun.sh@' "$BOOTFS/firstrun.sh" >"$BOOTFS/firstrun.sh.new"
+			mv "$BOOTFS/firstrun.sh.new" "$BOOTFS/firstrun.sh"
+		fi
 	fi
 elif [ "$ROOTFS" != "" ]; then
 	tar -xJpf "$TARBALL" -C "$ROOTFS"
