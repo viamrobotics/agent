@@ -293,6 +293,10 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		if err := os.RemoveAll(filepath.Dir(partialDest)); err != nil {
 			logger.Warnw("failed to remove partial subdir", "err", err)
 		}
+		//nolint:gosec
+		if err := os.Chmod(outPath, 0o755); err != nil {
+			return "", errw.Wrap(err, "chmoding downloaded file")
+		}
 		return outPath, nil
 
 	default:
