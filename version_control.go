@@ -369,6 +369,12 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 	}
 
+	// ensure the version we are switching to is indeed executable
+	//nolint:gosec
+	if err := os.Chmod(verData.UnpackedPath, 0o755); err != nil {
+		return needRestart, err
+	}
+
 	// symlink the extracted file to bin
 	if err = utils.ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
 		return needRestart, errw.Wrap(err, "creating symlink")
