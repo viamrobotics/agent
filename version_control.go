@@ -290,12 +290,6 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	// this is a new version
 	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
 
-	// chmod with execute permissions if the file is executable
-	//nolint:gosec
-	if err := os.Chmod(verData.UnpackedPath, 0o755); err != nil {
-		return needRestart, err
-	}
-
 	if !goodBytes || lastModifiedChanged {
 		if lastModifiedChanged {
 			c.logger.Infow("detected change in Last-Modified timestamp. redownloading.",
@@ -312,6 +306,12 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				data.brokenTarget = true
 			}
 			return needRestart, errw.Wrapf(err, "downloading %s", binary)
+		}
+
+		// chmod with execute permissions if the file is executable
+		//nolint:gosec
+		if err := os.Chmod(verData.DlPath, 0o755); err != nil {
+			return needRestart, err
 		}
 
 		actualSha, err := utils.GetFileSum(verData.DlPath)
