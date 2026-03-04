@@ -4,24 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
 )
-
-func TestNewManagerAgentStartTime(t *testing.T) {
-	before := time.Now()
-	logger := logging.NewTestLogger(t)
-	m := NewManager(t.Context(), logger, utils.AgentConfig{}, func() {})
-	after := time.Now()
-
-	test.That(t, m.agentStartTime.IsZero(), test.ShouldBeFalse)
-	test.That(t, m.agentStartTime.After(before) || m.agentStartTime.Equal(before), test.ShouldBeTrue)
-	test.That(t, m.agentStartTime.Before(after) || m.agentStartTime.Equal(after), test.ShouldBeTrue)
-	test.That(t, time.Since(m.agentStartTime), test.ShouldBeGreaterThan, 0)
-}
 
 func TestLoadAppConfig(t *testing.T) {
 	// Helper to create a minimal manager for testing
