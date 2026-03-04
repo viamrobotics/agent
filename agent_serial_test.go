@@ -19,6 +19,7 @@ import (
 	"github.com/viamrobotics/agent/internal/serialcontrol"
 	apppb "go.viam.com/api/app/v1"
 	"go.viam.com/rdk/logging"
+	rutils "go.viam.com/rdk/utils"
 	"go.viam.com/test"
 	"go.viam.com/utils/rpc"
 	"google.golang.org/protobuf/types/known/structpb"

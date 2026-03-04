@@ -318,11 +318,6 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		verData.DlSHA = actualSha
 
 		if len(verData.UnpackedSHA) <= 1 && isCustomURL {
-			// chmod before validation so IsValidAgentBinary can exec the binary to run --version.
-			//nolint:gosec
-			if err := os.Chmod(verData.DlPath, 0o755); err != nil {
-				return needRestart, err
-			}
 			// If we downloaded a custom agent binary, check that it is ostensibly an agent
 			// binary. This is primarily to ensure that users do not crash their agents
 			// irrevocably by accidentally pointing `version_control.agent` to a viam-server
