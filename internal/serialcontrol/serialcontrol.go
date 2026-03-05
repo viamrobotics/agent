@@ -278,9 +278,7 @@ func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 var viamServerVersionRegex = regexp.MustCompile(`"version":"([^"]+)"`)
 
 // GetViamServerLastStartVersion returns the viam-server version from the most
-// recent startup log entry in the viam-agent systemd journal. viam-server runs
-// as a subprocess of viam-agent (not its own systemd unit), so its logs appear
-// in the viam-agent journal.
+// recent startup log entry in the viam-agent systemd journal.
 func (c *Client) GetViamServerLastStartVersion() mo.Result[string] {
 	cmdRes := c.runCmd(
 		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
