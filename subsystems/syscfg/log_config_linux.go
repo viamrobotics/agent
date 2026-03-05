@@ -91,7 +91,8 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		if err := restartJournald(ctx); err != nil {
 			return err
 		}
-		s.logger.Infof("Updated %s, setting SystemMaxUse=%s, RuntimeMaxUse=%s, Storage=%s", journaldConfPath, persistSize, tempSize, s.cfg.LoggingJournaldStorage)
+		s.logger.Infof("Updated %s, setting SystemMaxUse=%s, RuntimeMaxUse=%s, Storage=%s",
+			journaldConfPath, persistSize, tempSize, s.cfg.LoggingJournaldStorage)
 	}
 	return nil
 }
