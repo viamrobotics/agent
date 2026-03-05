@@ -274,7 +274,7 @@ func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 }
 
 // viamServerVersionRegex matches the version from viam-server's startup log line, e.g.:
-// INFO rdk server/entrypoint.go:104 Viam RDK {"version":"0.95.0","git_rev":"..."}.
+// INFO rdk web/server/entrypoint.go:113 viam-server {"version":"0.95.0","git_rev":"..."}.
 var viamServerVersionRegex = regexp.MustCompile(`"version":"([^"]+)"`)
 
 // GetViamServerLastStartVersion returns the viam-server version from the most
@@ -282,7 +282,7 @@ var viamServerVersionRegex = regexp.MustCompile(`"version":"([^"]+)"`)
 func (c *Client) GetViamServerLastStartVersion() mo.Result[string] {
 	cmdRes := c.runCmd(
 		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
-			`grep 'Viam RDK' | tail -n1`,
+			`grep '"version":"' | grep '"git_rev":"' | tail -n1`,
 	)
 	if cmdRes.IsError() {
 		return mo.Err[string](cmdRes.Error())

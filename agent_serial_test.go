@@ -204,6 +204,60 @@ func setField(root *structpb.Struct, value *structpb.Value, path ...string) erro
 	return nil
 }
 
+// translateVersion translates a version string into the format app expects.
+// oldVersion is the concrete version string to use for the string "an old version".
+func translateVersion(version, oldVersion string) string {
+	switch version {
+	case "an old version":
+		if oldVersion == "" {
+			panic("must set old version in config")
+		}
+		return oldVersion
+	case "stable", "dev":
+		return version
+	}
+	if strings.HasPrefix(version, "version ") {
+		return strings.SplitN(version, " ", 2)[1]
+	}
+	panic(fmt.Sprintf(`unrecognized version format "%s"`, version))
+}
+
+// versionStrToMatcherBase returns a matcher function for a version string.
+// oldVersion and stableVersion are the concrete version strings to compare
+// against for "an old version" and "stable" respectively.
+func versionStrToMatcherBase(version, oldVersion, stableVersion string) func(string) string {
+	switch version {
+	case "an old version":
+		return func(actual string) string {
+			if oldVersion == "" {
+				panic("must set old version in config")
+			}
+			return test.ShouldEqual(actual, oldVersion)
+		}
+	case "stable":
+		return func(actual string) string {
+			if stableVersion == "" {
+				panic("must set stable version in config")
+			}
+			return test.ShouldEqual(actual, stableVersion)
+		}
+	case "dev":
+		return func(actual string) string {
+			devRegex := regexp.MustCompile(`-dev\.\d+(-[0-9a-f]+)?$`)
+			if devRegex.MatchString(actual) {
+				return ""
+			}
+			return fmt.Sprintf(`Expected "%s" to match "%s"`, actual, devRegex.String())
+		}
+	}
+	if strings.HasPrefix(version, "version ") {
+		return func(actual string) string {
+			return test.ShouldEqual(actual, strings.SplitN(version, " ", 2)[1])
+		}
+	}
+	panic(fmt.Sprintf(`unrecognized version format "%s"`, version))
+}
+
 func applyVersionPin(ctx context.Context, versionStr string, path ...string) (context.Context, error) {
 	partResp, err := appClient.GetRobotPart(ctx, &apppb.GetRobotPartRequest{
 		Id: cfg.PartID,
@@ -301,60 +355,6 @@ func testAgentState(ctx context.Context, key, expectedVal string) (context.Conte
 	return ctx, nil
 }
 
-// translateVersion translates a version string into the format app expects.
-// oldVersion is the concrete version string to use for the string "an old version".
-func translateVersion(version, oldVersion string) string {
-	switch version {
-	case "an old version":
-		if oldVersion == "" {
-			panic("must set old version in config")
-		}
-		return oldVersion
-	case "stable", "dev":
-		return version
-	}
-	if strings.HasPrefix(version, "version ") {
-		return strings.SplitN(version, " ", 2)[1]
-	}
-	panic(fmt.Sprintf(`unrecognized version format "%s"`, version))
-}
-
-// versionStrToMatcherBase returns a matcher function for a version string.
-// oldVersion and stableVersion are the concrete version strings to compare
-// against for "an old version" and "stable" respectively.
-func versionStrToMatcherBase(version, oldVersion, stableVersion string) func(string) string {
-	switch version {
-	case "an old version":
-		return func(actual string) string {
-			if oldVersion == "" {
-				panic("must set old version in config")
-			}
-			return test.ShouldEqual(actual, oldVersion)
-		}
-	case "stable":
-		return func(actual string) string {
-			if stableVersion == "" {
-				panic("must set stable version in config")
-			}
-			return test.ShouldEqual(actual, stableVersion)
-		}
-	case "dev":
-		return func(actual string) string {
-			devRegex := regexp.MustCompile(`-dev\.\d+(-[0-9a-f]+)?$`)
-			if devRegex.MatchString(actual) {
-				return ""
-			}
-			return fmt.Sprintf(`Expected "%s" to match "%s"`, actual, devRegex.String())
-		}
-	}
-	if strings.HasPrefix(version, "version ") {
-		return func(actual string) string {
-			return test.ShouldEqual(actual, strings.SplitN(version, " ", 2)[1])
-		}
-	}
-	panic(fmt.Sprintf(`unrecognized version format "%s"`, version))
-}
-
 func translateToAppVersion(version string) string {
 	return translateVersion(version, cfg.Versions.Old)
 }
@@ -378,13 +378,6 @@ func applyAgentFilePin(ctx context.Context) (context.Context, error) {
 	return applyVersionPin(ctx, "file:///tmp/viam-agent-old", "agent", "version_control", "agent")
 }
 
-func downloadOldAgentBinary(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.Old == "" {
-		return ctx, errors.New("must set viam_agent_old in config")
-	}
-	return ctx, serialClient.DownloadToDevice(gcsURL("viam-agent", cfg.Versions.Old), "/tmp/viam-agent-old").Error()
-}
-
 func applyAgentViamServerBinaryPin(ctx context.Context) (context.Context, error) {
 	if cfg.Versions.ViamServerOld == "" {
 		return ctx, errors.New("must set viam_server_old in config")
@@ -392,12 +385,11 @@ func applyAgentViamServerBinaryPin(ctx context.Context) (context.Context, error)
 	return applyVersionPin(ctx, gcsURL("viam-server", cfg.Versions.ViamServerOld), "agent", "version_control", "agent")
 }
 
-func translateVersionViamServer(version string) string {
-	return translateVersion(version, cfg.Versions.ViamServerOld)
-}
-
-func versionStrToMatcherViamServer(version string) func(string) string {
-	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable)
+func downloadOldAgentBinary(ctx context.Context) (context.Context, error) {
+	if cfg.Versions.Old == "" {
+		return ctx, errors.New("must set viam_agent_old in config")
+	}
+	return ctx, serialClient.DownloadToDevice(gcsURL("viam-agent", cfg.Versions.Old), "/tmp/viam-agent-old").Error()
 }
 
 func testViamServerRunningWithVersion(ctx context.Context, version string) (context.Context, error) {
@@ -419,6 +411,14 @@ func testViamServerRunningWithVersion(ctx context.Context, version string) (cont
 		return ctx, nil
 	}
 	return ctx, err
+}
+
+func translateVersionViamServer(version string) string {
+	return translateVersion(version, cfg.Versions.ViamServerOld)
+}
+
+func versionStrToMatcherViamServer(version string) func(string) string {
+	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable)
 }
 
 func applyViamServerVersionPin(ctx context.Context, version string) (context.Context, error) {
