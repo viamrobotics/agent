@@ -51,8 +51,22 @@ if [ $OS = "Linux" ]; then
 	rm -vr /root/.viam/
 else
 	# launchd daemon
-	launchctl kill SIGTERM system/com.viam.agent
 	launchctl bootout system/com.viam.agent
+	# Try to wait for the service to fully stop before yanking out files. launchd sends
+	# SIGTERM and waits up to 4 minutes (ExitTimeOut in com.viam.agent.plist) before sending
+	# SIGKILL. Poll `launchctl print` until it returns an error, meaning the service is
+	# gone.
+	ELAPSED=0
+	TIMEOUT=240
+	while launchctl print system/com.viam.agent >/dev/null 2>&1; do
+		if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+			echo "Timed out waiting for com.viam.agent to stop after ${TIMEOUT}s."
+			break
+		fi
+		sleep 1
+		ELAPSED=$((ELAPSED + 1))
+	done
+
 	rm -v /Library/LaunchDaemons/com.viam.agent.plist
 
 	# root/viamdir
