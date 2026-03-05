@@ -91,6 +91,9 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		if err := restartJournald(ctx); err != nil {
 			return err
 		}
+		if err := flushJournald(ctx); err != nil {
+			return err
+		}
 		s.logger.Infof("Updated %s, setting SystemMaxUse=%s, RuntimeMaxUse=%s, Storage=%s",
 			journaldConfPath, persistSize, tempSize, s.cfg.LoggingJournaldStorage)
 	}
@@ -102,6 +105,15 @@ func restartJournald(ctx context.Context) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "executing 'systemctl restart systemd-journald' %s", output)
+	}
+	return nil
+}
+
+func flushJournald(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "journalctl", "--flush")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errw.Wrapf(err, "executing 'journalctl --flush' %s", output)
 	}
 	return nil
 }
