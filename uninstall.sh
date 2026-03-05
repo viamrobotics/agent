@@ -51,6 +51,7 @@ if [ $OS = "Linux" ]; then
 	rm -vr /root/.viam/
 else
 	# launchd daemon
+	launchctl kill SIGTERM system/com.viam.agent
 	launchctl bootout system/com.viam.agent
 	rm -v /Library/LaunchDaemons/com.viam.agent.plist
 
