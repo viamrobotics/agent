@@ -165,8 +165,8 @@ func commonMain() {
 
 	// use a lockfile to prevent running two agents on the same machine
 	pidFile, err := getLock()
-	// getLock handles the case (ie returns no err) where a lockfile remains if Agent crashes unexpectedly
-	exitIfError(err, true)
+	// getLock will err if another Agent is running, but not if a lockfile remains after Agent crashes unexpectedly
+	exitIfError(err, false)
 	defer func() {
 		if err := pidFile.Unlock(); err != nil {
 			globalLogger.Error(errors.Wrapf(err, "unlocking %s", pidFile))
