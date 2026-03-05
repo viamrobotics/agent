@@ -298,6 +298,33 @@ func (c *Client) GetViamServerLastStartVersion() mo.Result[string] {
 	return mo.Ok(matches[1])
 }
 
+// WaitForAgentBinaryRejection polls the viam-agent journal until it finds a log
+// line indicating that a downloaded binary was rejected as invalid (e.g. a
+// viam-server binary pinned to the agent slot). Returns an error if no such
+// line appears within the timeout.
+func (c *Client) WaitForAgentBinaryRejection() error {
+	const msg = "does not appear to be a viam-agent binary"
+	var err error
+	for i := range 60 {
+		if i > 0 {
+			time.Sleep(time.Second * 2)
+		}
+		cmdRes := c.runCmd(
+			`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
+				`grep '` + msg + `' | tail -n1`,
+		)
+		if cmdRes.IsError() {
+			err = cmdRes.Error()
+			continue
+		}
+		if len(cmdRes.MustGet()) > 0 {
+			return nil
+		}
+		err = fmt.Errorf("no binary rejection log line found yet")
+	}
+	return err
+}
+
 // DownloadToDevice downloads a file from the given URL to the specified path on
 // the device and marks it executable.
 func (c *Client) DownloadToDevice(url, destPath string) mo.Result[[]string] {

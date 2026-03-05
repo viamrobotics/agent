@@ -139,6 +139,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is pinned to a url$`, applyAgentURLPin)
 	ctx.Step(`viam-agent is pinned to a file$`, applyAgentFilePin)
 	ctx.Step(`viam-agent is pinned to a viam-server binary$`, applyAgentViamServerBinaryPin)
+	ctx.Step(`viam-agent rejected the invalid binary$`, testAgentRejectedInvalidBinary)
 	ctx.Step(`an old viam-agent binary is present on the device$`, downloadOldAgentBinary)
 
 	// Viam-server upgrade/down steps (version/URL/file)
@@ -383,6 +384,10 @@ func applyAgentViamServerBinaryPin(ctx context.Context) (context.Context, error)
 		return ctx, errors.New("must set viam_server_old in config")
 	}
 	return applyVersionPin(ctx, gcsURL("viam-server", cfg.Versions.ViamServerOld), "agent", "version_control", "agent")
+}
+
+func testAgentRejectedInvalidBinary(ctx context.Context) (context.Context, error) {
+	return ctx, serialClient.WaitForAgentBinaryRejection()
 }
 
 func downloadOldAgentBinary(ctx context.Context) (context.Context, error) {
