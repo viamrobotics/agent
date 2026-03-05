@@ -74,7 +74,7 @@ type Subsystem struct {
 	appTriggeredRestart bool
 
 	// startTime records when the current viam-server process was last started.
-	// Zeroed when viam-server stops. Guarded by s.mu.
+	// Zeroed when viam-server stops.
 	startTime time.Time
 
 	logger logging.Logger
