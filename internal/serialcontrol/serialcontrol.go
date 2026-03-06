@@ -273,6 +273,77 @@ func (c *Client) GetAgentLastStartVersion() mo.Result[string] {
 	return mo.Ok(matches[1])
 }
 
+// viamServerVersionRegex matches the version from viam-server's startup log line, e.g.:
+// INFO rdk web/server/entrypoint.go:113 viam-server {"version":"0.95.0","git_rev":"..."}.
+var viamServerVersionRegex = regexp.MustCompile(`"version":"([^"]+)"`)
+
+// GetViamServerLastStartVersion returns the viam-server version from the most
+// recent startup log entry in the viam-agent systemd journal.
+func (c *Client) GetViamServerLastStartVersion() mo.Result[string] {
+	cmdRes := c.runCmd(
+		`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
+			`grep '"version":"' | grep '"git_rev":"' | tail -n1`,
+	)
+	if cmdRes.IsError() {
+		return mo.Err[string](cmdRes.Error())
+	}
+	cmdOutput := cmdRes.MustGet()
+	if len(cmdOutput) != 1 {
+		return mo.Errf[string]("expected single matching journalctl line but got %d", len(cmdOutput))
+	}
+	matches := viamServerVersionRegex.FindStringSubmatch(cmdOutput[0])
+	if len(matches) < 2 {
+		return mo.Errf[string]("could not parse viam-server version from line: %s", cmdOutput[0])
+	}
+	return mo.Ok(matches[1])
+}
+
+// WaitForAgentBinaryRejection polls the viam-agent journal until it finds a log
+// line indicating that a downloaded binary was rejected as invalid (e.g. a
+// viam-server binary pinned to the agent slot). Returns an error if no such
+// line appears within the timeout.
+func (c *Client) WaitForAgentBinaryRejection() error {
+	const msg = "does not appear to be a viam-agent binary"
+	var err error
+	for i := range 60 {
+		if i > 0 {
+			time.Sleep(time.Second * 2)
+		}
+		cmdRes := c.runCmd(
+			`journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value viam-agent)" -l --no-pager | ` +
+				`grep '` + msg + `' | tail -n1`,
+		)
+		if cmdRes.IsError() {
+			err = cmdRes.Error()
+			continue
+		}
+		if len(cmdRes.MustGet()) > 0 {
+			return nil
+		}
+		err = fmt.Errorf("no binary rejection log line found yet")
+	}
+	return err
+}
+
+// DownloadToDevice downloads a file from the given URL to the specified path on
+// the device and marks it executable.
+func (c *Client) DownloadToDevice(url, destPath string) mo.Result[[]string] {
+	return c.runCmd(fmt.Sprintf("curl -fsSL -o %s %s && chmod +x %s", destPath, url, destPath))
+}
+
+// GetDeviceArch returns the machine hardware name of the device (e.g., "aarch64", "x86_64").
+func (c *Client) GetDeviceArch() mo.Result[string] {
+	cmdRes := c.runCmd("uname -m")
+	if cmdRes.IsError() {
+		return mo.Err[string](cmdRes.Error())
+	}
+	output := cmdRes.MustGet()
+	if len(output) != 1 {
+		return mo.Errf[string]("expected single line from uname -m but got %d", len(output))
+	}
+	return mo.Ok(output[0])
+}
+
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
 func (c *Client) EnsureOnline(ssid, password string) error {
