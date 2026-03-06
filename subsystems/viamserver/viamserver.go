@@ -21,6 +21,7 @@ import (
 	"go.viam.com/utils/rpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const (
@@ -71,6 +72,10 @@ type Subsystem struct {
 	// to allow viam-server to dump stack traces and gracefully shut down modules.
 	// This is set to true when the app's NeedsRestart API triggers a restart.
 	appTriggeredRestart bool
+
+	// startTime records when the current viam-server process was last started.
+	// Zeroed when viam-server stops.
+	startTime time.Time
 
 	logger logging.Logger
 }
@@ -156,6 +161,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		return errw.Wrapf(err, "starting %s", SubsysName)
 	}
 	s.running = true
+	s.startTime = time.Now()
 	s.exitChan = make(chan struct{})
 
 	// must be unlocked before spawning goroutine
@@ -170,6 +176,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.running = false
+		s.startTime = time.Time{} // zero = not running
 		s.logger.Infof("%s exited", SubsysName)
 		// Only log errors from Wait() or the exit code of the process state if subsystem
 		// exited unexpectedly (was not stopped by agent and is therefore still marked as
@@ -400,6 +407,17 @@ func (s *Subsystem) MarkAppTriggeredRestart() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.appTriggeredRestart = true
+}
+
+// Uptime returns how long viam-server has been running since its most recent start.
+// Returns nil if viam-server is not currently running (nil proto Duration omits the field on the wire).
+func (s *Subsystem) Uptime() *durationpb.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.startTime.IsZero() {
+		return nil
+	}
+	return durationpb.New(time.Since(s.startTime))
 }
 
 func New(
