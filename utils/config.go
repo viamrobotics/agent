@@ -32,6 +32,7 @@ var (
 		SystemConfiguration{
 			LoggingJournaldSystemMaxUseMegabytes:  512,
 			LoggingJournaldRuntimeMaxUseMegabytes: 512,
+			LoggingJournaldStorage:                "persistent",
 			ForwardSystemLogs:                     "",
 			OSAutoUpgradeType:                     "",
 		},
@@ -165,6 +166,9 @@ type SystemConfiguration struct {
 	// can set either to -1 to disable, defaults to 512M (when int is 0)
 	LoggingJournaldSystemMaxUseMegabytes  int `json:"logging_journald_system_max_use_megabytes,omitempty"`
 	LoggingJournaldRuntimeMaxUseMegabytes int `json:"logging_journald_runtime_max_use_megabytes,omitempty"`
+
+	// enable persistent logs
+	LoggingJournaldStorage string `json:"logging_journald_storage,omitempty"`
 
 	// Enable forwarding of system logs (journald) to the cloud (disabled by default)
 	// A comma-separated list of SYSLOG_IDENTIFIERs, optionally prefixed with "-" to exclude
@@ -451,6 +455,19 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		//nolint:lll
 		cfg.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes = DefaultConfiguration.SystemConfiguration.LoggingJournaldRuntimeMaxUseMegabytes
 	}
+	if cfg.SystemConfiguration.LoggingJournaldStorage != "" &&
+		cfg.SystemConfiguration.LoggingJournaldStorage != "volatile" &&
+		cfg.SystemConfiguration.LoggingJournaldStorage != "persistent" &&
+		cfg.SystemConfiguration.LoggingJournaldStorage != "auto" &&
+		cfg.SystemConfiguration.LoggingJournaldStorage != "none" {
+		defaultStorage := DefaultConfiguration.SystemConfiguration.LoggingJournaldStorage
+		errOut = errors.Join(errOut, errw.Errorf(
+			"agent.system_configuration.logging_journald_storage can only be 'volatile', 'persistent', 'auto', or 'none' (was: %s). "+
+				"Setting to default storage mode: %s",
+			cfg.SystemConfiguration.LoggingJournaldStorage, defaultStorage))
+		cfg.SystemConfiguration.LoggingJournaldStorage = defaultStorage
+	}
+
 	if cfg.SystemConfiguration.OSAutoUpgradeType != "" &&
 		cfg.SystemConfiguration.OSAutoUpgradeType != "security" &&
 		cfg.SystemConfiguration.OSAutoUpgradeType != "all" &&

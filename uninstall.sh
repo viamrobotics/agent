@@ -44,6 +44,9 @@ if [ $OS = "Linux" ]; then
 	# agent-provisioning customization
 	rm -v /etc/NetworkManager/conf.d/80-viam.conf /etc/NetworkManager/dnsmasq-shared.d/80-viam.conf
 
+	# journald configuration
+	rm -v /etc/systemd/journald.conf.d/90-viam.conf
+
 	# provisioning and default configs
 	rm -v /etc/viam-provisioning.json /etc/viam-defaults.json
 

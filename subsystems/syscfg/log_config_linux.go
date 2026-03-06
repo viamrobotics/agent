@@ -71,6 +71,8 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		journalConf.Journal.RuntimeMaxUse = sysd.Value{tempSize}
 	}
 
+	journalConf.Journal.Storage = sysd.Value{s.cfg.LoggingJournaldStorage}
+
 	newFileBytes, err := sysd.Marshal(journalConf)
 	if err != nil {
 		return errw.Wrapf(err, "marshaling new file for %s", journaldConfPath)
@@ -86,10 +88,18 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 	}
 
 	if isNew {
+		if s.cfg.LoggingJournaldStorage == "persistent" {
+			s.logger.Infof("Begin updating journald config... (this may take a while to complete " +
+				"if a large volume of existing logs must be migrated from memory to disk)")
+		}
 		if err := restartJournald(ctx); err != nil {
 			return err
 		}
-		s.logger.Infof("Updated %s, setting SystemMaxUse=%s and RuntimeMaxUse=%s", journaldConfPath, persistSize, tempSize)
+		if err := flushJournald(ctx); err != nil {
+			return err
+		}
+		s.logger.Infof("Updated %s, setting SystemMaxUse=%s, RuntimeMaxUse=%s, Storage=%s",
+			journaldConfPath, persistSize, tempSize, s.cfg.LoggingJournaldStorage)
 	}
 	return nil
 }
@@ -99,6 +109,15 @@ func restartJournald(ctx context.Context) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "executing 'systemctl restart systemd-journald' %s", output)
+	}
+	return nil
+}
+
+func flushJournald(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "journalctl", "--flush")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errw.Wrapf(err, "executing 'journalctl --flush' %s", output)
 	}
 	return nil
 }
