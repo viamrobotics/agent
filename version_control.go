@@ -308,6 +308,12 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			return needRestart, errw.Wrapf(err, "downloading %s", binary)
 		}
 
+		// chmod with execute permissions if the file is executable
+		//nolint:gosec
+		if err := os.Chmod(verData.DlPath, 0o755); err != nil {
+			return needRestart, err
+		}
+
 		actualSha, err := utils.GetFileSum(verData.DlPath)
 		if err != nil {
 			return needRestart, errw.Wrap(err, "getting file shasum")
@@ -340,6 +346,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			if runtime.GOOS == "windows" {
 				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 			}
+
+			//nolint:goconst
 			if runtime.GOOS == "darwin" {
 				expectedMimes = []string{"application/x-mach-binary"}
 			}
@@ -363,7 +371,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 	}
 
-	// chmod with execute permissions if the file is executable
+	// ensure the version we are switching to is indeed executable
 	//nolint:gosec
 	if err := os.Chmod(verData.UnpackedPath, 0o755); err != nil {
 		return needRestart, err
@@ -401,6 +409,7 @@ func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, ma
 	// add protection for the current symlinked binaries
 	for _, path := range []string{"viam-agent", "viam-server"} {
 		if runtime.GOOS == "windows" {
+			//nolint:goconst
 			path += ".exe"
 		}
 

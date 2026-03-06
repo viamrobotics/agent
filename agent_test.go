@@ -23,7 +23,7 @@ func TestInstall(t *testing.T) {
 		systemdManager := &fakeSystemdManager{unavailable: true}
 		err := agent.Install(t.Context(), logger, systemdManager)
 		test.That(t, err, test.ShouldNotBeNil)
-		test.That(t, err.Error(), test.ShouldContainSubstring, "can only install on systems using systemd")
+		test.That(t, err.Error(), test.ShouldContainSubstring, "can only install on systems using system managers")
 	})
 
 	t.Run("fresh install", func(t *testing.T) {
