@@ -88,6 +88,10 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 	}
 
 	if isNew {
+		if s.cfg.LoggingJournaldStorage == "persistent" {
+			s.logger.Infof("Begin updating journald config... (this may take a while to complete " +
+				"if a large volume of existing logs must be migrated from memory to disk)")
+		}
 		if err := restartJournald(ctx); err != nil {
 			return err
 		}
