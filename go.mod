@@ -28,7 +28,7 @@ require (
 	github.com/viamrobotics/gonetworkmanager/v2 v2.2.3
 	go.bug.st/serial v1.6.4
 	go.uber.org/zap v1.27.0
-	go.viam.com/api v0.1.508
+	go.viam.com/api v0.1.524
 	go.viam.com/rdk v0.109.0
 	go.viam.com/test v1.2.4
 	go.viam.com/utils v0.4.3
