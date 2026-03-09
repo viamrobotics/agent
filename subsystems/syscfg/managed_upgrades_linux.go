@@ -7,6 +7,7 @@ package syscfg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -121,8 +122,8 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 
 	s.logger.Info("OS package upgrade completed")
 
-	// Check if a reboot is required (written by needrestart, apt hooks, etc.).
-	if _, err := os.Stat(rebootRequiredPath); err == nil {
+	// Check if a reboot is required.
+	if rebootRequired(ctx) {
 		s.mu.Lock()
 		s.needsOSReboot = true
 		s.mu.Unlock()
@@ -156,6 +157,30 @@ func (s *Subsystem) runSecurityUpgrade(ctx context.Context) error {
 		return errw.Wrapf(err, "unattended-upgrade: %s", output)
 	}
 	return nil
+}
+
+// rebootRequired checks whether the system needs a reboot after package updates.
+// It checks /var/run/reboot-required (Debian/Ubuntu) and falls back to
+// `needs-restarting -r` (RHEL/CentOS/Fedora/Rocky/Alma).
+func rebootRequired(ctx context.Context) bool {
+	// Debian/Ubuntu: apt and needrestart write this file when a reboot is needed.
+	if _, err := os.Stat(rebootRequiredPath); err == nil {
+		return true
+	}
+
+	// RHEL-family: needs-restarting -r exits 1 when a reboot is required, 0 otherwise.
+	// Any other non-zero exit (e.g. command not found) is treated as "not required".
+	cmd := exec.CommandContext(ctx, "needs-restarting", "-r")
+	if err := cmd.Run(); err != nil {
+		// ExitError is returned if the command starts but returns non-zero. In the
+		// case of `needs-restarting` that means a restart is required. If the
+		// command cannot be started a different error type is returned.
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 // aptCmd runs an apt command with DEBIAN_FRONTEND=noninteractive.
