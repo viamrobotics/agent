@@ -39,8 +39,6 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 	s.upgradeCancel = cancel
 
 	s.upgradeWorker.Go(func() {
-		defer s.upgradeWorker.Done()
-
 		// Run once immediately at startup.
 		s.runManagedUpgrade(upgradeCtx)
 

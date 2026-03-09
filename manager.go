@@ -679,8 +679,6 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	}()
 
 	m.activeBackgroundWorkers.Go(func() {
-		defer m.activeBackgroundWorkers.Done()
-
 		ticker := time.NewTicker(osRebootCheckInterval)
 		defer ticker.Stop()
 		for {
