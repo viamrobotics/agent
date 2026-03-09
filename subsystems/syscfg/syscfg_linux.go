@@ -120,19 +120,12 @@ func (s *Subsystem) Start(ctx context.Context) error {
 
 func (s *Subsystem) Stop(ctx context.Context) error {
 	s.mu.Lock()
-	wasStarted := s.started
-	s.started = false
-	s.mu.Unlock()
-
-	if wasStarted {
+	defer s.mu.Unlock()
+	if s.started {
 		s.logger.Infof("Stopping syscfg subsystem")
 	}
-
-	// Stop the managed upgrade goroutine (must happen outside s.mu to avoid deadlock).
+	s.started = false
 	s.stopManagedUpgrades()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return errw.Wrap(s.stopLogForwarding(), "stopping kernel log forwarding")
 }
 
