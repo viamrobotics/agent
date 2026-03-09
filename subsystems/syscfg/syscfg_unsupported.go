@@ -31,3 +31,7 @@ func (s *Subsystem) Update(_ context.Context, _ utils.AgentConfig) bool {
 func (s *Subsystem) HealthCheck(_ context.Context) error {
 	return nil
 }
+
+func (s *Subsystem) NeedsOSReboot() bool {
+	return false
+}

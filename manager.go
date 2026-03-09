@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
@@ -33,6 +34,8 @@ const (
 	minimalDeviceAgentConfigCheckInterval = time.Second * 5
 	// The minimal (and default) interval for checking whether agent needs to be restarted.
 	minimalNeedsRestartCheckInterval = time.Second * 1
+	// How often to check whether an OS reboot is pending and the maintenance window is open.
+	osRebootCheckInterval = time.Minute
 
 	defaultNetworkTimeout = time.Second * 15
 	// stopAllTimeout must be lower than systemd subsystems/viamagent/viam-agent.service timeout of 4mins
@@ -674,6 +677,22 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 			}
 		}
 	}()
+
+	m.activeBackgroundWorkers.Add(1)
+	go func() {
+		defer m.activeBackgroundWorkers.Done()
+
+		ticker := time.NewTicker(osRebootCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.CheckIfOSNeedsReboot(ctx)
+			}
+		}
+	}()
 }
 
 // dial establishes a connection to the cloud for grpc communication.
@@ -868,6 +887,38 @@ func (m *Manager) findPreexistingViamServerProcesses(ctx context.Context) []util
 		all = append(all, children...)
 	}
 	return all
+}
+
+// CheckIfOSNeedsReboot checks whether an OS reboot is pending (due to managed package updates)
+// and, if so, whether viam-server's maintenance window is open. When both are true it issues
+// a system reboot and exits the agent so systemd can manage the shutdown sequence.
+func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
+	defer utils.Recover(m.logger, nil)
+	if ctx.Err() != nil {
+		return
+	}
+
+	m.cfgMu.RLock()
+	syscfgDisabled := m.cfg.AdvancedSettings.GetDisableSystemConfiguration()
+	m.cfgMu.RUnlock()
+
+	if syscfgDisabled || !m.sysConfig.NeedsOSReboot() {
+		return
+	}
+
+	if !m.viamServer.RestartAllowed(ctx) {
+		m.logger.Info("OS reboot pending, waiting for maintenance window to open")
+		return
+	}
+
+	m.logger.Info("OS reboot required for package updates; maintenance window is open, initiating reboot")
+
+	if output, err := exec.CommandContext(ctx, "systemctl", "reboot").CombinedOutput(); err != nil {
+		m.logger.Errorw("failed to initiate system reboot", "error", err, "output", string(output))
+		return
+	}
+
+	m.Exit("system reboot initiated for OS package updates")
 }
 
 func (m *Manager) Exit(reason string) {

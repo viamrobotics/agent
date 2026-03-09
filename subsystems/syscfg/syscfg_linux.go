@@ -29,6 +29,11 @@ type Subsystem struct {
 	cancelFunc                          context.CancelFunc
 	noJournald                          bool
 	shouldForwardRecentSystemdAgentLogs bool
+
+	// Managed OS upgrades (used when OSAutoUpgradeType is "managed-security" or "managed-all")
+	needsOSReboot bool
+	upgradeCancel context.CancelFunc
+	upgradeWorker sync.WaitGroup
 }
 
 func New(ctx context.Context,
@@ -84,12 +89,18 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		healthyLog = true
 	}
 
-	// set unattended upgrades
+	// set unattended upgrades (no-op for managed-* modes)
 	err = s.EnforceUpgrades(ctx)
 	if err != nil {
 		s.logger.Warn(errw.Wrap(err, "configuring unattended upgrades"))
 	} else {
 		healthyUpgrades = true
+	}
+
+	// For managed modes, start the background upgrade loop.
+	mode := s.cfg.OSAutoUpgradeType
+	if mode == managedSecurityMode || mode == "managed-all" {
+		s.startManagedUpgrades(ctx)
 	}
 
 	// forward recent systemd agent logs if enabled and possible
@@ -109,12 +120,19 @@ func (s *Subsystem) Start(ctx context.Context) error {
 
 func (s *Subsystem) Stop(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.started {
+	wasStarted := s.started
+	s.started = false
+	s.mu.Unlock()
+
+	if wasStarted {
 		s.logger.Infof("Stopping syscfg subsystem")
 	}
-	s.started = false
 
+	// Stop the managed upgrade goroutine (must happen outside s.mu to avoid deadlock).
+	s.stopManagedUpgrades()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return errw.Wrap(s.stopLogForwarding(), "stopping kernel log forwarding")
 }
 

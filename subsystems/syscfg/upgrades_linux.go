@@ -31,6 +31,11 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 		return nil
 	}
 
+	// Managed modes are handled by the background upgrade loop in managed_upgrades_linux.go.
+	if cfg == managedSecurityMode || cfg == "managed-all" {
+		return nil
+	}
+
 	err := checkSupportedDistro()
 	if err != nil {
 		return err
