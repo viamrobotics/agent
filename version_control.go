@@ -346,7 +346,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			if runtime.GOOS == "windows" {
 				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 			}
-			
+
 			//nolint:goconst
 			if runtime.GOOS == "darwin" {
 				expectedMimes = []string{"application/x-mach-binary"}
