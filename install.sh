@@ -314,14 +314,14 @@ main() {
 	fi
 
 	mkdir -p /opt/viam/tmp && cd /opt/viam/tmp &&
-		curl -fL -o "viam-agent-temp-${BINARY_OS_PREFIX}${ARCH}" "$URL" && chmod 755 viam-agent-temp-$BINARY_OS_PREFIX$ARCH
+		curl -fL -o "viam-agent-temp-${BINARY_OS_PREFIX}${ARCH}" "$URL" && chmod 755 viam-agent-temp-${BINARY_OS_PREFIX}${ARCH}
 	if [ $? -ne 0 ]; then
 		echo
 		echo "Error downloading agent binary. Please correct any errors mentioned above and try again."
 		exit 2
 	fi
 
-	./viam-agent-temp-$ARCH --install
+	./viam-agent-temp-${BINARY_OS_PREFIX}${ARCH} --install
 	if [ $? -ne 0 ]; then
 		echo
 		echo "Error installing viam-agent. Please correct any errors mentioned above and try again."
