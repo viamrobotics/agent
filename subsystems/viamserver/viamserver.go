@@ -39,6 +39,12 @@ const (
 	ViamAgentHandlesNeedsRestartChecking = "VIAM_AGENT_HANDLES_NEEDS_RESTART_CHECKING"
 )
 
+// OrphanedProcess holds identifying info about a process found running before agent startup.
+type OrphanedProcess struct {
+	PID  int
+	Name string
+}
+
 // Subsystem represents the subsystem for viam-server.
 type Subsystem struct {
 	mu           sync.Mutex
@@ -76,6 +82,14 @@ type Subsystem struct {
 	// startTime records when the current viam-server process was last started.
 	// Zeroed when viam-server stops.
 	startTime time.Time
+
+	// preexistingPIDs stores PIDs of viam-server processes detected before this agent started its own.
+	// Set once at startup and never mutated thereafter.
+	preexistingPIDs []int
+
+	// preexistingModuleProcesses stores module processes (children of preexisting viam-server) found at startup.
+	// Set once at startup and never mutated thereafter.
+	preexistingModuleProcesses []OrphanedProcess
 
 	logger logging.Logger
 }
@@ -420,14 +434,65 @@ func (s *Subsystem) Uptime() *durationpb.Duration {
 	return durationpb.New(time.Since(s.startTime))
 }
 
+// checkForPreexistingProcesses finds any viam-server processes already running when the agent starts,
+// logs a warning, and stores the PIDs and their module children for periodic monitoring.
+func (s *Subsystem) checkForPreexistingProcesses() {
+	pids, err := findExistingViamServerPIDs()
+	if err != nil {
+		s.logger.Warnw("error checking for preexisting viam-server processes", "err", err)
+		return
+	}
+	if len(pids) == 0 {
+		return
+	}
+	s.preexistingPIDs = pids
+	s.logger.Warnw(
+		"found viam-server process(es) already running at agent startup; will log every minute while they remain",
+		"pids", pids,
+	)
+
+	var allModules []OrphanedProcess
+	for _, pid := range pids {
+		children, err := findChildProcesses(pid)
+		if err != nil {
+			s.logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
+			continue
+		}
+		allModules = append(allModules, children...)
+	}
+	if len(allModules) > 0 {
+		s.preexistingModuleProcesses = allModules
+		s.logger.Warnw(
+			"found module process(es) running under preexisting viam-server; will log every minute while they remain",
+			"modules", allModules,
+		)
+	}
+}
+
+// PreexistingPIDs returns any viam-server PIDs detected before this agent started its own process.
+func (s *Subsystem) PreexistingPIDs() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.preexistingPIDs
+}
+
+// PreexistingModuleProcesses returns module processes (children of preexisting viam-server) detected at startup.
+func (s *Subsystem) PreexistingModuleProcesses() []OrphanedProcess {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.preexistingModuleProcesses
+}
+
 func New(
 	ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
 ) *Subsystem {
-	return &Subsystem{
+	s := &Subsystem{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
+	s.checkForPreexistingProcesses()
+	return s
 }
