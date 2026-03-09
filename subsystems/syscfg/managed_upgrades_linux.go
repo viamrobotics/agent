@@ -4,6 +4,11 @@ package syscfg
 // Unlike the unattended-upgrades approach (which delegates to a systemd timer),
 // managed mode has the agent run apt upgrades directly on a controlled schedule
 // and coordinate reboots with viam-server's maintenance window.
+//
+// Supported package managers (tried in preference order):
+//   - dnf  – Fedora, RHEL 8+, Rocky Linux, AlmaLinux, etc.
+//   - apt-get – Debian, Ubuntu, Raspberry Pi OS, etc.
+//   - yum  – RHEL 7, CentOS 7
 
 import (
 	"context"
@@ -23,7 +28,7 @@ const (
 	managedSecurityMode    = "managed-security"
 )
 
-// startManagedUpgrades launches the background goroutine that periodically runs apt upgrades.
+// startManagedUpgrades launches the background goroutine that periodically runs upgrades.
 // Must be called while s.mu is held.
 func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 	if s.upgradeCancel != nil {
@@ -74,7 +79,18 @@ func (s *Subsystem) NeedsOSReboot() bool {
 	return s.needsOSReboot
 }
 
-// runManagedUpgrade runs apt-get update and then installs available upgrades.
+// detectPackageManager returns the name of the first available package manager binary.
+func detectPackageManager() (string, error) {
+	pms := []string{"apt-get", "dnf", "yum"}
+	for _, pm := range pms {
+		if _, err := exec.LookPath(pm); err == nil {
+			return pm, nil
+		}
+	}
+	return "", fmt.Errorf("no supported package manager found (%s)", pms)
+}
+
+// runManagedUpgrade detects the package manager and installs available upgrades.
 func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -84,38 +100,27 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	mode := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	s.logger.Info("Running managed OS package update")
-
-	// Ensure the unattended-upgrades package is available (used for security-filtered upgrades).
-	if err := verifyInstall(ctx); err != nil {
-		if installErr := doInstall(ctx); installErr != nil {
-			s.logger.Warnw("failed to install unattended-upgrades package", "error", installErr)
-			return
-		}
-	}
-
-	// Refresh package lists.
-	if err := aptCmd(ctx, "apt-get", "update"); err != nil {
-		s.logger.Warnw("apt-get update failed", "error", err)
+	pm, err := detectPackageManager()
+	if err != nil {
+		s.logger.Warnw("skipping managed OS upgrade", "error", err)
 		return
 	}
 
-	if mode == managedSecurityMode {
-		// For security-only mode, use unattended-upgrade which handles origin filtering correctly.
-		if err := s.runSecurityUpgrade(ctx); err != nil {
-			s.logger.Warnw("security upgrade failed", "error", err)
-			return
-		}
-	} else {
-		// For managed-all mode, run a full upgrade.
-		err := aptCmd(ctx, "apt-get", "upgrade", "-y",
-			"-o", "Dpkg::Options::=--force-confold",
-			"-o", "Dpkg::Options::=--force-confdef",
-		)
-		if err != nil {
-			s.logger.Warnw("apt-get upgrade failed", "error", err)
-			return
-		}
+	s.logger.Infow("Running managed OS package update", "package_manager", pm)
+	securityOnly := mode == managedSecurityMode
+
+	switch pm {
+	case "dnf":
+		err = runDnfUpgrade(ctx, securityOnly)
+	case "yum":
+		err = runYumUpgrade(ctx, securityOnly)
+	default: // apt-get
+		err = s.runAptUpgrade(ctx, securityOnly)
+	}
+
+	if err != nil {
+		s.logger.Warnw("managed OS upgrade failed", "package_manager", pm, "error", err)
+		return
 	}
 
 	s.logger.Info("OS package upgrade completed")
@@ -129,8 +134,32 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	}
 }
 
-// runSecurityUpgrade writes a security-only unattended-upgrades config and runs unattended-upgrade.
-func (s *Subsystem) runSecurityUpgrade(ctx context.Context) error {
+// runAptUpgrade handles upgrades on Debian/Ubuntu systems.
+// For security-only mode it delegates to unattended-upgrade for precise origin filtering.
+func (s *Subsystem) runAptUpgrade(ctx context.Context, securityOnly bool) error {
+	// Ensure the unattended-upgrades binary is available (used for security-filtered upgrades).
+	if err := verifyInstall(ctx); err != nil {
+		if installErr := doInstall(ctx); installErr != nil {
+			return errw.Wrap(installErr, "installing unattended-upgrades package")
+		}
+	}
+
+	// Refresh package lists.
+	if err := pkgCmd(ctx, "apt-get", "update"); err != nil {
+		return err
+	}
+
+	if securityOnly {
+		return s.runAptSecurityUpgrade(ctx)
+	}
+	return pkgCmd(ctx, "apt-get", "upgrade", "-y",
+		"-o", "Dpkg::Options::=--force-confold",
+		"-o", "Dpkg::Options::=--force-confdef",
+	)
+}
+
+// runAptSecurityUpgrade writes a security-only unattended-upgrades config and runs unattended-upgrade.
+func (s *Subsystem) runAptSecurityUpgrade(ctx context.Context) error {
 	// Generate and write origins config scoped to security repos only.
 	confContents, err := generateOrigins(ctx, true)
 	if err != nil {
@@ -157,6 +186,26 @@ func (s *Subsystem) runSecurityUpgrade(ctx context.Context) error {
 	return nil
 }
 
+// runDnfUpgrade handles upgrades on Fedora/RHEL 8+/Rocky/Alma systems.
+// The --security flag restricts upgrades to packages with a security advisory.
+func runDnfUpgrade(ctx context.Context, securityOnly bool) error {
+	args := []string{"upgrade", "-y"}
+	if securityOnly {
+		args = append(args, "--security")
+	}
+	return pkgCmd(ctx, "dnf", args...)
+}
+
+// runYumUpgrade handles upgrades on RHEL 7/CentOS 7 systems.
+// The --security flag requires the yum-plugin-security package to be installed.
+func runYumUpgrade(ctx context.Context, securityOnly bool) error {
+	args := []string{"update", "-y"}
+	if securityOnly {
+		args = append(args, "--security")
+	}
+	return pkgCmd(ctx, "yum", args...)
+}
+
 // rebootRequired checks whether the system needs a reboot after package updates.
 // It checks /var/run/reboot-required (Debian/Ubuntu) and falls back to
 // `needs-restarting -r` (RHEL/CentOS/Fedora/Rocky/Alma).
@@ -181,8 +230,9 @@ func rebootRequired(ctx context.Context) bool {
 	return false
 }
 
-// aptCmd runs an apt command with DEBIAN_FRONTEND=noninteractive.
-func aptCmd(ctx context.Context, name string, args ...string) error {
+// pkgCmd runs a package manager command, setting DEBIAN_FRONTEND=noninteractive
+// to suppress interactive prompts on apt-based systems (ignored elsewhere).
+func pkgCmd(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	output, err := cmd.CombinedOutput()
