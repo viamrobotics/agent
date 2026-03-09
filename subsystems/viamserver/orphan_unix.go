@@ -3,6 +3,8 @@
 package viamserver
 
 import (
+	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -10,12 +12,12 @@ import (
 )
 
 // findExistingViamServerPIDs returns PIDs of any currently running viam-server processes.
-func findExistingViamServerPIDs() ([]int, error) {
-	//nolint:gosec
-	out, err := exec.Command("pgrep", "-x", SubsysName).Output()
+func findExistingViamServerPIDs(ctx context.Context) ([]int, error) {
+	out, err := exec.CommandContext(ctx, "pgrep", "-x", SubsysName).Output()
 	if err != nil {
 		// pgrep exits with code 1 when no processes are found — not an error for us.
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return nil, nil
 		}
 		return nil, err
@@ -37,11 +39,13 @@ func IsProcessAlive(pid int) bool {
 }
 
 // findChildProcesses returns the direct child processes of parentPID.
-func findChildProcesses(parentPID int) ([]OrphanedProcess, error) {
+func findChildProcesses(ctx context.Context, parentPID int) ([]OrphanedProcess, error) {
 	//nolint:gosec
-	out, err := exec.Command("pgrep", "-l", "-P", strconv.Itoa(parentPID)).Output()
+	out, err := exec.CommandContext(ctx, "pgrep", "-l", "-P", strconv.Itoa(parentPID)).Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		// pgrep exits with code 1 when no processes are found — not an error for us.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return nil, nil // no children
 		}
 		return nil, err

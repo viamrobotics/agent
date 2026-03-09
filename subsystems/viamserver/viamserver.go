@@ -436,8 +436,8 @@ func (s *Subsystem) Uptime() *durationpb.Duration {
 
 // checkForPreexistingProcesses finds any viam-server processes already running when the agent starts,
 // logs a warning, and stores the PIDs and their module children for periodic monitoring.
-func (s *Subsystem) checkForPreexistingProcesses() {
-	pids, err := findExistingViamServerPIDs()
+func (s *Subsystem) checkForPreexistingProcesses(ctx context.Context) {
+	pids, err := findExistingViamServerPIDs(ctx)
 	if err != nil {
 		s.logger.Warnw("error checking for preexisting viam-server processes", "err", err)
 		return
@@ -453,7 +453,7 @@ func (s *Subsystem) checkForPreexistingProcesses() {
 
 	var allModules []OrphanedProcess
 	for _, pid := range pids {
-		children, err := findChildProcesses(pid)
+		children, err := findChildProcesses(ctx, pid)
 		if err != nil {
 			s.logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
 			continue
@@ -493,6 +493,6 @@ func New(
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
-	s.checkForPreexistingProcesses()
+	s.checkForPreexistingProcesses(ctx)
 	return s
 }

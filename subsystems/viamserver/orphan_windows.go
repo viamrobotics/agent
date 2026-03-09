@@ -1,7 +1,9 @@
 package viamserver
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -10,9 +12,8 @@ import (
 )
 
 // findExistingViamServerPIDs returns PIDs of any currently running viam-server.exe processes.
-func findExistingViamServerPIDs() ([]int, error) {
-	//nolint:gosec
-	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq "+SubsysName+".exe", "/FO", "CSV", "/NH").Output()
+func findExistingViamServerPIDs(ctx context.Context) ([]int, error) {
+	out, err := exec.CommandContext(ctx, "tasklist", "/FI", "IMAGENAME eq "+SubsysName+".exe", "/FO", "CSV", "/NH").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -43,9 +44,9 @@ const stillActive = 259
 
 // findChildProcesses returns the direct child processes of parentPID using WMIC.
 // Note: WMIC is deprecated in Windows 11 22H2+ but remains available and is the most concise option here.
-func findChildProcesses(parentPID int) ([]OrphanedProcess, error) {
+func findChildProcesses(ctx context.Context, parentPID int) ([]OrphanedProcess, error) {
 	//nolint:gosec
-	out, err := exec.Command("wmic", "process", "where",
+	out, err := exec.CommandContext(ctx, "wmic", "process", "where",
 		fmt.Sprintf("ParentProcessId=%d", parentPID),
 		"get", "ProcessId,Name", "/format:csv").Output()
 	if err != nil {
@@ -80,7 +81,11 @@ func IsProcessAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	defer func() { _ = windows.CloseHandle(h) }()
+	defer func() {
+		if err := windows.CloseHandle(h); err != nil {
+			fmt.Fprintf(os.Stderr, "viamserver: error closing process handle for pid %d: %v\n", pid, err)
+		}
+	}()
 	var exitCode uint32
 	if err := windows.GetExitCodeProcess(h, &exitCode); err != nil {
 		return false
