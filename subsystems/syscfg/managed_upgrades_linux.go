@@ -37,8 +37,7 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 	upgradeCtx, cancel := context.WithCancel(ctx)
 	s.upgradeCancel = cancel
 
-	s.upgradeWorker.Add(1)
-	go func() {
+	s.upgradeWorker.Go(func() {
 		defer s.upgradeWorker.Done()
 
 		// Run once immediately at startup.
@@ -54,7 +53,7 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 				s.runManagedUpgrade(upgradeCtx)
 			}
 		}
-	}()
+	})
 }
 
 // stopManagedUpgrades cancels the background upgrade goroutine and waits for it to exit.
