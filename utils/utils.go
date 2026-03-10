@@ -147,6 +147,11 @@ func InitPaths(logger logging.Logger) error {
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
 		// if subdir exists (and *wasn't* just created):
+		// check subdir is actually a dir
+		if !info.IsDir() {
+			return errw.Errorf("%s should be a directory, but is not", p)
+		}
+
 		// check owner is current user
 		if err := checkPathOwner(uid, info); err != nil {
 			logger.Debugf("dir not owned by current user uid %s. fixing", p)
@@ -155,10 +160,6 @@ func InitPaths(logger logging.Logger) error {
 				err = os.Chown(p, uid, -1)
 				logger.Warnf("could not chown directory %v to current user uid %v. err %v; continuing", p, uid, err)
 			}
-		}
-		// check subdir is actually a dir
-		if !info.IsDir() {
-			return errw.Errorf("%s should be a directory, but is not", p)
 		}
 
 		// check permissions are what we expect. if not, try chmod. Do not error if either the check or chmod fails.
