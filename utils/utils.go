@@ -135,6 +135,7 @@ func InitPaths(logger logging.Logger) error {
 	uid := os.Getuid()
 	expectedPerms := expectedPerms()
 	for p := range ViamDirs.Values() {
+		// check for presence of subdir. create with expectedPerms if not and continue
 		info, err := os.Stat(p)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -146,12 +147,17 @@ func InitPaths(logger logging.Logger) error {
 			}
 			return errw.Wrapf(err, "checking directory %s", p)
 		}
+		// if subdir exists (and *wasn't* just created):
+		// check owner is current user
 		if err := checkPathOwner(uid, info); err != nil {
 			return errw.Wrapf(err, "viam dirs path owner check failed %s", p)
 		}
+		// check subdir is actually a dir
 		if !info.IsDir() {
 			return errw.Errorf("%s should be a directory, but is not", p)
 		}
+
+		// check permissions are what we expect. if not, try chmod. Do not error if either the check or chmod fails.
 		if info.Mode().Perm() != expectedPerms {
 			// RSDK-13310: A previous version of viam-agent created the partials directory with
 			// 0o750 instead of the expected 0o755 permissions. If we get a permissions error

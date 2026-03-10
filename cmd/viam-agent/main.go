@@ -79,6 +79,7 @@ func commonMain() {
 			os.Exit(0)
 		}
 	}
+	// exit if cli args parsing fails
 	exitIfError(err, false)
 
 	if opts.Help {
@@ -125,6 +126,7 @@ func commonMain() {
 	needsRootToContinue := opts.Install || opts.EnableSyscfgSubsystem || opts.EnableNetworkingSubsystem
 
 	curUser, err := user.Current()
+	// exit if we're unable to retrieve current user (likely transient / bad system state)
 	exitIfError(err, false)
 	if runtime.GOOS != "windows" && curUser.Uid != "0" && needsRootToContinue {
 		//nolint:forbidigo
@@ -139,6 +141,7 @@ func commonMain() {
 
 	if opts.Install {
 		sdmanager := systemd.NewSystemdManager(globalLogger.Sublogger("systemd"))
+		// run installation and exit
 		exitIfError(agent.Install(ctx, globalLogger, sdmanager), true)
 		return
 	}
@@ -161,11 +164,13 @@ func commonMain() {
 	}
 
 	// set up folder structure
+	// exit if we cannot create expected paths
 	exitIfError(utils.InitPaths(globalLogger), true)
 
 	// use a lockfile to prevent running two agents on the same machine
 	pidFile, err := getLock()
 	// getLock will err if another Agent is running, but not if a lockfile remains after Agent crashes unexpectedly
+	// exit if we are unable to get the lockfile
 	exitIfError(err, false)
 	defer func() {
 		if err := pidFile.Unlock(); err != nil {
@@ -174,10 +179,12 @@ func commonMain() {
 	}()
 
 	utils.DefaultsFilePath, err = filepath.Abs(opts.DefaultsConfig)
+	// exit if unable to convert DefaultsConfig to absolute path (doesn't validate)
 	exitIfError(err, false)
 	globalLogger.Infof("manufacturer defaults file path: %s", utils.DefaultsFilePath)
 
 	utils.AppConfigFilePath, err = filepath.Abs(opts.Config)
+	// exit if unable to convert Config to absolute path (doesn't validate)
 	exitIfError(err, false)
 	globalLogger.Infof("machine credentials file path: %s", utils.AppConfigFilePath)
 
@@ -194,6 +201,7 @@ func commonMain() {
 	err = manager.LoadAppConfig()
 	//nolint:nestif
 	if err != nil {
+		// if error reading viam.json, run provisioning
 		if !runPlatformProvisioning(ctx, cfg, manager, err) {
 			manager.CloseAll()
 			return
