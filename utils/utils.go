@@ -149,7 +149,12 @@ func InitPaths(logger logging.Logger) error {
 		// if subdir exists (and *wasn't* just created):
 		// check owner is current user
 		if err := checkPathOwner(uid, info); err != nil {
-			return errw.Wrapf(err, "viam dirs path owner check failed %s", p)
+			logger.Debugf("dir not owned by current user uid %s. fixing", p)
+			// note: checkPathOwner is a no-op on Windows, so this check is redundant for now.
+			if runtime.GOOS != "windows" {
+				err = os.Chown(p, uid, -1)
+				logger.Warnf("could not chown directory %v to current user uid %v. err %v; continuing", p, uid, err)
+			}
 		}
 		// check subdir is actually a dir
 		if !info.IsDir() {
