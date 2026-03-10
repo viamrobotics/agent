@@ -1,5 +1,9 @@
 [tools]
 golangci-lint = "2.8.0"
+shfmt = "3.12.0"
+
+[tasks.fmt-sh]
+run = "shfmt -w *.sh"
 
 [tasks.lint]
 run = [

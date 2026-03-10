@@ -76,7 +76,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 	}()
 	defer utils.Recover(s.logger, nil)
 
-	// set journald max size limits
+	// set journald max size limits and storage policy
 	err := s.EnforceLogging(ctx)
 	if err != nil {
 		s.logger.Warn(errw.Wrap(err, "configuring journald logging"))

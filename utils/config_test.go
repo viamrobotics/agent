@@ -56,6 +56,7 @@ func TestConvertJson(t *testing.T) {
 	"system_configuration": {
 			"logging_journald_system_max_use_megabytes": 512,
 			"logging_journald_runtime_max_use_megabytes": 512,
+			"logging_journald_storage": "persistent",
 			"os_auto_upgrade_type": "",
 			"forward_system_logs": ""
 	}

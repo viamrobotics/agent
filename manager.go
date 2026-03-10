@@ -25,6 +25,7 @@ import (
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const (
@@ -64,6 +65,10 @@ type Manager struct {
 	sysConfig  *syscfg.Subsystem
 
 	cache *VersionCache
+
+	// agentStartTime records when this viam-agent process started.
+	// Set once in NewManager and never mutated.
+	agentStartTime time.Time
 }
 
 // NewManager returns a new Manager.
@@ -73,9 +78,10 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cfg:          cfg,
 		globalCancel: globalCancel,
 
-		viamServer: viamserver.New(ctx, logger, cfg),
-		networking: networking.New(ctx, logger, cfg),
-		cache:      NewVersionCache(logger),
+		viamServer:     viamserver.New(ctx, logger, cfg),
+		networking:     networking.New(ctx, logger, cfg),
+		cache:          NewVersionCache(logger),
+		agentStartTime: time.Now(),
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.New(
@@ -686,9 +692,11 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 
 	agentDeviceServiceClient := pb.NewAgentDeviceServiceClient(m.conn)
 	req := &pb.DeviceAgentConfigRequest{
-		Id:          m.cloudConfig.ID,
-		HostInfo:    m.getHostInfo(),
-		VersionInfo: m.getVersions(),
+		Id:               m.cloudConfig.ID,
+		HostInfo:         m.getHostInfo(),
+		VersionInfo:      m.getVersions(),
+		AgentUptime:      durationpb.New(time.Since(m.agentStartTime)),
+		ViamServerUptime: m.viamServer.Uptime(),
 	}
 	resp, err := agentDeviceServiceClient.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
