@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -349,7 +351,7 @@ func getLock() (lockfile.Lockfile, error) {
 				globalLogger.Error(errors.Wrap(err, "getting lockfile owner"))
 				staleFile = true
 			}
-			runPath, err := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/exe", proc.Pid))
+			runPath, err := pidCmd(proc.Pid)
 			if err != nil {
 				globalLogger.Error(errors.Wrap(err, "cannot get info on lockfile owner"))
 				staleFile = true
@@ -368,4 +370,32 @@ func getLock() (lockfile.Lockfile, error) {
 		}
 	}
 	return "", err
+}
+
+// pidCmd returns the command of the given pid.
+func pidCmd(pid int) (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		//nolint:gosec,noctx
+		cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	case "darwin":
+		//nolint:gosec,noctx
+		cmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	default:
+		runPath, err := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/exe", pid))
+		if err != nil {
+			return "", err
+		}
+		return runPath, nil
+	}
 }
