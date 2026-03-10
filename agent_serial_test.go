@@ -126,6 +126,19 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	const versionGroup = `(an old version|dev|stable|version [^\s]+)`
 
+	// Restart viam-agent before each scenario (if it is running) so that every
+	// scenario starts with a fresh systemd InvocationID. This ensures that
+	// journal-based checks cannot match log lines produced by a previous scenario.
+	ctx.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		status := serialClient.GetAgentStatus()
+		if status.IsOk() && status.MustGet()["SubState"] == "running" {
+			if err := serialClient.RestartAgent().Error(); err != nil {
+				return ctx, err
+			}
+		}
+		return ctx, nil
+	})
+
 	// Agent utility steps
 	ctx.Step(`^viam-agent is installed$`, installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)

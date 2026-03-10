@@ -222,9 +222,14 @@ func (c *Client) StartAgent() mo.Result[[]string] {
 	return c.runCmd("systemctl start viam-agent")
 }
 
-// StartAgent stops the viam-agent systemd unit.
+// StopAgent stops the viam-agent systemd unit.
 func (c *Client) StopAgent() mo.Result[[]string] {
 	return c.runCmd("systemctl stop viam-agent")
+}
+
+// RestartAgent restarts the viam-agent systemd unit.
+func (c *Client) RestartAgent() mo.Result[[]string] {
+	return c.runCmd("systemctl restart viam-agent")
 }
 
 // RFKill enables a soft block on Bluetooth on the target device. It is used to
