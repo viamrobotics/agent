@@ -123,11 +123,16 @@ func (c *Client) Login(user, pass string) error {
 	// The terminal could be in one of the following states:
 	// 1. Showing a login prompt (need username + password)
 	// 2. Username already filled in, pressing Enter went to Password:
+<<<<<<< HEAD
 	// 3. Already logged in (shell prompt with $ or #)
+=======
+	// 3. Already logged in (shell prompt with $)
+>>>>>>> 3f52b9e (Add "smart" login to e2e test framework)
 	// 4. Some other state (like a logged in shell with characters sitting in the shell,
 	//    or no shell configured)
 	const (
 		loginPrompt    = "login:"
+<<<<<<< HEAD
 		passwordPrompt = "Password:"
 		shellPrompt    = "$ "
 		rootPrompt     = "# "
@@ -138,22 +143,45 @@ func (c *Client) Login(user, pass string) error {
 	}
 
 	switch matchedRes.MustGet() {
+=======
+		passwordPrompt = "assword:"
+		shellPrompt    = "$ "
+	)
+	matched, err := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt)
+	if err != nil {
+		return fmt.Errorf("did not find login, password, or shell prompt: %w", err)
+	}
+
+	switch matched {
+>>>>>>> 3f52b9e (Add "smart" login to e2e test framework)
 	case loginPrompt:
 		if _, err := c.port.Write([]byte(user + "\r")); err != nil {
 			return fmt.Errorf("sending username: %w", err)
 		}
+<<<<<<< HEAD
 		if res := c.waitFor(10*time.Second, passwordPrompt); res.IsError() {
 			return fmt.Errorf("waiting for password prompt: %w", res.Error())
+=======
+		if _, err := c.waitFor(10*time.Second, passwordPrompt); err != nil {
+			return fmt.Errorf("waiting for password prompt: %w", err)
+>>>>>>> 3f52b9e (Add "smart" login to e2e test framework)
 		}
 		fallthrough
 	case passwordPrompt:
 		if _, err := c.port.Write([]byte(pass + "\r")); err != nil {
 			return fmt.Errorf("sending password: %w", err)
 		}
+<<<<<<< HEAD
 		if res := c.waitFor(15*time.Second, shellPrompt); res.IsError() {
 			return fmt.Errorf("waiting for shell prompt after login: %w", res.Error())
 		}
 	case shellPrompt, rootPrompt:
+=======
+		if _, err := c.waitFor(15*time.Second, shellPrompt); err != nil {
+			return fmt.Errorf("waiting for shell prompt after login: %w", err)
+		}
+	case shellPrompt:
+>>>>>>> 3f52b9e (Add "smart" login to e2e test framework)
 		c.logger.Info("Already logged in, continuing...")
 	}
 
@@ -164,7 +192,11 @@ func (c *Client) Login(user, pass string) error {
 // appears or the timeout is reached. Returns the matched target string
 // or "" and an error if there was no match before timing out, or if there
 // is an error while reading.
+<<<<<<< HEAD
 func (c *Client) waitFor(timeout time.Duration, targets ...string) mo.Result[string] {
+=======
+func (c *Client) waitFor(timeout time.Duration, targets ...string) (string, error) {
+>>>>>>> 3f52b9e (Add "smart" login to e2e test framework)
 	buf := make([]byte, 256)
 	var accumulated []byte
 	deadline := time.Now().Add(timeout)
@@ -177,15 +209,26 @@ func (c *Client) waitFor(timeout time.Duration, targets ...string) mo.Result[str
 			acc := string(accumulated)
 			for _, t := range targets {
 				if strings.Contains(acc, t) {
+<<<<<<< HEAD
 					return mo.Ok(t)
+=======
+					return t, nil
+>>>>>>> 3f52b9e (Add "smart" login to e2e test framework)
 				}
 			}
 		}
 		if err != nil {
+<<<<<<< HEAD
 			return mo.Errf[string]("read error while waiting for %v: %w", targets, err)
 		}
 	}
 	return mo.Errf[string]("timed out waiting for %v, received: %q", targets, string(accumulated))
+=======
+			return "", fmt.Errorf("read error while waiting for %v: %w", targets, err)
+		}
+	}
+	return "", fmt.Errorf("timed out waiting for %v, received: %q", targets, string(accumulated))
+>>>>>>> 3f52b9e (Add "smart" login to e2e test framework)
 }
 
 // Close attempts to reset the serial terminal to the state it was in before
