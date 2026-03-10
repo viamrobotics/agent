@@ -629,14 +629,13 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 		}
 	}()
 
-	if pids := m.viamServer.PreexistingPIDs(); len(pids) > 0 {
+	if procs := m.viamServer.PreexistingProcesses(); len(procs) > 0 {
 		m.activeBackgroundWorkers.Add(1)
 		go func() {
 			defer utils.Recover(m.logger, nil)
 			defer m.activeBackgroundWorkers.Done()
 
-			remainingPIDs := pids
-			remainingModules := m.viamServer.PreexistingModuleProcesses()
+			remaining := procs
 			ticker := time.NewTicker(time.Minute)
 			defer ticker.Stop()
 			for {
@@ -644,32 +643,19 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					var stillRunningPIDs []int
-					for _, pid := range remainingPIDs {
-						if viamserver.IsProcessAlive(pid) {
-							stillRunningPIDs = append(stillRunningPIDs, pid)
-						}
-					}
-					var stillRunningModules []viamserver.OrphanedProcess
-					for _, proc := range remainingModules {
+					var stillRunning []viamserver.OrphanedProcess
+					for _, proc := range remaining {
 						if viamserver.IsProcessAlive(proc.PID) {
-							stillRunningModules = append(stillRunningModules, proc)
+							stillRunning = append(stillRunning, proc)
 						}
 					}
-					if len(stillRunningPIDs) == 0 && len(stillRunningModules) == 0 {
-						m.logger.Info("all preexisting viam-server and module process(es) from before agent startup have exited")
+					if len(stillRunning) == 0 {
+						m.logger.Info("all process(es) from before agent startup have exited")
 						return
 					}
-					if len(stillRunningPIDs) > 0 {
-						m.logger.Warnw("viam-server process(es) from before agent startup are still running",
-							"pids", stillRunningPIDs)
-					}
-					if len(stillRunningModules) > 0 {
-						m.logger.Warnw("module process(es) from before agent startup are still running",
-							"modules", stillRunningModules)
-					}
-					remainingPIDs = stillRunningPIDs
-					remainingModules = stillRunningModules
+					m.logger.Warnw("process(es) from before agent startup are still running",
+						"processes", stillRunning)
+					remaining = stillRunning
 				}
 			}
 		}()
