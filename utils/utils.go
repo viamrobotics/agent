@@ -277,9 +277,10 @@ func TryResetAgent(logger logging.Logger) error {
 	for _, dirPath := range dirsToRemove {
 		// only removes if dir is empty
 		err := os.Remove(dirPath)
-		// don't log if remove fails for "directory not empty". ENOTEMPTY on *nix, EEXIST on Windows.
+		// don't log if remove fails for "directory not empty". ENOTEMPTY on *nix.
 		if err != nil {
-			if !errors.Is(err, syscall.ENOTEMPTY) && !errors.Is(err, syscall.EEXIST) {
+			// TODO: this will always log "The directory is not empty" on windows
+			if !errors.Is(err, syscall.ENOTEMPTY) {
 				logger.Infow("error removing", "dir", dirPath, "err", err)
 			}
 		} else {
@@ -290,10 +291,12 @@ func TryResetAgent(logger logging.Logger) error {
 	// reset remaining files to expected owner and permissions
 	expectedPerms := expectedPerms()
 	err = filepath.WalkDir(viamDirsPathAbs, func(pathAbs string, _ fs.DirEntry, _ error) error {
-		targetUID := os.Geteuid()
-		err := os.Chown(pathAbs, targetUID, -1)
-		if err != nil {
-			logger.Infow("could not chown file", "file", pathAbs, "targetUid", targetUID, "err", err)
+		if runtime.GOOS != "windows" {
+			targetUID := os.Geteuid()
+			err := os.Chown(pathAbs, targetUID, -1)
+			if err != nil {
+				logger.Infow("could not chown file", "file", pathAbs, "targetUid", targetUID, "err", err)
+			}
 		}
 
 		err = os.Chmod(pathAbs, expectedPerms)
