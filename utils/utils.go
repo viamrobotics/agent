@@ -139,8 +139,7 @@ func InitPaths(logger logging.Logger) error {
 		info, err := os.Stat(p)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				//nolint:gosec
-				if err := os.MkdirAll(p, 0o755); err != nil {
+				if err := os.MkdirAll(p, expectedPerms); err != nil {
 					return errw.Wrapf(err, "creating directory %s", p)
 				}
 				continue
