@@ -106,6 +106,87 @@ func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 	})
 }
 
+// Get a shell on a serial terminal regardless of the initial state of the terminal.
+// Essentially a no-op if the terminal is already logged in.
+func (c *Client) Login(user, pass string) error {
+	c.logger.Debugf("Logging into shell...")
+
+	if err := c.port.SetReadTimeout(time.Second); err != nil {
+		return fmt.Errorf("setting read timeout: %w", err)
+	}
+
+	// Send CR to wake up the terminal and trigger a login prompt.
+	if _, err := c.port.Write([]byte("\r")); err != nil {
+		return fmt.Errorf("sending initial CR: %w", err)
+	}
+
+	// The terminal could be in one of the following states:
+	// 1. Showing a login prompt (need username + password)
+	// 2. Username already filled in, pressing Enter went to Password:
+	// 3. Already logged in (shell prompt with $)
+	// 4. Some other state (like a logged in shell with characters sitting in the shell,
+	//    or no shell configured)
+	const (
+		loginPrompt    = "login:"
+		passwordPrompt = "assword:"
+		shellPrompt    = "$ "
+	)
+	matched, err := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt)
+	if err != nil {
+		return fmt.Errorf("did not find login, password, or shell prompt: %w", err)
+	}
+
+	switch matched {
+	case loginPrompt:
+		if _, err := c.port.Write([]byte(user + "\r")); err != nil {
+			return fmt.Errorf("sending username: %w", err)
+		}
+		if _, err := c.waitFor(10*time.Second, passwordPrompt); err != nil {
+			return fmt.Errorf("waiting for password prompt: %w", err)
+		}
+		fallthrough
+	case passwordPrompt:
+		if _, err := c.port.Write([]byte(pass + "\r")); err != nil {
+			return fmt.Errorf("sending password: %w", err)
+		}
+		if _, err := c.waitFor(15*time.Second, shellPrompt); err != nil {
+			return fmt.Errorf("waiting for shell prompt after login: %w", err)
+		}
+	case shellPrompt:
+		c.logger.Info("Already logged in, continuing...")
+	}
+
+	return nil
+}
+
+// waitFor reads from the serial port until one of the target strings
+// appears or the timeout is reached. Returns the matched target string
+// or "" and an error if there was no match before timing out, or if there
+// is an error while reading.
+func (c *Client) waitFor(timeout time.Duration, targets ...string) (string, error) {
+	buf := make([]byte, 256)
+	var accumulated []byte
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		n, err := c.port.Read(buf)
+		if n > 0 {
+			accumulated = append(accumulated, buf[:n]...)
+			c.logger.Debugf("serial read: %q", string(buf[:n]))
+			acc := string(accumulated)
+			for _, t := range targets {
+				if strings.Contains(acc, t) {
+					return t, nil
+				}
+			}
+		}
+		if err != nil {
+			return "", fmt.Errorf("read error while waiting for %v: %w", targets, err)
+		}
+	}
+	return "", fmt.Errorf("timed out waiting for %v, received: %q", targets, string(accumulated))
+}
+
 // Close attempts to reset the serial terminal to the state it was in before
 // the Client was attached, then closes the underlying connection.
 func (c *Client) Close() error {

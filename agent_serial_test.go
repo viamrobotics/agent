@@ -38,6 +38,8 @@ type config struct {
 	PartID     string             `toml:"part_id"`
 	Versions   versionsCfg        `toml:"versions"`
 	SerialPath tomlOption[string] `toml:"serial_path"`
+	SerialUser string             `toml:"serial_user"`
+	SerialPass string             `toml:"serial_pass"`
 	Wifi       wifiCfg            `toml:"wifi"`
 }
 
@@ -92,6 +94,12 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				logger,
 				cfg.SerialPath.OrElse("/dev/ttyUSB0"),
 			).MustGet()
+
+			// Log in
+			if err := serialClient.Login(cfg.SerialUser, cfg.SerialPass); err != nil {
+				serialClient.Close()
+				panic(fmt.Errorf("login failed: %w", err))
+			}
 
 			appClient = dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey).MustGet()
 

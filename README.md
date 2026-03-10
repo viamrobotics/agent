@@ -47,7 +47,7 @@ Some end-to-end workflows can be tested by connecting to a Raspberry Pi with a s
     dtparam=uart0
     dtparam=uart0_console
     ```
-- The serial connection must already have a shell logged in as a user that can use sudo to become root without a password. To log in over the serial connection we recommend [picocom]. You can use it to connect to the serial terminal and login with `picocom -b 115200 /dev/ttyUSB0`. Depending on your setup the previous command may require sudo and the path to the tty device may be different. Once you have logged in you can disconnect from the serial console by typing `Ctrl-a Ctrl-x`.
+- The test framework will attempt to log in to your pi using the credentials supplied in `agent-test.toml` (see below). To test the serial connection we recommend [picocom]. You can use it to connect to the serial terminal and login with `picocom -b 115200 /dev/ttyUSB0`. Depending on your setup the previous command may require sudo and the path to the tty device may be different. To disconnect from the serial console, type `Ctrl-a Ctrl-x`.
 - You must have a file named `agent-test.toml` in the root of this repo with app.viam API keys and other values required by the tests. You can also use this file to specify optional parameters, such as the path to the serial device. Refer to `agent-test-example.toml` for details.
 
 Once these dependencies are satisfied you can execute the serial tests with `mise r test-e2e-serial`.
