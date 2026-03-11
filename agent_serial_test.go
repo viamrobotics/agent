@@ -180,6 +180,11 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-server is pinned to a url$`, applyViamServerURLPin)
 	ctx.Step(`viam-server is pinned to a file$`, applyViamServerFilePin)
 	ctx.Step(`an old viam-server binary is present on the device$`, downloadOldViamServerBinary)
+
+	// Agent uninstall
+	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
+	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
+	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 }
 
 func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
@@ -311,9 +316,6 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 		RobotConfig: partCfg,
 	})
 	return ctx, err
-	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
-	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
-	ctx.Step(`all viam files have been removed`, testViamFilesRemoved)
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {
