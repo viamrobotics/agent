@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 
 	errw "github.com/pkg/errors"
@@ -48,6 +50,61 @@ func KillTree(ctx context.Context, pid int) error {
 		return errw.Wrapf(err, "killing PID %d", pid)
 	}
 	return nil
+}
+
+// FindProcessesByName returns PIDs of all running processes with the given name (exact match).
+func FindProcessesByName(ctx context.Context, name string) ([]int, error) {
+	//nolint:gosec
+	out, err := exec.CommandContext(ctx, "pgrep", "-x", name).Output()
+	if err != nil {
+		// pgrep exits with code 1 when no processes are found — not an error for us.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var pids []int
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids, nil
+}
+
+// FindChildProcesses returns the direct child processes of parentPID.
+func FindChildProcesses(ctx context.Context, parentPID int) ([]Process, error) {
+	//nolint:gosec
+	out, err := exec.CommandContext(ctx, "pgrep", "-l", "-P", strconv.Itoa(parentPID)).Output()
+	if err != nil {
+		// pgrep exits with code 1 when no processes are found — not an error for us.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var children []Process
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+		children = append(children, Process{PID: pid, Name: parts[1]})
+	}
+	return children, nil
+}
+
+// IsProcessAlive returns true if the process with the given PID is still running.
+func IsProcessAlive(pid int) bool {
+	return syscall.Kill(pid, 0) == nil
 }
 
 func SyncFS(syncPath string) (errRet error) {

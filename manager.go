@@ -72,7 +72,7 @@ type Manager struct {
 
 	// preexistingProcesses holds viam-server and module processes detected before this agent started.
 	// Set once in NewManager and never mutated.
-	preexistingProcesses []viamserver.OrphanedProcess
+	preexistingProcesses []utils.Process
 }
 
 // NewManager returns a new Manager.
@@ -87,7 +87,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cache:          NewVersionCache(logger),
 		agentStartTime: time.Now(),
 	}
-	manager.preexistingProcesses = viamserver.FindPreexistingProcesses(ctx, logger)
+	manager.preexistingProcesses = findPreexistingViamServerProcesses(ctx, logger)
 	if len(manager.preexistingProcesses) > 0 {
 		logger.Warnw(
 			"found process(es) from before agent startup still running; will log every minute while they remain",
@@ -654,9 +654,9 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					var stillRunning []viamserver.OrphanedProcess
+					var stillRunning []utils.Process
 					for _, proc := range remaining {
-						if viamserver.IsProcessAlive(proc.PID) {
+						if utils.IsProcessAlive(proc.PID) {
 							stillRunning = append(stillRunning, proc)
 						}
 					}
@@ -844,6 +844,27 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	}
 
 	return vers
+}
+
+// findPreexistingViamServerProcesses returns any viam-server processes already running when the
+// agent starts, along with their module children. Returns nil if none are found.
+func findPreexistingViamServerProcesses(ctx context.Context, logger logging.Logger) []utils.Process {
+	pids, err := utils.FindProcessesByName(ctx, viamserver.SubsysName)
+	if err != nil {
+		logger.Warnw("error checking for preexisting viam-server processes", "err", err)
+		return nil
+	}
+	var all []utils.Process
+	for _, pid := range pids {
+		all = append(all, utils.Process{PID: pid, Name: viamserver.SubsysName})
+		children, err := utils.FindChildProcesses(ctx, pid)
+		if err != nil {
+			logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
+			continue
+		}
+		all = append(all, children...)
+	}
+	return all
 }
 
 func (m *Manager) Exit(reason string) {

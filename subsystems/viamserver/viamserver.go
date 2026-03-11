@@ -39,12 +39,6 @@ const (
 	ViamAgentHandlesNeedsRestartChecking = "VIAM_AGENT_HANDLES_NEEDS_RESTART_CHECKING"
 )
 
-// OrphanedProcess holds identifying info about a process found running before agent startup.
-type OrphanedProcess struct {
-	PID  int
-	Name string
-}
-
 // Subsystem represents the subsystem for viam-server.
 type Subsystem struct {
 	mu           sync.Mutex
@@ -426,29 +420,9 @@ func (s *Subsystem) Uptime() *durationpb.Duration {
 	return durationpb.New(time.Since(s.startTime))
 }
 
-// FindPreexistingProcesses returns any viam-server processes already running when the agent starts,
-// along with their module children. Returns nil if none are found.
-func FindPreexistingProcesses(ctx context.Context, logger logging.Logger) []OrphanedProcess {
-	pids, err := findExistingViamServerPIDs(ctx)
-	if err != nil {
-		logger.Warnw("error checking for preexisting viam-server processes", "err", err)
-		return nil
-	}
-	var all []OrphanedProcess
-	for _, pid := range pids {
-		all = append(all, OrphanedProcess{PID: pid, Name: SubsysName})
-		children, err := findChildProcesses(ctx, pid)
-		if err != nil {
-			logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
-			continue
-		}
-		all = append(all, children...)
-	}
-	return all
-}
 
 func New(
-	_ context.Context,
+	ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
 ) *Subsystem {
