@@ -420,7 +420,6 @@ func (s *Subsystem) Uptime() *durationpb.Duration {
 	return durationpb.New(time.Since(s.startTime))
 }
 
-
 func New(
 	ctx context.Context,
 	logger logging.Logger,
