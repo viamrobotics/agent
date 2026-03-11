@@ -123,15 +123,16 @@ func (c *Client) Login(user, pass string) error {
 	// The terminal could be in one of the following states:
 	// 1. Showing a login prompt (need username + password)
 	// 2. Username already filled in, pressing Enter went to Password:
-	// 3. Already logged in (shell prompt with $)
+	// 3. Already logged in (shell prompt with $ or #)
 	// 4. Some other state (like a logged in shell with characters sitting in the shell,
 	//    or no shell configured)
 	const (
 		loginPrompt    = "login:"
 		passwordPrompt = "assword:"
 		shellPrompt    = "$ "
+		rootPrompt     = "# "
 	)
-	matched, err := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt)
+	matched, err := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt, rootPrompt)
 	if err != nil {
 		return fmt.Errorf("did not find login, password, or shell prompt: %w", err)
 	}
@@ -152,7 +153,7 @@ func (c *Client) Login(user, pass string) error {
 		if _, err := c.waitFor(15*time.Second, shellPrompt); err != nil {
 			return fmt.Errorf("waiting for shell prompt after login: %w", err)
 		}
-	case shellPrompt:
+	case shellPrompt, rootPrompt:
 		c.logger.Info("Already logged in, continuing...")
 	}
 
@@ -271,17 +272,57 @@ func (c *Client) Sudo() error {
 	return nil
 }
 
-// RemoveViam stops the viam-agent process and removes all viam-agent +
-// viam-server files from the disk using the official uninstall.sh script. Since
-// this script is fetched from the internet, the device must be online when this
-// is called.
-//
-// TODO: send the script contents over the serial connection using heredoc or
-//
-//	some other means? I tried this and it seemed to break the next prompt
-//	detection.
-func (c *Client) RemoveViam() mo.Result[[]string] {
-	return c.runCmd("curl https://storage.googleapis.com/packages.viam.com/apps/viam-agent/uninstall.sh | FORCE=1 sh")
+// RunScript transfers a script to the device and executes it with a specified
+// command. The command parameter is the full shell command to run the script, e.g.
+// "FORCE=1 sh" or just "sh". The script is written to a temp file, executed,
+// and cleaned up.
+func (c *Client) RunScript(script string, command string) mo.Result[[]string] {
+	if c.extraShellLevels < 1 {
+		return mo.Errf[[]string]("must call Sudo() before running scripts")
+	}
+	const scriptPath = "/tmp/script.sh"
+
+	c.logger.Infow("Transferring script", "scriptPath", scriptPath)
+
+	// clear any lingering bytes
+	if err := c.port.ResetInputBuffer(); err != nil {
+		return mo.Err[[]string](err)
+	}
+
+	// disable tab autocomplete since it can pollute the shell whenever
+	// a tab character is sent
+
+	// it's okay to leave completion disabled since nothing in this shell
+	// should ever need it
+	c.runCmd("bind 'set disable-completion on'")
+
+	// NOTE: putting the EOF delimiter in single quotes disables shell expansions
+	//       how neat is that?
+	header := fmt.Sprintf("cat > %s << 'EOF'\r", scriptPath)
+	if _, err := c.port.Write([]byte(header)); err != nil {
+		return mo.Err[[]string](errw.Wrap(err, "writing heredoc header"))
+	}
+
+	// send each line of the script
+	for _, line := range strings.Split(script, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if _, err := c.port.Write([]byte(line + "\r")); err != nil {
+			return mo.Err[[]string](errw.Wrap(err, "writing script line"))
+		}
+		// small delay to avoid overwhelming the serial buffer.
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// close the heredoc
+	if _, err := c.port.Write([]byte("EOF\r")); err != nil {
+		return mo.Err[[]string](errw.Wrap(err, "writing heredoc marker"))
+	}
+
+	result := c.runCmd(fmt.Sprintf("%s %s", command, scriptPath))
+
+	c.runCmd(fmt.Sprintf("rm -f %s", scriptPath))
+
+	return result
 }
 
 // InstallViam installs viam-agent using the process presented to the user in
@@ -330,7 +371,7 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 	return mo.Ok(it.FilterSeqToMap(
 		slices.Values(cmdRes.MustGet()),
 		func(item string) (string, string, bool) {
-			c.logger.Infof("systemctl show output: %s", item)
+			c.logger.Debugf("systemctl show output: %s", item)
 			kv := strings.SplitN(item, "=", 2)
 			if len(kv) != 2 {
 				// Probably just a blank line, ignore.

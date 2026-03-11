@@ -4,6 +4,7 @@ package agent_test
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,9 @@ import (
 	"go.viam.com/utils/rpc"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+//go:embed uninstall.sh
+var uninstallScript string
 
 var (
 	serialClient *serialcontrol.Client
@@ -300,7 +304,7 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {
-	if err := serialClient.RemoveViam().Error(); err != nil {
+	if err := serialClient.RunScript(uninstallScript, "FORCE=1 sh").Error(); err != nil {
 		return ctx, err
 	}
 	return testAgentState(ctx, "LoadState", "not-found")
