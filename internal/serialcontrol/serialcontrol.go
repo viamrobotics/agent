@@ -146,8 +146,9 @@ func (c *Client) Login(user, pass string) error {
 =======
 		passwordPrompt = "assword:"
 		shellPrompt    = "$ "
+		rootPrompt     = "# "
 	)
-	matched, err := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt)
+	matched, err := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt, rootPrompt)
 	if err != nil {
 		return fmt.Errorf("did not find login, password, or shell prompt: %w", err)
 	}
