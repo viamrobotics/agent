@@ -276,7 +276,7 @@ func (c *Client) Sudo() error {
 // command. The command parameter is the full shell command to run the script, e.g.
 // "FORCE=1 sh" or just "sh". The script is written to a temp file, executed,
 // and cleaned up.
-func (c *Client) RunScript(script string, command string) mo.Result[[]string] {
+func (c *Client) RunScript(script, command string) mo.Result[[]string] {
 	if c.extraShellLevels < 1 {
 		return mo.Errf[[]string]("must call Sudo() before running scripts")
 	}
