@@ -303,7 +303,7 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 	return ctx, err
 	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
 	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
-	ctx.Step(`all viam files have been removed`, testViamFilesRemoved)
+	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {
@@ -311,6 +311,49 @@ func removeViam(ctx context.Context) (context.Context, error) {
 		return ctx, err
 	}
 	return testAgentState(ctx, "LoadState", "not-found")
+}
+
+func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
+	// get the list of files to check from the uninstall script itself
+	// this keeps us from having to repeat every single file in the test
+	var paths []string
+
+	for _, line := range strings.Split(uninstallScript, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if !strings.HasPrefix(trimmed, "rm ") {
+			continue
+		}
+
+		for _, part := range strings.Fields(trimmed)[1:] {
+			if strings.HasPrefix(part, "#") {
+				break
+			}
+			if strings.HasPrefix(part, "-") {
+				continue
+			}
+			paths = append(paths, part)
+		}
+	}
+
+	// build a script that checks if any of the paths still exist
+	var checkScript strings.Builder
+	for _, p := range paths {
+		fmt.Fprintf(&checkScript, "test -e %s && echo \"EXISTS: %s\"\n", p, p)
+	}
+
+	output := serialClient.RunScript(checkScript.String(), "sh")
+	if output.IsError() {
+		return ctx, output.Error()
+	}
+
+	for _, line := range output.MustGet() {
+		if strings.HasPrefix(line, "EXISTS: ") {
+			return ctx, fmt.Errorf("expected file to be removed but it still exists: %s", strings.TrimPrefix(line, "EXISTS: "))
+		}
+	}
+
+	return ctx, nil
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
