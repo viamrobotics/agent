@@ -158,7 +158,9 @@ func InitPaths(logger logging.Logger) error {
 			// note: checkPathOwner is a no-op on Windows, so this check is redundant for now.
 			if runtime.GOOS != "windows" {
 				err = os.Chown(p, uid, -1)
-				logger.Warnf("could not chown directory %v to current user uid %v. err %v; continuing", p, uid, err)
+				if err != nil {
+					logger.Warnf("could not chown directory %v to current user uid %v. err %v; continuing", p, uid, err)
+				}
 			}
 		}
 
