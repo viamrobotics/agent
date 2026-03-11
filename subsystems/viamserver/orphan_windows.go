@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -42,34 +43,31 @@ func findExistingViamServerPIDs(ctx context.Context) ([]int, error) {
 // stillActive is the value returned by GetExitCodeProcess for a still-running process (STILL_ACTIVE / STATUS_PENDING).
 const stillActive = 259
 
-// findChildProcesses returns the direct child processes of parentPID using WMIC.
-// Note: WMIC is deprecated in Windows 11 22H2+ but remains available and is the most concise option here.
-func findChildProcesses(ctx context.Context, parentPID int) ([]OrphanedProcess, error) {
-	//nolint:gosec
-	out, err := exec.CommandContext(ctx, "wmic", "process", "where",
-		fmt.Sprintf("ParentProcessId=%d", parentPID),
-		"get", "ProcessId,Name", "/format:csv").Output()
+// findChildProcesses returns the direct child processes of parentPID using the Windows API.
+func findChildProcesses(_ context.Context, parentPID int) ([]OrphanedProcess, error) {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return nil, err
 	}
+	defer windows.CloseHandle(snapshot) //nolint:errcheck
+
+	var entry windows.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	if err := windows.Process32First(snapshot, &entry); err != nil {
+		return nil, err
+	}
+
 	var children []OrphanedProcess
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		// CSV format: Node,Name,ProcessId — skip empty lines and the header.
-		if line == "" || strings.HasPrefix(line, "Node") {
-			continue
+	for {
+		if int(entry.ParentProcessID) == parentPID {
+			children = append(children, OrphanedProcess{
+				PID:  int(entry.ProcessID),
+				Name: windows.UTF16ToString(entry.ExeFile[:]),
+			})
 		}
-		parts := strings.SplitN(line, ",", 3)
-		if len(parts) != 3 {
-			continue
+		if err := windows.Process32Next(snapshot, &entry); err != nil {
+			break
 		}
-		name := strings.TrimSpace(parts[1])
-		pidStr := strings.TrimSpace(parts[2])
-		pid, err := strconv.Atoi(pidStr)
-		if err != nil {
-			continue
-		}
-		children = append(children, OrphanedProcess{PID: pid, Name: name})
 	}
 	return children, nil
 }
