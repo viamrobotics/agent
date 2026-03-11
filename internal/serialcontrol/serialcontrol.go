@@ -344,6 +344,10 @@ func (c *Client) RunScript(script, command string) mo.Result[[]string] {
 	// while you're manually entering a heredoc - to keep everything cleaner
 	c.runCmd("PS2=''")
 
+	// clear the "secondary prompt" - the ">" character that shows in the tty
+	// while you're manually entering a heredoc - to keep everything cleaner
+	c.runCmd("PS2=''")
+
 	// NOTE: putting the EOF delimiter in single quotes disables shell expansions
 	//       how neat is that?
 	header := fmt.Sprintf("cat > %s << 'EOF'\r", scriptPath)
