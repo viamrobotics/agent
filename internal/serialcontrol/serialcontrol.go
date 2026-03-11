@@ -296,6 +296,10 @@ func (c *Client) RunScript(script string, command string) mo.Result[[]string] {
 	// should ever need it
 	c.runCmd("bind 'set disable-completion on'")
 
+	// clear the "secondary prompt" - the ">" character that shows in the tty
+	// while you're manually entering a heredoc - to keep everything cleaner
+	c.runCmd("PS2=''")
+
 	// NOTE: putting the EOF delimiter in single quotes disables shell expansions
 	//       how neat is that?
 	header := fmt.Sprintf("cat > %s << 'EOF'\r", scriptPath)
@@ -316,6 +320,18 @@ func (c *Client) RunScript(script string, command string) mo.Result[[]string] {
 	// close the heredoc
 	if _, err := c.port.Write([]byte("EOF\r")); err != nil {
 		return mo.Err[[]string](errw.Wrap(err, "writing heredoc marker"))
+	}
+
+	// wait for the prompt to reappear after writing...
+	// this is necessary because c.port.Write is not blocking,
+	// so if we don't wait, we could end up working with a polluted prompt
+	// or messing up the heredoc entry
+
+	// NOTE: this assumes a root shell, which is ensured by the sudo gate
+	//       at the top of this function
+	_, err := c.waitFor(15*time.Second, "# ")
+	if err != nil {
+		return mo.Err[[]string](errw.Wrap(err, "waiting for prompt after heredoc"))
 	}
 
 	result := c.runCmd(fmt.Sprintf("%s %s", command, scriptPath))
