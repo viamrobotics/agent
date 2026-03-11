@@ -36,15 +36,13 @@ var (
 )
 
 type config struct {
-	APIKeyID   string             `toml:"api_key_id"`
-	APIKey     string             `toml:"api_key"`
-	RobotID    string             `toml:"robot_id"`
-	PartID     string             `toml:"part_id"`
-	Versions   versionsCfg        `toml:"versions"`
-	SerialPath tomlOption[string] `toml:"serial_path"`
-	SerialUser string             `toml:"serial_user"`
-	SerialPass string             `toml:"serial_pass"`
-	Wifi       wifiCfg            `toml:"wifi"`
+	APIKeyID string      `toml:"api_key_id"`
+	APIKey   string      `toml:"api_key"`
+	RobotID  string      `toml:"robot_id"`
+	PartID   string      `toml:"part_id"`
+	Serial   serialCfg   `toml:"serial"`
+	Versions versionsCfg `toml:"versions"`
+	Wifi     wifiCfg     `toml:"wifi"`
 }
 
 type versionsCfg struct {
@@ -52,6 +50,12 @@ type versionsCfg struct {
 	Old              string `toml:"viam_agent_old"`
 	ViamServerStable string `toml:"viam_server_stable"`
 	ViamServerOld    string `toml:"viam_server_old"`
+}
+
+type serialCfg struct {
+	Path tomlOption[string] `toml:"serial_path"`
+	User string             `toml:"serial_user"`
+	Pass string             `toml:"serial_pass"`
 }
 
 type wifiCfg struct {
@@ -96,11 +100,11 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			logger.SetLevel(logging.WARN)
 			serialClient = serialcontrol.Connect(
 				logger,
-				cfg.SerialPath.OrElse("/dev/ttyUSB0"),
+				cfg.Serial.SerialPath.OrElse("/dev/ttyUSB0"),
 			).MustGet()
 
 			// Log in
-			if err := serialClient.Login(cfg.SerialUser, cfg.SerialPass); err != nil {
+			if err := serialClient.Login(cfg.Serial.SerialUser, cfg.Serial.SerialPass); err != nil {
 				serialClient.Close()
 				panic(fmt.Errorf("login failed: %w", err))
 			}
@@ -156,6 +160,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
+	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
+	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
+	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -301,9 +308,6 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 		RobotConfig: partCfg,
 	})
 	return ctx, err
-	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
-	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
-	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {

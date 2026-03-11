@@ -6,6 +6,7 @@ api_key = "<app location api key with owner role>"
 robot_id = "<robot id>"
 part_id = "<part id>"
 
+# [serial]
 # serial_path = "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
 # serial_user = "<login username for the serial shell>"
 # serial_pass = "<login password for the serial shell>"
