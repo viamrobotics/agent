@@ -100,11 +100,11 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			logger.SetLevel(logging.WARN)
 			serialClient = serialcontrol.Connect(
 				logger,
-				cfg.Serial.SerialPath.OrElse("/dev/ttyUSB0"),
+				cfg.Serial.Path.OrElse("/dev/ttyUSB0"),
 			).MustGet()
 
 			// Log in
-			if err := serialClient.Login(cfg.Serial.SerialUser, cfg.Serial.SerialPass); err != nil {
+			if err := serialClient.Login(cfg.Serial.User, cfg.Serial.Pass); err != nil {
 				serialClient.Close()
 				panic(fmt.Errorf("login failed: %w", err))
 			}
