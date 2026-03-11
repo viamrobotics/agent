@@ -69,6 +69,10 @@ type Manager struct {
 	// agentStartTime records when this viam-agent process started.
 	// Set once in NewManager and never mutated.
 	agentStartTime time.Time
+
+	// preexistingProcesses holds viam-server and module processes detected before this agent started.
+	// Set once in NewManager and never mutated.
+	preexistingProcesses []viamserver.OrphanedProcess
 }
 
 // NewManager returns a new Manager.
@@ -82,6 +86,13 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		networking:     networking.New(ctx, logger, cfg),
 		cache:          NewVersionCache(logger),
 		agentStartTime: time.Now(),
+	}
+	manager.preexistingProcesses = viamserver.FindPreexistingProcesses(ctx, logger)
+	if len(manager.preexistingProcesses) > 0 {
+		logger.Warnw(
+			"found process(es) from before agent startup still running; will log every minute while they remain",
+			"processes", manager.preexistingProcesses,
+		)
 	}
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.New(
@@ -629,13 +640,13 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 		}
 	}()
 
-	if procs := m.viamServer.PreexistingProcesses(); len(procs) > 0 {
+	if len(m.preexistingProcesses) > 0 {
 		m.activeBackgroundWorkers.Add(1)
 		go func() {
 			defer utils.Recover(m.logger, nil)
 			defer m.activeBackgroundWorkers.Done()
 
-			remaining := procs
+			remaining := m.preexistingProcesses
 			ticker := time.NewTicker(time.Minute)
 			defer ticker.Stop()
 			for {

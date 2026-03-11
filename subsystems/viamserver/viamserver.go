@@ -83,10 +83,6 @@ type Subsystem struct {
 	// Zeroed when viam-server stops.
 	startTime time.Time
 
-	// preexistingProcesses stores viam-server and module processes detected before this agent started.
-	// Set once at startup and never mutated thereafter.
-	preexistingProcesses []OrphanedProcess
-
 	logger logging.Logger
 }
 
@@ -430,52 +426,35 @@ func (s *Subsystem) Uptime() *durationpb.Duration {
 	return durationpb.New(time.Since(s.startTime))
 }
 
-// checkForPreexistingProcesses finds any viam-server processes already running when the agent starts,
-// along with their module children, logs a warning, and stores them for periodic monitoring.
-func (s *Subsystem) checkForPreexistingProcesses(ctx context.Context) {
+// FindPreexistingProcesses returns any viam-server processes already running when the agent starts,
+// along with their module children. Returns nil if none are found.
+func FindPreexistingProcesses(ctx context.Context, logger logging.Logger) []OrphanedProcess {
 	pids, err := findExistingViamServerPIDs(ctx)
 	if err != nil {
-		s.logger.Warnw("error checking for preexisting viam-server processes", "err", err)
-		return
+		logger.Warnw("error checking for preexisting viam-server processes", "err", err)
+		return nil
 	}
-	if len(pids) == 0 {
-		return
-	}
-
 	var all []OrphanedProcess
 	for _, pid := range pids {
 		all = append(all, OrphanedProcess{PID: pid, Name: SubsysName})
 		children, err := findChildProcesses(ctx, pid)
 		if err != nil {
-			s.logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
+			logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
 			continue
 		}
 		all = append(all, children...)
 	}
-	s.preexistingProcesses = all
-	s.logger.Warnw(
-		"found process(es) from before agent startup still running; will log every minute while they remain",
-		"processes", all,
-	)
-}
-
-// PreexistingProcesses returns viam-server and module processes detected before this agent started.
-func (s *Subsystem) PreexistingProcesses() []OrphanedProcess {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.preexistingProcesses
+	return all
 }
 
 func New(
-	ctx context.Context,
+	_ context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
 ) *Subsystem {
-	s := &Subsystem{
+	return &Subsystem{
 		logger:       logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
-	s.checkForPreexistingProcesses(ctx)
-	return s
 }
