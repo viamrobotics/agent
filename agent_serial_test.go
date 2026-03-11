@@ -311,6 +311,9 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 		RobotConfig: partCfg,
 	})
 	return ctx, err
+	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
+	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
+	ctx.Step(`all viam files have been removed`, testViamFilesRemoved)
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {
