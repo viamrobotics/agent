@@ -100,11 +100,19 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			logger.SetLevel(logging.WARN)
 			serialClient = serialcontrol.Connect(
 				logger,
+<<<<<<< HEAD
 				cfg.Serial.Path.OrElse("/dev/ttyUSB0"),
 			).MustGet()
 
 			// Log in
 			if err := serialClient.Login(cfg.Serial.User, cfg.Serial.Pass); err != nil {
+=======
+				cfg.Serial.SerialPath.OrElse("/dev/ttyUSB0"),
+			).MustGet()
+
+			// Log in
+			if err := serialClient.Login(cfg.Serial.SerialUser, cfg.Serial.SerialPass); err != nil {
+>>>>>>> c70e276 (Fix bad merge resolution, serial config)
 				serialClient.Close()
 				panic(fmt.Errorf("login failed: %w", err))
 			}
