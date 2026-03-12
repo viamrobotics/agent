@@ -5,6 +5,14 @@
     <key>Label</key>
     <string>com.viam.agent</string>
 
+    <!-- launchd starts agent with a minimal environment where HOME is unset. Manually set
+    it to /var/root as it should be for the root user. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/var/root</string>
+    </dict>
+
     <key>ProgramArguments</key>
     <array>
         <string>/opt/viam/bin/viam-agent</string>
