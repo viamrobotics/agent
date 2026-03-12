@@ -180,6 +180,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
 	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 
+	// Wifi provisioning
+	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
+
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit started with %s`, versionGroup), testSystemdAgentStartVersion)
@@ -377,6 +380,15 @@ func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
 	}
 
 	return ctx, nil
+}
+
+func testClearWifiConnections(ctx context.Context) (context.Context, error) {
+	clearRes := serialClient.ClearWifiConnections()
+	if clearRes.Error() != nil {
+		return ctx, clearRes.Error()
+	}
+	output := serialClient.ListWifiConnections()
+	return ctx, output.Error()
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
