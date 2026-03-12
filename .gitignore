@@ -8,3 +8,7 @@ viam-agent-windows-installer*.exe
 
 # Config file containing secrets used for serial console tests
 agent-test.toml
+
+# Claude Code
+.claude/worktrees
+.claude/settings.local.json
