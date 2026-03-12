@@ -65,8 +65,7 @@ func FindProcessesByName(ctx context.Context, name string) ([]int, error) {
 	var pids []int
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		// tasklist outputs "INFO: No tasks..." when no processes match.
-		if line == "" || strings.HasPrefix(line, "INFO") {
+		if line == "" {
 			continue
 		}
 		// CSV format: "name.exe","1234","Console","1","10,000 K"
@@ -90,7 +89,11 @@ func FindChildProcesses(_ context.Context, parentPID int) ([]Process, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CloseHandle(snapshot) //nolint:errcheck
+	defer func() {
+		if err := windows.CloseHandle(snapshot); err != nil {
+			fmt.Fprintf(os.Stderr, "utils: error closing snapshot handle: %v\n", err)
+		}
+	}()
 
 	var entry windows.ProcessEntry32
 	entry.Size = uint32(unsafe.Sizeof(entry))
@@ -114,6 +117,7 @@ func FindChildProcesses(_ context.Context, parentPID int) ([]Process, error) {
 }
 
 // stillActive is the value returned by GetExitCodeProcess for a still-running process (STILL_ACTIVE / STATUS_PENDING).
+// See: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess
 const stillActive = 259
 
 // IsProcessAlive returns true if the process with the given PID is still running.

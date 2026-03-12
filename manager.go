@@ -87,13 +87,15 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cache:          NewVersionCache(logger),
 		agentStartTime: time.Now(),
 	}
-	manager.preexistingProcesses = findPreexistingViamServerProcesses(ctx, logger)
+
+	manager.preexistingProcesses = manager.findPreexistingViamServerProcesses(ctx)
 	if len(manager.preexistingProcesses) > 0 {
 		logger.Warnw(
 			"found process(es) from before agent startup still running; will log every minute while they remain",
 			"processes", manager.preexistingProcesses,
 		)
 	}
+
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.New(
 		ctx,
@@ -848,10 +850,10 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 
 // findPreexistingViamServerProcesses returns any viam-server processes already running when the
 // agent starts, along with their module children. Returns nil if none are found.
-func findPreexistingViamServerProcesses(ctx context.Context, logger logging.Logger) []utils.Process {
+func (m *Manager) findPreexistingViamServerProcesses(ctx context.Context) []utils.Process {
 	pids, err := utils.FindProcessesByName(ctx, viamserver.SubsysName)
 	if err != nil {
-		logger.Warnw("error checking for preexisting viam-server processes", "err", err)
+		m.logger.Warnw("error checking for preexisting viam-server processes", "err", err)
 		return nil
 	}
 	var all []utils.Process
@@ -859,7 +861,7 @@ func findPreexistingViamServerProcesses(ctx context.Context, logger logging.Logg
 		all = append(all, utils.Process{PID: pid, Name: viamserver.SubsysName})
 		children, err := utils.FindChildProcesses(ctx, pid)
 		if err != nil {
-			logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
+			m.logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
 			continue
 		}
 		all = append(all, children...)

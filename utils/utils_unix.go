@@ -54,7 +54,6 @@ func KillTree(ctx context.Context, pid int) error {
 
 // FindProcessesByName returns PIDs of all running processes with the given name (exact match).
 func FindProcessesByName(ctx context.Context, name string) ([]int, error) {
-	//nolint:gosec
 	out, err := exec.CommandContext(ctx, "pgrep", "-x", name).Output()
 	if err != nil {
 		// pgrep exits with code 1 when no processes are found — not an error for us.
