@@ -250,6 +250,7 @@ echo '{"PRIORITY":"3","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 echo '{"PRIORITY":"4","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890124","__MONOTONIC_TIMESTAMP":"1234567891","MESSAGE":"because viam-agent consumed all my CPU"}'
 echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_BOOT_ID":"test-boot-id","__REALTIME_TIMESTAMP":"1709234567890125","__MONOTONIC_TIMESTAMP":"1234567892","MESSAGE":"restarting viam-agent"}'
 `
+	utils.MockAndCreateViamDirs(t)
 	createMockJournalctl(t, mockCommand)
 	logger := logging.NewTestLogger(t)
 	appender := &mockAppender{}
