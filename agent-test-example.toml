@@ -4,6 +4,7 @@
 api_key_id = "<app location api key id with owner role>"
 api_key = "<app location api key with owner role>"
 robot_id = "<robot id>"
+robot_name = "<robot name>"
 part_id = "<part id>"
 
 # [serial]

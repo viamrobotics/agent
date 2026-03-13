@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -36,13 +37,14 @@ var (
 )
 
 type config struct {
-	APIKeyID string      `toml:"api_key_id"`
-	APIKey   string      `toml:"api_key"`
-	RobotID  string      `toml:"robot_id"`
-	PartID   string      `toml:"part_id"`
-	Serial   serialCfg   `toml:"serial"`
-	Versions versionsCfg `toml:"versions"`
-	Wifi     wifiCfg     `toml:"wifi"`
+	APIKeyID  string      `toml:"api_key_id"`
+	APIKey    string      `toml:"api_key"`
+	RobotID   string      `toml:"robot_id"`
+	RobotName string      `toml:"robot_name"`
+	PartID    string      `toml:"part_id"`
+	Serial    serialCfg   `toml:"serial"`
+	Versions  versionsCfg `toml:"versions"`
+	Wifi      wifiCfg     `toml:"wifi"`
 }
 
 type versionsCfg struct {
@@ -125,6 +127,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				panic(fmt.Errorf("login failed: %w", err))
 			}
 
+			// TODO: this will fail while the test runner is connected to the provisioning hotspot
 			appClient = dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey).MustGet()
 
 			if err := serialClient.Sudo(); err != nil {
@@ -182,6 +185,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 
 	// Wifi provisioning
 	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
+	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
+	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -389,6 +394,31 @@ func testClearWifiConnections(ctx context.Context) (context.Context, error) {
 	}
 	output := serialClient.ListWifiConnections()
 	return ctx, output.Error()
+}
+
+func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error) {
+	// this script checks for the provisioning network every 5 seconds, then connects to it
+	// if it finds it
+	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_join_network.sh")
+	cmd.Env = append(os.Environ(), "ROBOT_NAME="+cfg.RobotName)
+
+	// TODO: this should error out if cmd returns a nonzero exit code
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("test_provisioning_join_network.sh failed: %w\n%s", err, out)
+	}
+	return ctx, nil
+}
+
+func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_send_network.sh")
+	cmd.Env = append(os.Environ(), "SSID="+cfg.Wifi.SSID, "PASSWORD="+cfg.Wifi.Password)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("test_provisioning_send_network.sh failed: %w\n%s", err, out)
+	}
+	return ctx, nil
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
