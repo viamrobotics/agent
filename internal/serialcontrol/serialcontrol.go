@@ -128,30 +128,30 @@ func (c *Client) Login(user, pass string) error {
 	//    or no shell configured)
 	const (
 		loginPrompt    = "login:"
-		passwordPrompt = "assword:"
+		passwordPrompt = "Password:"
 		shellPrompt    = "$ "
 		rootPrompt     = "# "
 	)
-	matched, err := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt, rootPrompt)
-	if err != nil {
-		return fmt.Errorf("did not find login, password, or shell prompt: %w", err)
+	matchedRes := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt, rootPrompt)
+	if matchedRes.IsError() {
+		return fmt.Errorf("did not find login, password, or shell prompt: %w", matchedRes.Error())
 	}
 
-	switch matched {
+	switch matchedRes.MustGet() {
 	case loginPrompt:
 		if _, err := c.port.Write([]byte(user + "\r")); err != nil {
 			return fmt.Errorf("sending username: %w", err)
 		}
-		if _, err := c.waitFor(10*time.Second, passwordPrompt); err != nil {
-			return fmt.Errorf("waiting for password prompt: %w", err)
+		if res := c.waitFor(10*time.Second, passwordPrompt); res.IsError() {
+			return fmt.Errorf("waiting for password prompt: %w", res.Error())
 		}
 		fallthrough
 	case passwordPrompt:
 		if _, err := c.port.Write([]byte(pass + "\r")); err != nil {
 			return fmt.Errorf("sending password: %w", err)
 		}
-		if _, err := c.waitFor(15*time.Second, shellPrompt); err != nil {
-			return fmt.Errorf("waiting for shell prompt after login: %w", err)
+		if res := c.waitFor(15*time.Second, shellPrompt); res.IsError() {
+			return fmt.Errorf("waiting for shell prompt after login: %w", res.Error())
 		}
 	case shellPrompt, rootPrompt:
 		c.logger.Info("Already logged in, continuing...")
@@ -164,7 +164,7 @@ func (c *Client) Login(user, pass string) error {
 // appears or the timeout is reached. Returns the matched target string
 // or "" and an error if there was no match before timing out, or if there
 // is an error while reading.
-func (c *Client) waitFor(timeout time.Duration, targets ...string) (string, error) {
+func (c *Client) waitFor(timeout time.Duration, targets ...string) mo.Result[string] {
 	buf := make([]byte, 256)
 	var accumulated []byte
 	deadline := time.Now().Add(timeout)
@@ -177,15 +177,15 @@ func (c *Client) waitFor(timeout time.Duration, targets ...string) (string, erro
 			acc := string(accumulated)
 			for _, t := range targets {
 				if strings.Contains(acc, t) {
-					return t, nil
+					return mo.Ok(t)
 				}
 			}
 		}
 		if err != nil {
-			return "", fmt.Errorf("read error while waiting for %v: %w", targets, err)
+			return mo.Errf[string]("read error while waiting for %v: %w", targets, err)
 		}
 	}
-	return "", fmt.Errorf("timed out waiting for %v, received: %q", targets, string(accumulated))
+	return mo.Errf[string]("timed out waiting for %v, received: %q", targets, string(accumulated))
 }
 
 // Close attempts to reset the serial terminal to the state it was in before
@@ -329,9 +329,8 @@ func (c *Client) RunScript(script, command string) mo.Result[[]string] {
 
 	// NOTE: this assumes a root shell, which is ensured by the sudo gate
 	//       at the top of this function
-	_, err := c.waitFor(15*time.Second, "# ")
-	if err != nil {
-		return mo.Err[[]string](errw.Wrap(err, "waiting for prompt after heredoc"))
+	if res := c.waitFor(15*time.Second, "# "); res.IsError() {
+		return mo.Err[[]string](errw.Wrap(res.Error(), "waiting for prompt after heredoc"))
 	}
 
 	result := c.runCmd(fmt.Sprintf("%s %s", command, scriptPath))
