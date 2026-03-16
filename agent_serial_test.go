@@ -102,27 +102,11 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			logger.SetLevel(logging.WARN)
 			serialClient = serialcontrol.Connect(
 				logger,
-<<<<<<< HEAD
-<<<<<<< HEAD
 				cfg.Serial.Path.OrElse("/dev/ttyUSB0"),
 			).MustGet()
 
 			// Log in
 			if err := serialClient.Login(cfg.Serial.User, cfg.Serial.Pass); err != nil {
-=======
-				cfg.Serial.SerialPath.OrElse("/dev/ttyUSB0"),
-			).MustGet()
-
-			// Log in
-			if err := serialClient.Login(cfg.Serial.SerialUser, cfg.Serial.SerialPass); err != nil {
->>>>>>> c70e276 (Fix bad merge resolution, serial config)
-=======
-				cfg.Serial.Path.OrElse("/dev/ttyUSB0"),
-			).MustGet()
-
-			// Log in
-			if err := serialClient.Login(cfg.Serial.User, cfg.Serial.Pass); err != nil {
->>>>>>> 3492609 (Fix mistake in new serial cfg)
 				serialClient.Close()
 				panic(fmt.Errorf("login failed: %w", err))
 			}
@@ -204,11 +188,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-server is pinned to a url$`, applyViamServerURLPin)
 	ctx.Step(`viam-server is pinned to a file$`, applyViamServerFilePin)
 	ctx.Step(`an old viam-server binary is present on the device$`, downloadOldViamServerBinary)
-
-	// Agent uninstall
-	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
-	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
-	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 }
 
 func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
