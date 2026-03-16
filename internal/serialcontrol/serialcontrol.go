@@ -106,6 +106,88 @@ func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 	})
 }
 
+// Get a shell on a serial terminal regardless of the initial state of the terminal.
+// Essentially a no-op if the terminal is already logged in.
+func (c *Client) Login(user, pass string) error {
+	c.logger.Debugf("Logging into shell...")
+
+	if err := c.port.SetReadTimeout(time.Second); err != nil {
+		return fmt.Errorf("setting read timeout: %w", err)
+	}
+
+	// Send CR to wake up the terminal and trigger a login prompt.
+	if _, err := c.port.Write([]byte("\r")); err != nil {
+		return fmt.Errorf("sending initial CR: %w", err)
+	}
+
+	// The terminal could be in one of the following states:
+	// 1. Showing a login prompt (need username + password)
+	// 2. Username already filled in, pressing Enter went to Password:
+	// 3. Already logged in (shell prompt with $ or #)
+	// 4. Some other state (like a logged in shell with characters sitting in the shell,
+	//    or no shell configured)
+	const (
+		loginPrompt    = "login:"
+		passwordPrompt = "Password:"
+		shellPrompt    = "$ "
+		rootPrompt     = "# "
+	)
+	matchedRes := c.waitFor(15*time.Second, loginPrompt, passwordPrompt, shellPrompt, rootPrompt)
+	if matchedRes.IsError() {
+		return fmt.Errorf("did not find login, password, or shell prompt: %w", matchedRes.Error())
+	}
+
+	switch matchedRes.MustGet() {
+	case loginPrompt:
+		if _, err := c.port.Write([]byte(user + "\r")); err != nil {
+			return fmt.Errorf("sending username: %w", err)
+		}
+		if res := c.waitFor(10*time.Second, passwordPrompt); res.IsError() {
+			return fmt.Errorf("waiting for password prompt: %w", res.Error())
+		}
+		fallthrough
+	case passwordPrompt:
+		if _, err := c.port.Write([]byte(pass + "\r")); err != nil {
+			return fmt.Errorf("sending password: %w", err)
+		}
+		if res := c.waitFor(15*time.Second, shellPrompt); res.IsError() {
+			return fmt.Errorf("waiting for shell prompt after login: %w", res.Error())
+		}
+	case shellPrompt, rootPrompt:
+		c.logger.Info("Already logged in, continuing...")
+	}
+
+	return nil
+}
+
+// waitFor reads from the serial port until one of the target strings
+// appears or the timeout is reached. Returns the matched target string
+// or "" and an error if there was no match before timing out, or if there
+// is an error while reading.
+func (c *Client) waitFor(timeout time.Duration, targets ...string) mo.Result[string] {
+	buf := make([]byte, 256)
+	var accumulated []byte
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		n, err := c.port.Read(buf)
+		if n > 0 {
+			accumulated = append(accumulated, buf[:n]...)
+			c.logger.Debugf("serial read: %q", string(buf[:n]))
+			acc := string(accumulated)
+			for _, t := range targets {
+				if strings.Contains(acc, t) {
+					return mo.Ok(t)
+				}
+			}
+		}
+		if err != nil {
+			return mo.Errf[string]("read error while waiting for %v: %w", targets, err)
+		}
+	}
+	return mo.Errf[string]("timed out waiting for %v, received: %q", targets, string(accumulated))
+}
+
 // Close attempts to reset the serial terminal to the state it was in before
 // the Client was attached, then closes the underlying connection.
 func (c *Client) Close() error {
@@ -190,17 +272,72 @@ func (c *Client) Sudo() error {
 	return nil
 }
 
-// RemoveViam stops the viam-agent process and removes all viam-agent +
-// viam-server files from the disk using the official uninstall.sh script. Since
-// this script is fetched from the internet, the device must be online when this
-// is called.
-//
-// TODO: send the script contents over the serial connection using heredoc or
-//
-//	some other means? I tried this and it seemed to break the next prompt
-//	detection.
-func (c *Client) RemoveViam() mo.Result[[]string] {
-	return c.runCmd("curl https://storage.googleapis.com/packages.viam.com/apps/viam-agent/uninstall.sh | FORCE=1 sh")
+// RunScript transfers a script to the device and executes it with a specified
+// command. The command parameter is the full shell command to run the script, e.g.
+// "FORCE=1 sh" or just "sh". The script is written to a temp file, executed,
+// and cleaned up.
+func (c *Client) RunScript(script, command string) mo.Result[[]string] {
+	if c.extraShellLevels < 1 {
+		return mo.Errf[[]string]("must call Sudo() before running scripts")
+	}
+	const scriptPath = "/tmp/script.sh"
+
+	c.logger.Infow("Transferring script", "scriptPath", scriptPath)
+
+	// clear any lingering bytes
+	if err := c.port.ResetInputBuffer(); err != nil {
+		return mo.Err[[]string](err)
+	}
+
+	// disable tab autocomplete since it can pollute the shell whenever
+	// a tab character is sent
+
+	// it's okay to leave completion disabled since nothing in this shell
+	// should ever need it
+	c.runCmd("bind 'set disable-completion on'")
+
+	// clear the "secondary prompt" - the ">" character that shows in the tty
+	// while you're manually entering a heredoc - to keep everything cleaner
+	c.runCmd("PS2=''")
+
+	// NOTE: putting the EOF delimiter in single quotes disables shell expansions
+	//       how neat is that?
+	header := fmt.Sprintf("cat > %s << 'EOF'\r", scriptPath)
+	if _, err := c.port.Write([]byte(header)); err != nil {
+		return mo.Err[[]string](errw.Wrap(err, "writing heredoc header"))
+	}
+
+	// send each line of the script
+	for _, line := range strings.Split(script, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if _, err := c.port.Write([]byte(line + "\r")); err != nil {
+			return mo.Err[[]string](errw.Wrap(err, "writing script line"))
+		}
+		// small delay to avoid overwhelming the serial buffer.
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// close the heredoc
+	if _, err := c.port.Write([]byte("EOF\r")); err != nil {
+		return mo.Err[[]string](errw.Wrap(err, "writing heredoc marker"))
+	}
+
+	// wait for the prompt to reappear after writing...
+	// this is necessary because c.port.Write is not blocking,
+	// so if we don't wait, we could end up working with a polluted prompt
+	// or messing up the heredoc entry
+
+	// NOTE: this assumes a root shell, which is ensured by the sudo gate
+	//       at the top of this function
+	if res := c.waitFor(15*time.Second, "# "); res.IsError() {
+		return mo.Err[[]string](errw.Wrap(res.Error(), "waiting for prompt after heredoc"))
+	}
+
+	result := c.runCmd(fmt.Sprintf("%s %s", command, scriptPath))
+
+	c.runCmd(fmt.Sprintf("rm -f %s", scriptPath))
+
+	return result
 }
 
 // InstallViam installs viam-agent using the process presented to the user in
@@ -249,7 +386,7 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 	return mo.Ok(it.FilterSeqToMap(
 		slices.Values(cmdRes.MustGet()),
 		func(item string) (string, string, bool) {
-			c.logger.Infof("systemctl show output: %s", item)
+			c.logger.Debugf("systemctl show output: %s", item)
 			kv := strings.SplitN(item, "=", 2)
 			if len(kv) != 2 {
 				// Probably just a blank line, ignore.

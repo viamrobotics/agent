@@ -4,6 +4,7 @@ package agent_test
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -25,6 +26,9 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+//go:embed uninstall.sh
+var uninstallScript string
+
 var (
 	serialClient *serialcontrol.Client
 	appClient    apppb.AppServiceClient
@@ -32,13 +36,13 @@ var (
 )
 
 type config struct {
-	APIKeyID   string             `toml:"api_key_id"`
-	APIKey     string             `toml:"api_key"`
-	RobotID    string             `toml:"robot_id"`
-	PartID     string             `toml:"part_id"`
-	Versions   versionsCfg        `toml:"versions"`
-	SerialPath tomlOption[string] `toml:"serial_path"`
-	Wifi       wifiCfg            `toml:"wifi"`
+	APIKeyID string      `toml:"api_key_id"`
+	APIKey   string      `toml:"api_key"`
+	RobotID  string      `toml:"robot_id"`
+	PartID   string      `toml:"part_id"`
+	Serial   serialCfg   `toml:"serial"`
+	Versions versionsCfg `toml:"versions"`
+	Wifi     wifiCfg     `toml:"wifi"`
 }
 
 type versionsCfg struct {
@@ -46,6 +50,12 @@ type versionsCfg struct {
 	Old              string `toml:"viam_agent_old"`
 	ViamServerStable string `toml:"viam_server_stable"`
 	ViamServerOld    string `toml:"viam_server_old"`
+}
+
+type serialCfg struct {
+	Path tomlOption[string] `toml:"serial_path"`
+	User string             `toml:"serial_user"`
+	Pass string             `toml:"serial_pass"`
 }
 
 type wifiCfg struct {
@@ -90,8 +100,14 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			logger.SetLevel(logging.WARN)
 			serialClient = serialcontrol.Connect(
 				logger,
-				cfg.SerialPath.OrElse("/dev/ttyUSB0"),
+				cfg.Serial.Path.OrElse("/dev/ttyUSB0"),
 			).MustGet()
+
+			// Log in
+			if err := serialClient.Login(cfg.Serial.User, cfg.Serial.Pass); err != nil {
+				serialClient.Close()
+				panic(fmt.Errorf("login failed: %w", err))
+			}
 
 			appClient = dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey).MustGet()
 
@@ -144,6 +160,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
+	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
+	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
+	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -292,10 +311,48 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 }
 
 func removeViam(ctx context.Context) (context.Context, error) {
-	if err := serialClient.RemoveViam().Error(); err != nil {
+	if err := serialClient.RunScript(uninstallScript, "FORCE=1 sh").Error(); err != nil {
 		return ctx, err
 	}
 	return testAgentState(ctx, "LoadState", "not-found")
+}
+
+func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
+	// get the list of files to check from the uninstall script itself
+	// this keeps us from having to repeat every single file in the test
+	paths := []string{
+		"/etc/systemd/system/viam-agent.service",
+		"/usr/local/lib/systemd/system/viam-agent.service",
+		"/etc/systemd/system/viam-server.service",
+		"/usr/local/bin/viam-server",
+		"/etc/NetworkManager/conf.d/80-viam.conf",
+		"/etc/NetworkManager/dnsmasq-shared.d/80-viam.conf",
+		"/etc/systemd/journald.conf.d/90-viam.conf",
+		"/etc/viam-provisioning.json",
+		"/etc/viam-defaults.json",
+		"/root/.viam/",
+		"/etc/viam.json",
+		"/opt/viam/",
+	}
+
+	// build a script that checks if any of the paths still exist
+	var checkScript strings.Builder
+	for _, p := range paths {
+		fmt.Fprintf(&checkScript, "test -e %s && echo \"EXISTS: %s\"\n", p, p)
+	}
+
+	output := serialClient.RunScript(checkScript.String(), "sh")
+	if output.IsError() {
+		return ctx, output.Error()
+	}
+
+	for _, line := range output.MustGet() {
+		if strings.HasPrefix(line, "EXISTS: ") {
+			return ctx, fmt.Errorf("expected file to be removed but it still exists: %s", strings.TrimPrefix(line, "EXISTS: "))
+		}
+	}
+
+	return ctx, nil
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
@@ -324,6 +381,14 @@ func testAgentEnabled(ctx context.Context) (context.Context, error) {
 
 func testAgentRunning(ctx context.Context) (context.Context, error) {
 	return testAgentState(ctx, "SubState", "running")
+}
+
+func testAgentDead(ctx context.Context) (context.Context, error) {
+	return testAgentState(ctx, "SubState", "dead")
+}
+
+func testAgentNotFound(ctx context.Context) (context.Context, error) {
+	return testAgentState(ctx, "LoadState", "not-found")
 }
 
 func testAgentRunningWithVersion(ctx context.Context, version string) (context.Context, error) {
