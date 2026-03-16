@@ -666,7 +666,6 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 			}
 		}
 	}()
-
 }
 
 // dial establishes a connection to the cloud for grpc communication.
