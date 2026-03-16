@@ -1,7 +1,7 @@
-Feature: Uninstall viam-agent
+Feature: uninstall viam-agent
   Background:
     Given viam-agent is installed
-    And the viam-agent systemd unit is running with stable
+    And the viam-agent systemd unit is running
     And the viam-agent systemd unit is enabled
   Scenario: Uninstall viam-agent
     When viam-agent is uninstalled

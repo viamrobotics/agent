@@ -320,24 +320,19 @@ func removeViam(ctx context.Context) (context.Context, error) {
 func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
 	// get the list of files to check from the uninstall script itself
 	// this keeps us from having to repeat every single file in the test
-	var paths []string
-
-	for _, line := range strings.Split(uninstallScript, "\n") {
-		trimmed := strings.TrimSpace(line)
-
-		if !strings.HasPrefix(trimmed, "rm ") {
-			continue
-		}
-
-		for _, part := range strings.Fields(trimmed)[1:] {
-			if strings.HasPrefix(part, "#") {
-				break
-			}
-			if strings.HasPrefix(part, "-") {
-				continue
-			}
-			paths = append(paths, part)
-		}
+	paths := []string{
+		"/etc/systemd/system/viam-agent.service",
+		"/usr/local/lib/systemd/system/viam-agent.service",
+		"/etc/systemd/system/viam-server.service",
+		"/usr/local/bin/viam-server",
+		"/etc/NetworkManager/conf.d/80-viam.conf",
+		"/etc/NetworkManager/dnsmasq-shared.d/80-viam.conf",
+		"/etc/systemd/journald.conf.d/90-viam.conf",
+		"/etc/viam-provisioning.json",
+		"/etc/viam-defaults.json",
+		"/root/.viam/",
+		"/etc/viam.json",
+		"/opt/viam/",
 	}
 
 	// build a script that checks if any of the paths still exist
