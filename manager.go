@@ -69,10 +69,6 @@ type Manager struct {
 	// agentStartTime records when this viam-agent process started.
 	// Set once in NewManager and never mutated.
 	agentStartTime time.Time
-
-	// preexistingProcesses holds viam-server and module processes detected before this agent started.
-	// Set once in NewManager and never mutated.
-	preexistingProcesses []utils.Process
 }
 
 // NewManager returns a new Manager.
@@ -88,12 +84,41 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		agentStartTime: time.Now(),
 	}
 
-	manager.preexistingProcesses = manager.findPreexistingViamServerProcesses(ctx)
-	if len(manager.preexistingProcesses) > 0 {
+	preexistingProcesses := manager.findPreexistingViamServerProcesses(ctx)
+	if len(preexistingProcesses) > 0 {
 		logger.Warnw(
 			"found process(es) from before agent startup still running; will log every minute while they remain",
-			"processes", manager.preexistingProcesses,
+			"processes", preexistingProcesses,
 		)
+		manager.activeBackgroundWorkers.Add(1)
+		go func() {
+			defer utils.Recover(manager.logger, nil)
+			defer manager.activeBackgroundWorkers.Done()
+
+			remaining := preexistingProcesses
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					var stillRunning []utils.Process
+					for _, proc := range remaining {
+						if utils.IsProcessAlive(proc.PID) {
+							stillRunning = append(stillRunning, proc)
+						}
+					}
+					if len(stillRunning) == 0 {
+						manager.logger.Info("all process(es) from before agent startup have exited")
+						return
+					}
+					manager.logger.Warnw("process(es) from before agent startup are still running",
+						"processes", stillRunning)
+					remaining = stillRunning
+				}
+			}
+		}()
 	}
 
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
@@ -642,37 +667,6 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 		}
 	}()
 
-	if len(m.preexistingProcesses) > 0 {
-		m.activeBackgroundWorkers.Add(1)
-		go func() {
-			defer utils.Recover(m.logger, nil)
-			defer m.activeBackgroundWorkers.Done()
-
-			remaining := m.preexistingProcesses
-			ticker := time.NewTicker(time.Minute)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					var stillRunning []utils.Process
-					for _, proc := range remaining {
-						if utils.IsProcessAlive(proc.PID) {
-							stillRunning = append(stillRunning, proc)
-						}
-					}
-					if len(stillRunning) == 0 {
-						m.logger.Info("all process(es) from before agent startup have exited")
-						return
-					}
-					m.logger.Warnw("process(es) from before agent startup are still running",
-						"processes", stillRunning)
-					remaining = stillRunning
-				}
-			}
-		}()
-	}
 }
 
 // dial establishes a connection to the cloud for grpc communication.
