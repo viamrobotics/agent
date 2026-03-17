@@ -3,7 +3,8 @@
 param(
     [switch]$Silent = $false,
     [string]$RootPath = "C:\opt\viam",
-    [string]$UserAccount = ""  # empty = run as LocalSystem (default)
+    [string]$UserAccount = "",  # empty = run as LocalSystem (default)
+    [switch]$EnableAuditLogging = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,12 +19,28 @@ if (-not $isAdmin) {
     # Self-elevate the script
     $scriptPath = $MyInvocation.MyCommand.Path
     $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`" -UserAccount `"$UserAccount`""
+    if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
     exit
 }
 
 if (-not $Silent) {
     Write-Host "Starting Viam Agent installation..."
+}
+
+# Enable security audit logging for diagnosing permission issues
+if ($EnableAuditLogging) {
+    if (-not $Silent) { Write-Host "Enabling audit logging for permission diagnostics..." }
+    # Log failed object access attempts (file/registry/service ACL denials)
+    & auditpol /set /subcategory:"Object Access" /failure:enable | Out-Null
+    # Log failed privilege use (e.g. firewall, service control)
+    & auditpol /set /subcategory:"Privilege Use" /failure:enable | Out-Null
+    # Log process creation (helps trace what the agent spawns)
+    & auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable | Out-Null
+    if (-not $Silent) {
+        Write-Host "  Audit logging enabled. View events in Event Viewer > Security log."
+        Write-Host "  Relevant Event IDs: 4656 (handle request), 4673 (privilege use), 4688 (process creation)"
+    }
 }
 
 # Define installation paths
