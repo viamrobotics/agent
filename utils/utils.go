@@ -21,7 +21,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"os/user"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -568,28 +567,32 @@ func writeWithDirs(destPath, contents string) error {
 	return errw.Wrapf(os.WriteFile(destPath, []byte(contents), 0o600), "writing %s", destPath)
 }
 
-// on windows only, create a firewall exception for the newly-downloaded file.
+// allowFirewall creates a Windows firewall inbound-allow rule for the given binary.
+// If the process is not elevated (e.g. running as a non-admin service account),
+// the netsh call will fail — this is expected, so we warn and return nil.
+// If the process IS elevated and netsh still fails, that's unexpected so we return the error.
 func allowFirewall(ctx context.Context, logger logging.Logger, outPath string) error {
-	// todo: confirm this is right; this isn't the final destination. Does the rule move when the file is renamed? Link to docs.
 	cmd := exec.CommandContext( //nolint:gosec
 		ctx,
 		"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
 		"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
 	)
 	if err := cmd.Start(); err != nil {
+		if !isElevated() {
+			logger.Warnw("cannot create firewall rule (not elevated)", "program", outPath, "error", err)
+			return nil
+		}
 		return errw.Wrap(err, "creating firewall rule")
 	}
-	err := cmd.Wait()
-	if err != nil {
-		user, _ := user.Current() //nolint:errcheck
-		if user.Name != "SYSTEM" {
-			// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
-			logger.Info("Ignoring netsh error on non-SYSTEM windows")
+	if err := cmd.Wait(); err != nil {
+		if !isElevated() {
+			logger.Warnw("firewall rule creation failed (not elevated)", "program", outPath, "error", err)
+			return nil
 		}
-	} else {
-		logger.Debugw("created firewall exception for", "program", outPath)
+		return errw.Wrap(err, "creating firewall rule")
 	}
-	return err
+	logger.Debugw("created firewall exception for", "program", outPath)
+	return nil
 }
 
 // DecompressFile extracts a compressed file and returns the path to the extracted file.

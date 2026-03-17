@@ -35,6 +35,11 @@ func checkPathOwner(uid int, info fs.FileInfo) error {
 	return nil
 }
 
+// isElevated returns true if the current process is running as root.
+func isElevated() bool {
+	return os.Getuid() == 0
+}
+
 func SignalForTermination(pid int) error {
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
 		return errw.Wrapf(err, "signaling PID %d", pid)

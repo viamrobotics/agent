@@ -52,6 +52,13 @@ func SyncFS(syncPath string) error {
 	return nil
 }
 
+// isElevated returns true if the current process is running with elevated
+// (admin) privileges. Used to distinguish expected vs unexpected failures
+// when performing operations that require elevation (e.g. firewall rules).
+func isElevated() bool {
+	return windows.GetCurrentProcessToken().IsElevated()
+}
+
 func SignalForTermination(pid int) error {
 	return windows.GenerateConsoleCtrlEvent(syscall.CTRL_BREAK_EVENT, uint32(pid)) //nolint:gosec
 }
