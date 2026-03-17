@@ -99,6 +99,10 @@ upload-installer:
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp preinstall.sh install.sh uninstall.sh gs://packages.viam.com/apps/viam-agent/
 
+.PHONY: lint-ps
+lint-ps:
+	pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop; Invoke-ScriptAnalyzer -Path windows-installer-agent.ps1 -Severity Warning,Error -EnableExit; Invoke-ScriptAnalyzer -Path windows-uninstall-agent.ps1 -Severity Warning,Error -EnableExit'
+
 .PHONY: windows-installer
 windows-installer:
 	@./build-windows-installer-exe.sh
