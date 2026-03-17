@@ -52,6 +52,7 @@ var (
 
 	// Indicate when Agent is not being run as the installed systemd service.
 	// Changes some behaviors to allow for easier local development work (previously enabled with --dev-mode).
+	// Note: this is not updated immediately.
 	IsRunningLocally = false
 
 	HealthCheckTimeout = time.Minute
@@ -156,7 +157,7 @@ func InitPaths(logger logging.Logger) error {
 		if err := checkPathOwner(uid, info); err != nil {
 			logger.Debugf("dir not owned by current user uid %s. fixing", p)
 			// note: checkPathOwner is a no-op on Windows, so this check is redundant for now.
-			if runtime.GOOS != "windows" {
+			if runtime.GOOS != "windows" && !IsRunningLocally {
 				err = os.Chown(p, uid, -1)
 				if err != nil {
 					logger.Warnf("could not chown directory %v to current user uid %v. err %v; continuing", p, uid, err)
