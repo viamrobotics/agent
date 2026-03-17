@@ -1,4 +1,9 @@
 # Viam Agent Installation Script for Windows
+#
+# Organization: functions are defined first, main flow at the bottom.
+# This stays as a single file for ps2exe compilation. If the script grows
+# significantly, consider splitting into separate .ps1 files and using a
+# build script (e.g. Invoke-Build) to concatenate before ps2exe.
 [CmdletBinding()]
 param(
     [switch]$Silent = $false,
@@ -10,273 +15,267 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Ensure TLS 1.2 for HTTPS downloads (older Win10 may default to TLS 1.0/1.1)
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$script:ServiceName = "viam-agent"
+$script:AgentDownloadName = "viam-agent-stable-windows-x86_64"
+$script:AgentCacheFileName = "viam-agent-from-installer.exe"
 
-# Check for admin privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    if (-not $Silent) {
-        Write-Host "This script requires administrator privileges. Attempting to elevate..."
+# ─── FUNCTIONS ────────────────────────────────────────────────────────────────
+
+function Write-Status($msg) {
+    if (-not $Silent) { Write-Host $msg }
+}
+
+function Assert-AdminPrivileges {
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Status "This script requires administrator privileges. Attempting to elevate..."
+        $scriptPath = $MyInvocation.PSCommandPath
+        $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`" -UserAccount `"$UserAccount`""
+        if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
+        if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
+        Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
+        exit
     }
-    
-    # Self-elevate the script
-    $scriptPath = $MyInvocation.MyCommand.Path
-    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`" -UserAccount `"$UserAccount`""
-    if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
-    if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
-    Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
-    exit
 }
 
-if (-not $Silent) {
-    Write-Host "Starting Viam Agent installation..."
-}
-
-# Enable security audit logging for diagnosing permission issues
-if ($EnableAuditLogging) {
-    if (-not $Silent) { Write-Host "Enabling audit logging for permission diagnostics..." }
-    # Log failed object access attempts (file/registry/service ACL denials)
+function Enable-AuditLogging {
+    Write-Status "Enabling audit logging for permission diagnostics..."
     & auditpol /set /subcategory:"Object Access" /failure:enable | Out-Null
-    # Log failed privilege use (e.g. firewall, service control)
     & auditpol /set /subcategory:"Privilege Use" /failure:enable | Out-Null
-    # Log process creation (helps trace what the agent spawns)
     & auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable | Out-Null
-    if (-not $Silent) {
-        Write-Host "  Audit logging enabled. View events in Event Viewer > Security log."
-        Write-Host "  Relevant Event IDs: 4656 (handle request), 4673 (privilege use), 4688 (process creation)"
-    }
+    Write-Status "  Audit logging enabled. View events in Event Viewer > Security log."
+    Write-Status "  Relevant Event IDs: 4656 (handle request), 4673 (privilege use), 4688 (process creation)"
 }
 
-# Define installation paths
-$cachePath = Join-Path $RootPath "cache"
-$binPath = Join-Path $RootPath "bin"
-$agentCURLFileName = "viam-agent-stable-windows-x86_64"
-$agentFileName = "viam-agent-from-installer.exe"
-$agentCachePath = Join-Path $cachePath $agentFileName
-$agentBinPath = Join-Path $binPath "viam-agent.exe"
+function Remove-ExistingInstallation {
+    param([string]$BinPath)
 
-# Check if service already exists and remove it if needed
-if (-not $Silent) { Write-Host "Checking for existing service..." }
-$serviceExists = Get-Service -Name "viam-agent" -ErrorAction SilentlyContinue
-if ($serviceExists) {
-    if (-not $Silent) { Write-Host "Existing service found. Removing..." }
-    try {
-        # Stop the service first
-        Stop-Service -Name "viam-agent" -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2  # Give it time to stop
-        
-        # Delete the service
-        & sc.exe delete "viam-agent" | Out-Null
-        Start-Sleep -Seconds 2  # Give it time to complete
-        
-        if (-not $Silent) { Write-Host "Service removed successfully." }
-    } catch {
-        Write-Warning "Error removing existing service: $_"
-        # Continue anyway since we'll try to create a new one
+    Write-Status "Checking for existing service..."
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($svc) {
+        Write-Status "Existing service found. Removing..."
+        try {
+            Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            & sc.exe delete $ServiceName | Out-Null
+            Start-Sleep -Seconds 2
+            Write-Status "  Service removed."
+        } catch {
+            Write-Warning "Error removing existing service: $_"
+        }
     }
-}
 
-# Remove old agent if it exists
-if (Test-Path $agentBinPath) {
-    if (-not $Silent) { Write-Host "Removing old agent..." }
-    try {
+    $agentBinPath = Join-Path $BinPath "viam-agent.exe"
+    if (Test-Path $agentBinPath) {
+        Write-Status "Removing old agent binary..."
         Remove-Item -Path $agentBinPath -Force
-    } catch {
-        Write-Error "Failed to remove old agent: $_"
-        exit 1
     }
 }
 
-# Create directories if they don't exist
-if (Test-Path $cachePath) {
-    if (-not $Silent) { Write-Host "Cleaning up existing cache directory..." }
-    Remove-Item -Path $cachePath -Recurse -Force
-}
+function Install-AgentBinary {
+    param([string]$CachePath, [string]$BinPath)
 
-if (Test-Path $binPath) {
-    if (-not $Silent) { Write-Host "Cleaning up existing bin directory..." }
-    Remove-Item -Path $binPath -Recurse -Force
-}
+    # Clean and recreate directories
+    foreach ($dir in @($CachePath, $BinPath)) {
+        if (Test-Path $dir) {
+            Write-Status "  Cleaning $dir..."
+            Remove-Item -Path $dir -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
 
-if (-not $Silent) { Write-Host "Creating cache directory..." }
-New-Item -ItemType Directory -Path $cachePath -Force | Out-Null
-
-if (-not $Silent) { Write-Host "Creating bin directory..." }
-New-Item -ItemType Directory -Path $binPath -Force | Out-Null
-
-# Download the agent
-if (-not $Silent) { Write-Host "Downloading Viam Agent..." }
-try {
-    Invoke-WebRequest -UseBasicParsing -Uri "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentCURLFileName" -OutFile $agentCachePath
+    # Download
+    $agentCachePath = Join-Path $CachePath $AgentCacheFileName
+    $downloadUrl = "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$AgentDownloadName"
+    Write-Status "Downloading Viam Agent..."
+    Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $agentCachePath
     if (-not (Test-Path $agentCachePath)) {
         throw "Failed to download agent executable."
     }
-} catch {
-    Write-Error "Failed to download Viam Agent: $_"
-    exit 1
-}
+    Write-Status "  Download complete."
 
-if (-not $Silent) { Write-Host "Download completed successfully." }
-
-# Create symbolic link
-if (-not $Silent) { Write-Host "Creating symbolic link..." }
-try {
+    # Symlink from bin to cache
+    $agentBinPath = Join-Path $BinPath "viam-agent.exe"
+    Write-Status "Creating symbolic link..."
     New-Item -ItemType SymbolicLink -Path $agentBinPath -Target $agentCachePath -Force | Out-Null
-} catch {
-    Write-Error "Failed to create symbolic link: $_"
-    exit 1
+
+    return $agentBinPath
 }
 
+function Set-FirewallRule {
+    param([string]$AgentBinPath)
 
-# Configure firewall
-if (-not $Silent) { Write-Host "Configuring firewall..." }
-try {
-    # Remove existing rule if present, then create fresh
-    Remove-NetFirewallRule -Name "viam-agent" -ErrorAction SilentlyContinue
-    New-NetFirewallRule -Name "viam-agent" -DisplayName "Viam Agent" `
-        -Program $agentBinPath -Direction Inbound -Action Allow -Enabled True | Out-Null
-} catch {
-    Write-Warning "Failed to configure firewall: $_"
-    # Continue despite firewall error
+    Write-Status "Configuring firewall rule..."
+    try {
+        Remove-NetFirewallRule -Name $ServiceName -ErrorAction SilentlyContinue
+        New-NetFirewallRule -Name $ServiceName -DisplayName "Viam Agent" `
+            -Program $AgentBinPath -Direction Inbound -Action Allow -Enabled True | Out-Null
+    } catch {
+        Write-Warning "Failed to configure firewall: $_"
+    }
 }
 
-# If a user account is specified, set up permissions for non-SYSTEM operation
-$svcCredential = $null
-if ($UserAccount -ne "") {
-    if (-not $Silent) { Write-Host "Configuring service account: $UserAccount" }
+function Set-UserAccountPermissions {
+    param([string]$Account, [string]$ViamDir)
+
+    Write-Status "Configuring service account: $Account"
 
     # Verify the user exists
-    $localUser = Get-LocalUser -Name $UserAccount -ErrorAction SilentlyContinue
+    $localUser = Get-LocalUser -Name $Account -ErrorAction SilentlyContinue
     if (-not $localUser) {
-        Write-Error "User account '$UserAccount' does not exist. Create it first or omit -UserAccount to run as SYSTEM."
+        Write-Error "User account '$Account' does not exist. Create it first or omit -UserAccount to run as SYSTEM."
         exit 1
     }
 
-    # Prompt for the service account password
-    $svcCredential = Get-Credential -UserName ".\$UserAccount" -Message "Enter password for service account $UserAccount"
-
-    # Grant full control of viam directory to the service account
-    if (-not $Silent) { Write-Host "  Granting $UserAccount full control of $RootPath..." }
-    $acl = Get-Acl $RootPath
+    # Grant full control of viam directory
+    Write-Status "  Granting $Account full control of $ViamDir..."
+    $acl = Get-Acl $ViamDir
     $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        $UserAccount, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $Account, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
     $acl.AddAccessRule($rule)
-    Set-Acl -Path $RootPath -AclObject $acl
+    Set-Acl -Path $ViamDir -AclObject $acl
 
     # Register event log source (so the non-admin account can write events)
-    New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
+    New-EventLog -LogName Application -Source $ServiceName -ErrorAction SilentlyContinue
+
+    # Prompt for password and return credential
+    return (Get-Credential -UserName ".\$Account" -Message "Enter password for service account $Account")
 }
 
-# Configure and start service
-if (-not $Silent) { Write-Host "Configuring service..." }
-try {
-    # Create service — pass --viam-dir so the agent uses the correct root
-    $svcBinCmd = "`"$agentBinPath`" --viam-dir `"$RootPath`""
+function Grant-ServiceLogonRight {
+    param([string]$Account)
+
+    # New-Service -Credential does NOT auto-grant SeServiceLogonRight (DSC's Service
+    # resource does, but the raw cmdlet doesn't). Without it the service fails to start
+    # with error 1069.
+    Write-Status "  Granting SeServiceLogonRight to $Account..."
+    $tempInf = [System.IO.Path]::GetTempFileName()
+    $tempDb  = [System.IO.Path]::GetTempFileName()
+    try {
+        secedit /export /cfg $tempInf /quiet
+        $content = Get-Content $tempInf -Raw
+        if ($content -notmatch [regex]::Escape($Account)) {
+            $content = $content -replace '(SeServiceLogonRight\s*=\s*.*)', "`$1,$Account"
+            $content | Set-Content $tempInf
+            secedit /configure /db $tempDb /cfg $tempInf /quiet
+        }
+    } finally {
+        Remove-Item $tempInf, $tempDb -ErrorAction SilentlyContinue
+    }
+}
+
+function Grant-ServiceSelfManagement {
+    param([string]$Account)
+
+    # Grant permission to query/start/stop its own service.
+    # SDDL rights: LC=query status, RP=start, WP=stop, LO=interrogate, RC=read control
+    $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
+        [System.Security.Principal.SecurityIdentifier]).Value
+    $currentSD = ((& sc.exe sdshow $ServiceName) | Where-Object { $_ -match '^D:' })
+    $ace = "(A;;LCRPWPLORC;;;$sid)"
+    $newSD = $currentSD -replace '(S:)', "$ace`$1"
+    if ($newSD -eq $currentSD) {
+        # No SACL present, append to end
+        $newSD = $currentSD + $ace
+    }
+    & sc.exe sdset $ServiceName $newSD | Out-Null
+    Write-Status "  Granted $Account service self-management rights"
+}
+
+function Install-AgentService {
+    param([string]$AgentBinPath, [pscredential]$Credential)
+
+    Write-Status "Configuring service..."
+
+    $svcBinCmd = "`"$AgentBinPath`" --viam-dir `"$RootPath`""
     $newSvcArgs = @{
-        Name           = "viam-agent"
+        Name           = $ServiceName
         BinaryPathName = $svcBinCmd
         StartupType    = "Automatic"
     }
-    if ($svcCredential) {
-        $newSvcArgs["Credential"] = $svcCredential
+    if ($Credential) {
+        $newSvcArgs["Credential"] = $Credential
     }
     New-Service @newSvcArgs | Out-Null
 
-    # Grant SeServiceLogonRight if using a non-SYSTEM account.
-    # New-Service -Credential does NOT auto-grant this (DSC's Service resource does,
-    # but the raw cmdlet doesn't). Without it the service fails to start with error 1069.
     if ($UserAccount -ne "") {
-        if (-not $Silent) { Write-Host "  Granting SeServiceLogonRight to $UserAccount..." }
-        $tempInf = [System.IO.Path]::GetTempFileName()
-        $tempDb  = [System.IO.Path]::GetTempFileName()
-        try {
-            secedit /export /cfg $tempInf /quiet
-            $content = Get-Content $tempInf -Raw
-            if ($content -notmatch [regex]::Escape($UserAccount)) {
-                $content = $content -replace '(SeServiceLogonRight\s*=\s*.*)', "`$1,$UserAccount"
-                $content | Set-Content $tempInf
-                secedit /configure /db $tempDb /cfg $tempInf /quiet
-            }
-        } finally {
-            Remove-Item $tempInf, $tempDb -ErrorAction SilentlyContinue
-        }
+        Grant-ServiceLogonRight -Account $UserAccount
     }
 
     # Configure failure actions (no PS builtin for recovery policy)
-    & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
-    & sc.exe failureflag "viam-agent" 1 | Out-Null
+    & sc.exe failure $ServiceName reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+    & sc.exe failureflag $ServiceName 1 | Out-Null
 
-    # If using a non-SYSTEM account, grant it permission to query/start/stop its own service.
-    # SDDL rights: LC=query status, RP=start, WP=stop, LO=interrogate, RC=read control
     if ($UserAccount -ne "") {
-        $sid = (New-Object System.Security.Principal.NTAccount($UserAccount)).Translate(
-            [System.Security.Principal.SecurityIdentifier]).Value
-        $currentSD = ((& sc.exe sdshow "viam-agent") | Where-Object { $_ -match '^D:' })
-        $ace = "(A;;LCRPWPLORC;;;$sid)"
-        # Insert the new ACE before the final closing paren of the DACL
-        $newSD = $currentSD -replace '(S:)', "$ace`$1"
-        if ($newSD -eq $currentSD) {
-            # No SACL present, append before end
-            $newSD = $currentSD + $ace
-        }
-        & sc.exe sdset "viam-agent" $newSD | Out-Null
-        if (-not $Silent) { Write-Host "  Granted $UserAccount service self-management rights" }
+        Grant-ServiceSelfManagement -Account $UserAccount
     }
 
-    # Start service
-    if (-not $Silent) { Write-Host "Starting service..." }
-    Start-Service -Name "viam-agent"
-} catch {
-    Write-Error "Failed to configure or start service: $_"
-    exit 1
+    Write-Status "Starting service..."
+    Start-Service -Name $ServiceName
 }
 
-# Commit registry changes through UWF overlay so they survive reboot.
-# This is needed on LTSC devices where UWF protects C: — without this,
-# service registration, firewall rules, etc. are lost on reboot.
-#
-# TODO: finalize this list with procmon on an actual LTSC device.
-# This list MUST be rechecked with procmon whenever the installer changes,
-# since new operations may write to additional registry paths.
-if ($UwfCommit) {
-    if (-not $Silent) { Write-Host "Committing registry changes through UWF..." }
+function Invoke-UwfCommit {
+    # Commit registry changes through UWF overlay so they survive reboot.
+    #
+    # TODO: finalize this list with procmon on an actual LTSC device.
+    # This list MUST be rechecked with procmon whenever the installer changes,
+    # since new operations may write to additional registry paths.
+    Write-Status "Committing registry changes through UWF..."
 
-    # Check that uwfmgr is available
     $uwfmgr = Get-Command uwfmgr.exe -ErrorAction SilentlyContinue
     if (-not $uwfmgr) {
         Write-Warning "uwfmgr.exe not found — UWF may not be enabled on this system. Skipping commits."
-    } else {
-        # Registry paths written by this installer (best-known list, pending procmon verification):
-        $registryCommits = @(
-            # Service registration (New-Service, sc.exe failure/failureflag/sdset)
-            "HKLM\SYSTEM\CurrentControlSet\Services\viam-agent"
-            # Event log source (New-EventLog)
-            "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\viam-agent"
-            # Firewall rule (New-NetFirewallRule) — rules stored under SharedAccess
-            "HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
-        )
-
-        # If a user account was created/configured, the security policy database
-        # and SAM entries also need committing. These are harder to commit surgically:
-        if ($UserAccount -ne "") {
-            # SeServiceLogonRight is stored in the security policy database
-            $registryCommits += "HKLM\SECURITY\Policy"
-            # User account SID mapping
-            $registryCommits += "HKLM\SAM\SAM"
-        }
-
-        foreach ($regPath in $registryCommits) {
-            $result = & uwfmgr.exe registry commit "$regPath" 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                if (-not $Silent) { Write-Host "  Committed: $regPath" }
-            } else {
-                Write-Warning "  Failed to commit $regPath : $result"
-            }
-        }
-
-        if (-not $Silent) { Write-Host "UWF registry commits complete." }
+        return
     }
+
+    $registryCommits = @(
+        "HKLM\SYSTEM\CurrentControlSet\Services\viam-agent"
+        "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\viam-agent"
+        "HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
+    )
+
+    if ($UserAccount -ne "") {
+        $registryCommits += "HKLM\SECURITY\Policy"
+        $registryCommits += "HKLM\SAM\SAM"
+    }
+
+    foreach ($regPath in $registryCommits) {
+        $result = & uwfmgr.exe registry commit "$regPath" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Status "  Committed: $regPath"
+        } else {
+            Write-Warning "  Failed to commit $regPath : $result"
+        }
+    }
+
+    Write-Status "UWF registry commits complete."
 }
 
-if (-not $Silent) { Write-Host "Installation completed successfully." } 
+# ─── MAIN ─────────────────────────────────────────────────────────────────────
+
+Assert-AdminPrivileges
+
+Write-Status "Starting Viam Agent installation..."
+
+if ($EnableAuditLogging) { Enable-AuditLogging }
+
+$cachePath = Join-Path $RootPath "cache"
+$binPath   = Join-Path $RootPath "bin"
+
+Remove-ExistingInstallation -BinPath $binPath
+
+$agentBinPath = Install-AgentBinary -CachePath $cachePath -BinPath $binPath
+
+Set-FirewallRule -AgentBinPath $agentBinPath
+
+$svcCredential = $null
+if ($UserAccount -ne "") {
+    $svcCredential = Set-UserAccountPermissions -Account $UserAccount -ViamDir $RootPath
+}
+
+Install-AgentService -AgentBinPath $agentBinPath -Credential $svcCredential
+
+if ($UwfCommit) { Invoke-UwfCommit }
+
+Write-Status "Installation completed successfully."
