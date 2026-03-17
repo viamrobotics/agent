@@ -43,7 +43,7 @@ if ($serviceExists) {
         Start-Sleep -Seconds 2  # Give it time to stop
         
         # Delete the service
-        Start-Process -FilePath "sc" -ArgumentList @("delete", "viam-agent") -NoNewWindow -Wait
+        & sc.exe delete "viam-agent" | Out-Null
         Start-Sleep -Seconds 2  # Give it time to complete
         
         if (-not $Silent) { Write-Host "Service removed successfully." }
@@ -98,8 +98,7 @@ if (-not $Silent) { Write-Host "Download completed successfully." }
 # Create symbolic link
 if (-not $Silent) { Write-Host "Creating symbolic link..." }
 try {
-    $linkArgs = @("`"$agentBinPath`"", "`"$agentCachePath`"")
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/c mklink $linkArgs" -NoNewWindow -Wait
+    New-Item -ItemType SymbolicLink -Path $agentBinPath -Target $agentCachePath -Force | Out-Null
 } catch {
     Write-Error "Failed to create symbolic link: $_"
     exit 1
@@ -109,15 +108,10 @@ try {
 # Configure firewall
 if (-not $Silent) { Write-Host "Configuring firewall..." }
 try {
-    $firewallArgs = @(
-        "advfirewall", "firewall", "add", "rule", 
-        "name=`"$agentBinPath`"", 
-        "dir=in", 
-        "action=allow", 
-        "program=`"$agentBinPath`"", 
-        "enable=yes"
-    )
-    Start-Process -FilePath "netsh" -ArgumentList $firewallArgs -NoNewWindow -Wait
+    # Remove existing rule if present, then create fresh
+    Remove-NetFirewallRule -Name "viam-agent" -ErrorAction SilentlyContinue
+    New-NetFirewallRule -Name "viam-agent" -DisplayName "Viam Agent" `
+        -Program $agentBinPath -Direction Inbound -Action Allow -Enabled True | Out-Null
 } catch {
     Write-Warning "Failed to configure firewall: $_"
     # Continue despite firewall error
@@ -126,20 +120,15 @@ try {
 if (-not $Silent) { Write-Host "Configuring service..." }
 try {
     # Create service
-    $scArgs = @("create", "viam-agent", "binpath=", "`"$agentBinPath`"", "start=", "auto")
-    Start-Process -FilePath "sc" -ArgumentList $scArgs -NoNewWindow -Wait
-    
-    # Configure failure actions
-    $scFailArgs = @("failure", "viam-agent", "reset=", "0", "actions=", "restart/5000/restart/5000/restart/5000")
-    Start-Process -FilePath "sc" -ArgumentList $scFailArgs -NoNewWindow -Wait
-    
-    # Set failure flag
-    $scFlagArgs = @("failureflag", "viam-agent", "1")
-    Start-Process -FilePath "sc" -ArgumentList $scFlagArgs -NoNewWindow -Wait
-    
+    New-Service -Name "viam-agent" -BinaryPathName "`"$agentBinPath`"" -StartupType Automatic | Out-Null
+
+    # Configure failure actions (no PS builtin for recovery policy)
+    & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+    & sc.exe failureflag "viam-agent" 1 | Out-Null
+
     # Start service
     if (-not $Silent) { Write-Host "Starting service..." }
-    Start-Process -FilePath "sc" -ArgumentList @("start", "viam-agent") -NoNewWindow -Wait
+    Start-Service -Name "viam-agent"
 } catch {
     Write-Error "Failed to configure or start service: $_"
     exit 1
