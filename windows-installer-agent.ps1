@@ -1,7 +1,8 @@
 # Viam Agent Installation Script for Windows
 [CmdletBinding()]
 param(
-    [switch]$Silent = $false
+    [switch]$Silent = $false,
+    [string]$RootPath = "C:\opt\viam"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,7 +16,8 @@ if (-not $isAdmin) {
     
     # Self-elevate the script
     $scriptPath = $MyInvocation.MyCommand.Path
-    Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent" -Verb RunAs
+    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`""
+    Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
     exit
 }
 
@@ -24,9 +26,8 @@ if (-not $Silent) {
 }
 
 # Define installation paths
-$rootPath = "C:\opt\viam"
-$cachePath = Join-Path $rootPath "cache"
-$binPath = Join-Path $rootPath "bin"
+$cachePath = Join-Path $RootPath "cache"
+$binPath = Join-Path $RootPath "bin"
 $agentCURLFileName = "viam-agent-stable-windows-x86_64"
 $agentFileName = "viam-agent-from-installer.exe"
 $agentCachePath = Join-Path $cachePath $agentFileName
@@ -119,8 +120,9 @@ try {
 # Configure and start service
 if (-not $Silent) { Write-Host "Configuring service..." }
 try {
-    # Create service
-    New-Service -Name "viam-agent" -BinaryPathName "`"$agentBinPath`"" -StartupType Automatic | Out-Null
+    # Create service — pass --viam-dir so the agent uses the correct root
+    $svcBinCmd = "`"$agentBinPath`" --viam-dir `"$RootPath`""
+    New-Service -Name "viam-agent" -BinaryPathName $svcBinCmd -StartupType Automatic | Out-Null
 
     # Configure failure actions (no PS builtin for recovery policy)
     & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
