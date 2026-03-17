@@ -9,6 +9,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Ensure TLS 1.2 for HTTPS downloads (older Win10 may default to TLS 1.0/1.1)
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 # Check for admin privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
@@ -103,7 +106,7 @@ New-Item -ItemType Directory -Path $binPath -Force | Out-Null
 # Download the agent
 if (-not $Silent) { Write-Host "Downloading Viam Agent..." }
 try {
-    Invoke-WebRequest -Uri "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentCURLFileName" -OutFile $agentCachePath
+    Invoke-WebRequest -UseBasicParsing -Uri "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentCURLFileName" -OutFile $agentCachePath
     if (-not (Test-Path $agentCachePath)) {
         throw "Failed to download agent executable."
     }
