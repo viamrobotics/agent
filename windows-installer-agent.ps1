@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param(
     [switch]$Silent = $false,
-    [string]$RootPath = "C:\opt\viam"
+    [string]$RootPath = "C:\opt\viam",
+    [string]$UserAccount = ""  # empty = run as LocalSystem (default)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,7 +17,7 @@ if (-not $isAdmin) {
     
     # Self-elevate the script
     $scriptPath = $MyInvocation.MyCommand.Path
-    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`""
+    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`" -UserAccount `"$UserAccount`""
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
     exit
 }
@@ -117,16 +118,70 @@ try {
     Write-Warning "Failed to configure firewall: $_"
     # Continue despite firewall error
 }
+
+# If a user account is specified, set up permissions for non-SYSTEM operation
+$svcCredential = $null
+if ($UserAccount -ne "") {
+    if (-not $Silent) { Write-Host "Configuring service account: $UserAccount" }
+
+    # Verify the user exists
+    $localUser = Get-LocalUser -Name $UserAccount -ErrorAction SilentlyContinue
+    if (-not $localUser) {
+        Write-Error "User account '$UserAccount' does not exist. Create it first or omit -UserAccount to run as SYSTEM."
+        exit 1
+    }
+
+    # Prompt for the service account password
+    $svcCredential = Get-Credential -UserName ".\$UserAccount" -Message "Enter password for service account $UserAccount"
+
+    # Grant full control of viam directory to the service account
+    if (-not $Silent) { Write-Host "  Granting $UserAccount full control of $RootPath..." }
+    $acl = Get-Acl $RootPath
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $UserAccount, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+    $acl.AddAccessRule($rule)
+    Set-Acl -Path $RootPath -AclObject $acl
+
+    # Register event log source (so the non-admin account can write events)
+    New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
+}
+
 # Configure and start service
 if (-not $Silent) { Write-Host "Configuring service..." }
 try {
     # Create service — pass --viam-dir so the agent uses the correct root
     $svcBinCmd = "`"$agentBinPath`" --viam-dir `"$RootPath`""
-    New-Service -Name "viam-agent" -BinaryPathName $svcBinCmd -StartupType Automatic | Out-Null
+    $newSvcArgs = @{
+        Name           = "viam-agent"
+        BinaryPathName = $svcBinCmd
+        StartupType    = "Automatic"
+    }
+    if ($svcCredential) {
+        # New-Service -Credential automatically grants SeServiceLogonRight
+        $newSvcArgs["Credential"] = $svcCredential
+    }
+    New-Service @newSvcArgs | Out-Null
 
     # Configure failure actions (no PS builtin for recovery policy)
     & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
     & sc.exe failureflag "viam-agent" 1 | Out-Null
+
+    # If using a non-SYSTEM account, grant it permission to query/start/stop its own service.
+    # SDDL rights: LC=query status, RP=start, WP=stop, LO=interrogate, RC=read control
+    if ($UserAccount -ne "") {
+        $sid = (New-Object System.Security.Principal.NTAccount($UserAccount)).Translate(
+            [System.Security.Principal.SecurityIdentifier]).Value
+        $currentSD = ((& sc.exe sdshow "viam-agent") | Where-Object { $_ -match '^D:' })
+        $ace = "(A;;LCRPWPLORC;;;$sid)"
+        # Insert the new ACE before the final closing paren of the DACL
+        $newSD = $currentSD -replace '(S:)', "$ace`$1"
+        if ($newSD -eq $currentSD) {
+            # No SACL present, append before end
+            $newSD = $currentSD + $ace
+        }
+        & sc.exe sdset "viam-agent" $newSD | Out-Null
+        if (-not $Silent) { Write-Host "  Granted $UserAccount service self-management rights" }
+    }
 
     # Start service
     if (-not $Silent) { Write-Host "Starting service..." }
