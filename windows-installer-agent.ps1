@@ -4,7 +4,8 @@ param(
     [switch]$Silent = $false,
     [string]$RootPath = "C:\opt\viam",
     [string]$UserAccount = "",  # empty = run as LocalSystem (default)
-    [switch]$EnableAuditLogging = $false
+    [switch]$EnableAuditLogging = $false,
+    [switch]$UwfCommit = $false  # commit registry changes through UWF overlay
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +24,7 @@ if (-not $isAdmin) {
     $scriptPath = $MyInvocation.MyCommand.Path
     $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`" -UserAccount `"$UserAccount`""
     if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
+    if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
     exit
 }
@@ -209,6 +211,53 @@ try {
 } catch {
     Write-Error "Failed to configure or start service: $_"
     exit 1
+}
+
+# Commit registry changes through UWF overlay so they survive reboot.
+# This is needed on LTSC devices where UWF protects C: — without this,
+# service registration, firewall rules, etc. are lost on reboot.
+#
+# TODO: finalize this list with procmon on an actual LTSC device.
+# This list MUST be rechecked with procmon whenever the installer changes,
+# since new operations may write to additional registry paths.
+if ($UwfCommit) {
+    if (-not $Silent) { Write-Host "Committing registry changes through UWF..." }
+
+    # Check that uwfmgr is available
+    $uwfmgr = Get-Command uwfmgr.exe -ErrorAction SilentlyContinue
+    if (-not $uwfmgr) {
+        Write-Warning "uwfmgr.exe not found — UWF may not be enabled on this system. Skipping commits."
+    } else {
+        # Registry paths written by this installer (best-known list, pending procmon verification):
+        $registryCommits = @(
+            # Service registration (New-Service, sc.exe failure/failureflag/sdset)
+            "HKLM\SYSTEM\CurrentControlSet\Services\viam-agent"
+            # Event log source (New-EventLog)
+            "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\viam-agent"
+            # Firewall rule (New-NetFirewallRule) — rules stored under SharedAccess
+            "HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
+        )
+
+        # If a user account was created/configured, the security policy database
+        # and SAM entries also need committing. These are harder to commit surgically:
+        if ($UserAccount -ne "") {
+            # SeServiceLogonRight is stored in the security policy database
+            $registryCommits += "HKLM\SECURITY\Policy"
+            # User account SID mapping
+            $registryCommits += "HKLM\SAM\SAM"
+        }
+
+        foreach ($regPath in $registryCommits) {
+            $result = & uwfmgr.exe registry commit "$regPath" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                if (-not $Silent) { Write-Host "  Committed: $regPath" }
+            } else {
+                Write-Warning "  Failed to commit $regPath : $result"
+            }
+        }
+
+        if (-not $Silent) { Write-Host "UWF registry commits complete." }
+    }
 }
 
 if (-not $Silent) { Write-Host "Installation completed successfully." } 
