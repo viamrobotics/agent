@@ -179,10 +179,29 @@ try {
         StartupType    = "Automatic"
     }
     if ($svcCredential) {
-        # New-Service -Credential automatically grants SeServiceLogonRight
         $newSvcArgs["Credential"] = $svcCredential
     }
     New-Service @newSvcArgs | Out-Null
+
+    # Grant SeServiceLogonRight if using a non-SYSTEM account.
+    # New-Service -Credential does NOT auto-grant this (DSC's Service resource does,
+    # but the raw cmdlet doesn't). Without it the service fails to start with error 1069.
+    if ($UserAccount -ne "") {
+        if (-not $Silent) { Write-Host "  Granting SeServiceLogonRight to $UserAccount..." }
+        $tempInf = [System.IO.Path]::GetTempFileName()
+        $tempDb  = [System.IO.Path]::GetTempFileName()
+        try {
+            secedit /export /cfg $tempInf /quiet
+            $content = Get-Content $tempInf -Raw
+            if ($content -notmatch [regex]::Escape($UserAccount)) {
+                $content = $content -replace '(SeServiceLogonRight\s*=\s*.*)', "`$1,$UserAccount"
+                $content | Set-Content $tempInf
+                secedit /configure /db $tempDb /cfg $tempInf /quiet
+            }
+        } finally {
+            Remove-Item $tempInf, $tempDb -ErrorAction SilentlyContinue
+        }
+    }
 
     # Configure failure actions (no PS builtin for recovery policy)
     & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
