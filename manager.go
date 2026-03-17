@@ -90,10 +90,8 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 			"found process(es) from before agent startup still running; will log every minute while they remain",
 			"processes", preexistingProcesses,
 		)
-		manager.activeBackgroundWorkers.Add(1)
-		go func() {
+		manager.activeBackgroundWorkers.Go(func() {
 			defer utils.Recover(manager.logger, nil)
-			defer manager.activeBackgroundWorkers.Done()
 
 			remaining := preexistingProcesses
 			ticker := time.NewTicker(time.Minute)
@@ -118,7 +116,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 					remaining = stillRunning
 				}
 			}
-		}()
+		})
 	}
 
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
