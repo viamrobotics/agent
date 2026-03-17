@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -52,6 +54,11 @@ type agentOpts struct {
 
 //nolint:gocognit
 func commonMain() {
+	// enable debug logging in case it is needed before args are parsed successfully.
+	if os.Getenv("VIAM_AGENT_DEBUG") != "" {
+		globalLogger.SetLevel(logging.DEBUG)
+	}
+
 	var ctx context.Context
 	ctx, globalCancel = setupExitSignalHandling()
 
@@ -75,7 +82,8 @@ func commonMain() {
 			os.Exit(0)
 		}
 	}
-	exitIfError(err)
+	// exit if cli args parsing fails
+	exitIfError(err, false)
 
 	if opts.Help {
 		var b bytes.Buffer
@@ -121,7 +129,8 @@ func commonMain() {
 	needsRootToContinue := opts.Install || opts.EnableSyscfgSubsystem || opts.EnableNetworkingSubsystem
 
 	curUser, err := user.Current()
-	exitIfError(err)
+	// exit if we're unable to retrieve current user (likely transient / bad system state)
+	exitIfError(err, false)
 	if runtime.GOOS != "windows" && curUser.Uid != "0" && needsRootToContinue {
 		//nolint:forbidigo
 		fmt.Printf("viam-agent with provided options should be run as root (uid 0), but current user is %s (uid %s).\n",
@@ -137,10 +146,10 @@ func commonMain() {
 		switch runtime.GOOS {
 		case "linux":
 			sdmanager := systemd.NewSystemdManager(globalLogger.Sublogger("systemd"))
-			exitIfError(agent.Install(ctx, globalLogger, sdmanager))
+			exitIfError(agent.Install(ctx, globalLogger, sdmanager), true)
 		case "darwin":
 			ldmanager := launchd.NewLaunchdManager(globalLogger.Sublogger("launchd"))
-			exitIfError(agent.Install(ctx, globalLogger, ldmanager))
+			exitIfError(agent.Install(ctx, globalLogger, ldmanager), true)
 		default:
 			//nolint:forbidigo
 			fmt.Printf("viam-agent cannot be run with --install on %s", runtime.GOOS)
@@ -169,11 +178,14 @@ func commonMain() {
 	}
 
 	// set up folder structure
-	exitIfError(utils.InitPaths(globalLogger))
+	// exit if we cannot create expected paths
+	exitIfError(utils.InitPaths(globalLogger), true)
 
 	// use a lockfile to prevent running two agents on the same machine
 	pidFile, err := getLock()
-	exitIfError(err)
+	// getLock will err if another Agent is running, but not if a lockfile remains after Agent crashes unexpectedly
+	// exit if we are unable to get the lockfile
+	exitIfError(err, false)
 	defer func() {
 		if err := pidFile.Unlock(); err != nil {
 			globalLogger.Error(errors.Wrapf(err, "unlocking %s", pidFile))
@@ -181,11 +193,13 @@ func commonMain() {
 	}()
 
 	utils.DefaultsFilePath, err = filepath.Abs(opts.DefaultsConfig)
-	exitIfError(err)
+	// exit if unable to convert DefaultsConfig to absolute path (doesn't validate)
+	exitIfError(err, false)
 	globalLogger.Infof("manufacturer defaults file path: %s", utils.DefaultsFilePath)
 
 	utils.AppConfigFilePath, err = filepath.Abs(opts.Config)
-	exitIfError(err)
+	// exit if unable to convert Config to absolute path (doesn't validate)
+	exitIfError(err, false)
 	globalLogger.Infof("machine credentials file path: %s", utils.AppConfigFilePath)
 
 	cfg, err := utils.LoadConfigFromCache()
@@ -201,6 +215,7 @@ func commonMain() {
 	err = manager.LoadAppConfig()
 	//nolint:nestif
 	if err != nil {
+		// if error reading viam.json, run provisioning
 		if !runPlatformProvisioning(ctx, cfg, manager, err) {
 			manager.CloseAll()
 			return
@@ -291,8 +306,16 @@ func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 }
 
 // helper to log.Fatal if error is non-nil.
-func exitIfError(err error) {
+func exitIfError(err error, cleanupBeforeExit bool) {
 	if err != nil {
+		// note: utils.IsRunningLocally may not have been correctly set yet
+		if cleanupBeforeExit && !utils.IsRunningLocally {
+			globalLogger.Errorw("fatal error. resetting installation")
+			resetErr := utils.TryResetAgent(globalLogger)
+			if resetErr != nil {
+				globalLogger.Errorw("reset failed", "err", err)
+			}
+		}
 		globalLogger.WithOptions(zap.AddCallerSkip(1)).Fatal(err)
 	}
 }
@@ -328,7 +351,7 @@ func getLock() (lockfile.Lockfile, error) {
 				globalLogger.Error(errors.Wrap(err, "getting lockfile owner"))
 				staleFile = true
 			}
-			runPath, err := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/exe", proc.Pid))
+			runPath, err := pidCmd(proc.Pid)
 			if err != nil {
 				globalLogger.Error(errors.Wrap(err, "cannot get info on lockfile owner"))
 				staleFile = true
@@ -347,4 +370,32 @@ func getLock() (lockfile.Lockfile, error) {
 		}
 	}
 	return "", err
+}
+
+// pidCmd returns the command of the given pid.
+func pidCmd(pid int) (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		//nolint:gosec,noctx
+		cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	case "darwin":
+		//nolint:gosec,noctx
+		cmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	default:
+		runPath, err := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/exe", pid))
+		if err != nil {
+			return "", err
+		}
+		return runPath, nil
+	}
 }
