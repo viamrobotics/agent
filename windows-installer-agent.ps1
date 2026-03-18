@@ -264,7 +264,16 @@ try {
                 $content = $content -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*[^\r\n]*)', "`$1,*$svcSid"
                 $content | Set-Content $tempInf -Encoding Unicode
                 secedit /configure /db $tempDb /cfg $tempInf /quiet
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "secedit /configure failed (exit code $LASTEXITCODE) -- symlink privilege may not be granted"
+                } else {
+                    if (-not $Silent) { Write-Host "  Granted SeCreateSymbolicLinkPrivilege to SID $svcSid" }
+                }
+            } else {
+                if (-not $Silent) { Write-Host "  SeCreateSymbolicLinkPrivilege already granted." }
             }
+        } catch {
+            Write-Warning "Failed to grant SeCreateSymbolicLinkPrivilege: $_"
         } finally {
             Remove-Item $tempInf, $tempDb -ErrorAction SilentlyContinue
         }
