@@ -10,9 +10,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Ensure TLS 1.2 for HTTPS downloads (older Win10 may default to TLS 1.0/1.1)
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-
 # Check for admin privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
