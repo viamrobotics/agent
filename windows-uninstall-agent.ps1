@@ -9,6 +9,26 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Remove a previously-added ACE from a Windows service's DACL.
+function Remove-ServiceDaclAce {
+    param([string]$ServiceName, [string]$Account, [string]$AccessMask)
+
+    $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
+        [System.Security.Principal.SecurityIdentifier]).Value
+    $currentSD = ((& sc.exe sdshow $ServiceName) | Where-Object { $_ -match '^D:' })
+    if (-not $currentSD) {
+        Write-Warning "Failed to read DACL for service $ServiceName"
+        return
+    }
+    $ace = "(A;;$AccessMask;;;$sid)"
+    if ($currentSD -notmatch [regex]::Escape($ace)) { return }  # not present
+    $newSD = $currentSD -replace [regex]::Escape($ace), ""
+    & sc.exe sdset $ServiceName $newSD | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Failed to set DACL on service $ServiceName"
+    }
+}
+
 # Check for admin privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
@@ -65,21 +85,7 @@ Remove-EventLog -Source "viam-agent" -ErrorAction SilentlyContinue
 # Revert BFE service DACL changes if a user account was specified
 if ($UserAccount -ne "") {
     if (-not $Silent) { Write-Host "Reverting BFE firewall management rights for $UserAccount..." }
-    try {
-        $sid = (New-Object System.Security.Principal.NTAccount($UserAccount)).Translate(
-            [System.Security.Principal.SecurityIdentifier]).Value
-        $currentSD = ((& sc.exe sdshow BFE) | Where-Object { $_ -match '^D:' })
-        if ($currentSD -match [regex]::Escape($sid)) {
-            # Remove the ACE we added for this account
-            $newSD = $currentSD -replace "\(A;;CCLCRPWPRC;;;$([regex]::Escape($sid))\)", ""
-            & sc.exe sdset BFE $newSD | Out-Null
-            if (-not $Silent) { Write-Host "  Reverted BFE DACL." }
-        } else {
-            if (-not $Silent) { Write-Host "  No BFE DACL entry found for $UserAccount, skipping." }
-        }
-    } catch {
-        Write-Warning "Failed to revert BFE DACL: $_"
-    }
+    Remove-ServiceDaclAce -ServiceName "BFE" -Account $UserAccount -AccessMask "CCLCRPWPRC"
 }
 
 # Remove viam directory tree

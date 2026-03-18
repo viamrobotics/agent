@@ -138,27 +138,49 @@ try {
     # Continue despite firewall error
 }
 
-function Grant-FirewallManagement {
-    param([string]$Account)
+# Add an ACE to a Windows service's DACL for the given account.
+# Used to grant non-SYSTEM accounts specific service permissions.
+function Add-ServiceDaclAce {
+    param([string]$ServiceName, [string]$Account, [string]$AccessMask)
 
-    # Grant the service account permission to add firewall rules at runtime.
-    # The agent downloads binaries (viam-server, subsystems) and creates firewall
-    # exceptions for each via netsh. netsh goes through the BFE (Base Filtering Engine)
-    # service, which enforces admin-only access by default.
-    #
-    # We add an ACE to the BFE service DACL granting the service account
-    # CCLCRPRC (connect, query status, start, read control) + WP (write property,
-    # needed to add filter rules).
-    if (-not $Silent) { Write-Host "  Granting $Account firewall management rights (BFE service)..." }
     $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
         [System.Security.Principal.SecurityIdentifier]).Value
-    $currentSD = ((& sc.exe sdshow BFE) | Where-Object { $_ -match '^D:' })
-    $ace = "(A;;CCLCRPWPRC;;;$sid)"
+    $currentSD = ((& sc.exe sdshow $ServiceName) | Where-Object { $_ -match '^D:' })
+    if (-not $currentSD) {
+        Write-Warning "Failed to read DACL for service $ServiceName"
+        return
+    }
+    $ace = "(A;;$AccessMask;;;$sid)"
+    if ($currentSD -match [regex]::Escape($ace)) { return }  # already present
     $newSD = $currentSD -replace '(S:)', "$ace`$1"
     if ($newSD -eq $currentSD) {
+        # No SACL present, append to end
         $newSD = $currentSD + $ace
     }
-    & sc.exe sdset BFE $newSD | Out-Null
+    & sc.exe sdset $ServiceName $newSD | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Failed to set DACL on service $ServiceName"
+    }
+}
+
+# Remove a previously-added ACE from a Windows service's DACL.
+function Remove-ServiceDaclAce {
+    param([string]$ServiceName, [string]$Account, [string]$AccessMask)
+
+    $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
+        [System.Security.Principal.SecurityIdentifier]).Value
+    $currentSD = ((& sc.exe sdshow $ServiceName) | Where-Object { $_ -match '^D:' })
+    if (-not $currentSD) {
+        Write-Warning "Failed to read DACL for service $ServiceName"
+        return
+    }
+    $ace = "(A;;$AccessMask;;;$sid)"
+    if ($currentSD -notmatch [regex]::Escape($ace)) { return }  # not present
+    $newSD = $currentSD -replace [regex]::Escape($ace), ""
+    & sc.exe sdset $ServiceName $newSD | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Failed to set DACL on service $ServiceName"
+    }
 }
 
 # If a user account is specified, set up permissions for non-SYSTEM operation
@@ -187,7 +209,12 @@ if ($UserAccount -ne "") {
     # Register event log source (so the non-admin account can write events)
     New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
 
-    Grant-FirewallManagement -Account $UserAccount
+    # Grant the service account permission to add firewall rules at runtime.
+    # The agent downloads binaries (viam-server, subsystems) and creates firewall
+    # exceptions for each via netsh, which goes through the BFE service.
+    # CCLCRPWPRC = connect, query status, start, read control, write property
+    if (-not $Silent) { Write-Host "  Granting $UserAccount firewall management rights (BFE service)..." }
+    Add-ServiceDaclAce -ServiceName "BFE" -Account $UserAccount -AccessMask "CCLCRPWPRC"
 }
 
 # Configure and start service
@@ -230,21 +257,11 @@ try {
     & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
     & sc.exe failureflag "viam-agent" 1 | Out-Null
 
-    # If using a non-SYSTEM account, grant it permission to query/start/stop its own service.
-    # SDDL rights: LC=query status, RP=start, WP=stop, LO=interrogate, RC=read control
+    # Grant the service account permission to query/start/stop its own service.
+    # LCRPWPLORC = query status, start, stop, interrogate, read control
     if ($UserAccount -ne "") {
-        $sid = (New-Object System.Security.Principal.NTAccount($UserAccount)).Translate(
-            [System.Security.Principal.SecurityIdentifier]).Value
-        $currentSD = ((& sc.exe sdshow "viam-agent") | Where-Object { $_ -match '^D:' })
-        $ace = "(A;;LCRPWPLORC;;;$sid)"
-        # Insert the new ACE before the final closing paren of the DACL
-        $newSD = $currentSD -replace '(S:)', "$ace`$1"
-        if ($newSD -eq $currentSD) {
-            # No SACL present, append before end
-            $newSD = $currentSD + $ace
-        }
-        & sc.exe sdset "viam-agent" $newSD | Out-Null
-        if (-not $Silent) { Write-Host "  Granted $UserAccount service self-management rights" }
+        if (-not $Silent) { Write-Host "  Granting $UserAccount service self-management rights..." }
+        Add-ServiceDaclAce -ServiceName "viam-agent" -Account $UserAccount -AccessMask "LCRPWPLORC"
     }
 
     # Start service
