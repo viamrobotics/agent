@@ -228,6 +228,26 @@ try {
         $acl.AddAccessRule($rule)
         Set-Acl -Path $RootPath -AclObject $acl
 
+        # Grant read access to the config file's directory so the service account
+        # can read viam.json. If ConfigPath is under RootPath this is redundant
+        # but harmless. Defaults to C:\etc which SYSTEM can read but virtual
+        # service accounts cannot.
+        if ($ConfigPath -ne "") {
+            $configDir = Split-Path -Parent $ConfigPath
+        } else {
+            $configDir = "C:\etc"
+        }
+        if (Test-Path $configDir) {
+            if (-not $Silent) { Write-Host "  Granting $svcAccountName read access to $configDir..." }
+            $cfgAcl = Get-Acl $configDir
+            $cfgRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $svcAccountName, "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
+            $cfgAcl.AddAccessRule($cfgRule)
+            Set-Acl -Path $configDir -AclObject $cfgAcl
+        } else {
+            Write-Warning "Config directory $configDir does not exist -- create it and place viam.json before starting the service."
+        }
+
         # Register event log source (so the non-admin account can write events)
         New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
 
