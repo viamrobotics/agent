@@ -6,7 +6,8 @@ param(
     [switch]$ServiceAccount = $false,  # use NT SERVICE\viam-agent virtual account instead of SYSTEM
     [switch]$EnableAuditLogging = $false,
     [switch]$UwfCommit = $false,  # commit registry changes through UWF overlay
-    [string]$Url = ""  # override agent download URL entirely
+    [string]$Url = "",  # override agent download URL entirely
+    [string]$ConfigPath = ""  # path to viam.json -- passed as --config to the agent
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,6 +26,7 @@ if (-not $isAdmin) {
     if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
     if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
     if ($Url -ne "") { $elevateArgs += " -Url `"$Url`"" }
+    if ($ConfigPath -ne "") { $elevateArgs += " -ConfigPath `"$ConfigPath`"" }
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
     exit
 }
@@ -201,6 +203,7 @@ if (-not $Silent) { Write-Host "Configuring service..." }
 try {
     # Create service -- pass --viam-dir so the agent uses the correct root
     $svcBinCmd = "`"$agentBinPath`" --viam-dir `"$RootPath`""
+    if ($ConfigPath -ne "") { $svcBinCmd += " --config `"$ConfigPath`"" }
     New-Service -Name "viam-agent" -BinaryPathName $svcBinCmd -StartupType Automatic | Out-Null
 
     # Configure failure actions (no PS builtin for recovery policy)
