@@ -193,15 +193,21 @@ $svcCredential = $null
 if ($UserAccount -ne "") {
     if (-not $Silent) { Write-Host "Configuring service account: $UserAccount" }
 
-    # Verify the user exists
+    # Prompt for the service account password (needed for both creation and service config)
+    $svcCredential = Get-Credential -UserName ".\$UserAccount" -Message "Enter password for service account $UserAccount"
+
+    # Create the user if it doesn't exist, skip if it does
     $localUser = Get-LocalUser -Name $UserAccount -ErrorAction SilentlyContinue
     if (-not $localUser) {
-        Write-Error "User account '$UserAccount' does not exist. Create it first or omit -UserAccount to run as SYSTEM."
-        exit 1
+        if (-not $Silent) { Write-Host "  Creating local user: $UserAccount" }
+        New-LocalUser -Name $UserAccount `
+            -Password $svcCredential.Password `
+            -PasswordNeverExpires `
+            -UserMayNotChangePassword `
+            -Description "Viam service account" | Out-Null
+    } else {
+        if (-not $Silent) { Write-Host "  User $UserAccount already exists, skipping creation." }
     }
-
-    # Prompt for the service account password
-    $svcCredential = Get-Credential -UserName ".\$UserAccount" -Message "Enter password for service account $UserAccount"
 
     # Grant full control of viam directory to the service account
     if (-not $Silent) { Write-Host "  Granting $UserAccount full control of $RootPath..." }
