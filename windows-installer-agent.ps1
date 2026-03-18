@@ -249,14 +249,17 @@ try {
 
         # Grant SeCreateSymbolicLinkPrivilege so the agent can create symlinks
         # at runtime when downloading new versions of itself and viam-server.
+        # secedit uses *SID format (not account names), so resolve first.
         if (-not $Silent) { Write-Host "  Granting $svcAccountName symlink creation privilege..." }
+        $svcSid = (New-Object System.Security.Principal.NTAccount($svcAccountName)).Translate(
+            [System.Security.Principal.SecurityIdentifier]).Value
         $tempInf = [System.IO.Path]::GetTempFileName()
         $tempDb  = [System.IO.Path]::GetTempFileName()
         try {
             secedit /export /cfg $tempInf /quiet
             $content = Get-Content $tempInf -Raw
-            if ($content -notmatch "SeCreateSymbolicLinkPrivilege.*$([regex]::Escape($svcAccountName))") {
-                $content = $content -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*.*)', "`$1,$svcAccountName"
+            if ($content -notmatch "SeCreateSymbolicLinkPrivilege.*$([regex]::Escape($svcSid))") {
+                $content = $content -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*.*)', "`$1,*$svcSid"
                 $content | Set-Content $tempInf
                 secedit /configure /db $tempDb /cfg $tempInf /quiet
             }
