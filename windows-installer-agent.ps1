@@ -257,12 +257,14 @@ try {
         $tempDb  = [System.IO.Path]::GetTempFileName()
         try {
             secedit /export /cfg $tempInf /quiet
-            # secedit exports UTF-16 LE -- must read and write with matching encoding
-            $content = Get-Content $tempInf -Raw -Encoding Unicode
+            # secedit exports ANSI on Win11. Use Default encoding to match.
+            $content = [IO.File]::ReadAllText($tempInf, [Text.Encoding]::Default)
             if ($content -notmatch "SeCreateSymbolicLinkPrivilege[^\r\n]*$([regex]::Escape($svcSid))") {
                 # [^\r\n]* instead of .* to avoid capturing \r from CRLF line endings
                 $content = $content -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*[^\r\n]*)', "`$1,*$svcSid"
-                $content | Set-Content $tempInf -Encoding Unicode
+                [IO.File]::WriteAllText($tempInf, $content, [Text.Encoding]::Default)
+                # secedit expects to create the .sdb fresh -- delete the empty temp file
+                Remove-Item $tempDb -ErrorAction SilentlyContinue
                 secedit /configure /db $tempDb /cfg $tempInf /quiet
                 if ($LASTEXITCODE -ne 0) {
                     Write-Warning "secedit /configure failed (exit code $LASTEXITCODE) -- symlink privilege may not be granted"
