@@ -5,7 +5,8 @@ param(
     [string]$RootPath = "C:\opt\viam",
     [switch]$ServiceAccount = $false,  # use NT SERVICE\viam-agent virtual account instead of SYSTEM
     [switch]$EnableAuditLogging = $false,
-    [switch]$UwfCommit = $false  # commit registry changes through UWF overlay
+    [switch]$UwfCommit = $false,  # commit registry changes through UWF overlay
+    [string]$Url = ""  # override agent download URL entirely
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +24,7 @@ if (-not $isAdmin) {
     if ($ServiceAccount) { $elevateArgs += " -ServiceAccount" }
     if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
     if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
+    if ($Url -ne "") { $elevateArgs += " -Url `"$Url`"" }
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
     exit
 }
@@ -49,8 +51,13 @@ if ($EnableAuditLogging) {
 # Define installation paths
 $cachePath = Join-Path $RootPath "cache"
 $binPath = Join-Path $RootPath "bin"
-$agentCURLFileName = "viam-agent-stable-windows-x86_64"
-$agentFileName = "viam-agent-from-installer.exe"
+if ($Url -ne "") {
+    $downloadUrl = $Url
+    $agentFileName = $Url.Split("/")[-1]
+} else {
+    $agentFileName = "viam-agent-stable-windows-x86_64"
+    $downloadUrl = "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentFileName"
+}
 $agentCachePath = Join-Path $cachePath $agentFileName
 $agentBinPath = Join-Path $binPath "viam-agent.exe"
 
@@ -110,7 +117,7 @@ try {
     # Invoke-WebRequest extremely slow on PS 5.1.
     $prevPref = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -UseBasicParsing -Uri "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentCURLFileName" -OutFile $agentCachePath
+    Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $agentCachePath
     $ProgressPreference = $prevPref
     if (-not (Test-Path $agentCachePath)) {
         throw "Failed to download agent executable."
