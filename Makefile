@@ -102,7 +102,7 @@ upload-installer:
 .PHONY: lint-ps
 lint-ps:
 	# I installed from .deb in releases here https://github.com/PowerShell/PowerShell
-	pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop; Invoke-ScriptAnalyzer -Path windows-installer-agent.ps1 -Severity Warning,Error -EnableExit; Invoke-ScriptAnalyzer -Path windows-uninstall-agent.ps1 -Severity Warning,Error -EnableExit'
+	pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop; Invoke-ScriptAnalyzer -Path windows-installer-agent.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error -EnableExit; Invoke-ScriptAnalyzer -Path windows-uninstall-agent.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error -EnableExit'
 
 .PHONY: windows-installer
 windows-installer:
