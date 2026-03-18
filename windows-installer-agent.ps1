@@ -257,10 +257,12 @@ try {
         $tempDb  = [System.IO.Path]::GetTempFileName()
         try {
             secedit /export /cfg $tempInf /quiet
-            $content = Get-Content $tempInf -Raw
-            if ($content -notmatch "SeCreateSymbolicLinkPrivilege.*$([regex]::Escape($svcSid))") {
-                $content = $content -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*.*)', "`$1,*$svcSid"
-                $content | Set-Content $tempInf
+            # secedit exports UTF-16 LE -- must read and write with matching encoding
+            $content = Get-Content $tempInf -Raw -Encoding Unicode
+            if ($content -notmatch "SeCreateSymbolicLinkPrivilege[^\r\n]*$([regex]::Escape($svcSid))") {
+                # [^\r\n]* instead of .* to avoid capturing \r from CRLF line endings
+                $content = $content -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*[^\r\n]*)', "`$1,*$svcSid"
+                $content | Set-Content $tempInf -Encoding Unicode
                 secedit /configure /db $tempDb /cfg $tempInf /quiet
             }
         } finally {
