@@ -193,8 +193,10 @@ $svcCredential = $null
 if ($UserAccount -ne "") {
     if (-not $Silent) { Write-Host "Configuring service account: $UserAccount" }
 
-    # Prompt for the service account password (needed for both creation and service config)
-    $svcCredential = Get-Credential -UserName ".\$UserAccount" -Message "Enter password for service account $UserAccount"
+    # Prompt for password via console (no GUI popup, works over SSH).
+    # The .\  prefix is required by New-Service for local accounts.
+    $secPassword = Read-Host "Enter password for service account $UserAccount" -AsSecureString
+    $svcCredential = New-Object System.Management.Automation.PSCredential(".\$UserAccount", $secPassword)
 
     # Create the user if it doesn't exist, skip if it does
     $localUser = Get-LocalUser -Name $UserAccount -ErrorAction SilentlyContinue
