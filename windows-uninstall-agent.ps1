@@ -1,10 +1,10 @@
 # Viam Agent Uninstall Script for Windows
-# Removes viam service, directories, firewall rules, event log source, and optionally the service account.
+# Removes viam service, directories, firewall rules, and event log source.
 [CmdletBinding()]
 param(
     [switch]$Silent = $false,
     [string]$RootPath = "C:\opt\viam",
-    [string]$UserAccount = ""  # if specified, removes service DACL changes (does NOT delete the user)
+    [switch]$ServiceAccount = $false  # if set, reverts BFE DACL changes for virtual service account
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,7 +36,8 @@ if (-not $isAdmin) {
         Write-Host "This script requires administrator privileges. Attempting to elevate..."
     }
     $scriptPath = $MyInvocation.MyCommand.Path
-    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`" -UserAccount `"$UserAccount`""
+    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`""
+    if ($ServiceAccount) { $elevateArgs += " -ServiceAccount" }
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
     exit
 }
@@ -44,12 +45,9 @@ if (-not $isAdmin) {
 if (-not $Silent) {
     Write-Host ""
     Write-Host "This script removes the viam-agent service, its directories, firewall rules,"
-    Write-Host "and event log source. It does NOT delete user accounts."
+    Write-Host "and event log source."
     Write-Host ""
-    Write-Host "  Root path:      $RootPath"
-    if ($UserAccount -ne "") {
-        Write-Host "  Service account: $UserAccount (will NOT be deleted)"
-    }
+    Write-Host "  Root path: $RootPath"
     Write-Host ""
 
     $confirm = Read-Host "Remove viam-agent and all associated files? (y/n)"
@@ -82,10 +80,10 @@ Remove-NetFirewallRule -Name "viam-agent" -ErrorAction SilentlyContinue
 if (-not $Silent) { Write-Host "Removing event log source..." }
 Remove-EventLog -Source "viam-agent" -ErrorAction SilentlyContinue
 
-# Revert BFE service DACL changes if a user account was specified
-if ($UserAccount -ne "") {
-    if (-not $Silent) { Write-Host "Reverting BFE firewall management rights for $UserAccount..." }
-    Remove-ServiceDaclAce -ServiceName "BFE" -Account $UserAccount -AccessMask "CCLCRPWPRC"
+# Revert BFE service DACL changes if -ServiceAccount was used during install
+if ($ServiceAccount) {
+    if (-not $Silent) { Write-Host "Reverting BFE firewall management rights..." }
+    Remove-ServiceDaclAce -ServiceName "BFE" -Account "NT SERVICE\viam-agent" -AccessMask "CCLCRPWPRC"
 }
 
 # Remove viam directory tree
@@ -100,8 +98,4 @@ if (Test-Path $RootPath) {
 if (-not $Silent) {
     Write-Host ""
     Write-Host "Uninstall complete."
-    if ($UserAccount -ne "") {
-        Write-Host "Note: User account '$UserAccount' was NOT deleted. Remove manually if needed:"
-        Write-Host "  Remove-LocalUser -Name '$UserAccount'"
-    }
 }

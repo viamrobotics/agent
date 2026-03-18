@@ -3,7 +3,7 @@
 param(
     [switch]$Silent = $false,
     [string]$RootPath = "C:\opt\viam",
-    [string]$UserAccount = "",  # empty = run as LocalSystem (default)
+    [switch]$ServiceAccount = $false,  # use NT SERVICE\viam-agent virtual account instead of SYSTEM
     [switch]$EnableAuditLogging = $false,
     [switch]$UwfCommit = $false  # commit registry changes through UWF overlay
 )
@@ -19,7 +19,8 @@ if (-not $isAdmin) {
     
     # Self-elevate the script
     $scriptPath = $MyInvocation.MyCommand.Path
-    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`" -UserAccount `"$UserAccount`""
+    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`""
+    if ($ServiceAccount) { $elevateArgs += " -ServiceAccount" }
     if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
     if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
@@ -188,93 +189,48 @@ function Remove-ServiceDaclAce {
     }
 }
 
-# If a user account is specified, set up permissions for non-SYSTEM operation
-$svcCredential = $null
-if ($UserAccount -ne "") {
-    if (-not $Silent) { Write-Host "Configuring service account: $UserAccount" }
-
-    # Prompt for password via console (no GUI popup, works over SSH).
-    # The .\  prefix is required by New-Service for local accounts.
-    $secPassword = Read-Host "Enter password for service account $UserAccount" -AsSecureString
-    $svcCredential = New-Object System.Management.Automation.PSCredential(".\$UserAccount", $secPassword)
-
-    # Create the user if it doesn't exist, skip if it does
-    $localUser = Get-LocalUser -Name $UserAccount -ErrorAction SilentlyContinue
-    if (-not $localUser) {
-        if (-not $Silent) { Write-Host "  Creating local user: $UserAccount" }
-        New-LocalUser -Name $UserAccount `
-            -Password $svcCredential.Password `
-            -PasswordNeverExpires `
-            -UserMayNotChangePassword `
-            -Description "Viam service account" | Out-Null
-    } else {
-        if (-not $Silent) { Write-Host "  User $UserAccount already exists, skipping creation." }
-    }
-
-    # Grant full control of viam directory to the service account
-    if (-not $Silent) { Write-Host "  Granting $UserAccount full control of $RootPath..." }
-    $acl = Get-Acl $RootPath
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        $UserAccount, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-    $acl.AddAccessRule($rule)
-    Set-Acl -Path $RootPath -AclObject $acl
-
-    # Register event log source (so the non-admin account can write events)
-    New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
-
-    # Grant the service account permission to add firewall rules at runtime.
-    # The agent downloads binaries (viam-server, subsystems) and creates firewall
-    # exceptions for each via netsh, which goes through the BFE service.
-    # CCLCRPWPRC = connect, query status, start, read control, write property
-    if (-not $Silent) { Write-Host "  Granting $UserAccount firewall management rights (BFE service)..." }
-    Add-ServiceDaclAce -ServiceName "BFE" -Account $UserAccount -AccessMask "CCLCRPWPRC"
-}
-
 # Configure and start service
 if (-not $Silent) { Write-Host "Configuring service..." }
 try {
     # Create service -- pass --viam-dir so the agent uses the correct root
     $svcBinCmd = "`"$agentBinPath`" --viam-dir `"$RootPath`""
-    $newSvcArgs = @{
-        Name           = "viam-agent"
-        BinaryPathName = $svcBinCmd
-        StartupType    = "Automatic"
-    }
-    if ($svcCredential) {
-        $newSvcArgs["Credential"] = $svcCredential
-    }
-    New-Service @newSvcArgs | Out-Null
-
-    # Grant SeServiceLogonRight if using a non-SYSTEM account.
-    # New-Service -Credential does NOT auto-grant this (DSC's Service resource does,
-    # but the raw cmdlet doesn't). Without it the service fails to start with error 1069.
-    # TODO: replace secedit with LsaAddAccountRights P/Invoke or DSC in refactor PR.
-    if ($UserAccount -ne "") {
-        if (-not $Silent) { Write-Host "  Granting SeServiceLogonRight to $UserAccount..." }
-        $tempInf = [System.IO.Path]::GetTempFileName()
-        $tempDb  = [System.IO.Path]::GetTempFileName()
-        try {
-            secedit /export /cfg $tempInf /quiet
-            $content = Get-Content $tempInf -Raw
-            if ($content -notmatch "SeServiceLogonRight.*$([regex]::Escape($UserAccount))") {
-                $content = $content -replace '(SeServiceLogonRight\s*=\s*.*)', "`$1,$UserAccount"
-                $content | Set-Content $tempInf
-                secedit /configure /db $tempDb /cfg $tempInf /quiet
-            }
-        } finally {
-            Remove-Item $tempInf, $tempDb -ErrorAction SilentlyContinue
-        }
-    }
+    New-Service -Name "viam-agent" -BinaryPathName $svcBinCmd -StartupType Automatic | Out-Null
 
     # Configure failure actions (no PS builtin for recovery policy)
     & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
     & sc.exe failureflag "viam-agent" 1 | Out-Null
 
-    # Grant the service account permission to query/start/stop its own service.
-    # LCRPWPLORC = query status, start, stop, interrogate, read control
-    if ($UserAccount -ne "") {
-        if (-not $Silent) { Write-Host "  Granting $UserAccount service self-management rights..." }
-        Add-ServiceDaclAce -ServiceName "viam-agent" -Account $UserAccount -AccessMask "LCRPWPLORC"
+    # If -ServiceAccount, switch from SYSTEM to the virtual service account.
+    # NT SERVICE\viam-agent is auto-created by Windows, has no password, and
+    # implicitly has SeServiceLogonRight. The service must exist first so
+    # Windows can resolve the virtual account SID.
+    if ($ServiceAccount) {
+        $svcAccountName = "NT SERVICE\viam-agent"
+        if (-not $Silent) { Write-Host "  Configuring virtual service account: $svcAccountName" }
+
+        & sc.exe config "viam-agent" obj= "$svcAccountName" | Out-Null
+
+        # Grant full control of viam directory
+        if (-not $Silent) { Write-Host "  Granting $svcAccountName full control of $RootPath..." }
+        $acl = Get-Acl $RootPath
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $svcAccountName, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.AddAccessRule($rule)
+        Set-Acl -Path $RootPath -AclObject $acl
+
+        # Register event log source (so the non-admin account can write events)
+        New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
+
+        # Grant firewall management rights (BFE service) so the agent can create
+        # firewall rules at runtime for viam-server and other downloaded binaries.
+        # CCLCRPWPRC = connect, query status, start, read control, write property
+        if (-not $Silent) { Write-Host "  Granting $svcAccountName firewall management rights (BFE service)..." }
+        Add-ServiceDaclAce -ServiceName "BFE" -Account $svcAccountName -AccessMask "CCLCRPWPRC"
+
+        # Grant service self-management rights.
+        # LCRPWPLORC = query status, start, stop, interrogate, read control
+        if (-not $Silent) { Write-Host "  Granting $svcAccountName service self-management rights..." }
+        Add-ServiceDaclAce -ServiceName "viam-agent" -Account $svcAccountName -AccessMask "LCRPWPLORC"
     }
 
     # Start service
@@ -310,14 +266,9 @@ if ($UwfCommit) {
             "HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
         )
 
-        # If a user account was created/configured, the security policy database
-        # and SAM entries also need committing. These are harder to commit surgically:
-        if ($UserAccount -ne "") {
-            # SeServiceLogonRight is stored in the security policy database
-            $registryCommits += "HKLM\SECURITY\Policy"
-            # User account SID mapping
-            $registryCommits += "HKLM\SAM\SAM"
-            # BFE service DACL (Grant-FirewallManagement)
+        # If using a virtual service account, the BFE DACL change needs committing.
+        # No SAM/security policy commits needed -- virtual accounts are built-in.
+        if ($ServiceAccount) {
             $registryCommits += "HKLM\SYSTEM\CurrentControlSet\Services\BFE"
         }
 
