@@ -568,9 +568,11 @@ func writeWithDirs(destPath, contents string) error {
 }
 
 // allowFirewall creates a Windows firewall inbound-allow rule for the given binary.
-// If the process is not elevated (e.g. running as a non-admin service account),
-// the netsh call will fail — this is expected, so we warn and return nil.
-// If the process IS elevated and netsh still fails, that's unexpected so we return the error.
+// When the installer grants the service account BFE (Base Filtering Engine) access,
+// netsh will succeed even for non-elevated accounts. If netsh fails on a non-elevated
+// process (e.g. BFE access wasn't granted), we warn and return nil so the download
+// still succeeds. If the process IS elevated and netsh fails, that's unexpected so
+// we return the error.
 func allowFirewall(ctx context.Context, logger logging.Logger, outPath string) error {
 	cmd := exec.CommandContext( //nolint:gosec
 		ctx,

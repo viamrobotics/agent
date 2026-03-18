@@ -116,6 +116,29 @@ function Set-FirewallRule {
     }
 }
 
+function Grant-FirewallManagement {
+    param([string]$Account)
+
+    # Grant the service account permission to add firewall rules at runtime.
+    # The agent downloads binaries (viam-server, subsystems) and creates firewall
+    # exceptions for each via netsh. netsh goes through the BFE (Base Filtering Engine)
+    # service, which enforces admin-only access by default.
+    #
+    # We add an ACE to the BFE service DACL granting the service account
+    # CCLCRPRC (connect, query status, start, read control) + WP (write property,
+    # needed to add filter rules).
+    Write-Status "  Granting $Account firewall management rights (BFE service)..."
+    $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
+        [System.Security.Principal.SecurityIdentifier]).Value
+    $currentSD = ((& sc.exe sdshow BFE) | Where-Object { $_ -match '^D:' })
+    $ace = "(A;;CCLCRPWPRC;;;$sid)"
+    $newSD = $currentSD -replace '(S:)', "$ace`$1"
+    if ($newSD -eq $currentSD) {
+        $newSD = $currentSD + $ace
+    }
+    & sc.exe sdset BFE $newSD | Out-Null
+}
+
 function Set-UserAccountPermissions {
     param([string]$Account, [string]$ViamDir)
 
@@ -138,6 +161,9 @@ function Set-UserAccountPermissions {
 
     # Register event log source (so the non-admin account can write events)
     New-EventLog -LogName Application -Source $ServiceName -ErrorAction SilentlyContinue
+
+    # Allow creating firewall rules at runtime (for viam-server and other subsystems)
+    Grant-FirewallManagement -Account $Account
 
     # Prompt for password and return credential
     return (Get-Credential -UserName ".\$Account" -Message "Enter password for service account $Account")
@@ -238,6 +264,8 @@ function Invoke-UwfCommit {
     if ($UserAccount -ne "") {
         $registryCommits += "HKLM\SECURITY\Policy"
         $registryCommits += "HKLM\SAM\SAM"
+        # BFE service DACL (Grant-FirewallManagement)
+        $registryCommits += "HKLM\SYSTEM\CurrentControlSet\Services\BFE"
     }
 
     foreach ($regPath in $registryCommits) {
