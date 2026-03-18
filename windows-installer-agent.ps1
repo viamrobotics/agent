@@ -105,7 +105,12 @@ New-Item -ItemType Directory -Path $binPath -Force | Out-Null
 # Download the agent
 if (-not $Silent) { Write-Host "Downloading Viam Agent..." }
 try {
+    # Suppress per-chunk progress bar -- it redraws on every read and makes
+    # Invoke-WebRequest extremely slow on PS 5.1.
+    $prevPref = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest -UseBasicParsing -Uri "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentCURLFileName" -OutFile $agentCachePath
+    $ProgressPreference = $prevPref
     if (-not (Test-Path $agentCachePath)) {
         throw "Failed to download agent executable."
     }

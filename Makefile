@@ -103,6 +103,8 @@ upload-installer:
 lint-ps:
 	# I installed from .deb in releases here https://github.com/PowerShell/PowerShell
 	# note: this linter is not incredibly useful; for example it won't catch some missing reference errors. Don't over-rely
+	@echo "Checking for non-ASCII characters (breaks PS 5.1 without BOM)..."
+	@if grep -Pn '[^\x00-\x7F]' windows-installer-agent.ps1 windows-uninstall-agent.ps1; then echo "ERROR: non-ASCII characters found above — PS 5.1 will misparse"; exit 1; fi
 	pwsh -Command 'if (-not (Get-Module PSScriptAnalyzer -ListAvailable)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop }; Invoke-ScriptAnalyzer -Path windows-installer-agent.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error -EnableExit; Invoke-ScriptAnalyzer -Path windows-uninstall-agent.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error -EnableExit'
 
 .PHONY: windows-installer
