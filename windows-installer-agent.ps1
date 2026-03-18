@@ -247,6 +247,23 @@ try {
         $cfgAcl.AddAccessRule($cfgRule)
         Set-Acl -Path $configDir -AclObject $cfgAcl
 
+        # Grant SeCreateSymbolicLinkPrivilege so the agent can create symlinks
+        # at runtime when downloading new versions of itself and viam-server.
+        if (-not $Silent) { Write-Host "  Granting $svcAccountName symlink creation privilege..." }
+        $tempInf = [System.IO.Path]::GetTempFileName()
+        $tempDb  = [System.IO.Path]::GetTempFileName()
+        try {
+            secedit /export /cfg $tempInf /quiet
+            $content = Get-Content $tempInf -Raw
+            if ($content -notmatch "SeCreateSymbolicLinkPrivilege.*$([regex]::Escape($svcAccountName))") {
+                $content = $content -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*.*)', "`$1,$svcAccountName"
+                $content | Set-Content $tempInf
+                secedit /configure /db $tempDb /cfg $tempInf /quiet
+            }
+        } finally {
+            Remove-Item $tempInf, $tempDb -ErrorAction SilentlyContinue
+        }
+
         # Register event log source (so the non-admin account can write events)
         New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
 
