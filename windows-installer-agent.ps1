@@ -37,9 +37,9 @@ if (-not $Silent) {
 if ($EnableAuditLogging) {
     if (-not $Silent) { Write-Host "Enabling audit logging for permission diagnostics..." }
     # Log failed object access attempts (file/registry/service ACL denials)
-    & auditpol /set /subcategory:"Object Access" /failure:enable | Out-Null
+    & auditpol /set /category:"Object Access" /failure:enable | Out-Null
     # Log failed privilege use (e.g. firewall, service control)
-    & auditpol /set /subcategory:"Privilege Use" /failure:enable | Out-Null
+    & auditpol /set /category:"Privilege Use" /failure:enable | Out-Null
     # Log process creation (helps trace what the agent spawns)
     & auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable | Out-Null
     if (-not $Silent) {
