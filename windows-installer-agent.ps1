@@ -149,7 +149,7 @@ function Grant-FirewallManagement {
     # We add an ACE to the BFE service DACL granting the service account
     # CCLCRPRC (connect, query status, start, read control) + WP (write property,
     # needed to add filter rules).
-    Write-Status "  Granting $Account firewall management rights (BFE service)..."
+    if (-not $Silent) { Write-Host "  Granting $Account firewall management rights (BFE service)..." }
     $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
         [System.Security.Principal.SecurityIdentifier]).Value
     $currentSD = ((& sc.exe sdshow BFE) | Where-Object { $_ -match '^D:' })
@@ -208,6 +208,7 @@ try {
     # Grant SeServiceLogonRight if using a non-SYSTEM account.
     # New-Service -Credential does NOT auto-grant this (DSC's Service resource does,
     # but the raw cmdlet doesn't). Without it the service fails to start with error 1069.
+    # TODO: replace secedit with LsaAddAccountRights P/Invoke or DSC in refactor PR.
     if ($UserAccount -ne "") {
         if (-not $Silent) { Write-Host "  Granting SeServiceLogonRight to $UserAccount..." }
         $tempInf = [System.IO.Path]::GetTempFileName()
@@ -215,7 +216,7 @@ try {
         try {
             secedit /export /cfg $tempInf /quiet
             $content = Get-Content $tempInf -Raw
-            if ($content -notmatch [regex]::Escape($UserAccount)) {
+            if ($content -notmatch "SeServiceLogonRight.*$([regex]::Escape($UserAccount))") {
                 $content = $content -replace '(SeServiceLogonRight\s*=\s*.*)', "`$1,$UserAccount"
                 $content | Set-Content $tempInf
                 secedit /configure /db $tempDb /cfg $tempInf /quiet
