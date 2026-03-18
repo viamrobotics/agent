@@ -220,7 +220,7 @@ if ($UserAccount -ne "") {
 # Configure and start service
 if (-not $Silent) { Write-Host "Configuring service..." }
 try {
-    # Create service — pass --viam-dir so the agent uses the correct root
+    # Create service -- pass --viam-dir so the agent uses the correct root
     $svcBinCmd = "`"$agentBinPath`" --viam-dir `"$RootPath`""
     $newSvcArgs = @{
         Name           = "viam-agent"
@@ -273,7 +273,7 @@ try {
 }
 
 # Commit registry changes through UWF overlay so they survive reboot.
-# This is needed on LTSC devices where UWF protects C: — without this,
+# This is needed on LTSC devices where UWF protects C: -- without this,
 # service registration, firewall rules, etc. are lost on reboot.
 #
 # TODO: finalize this list with procmon on an actual LTSC device.
@@ -285,7 +285,7 @@ if ($UwfCommit) {
     # Check that uwfmgr is available
     $uwfmgr = Get-Command uwfmgr.exe -ErrorAction SilentlyContinue
     if (-not $uwfmgr) {
-        Write-Warning "uwfmgr.exe not found — UWF may not be enabled on this system. Skipping commits."
+        Write-Warning "uwfmgr.exe not found -- UWF may not be enabled on this system. Skipping commits."
     } else {
         # Registry paths written by this installer (best-known list, pending procmon verification):
         $registryCommits = @(
@@ -293,7 +293,7 @@ if ($UwfCommit) {
             "HKLM\SYSTEM\CurrentControlSet\Services\viam-agent"
             # Event log source (New-EventLog)
             "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\viam-agent"
-            # Firewall rule (New-NetFirewallRule) — rules stored under SharedAccess
+            # Firewall rule (New-NetFirewallRule) -- rules stored under SharedAccess
             "HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
         )
 
