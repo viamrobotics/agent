@@ -237,16 +237,15 @@ try {
         } else {
             $configDir = "C:\etc"
         }
-        if (Test-Path $configDir) {
-            if (-not $Silent) { Write-Host "  Granting $svcAccountName read access to $configDir..." }
-            $cfgAcl = Get-Acl $configDir
-            $cfgRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                $svcAccountName, "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
-            $cfgAcl.AddAccessRule($cfgRule)
-            Set-Acl -Path $configDir -AclObject $cfgAcl
-        } else {
-            Write-Warning "Config directory $configDir does not exist -- create it and place viam.json before starting the service."
+        if (-not (Test-Path $configDir)) {
+            New-Item -ItemType Directory -Path $configDir -Force | Out-Null
         }
+        if (-not $Silent) { Write-Host "  Granting $svcAccountName read access to $configDir..." }
+        $cfgAcl = Get-Acl $configDir
+        $cfgRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $svcAccountName, "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $cfgAcl.AddAccessRule($cfgRule)
+        Set-Acl -Path $configDir -AclObject $cfgAcl
 
         # Register event log source (so the non-admin account can write events)
         New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
