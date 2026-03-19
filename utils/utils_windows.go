@@ -2,11 +2,14 @@ package utils
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
+	"unsafe"
 
 	errw "github.com/pkg/errors"
 	goutils "go.viam.com/utils"
@@ -50,6 +53,90 @@ func SyncFS(syncPath string) error {
 		return err
 	}
 	return nil
+}
+
+// FindProcessesByName returns PIDs of all running processes with the given name (exact match).
+func FindProcessesByName(ctx context.Context, name string) ([]int, error) {
+	//nolint:gosec
+	out, err := exec.CommandContext(ctx, "tasklist", "/FI", "IMAGENAME eq "+name+".exe", "/FO", "CSV", "/NH").Output()
+	if err != nil {
+		return nil, err
+	}
+	var pids []int
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// CSV format: "name.exe","1234","Console","1","10,000 K"
+		parts := strings.SplitN(line, ",", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		pidStr := strings.Trim(parts[1], `"`)
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids, nil
+}
+
+// FindChildProcesses returns the direct child processes of parentPID using the Windows API.
+func FindChildProcesses(_ context.Context, parentPID int) ([]Process, error) {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := windows.CloseHandle(snapshot); err != nil {
+			fmt.Fprintf(os.Stderr, "utils: error closing snapshot handle: %v\n", err)
+		}
+	}()
+
+	var entry windows.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	if err := windows.Process32First(snapshot, &entry); err != nil {
+		return nil, err
+	}
+
+	var children []Process
+	for {
+		if int(entry.ParentProcessID) == parentPID {
+			children = append(children, Process{
+				PID:  int(entry.ProcessID),
+				Name: windows.UTF16ToString(entry.ExeFile[:]),
+			})
+		}
+		if err := windows.Process32Next(snapshot, &entry); err != nil {
+			break
+		}
+	}
+	return children, nil
+}
+
+// stillActive is the value returned by GetExitCodeProcess for a still-running process (STILL_ACTIVE / STATUS_PENDING).
+// See: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess
+const stillActive = 259
+
+// IsProcessAlive returns true if the process with the given PID is still running.
+func IsProcessAlive(pid int) bool {
+	//nolint:gosec
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer func() {
+		if err := windows.CloseHandle(h); err != nil {
+			fmt.Fprintf(os.Stderr, "utils: error closing process handle for pid %d: %v\n", pid, err)
+		}
+	}()
+	var exitCode uint32
+	if err := windows.GetExitCodeProcess(h, &exitCode); err != nil {
+		return false
+	}
+	return exitCode == stillActive
 }
 
 func SignalForTermination(pid int) error {
