@@ -185,6 +185,7 @@ type SystemConfiguration struct {
 }
 
 type NetworkConfiguration struct {
+	// note: update rebaseNetworkConfiguration if updating or adding a field here.
 	// Things typically set in viam-defaults.json
 	Manufacturer string `json:"manufacturer,omitempty"`
 	Model        string `json:"model,omitempty"`

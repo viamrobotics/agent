@@ -305,18 +305,64 @@ func rebaseNetworkConfiguration(nCfg utils.NetworkConfiguration) (utils.NetworkC
 	}
 
 	// get default cfg. Hardcoded values + viam_defaults.json (if available - does not err if file does not exist).
-	newCfg, err := utils.StackOfflineConfig()
+	allDefaultsCfg, err := utils.StackOfflineConfig()
 	if err != nil {
 		return nCfg, err
 	}
 
 	// merge current cfg on over
-	err = json.Unmarshal(asJSON, &newCfg.NetworkConfiguration)
+	finalCfg := allDefaultsCfg
+	err = json.Unmarshal(asJSON, &finalCfg.NetworkConfiguration)
 	if err != nil {
 		return nCfg, err
 	}
 
-	return newCfg.NetworkConfiguration, err
+	// because the input nCfg may be a "validated" config where validateConfig substitutes in certain missing values from utils.DefaultConfig,
+	// we cannot tell whether that value was actually provided by the user or automatically substituted in.
+	// for *non-bools*, assume that if one of these values is the same as the hardcoded default, it was subbed in, so replace it with the value
+	// from allDefaultsCfg (hardcoded + viam_defaults)
+	// This will either have no effect (if it wasn't specified in viam_defaults) or take the value from viam_defaults.
+	// Unfortunately this will miss the case if a user has manually specified a value to overwrite the viam_defaults value,
+	// but the user-provided value matches the hardcoded default.
+	hardcodedCfg := utils.DefaultConfig()
+	if finalCfg.NetworkConfiguration.Manufacturer == hardcodedCfg.NetworkConfiguration.Manufacturer {
+		finalCfg.NetworkConfiguration.Manufacturer = allDefaultsCfg.NetworkConfiguration.Manufacturer
+	}
+	if finalCfg.NetworkConfiguration.Model == hardcodedCfg.NetworkConfiguration.Model {
+		finalCfg.NetworkConfiguration.Model = allDefaultsCfg.NetworkConfiguration.Model
+	}
+	if finalCfg.NetworkConfiguration.FragmentID == hardcodedCfg.NetworkConfiguration.FragmentID {
+		finalCfg.NetworkConfiguration.FragmentID = allDefaultsCfg.NetworkConfiguration.FragmentID
+	}
+	if finalCfg.NetworkConfiguration.HotspotInterface == hardcodedCfg.NetworkConfiguration.HotspotInterface {
+		finalCfg.NetworkConfiguration.HotspotInterface = allDefaultsCfg.NetworkConfiguration.HotspotInterface
+	}
+	if finalCfg.NetworkConfiguration.HotspotPrefix == hardcodedCfg.NetworkConfiguration.HotspotPrefix {
+		finalCfg.NetworkConfiguration.HotspotPrefix = allDefaultsCfg.NetworkConfiguration.HotspotPrefix
+	}
+	if finalCfg.NetworkConfiguration.HotspotSSID == hardcodedCfg.NetworkConfiguration.HotspotSSID {
+		finalCfg.NetworkConfiguration.HotspotSSID = allDefaultsCfg.NetworkConfiguration.HotspotSSID
+	}
+	if finalCfg.NetworkConfiguration.HotspotPassword == hardcodedCfg.NetworkConfiguration.HotspotPassword {
+		finalCfg.NetworkConfiguration.HotspotPassword = allDefaultsCfg.NetworkConfiguration.HotspotPassword
+	}
+	if finalCfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes ==
+		hardcodedCfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes {
+		// CI linter can't decide if this needs to be split or single line.
+		//nolint:lll
+		finalCfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes = allDefaultsCfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
+	}
+	if finalCfg.NetworkConfiguration.UserIdleMinutes == hardcodedCfg.NetworkConfiguration.UserIdleMinutes {
+		finalCfg.NetworkConfiguration.UserIdleMinutes = allDefaultsCfg.NetworkConfiguration.UserIdleMinutes
+	}
+	if finalCfg.NetworkConfiguration.RetryConnectionTimeoutMinutes == hardcodedCfg.NetworkConfiguration.RetryConnectionTimeoutMinutes {
+		finalCfg.NetworkConfiguration.RetryConnectionTimeoutMinutes = allDefaultsCfg.NetworkConfiguration.RetryConnectionTimeoutMinutes
+	}
+	if finalCfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes == hardcodedCfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes {
+		finalCfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes = allDefaultsCfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes
+	}
+
+	return finalCfg.NetworkConfiguration, err
 }
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to
