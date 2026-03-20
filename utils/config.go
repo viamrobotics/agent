@@ -299,15 +299,15 @@ func LoadConfigFromCache() (AgentConfig, error) {
 	cacheBytes, err := os.ReadFile(cachePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return StackOfflineConfig()
+			return StackConfigs(&pb.DeviceAgentConfigResponse{})
 		} else {
-			cfg, newErr := StackOfflineConfig()
+			cfg, newErr := StackConfigs(&pb.DeviceAgentConfigResponse{})
 			return cfg, errors.Join(errw.Wrap(err, "reading config cache"), newErr)
 		}
 	} else {
 		err = json.Unmarshal(cacheBytes, &cfg)
 		if err != nil {
-			cfg, newErr := StackOfflineConfig()
+			cfg, newErr := StackConfigs(&pb.DeviceAgentConfigResponse{})
 			return cfg, errors.Join(errw.Wrap(err, "parsing config cache"), newErr)
 		}
 	}
@@ -328,29 +328,21 @@ func ApplyCLIArgs(cfg AgentConfig) AgentConfig {
 	return newCfg
 }
 
-// StackOldProvisioningConfig reads viam-provisioning.json if available and merges it over startCfg.
-func stackOldProvisioningConfig(startCfg AgentConfig) (AgentConfig, error) {
+func StackConfigs(proto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {
+	cfg := DefaultConfig()
 	var errOut error
 
-	// parse/apply deprecated /etc/viam-provisioning.json (NetworkConfiguration only)
+	// parse/apply deprecated /etc/viam-provisioning.json
 	oldCfg, err := LoadOldProvisioningConfig()
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			errOut = errors.Join(errOut, errw.Wrap(err, "reading deprecated /etc/viam-provisioning.json"))
 		}
 	} else {
-		startCfg.NetworkConfiguration = *oldCfg
+		cfg.NetworkConfiguration = *oldCfg
 	}
-	return startCfg, errOut
-}
-
-// StackOldProvisioningConfig reads viam-defaults.json if available and merges it over startCfg.
-func stackViamDefaultsConfig(startCfg AgentConfig) (AgentConfig, error) {
-	cfg := startCfg
-	var errOut error
 
 	// manufacturer config from local disk (/etc/viam-defaults.json)
-	// use only if cloud read wasn't provided or unmarshall failed (don't merge the two).
 	jsonBytes, err := os.ReadFile(DefaultsFilePath)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -362,67 +354,18 @@ func stackViamDefaultsConfig(startCfg AgentConfig) (AgentConfig, error) {
 		}
 	}
 
-	return cfg, errOut
-}
-
-// StackConfigs merges nextCfg over startCfg.
-func StackConfigs(startCfg, nextCfg AgentConfig) (AgentConfig, error) {
-	cfg := startCfg
-	var errOut error
-
-	jsonBytes, err := json.Marshal(nextCfg)
+	// cloud-provided config
+	cloudCfg, err := ProtoToConfig(proto)
 	if err != nil {
 		errOut = errors.Join(errOut, err)
 	} else {
-		if err := json.Unmarshal(jsonBytes, &cfg); err != nil {
-			errOut = errors.Join(errOut, err)
-		}
-	}
-	return cfg, errOut
-}
-
-// StackOfflineConfig returns a merged config resulting from applying in order:
-// DefaultConfig -> deprecated viam-provisioning.json -> viam-defaults.json.
-func StackOfflineConfig() (AgentConfig, error) {
-	return StackProtoConfig(nil)
-}
-
-// StackProtoConfig returns a merged config resulting from applying in order:
-// DefaultConfig -> deprecated viam-provisioning.json -> cloud config if available & valid / otherwise viam-defaults.json.
-func StackProtoConfig(fromCloudProto *pb.DeviceAgentConfigResponse) (AgentConfig, error) {
-	cfg := DefaultConfig()
-	var errOut error
-
-	cfgTmp, err := stackOldProvisioningConfig(cfg)
-	if err != nil {
-		errOut = errors.Join(errOut, err)
-	} else {
-		cfg = cfgTmp
-	}
-
-	var cloudCfgSuccess bool
-	if fromCloudProto != nil {
-		cloudCfg, err := ProtoToConfig(fromCloudProto)
+		jsonBytes, err = json.Marshal(cloudCfg)
 		if err != nil {
 			errOut = errors.Join(errOut, err)
 		} else {
-			cfgTmp, err := StackConfigs(cfg, cloudCfg)
-			if err != nil {
+			if err := json.Unmarshal(jsonBytes, &cfg); err != nil {
 				errOut = errors.Join(errOut, err)
-			} else {
-				cfg = cfgTmp
-				cloudCfgSuccess = true
 			}
-		}
-	}
-
-	// use viam-defaults (stack on top of base) only if cloud config is invalid
-	if !cloudCfgSuccess {
-		cfgTmp, err := stackViamDefaultsConfig(cfg)
-		if err != nil {
-			errOut = errors.Join(errOut, err)
-		} else {
-			cfg = cfgTmp
 		}
 	}
 

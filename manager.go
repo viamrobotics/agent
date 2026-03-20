@@ -752,7 +752,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		m.logger.Error(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
 	}
 
-	cfgFromCloud, err := utils.StackProtoConfig(resp)
+	cfgFromCloud, err := utils.StackConfigs(resp)
 	if err != nil {
 		m.logger.Warn(errw.Wrap(err, "processing config"))
 	}
