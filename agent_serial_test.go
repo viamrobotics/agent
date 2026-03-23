@@ -173,6 +173,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
 	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
+	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
+	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -408,6 +410,34 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 		return ctx, fmt.Errorf("test_provisioning_network_gone.sh failed: %w\n%s", err, out)
 	}
 	return ctx, nil
+}
+
+func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
+	for range 30 {
+		res := serialClient.CanPing()
+		if res.IsError() {
+			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+		}
+		if res.MustGet() {
+			return ctx, nil
+		}
+		time.Sleep(5 * time.Second)
+	}
+	return ctx, fmt.Errorf("viam-agent did not come online within timeout")
+}
+
+func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
+	for range 30 {
+		res := serialClient.CanPing()
+		if res.IsError() {
+			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+		}
+		if !res.MustGet() {
+			return ctx, nil
+		}
+		time.Sleep(5 * time.Second)
+	}
+	return ctx, fmt.Errorf("viam-agent did not go offline within timeout")
 }
 
 func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {

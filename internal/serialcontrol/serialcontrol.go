@@ -503,7 +503,7 @@ func (c *Client) GetDeviceArch() mo.Result[string] {
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
 func (c *Client) EnsureOnline(ssid, password string) error {
-	if c.canPing().MustGet() {
+	if c.CanPing().MustGet() {
 		// if we can ping, check for packet loss
 
 		packetLossRes := c.getPingPacketLoss()
@@ -552,7 +552,7 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 
 // getPingPacketLoss attempts to ping app.viam.com and returns an error if
 // the ping returns a nonzero status code, nil otherwise.
-func (c *Client) canPing() mo.Result[bool] {
+func (c *Client) CanPing() mo.Result[bool] {
 	c.runCmd("ping -c 2 -w 10 -q app.viam.com")
 	exitCodeRes := c.runCmd("echo $?")
 	if exitCodeRes.IsError() {
