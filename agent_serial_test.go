@@ -172,6 +172,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
+	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
 	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
@@ -443,6 +444,17 @@ func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
 func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
 	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_send_network.sh")
 	cmd.Env = append(os.Environ(), "SSID="+cfg.Wifi.SSID, "PASSWORD="+cfg.Wifi.Password)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("test_provisioning_send_network.sh failed: %w\n%s", err, out)
+	}
+	return ctx, nil
+}
+
+func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
+	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_send_network.sh")
+	cmd.Env = append(os.Environ(), "SSID=thisnetwork", "PASSWORD=doesnotexist")
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {

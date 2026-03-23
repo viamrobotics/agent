@@ -14,11 +14,17 @@ Feature: wifi provisioning
     And the tester shares a secure wifi network
     Then the provisioning hotspot goes away
     And viam-agent can reach the app
-  # Scenario: The agent can join a known secure network when one is provided during hotspot provisioning
-  #   When viam-agent is in forced provisioning mode
-  #   And the provisioning hotspot comes up
-  #   And the tester shares a secure wifi network
-    # Then viam-agent connects to the secure wifi network
-    # And the provisioning hotspot goes down
+  Scenario: The agent can join a known secure network when one is provided during wifi hotspot provisioning
+    When viam-agent is in forced provisioning mode
+    And the provisioning hotspot comes up
+    And the tester shares a secure wifi network
+    Then the provisioning hotspot goes away
+    And viam-agent can reach the app
   # Scenario: Connect to an insecure network
-  # Scenario: Fail to connect to a network and revert to provisioning hotspot mode
+  Scenario: Fail to connect to a network and revert to provisioning hotspot mode
+    When there are no available wifi networks
+    And viam-agent cannot reach the app
+    And viam-agent is in forced provisioning mode
+    And the provisioning hotspot comes up
+    And the tester shares an invalid wifi network
+    Then the provisioning hotspot is up
