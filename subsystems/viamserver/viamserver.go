@@ -325,13 +325,15 @@ func (s *Subsystem) tryShutdownRPC(ctx context.Context, dialAddr string) error {
 	robotClient := pb.NewRobotServiceClient(conn)
 	_, err = robotClient.Shutdown(shutdownCtx, &pb.ShutdownRequest{})
 	if err != nil {
-		// Shutdown RPC may return DeadlineExceeded or Unavailable errors on successful shutdown
-		// because the server may close the connection before sending a response. Handle these gracefully.
-		if status, ok := status.FromError(err); ok && (status.Code() == codes.DeadlineExceeded || status.Code() == codes.Unavailable) {
+		// Shutdown RPC may return Unavailable if viam-server closes the connection before
+		// sending a response (e.g. it begins shutting down immediately upon receiving the RPC).
+		// Treat this as success. DeadlineExceeded is NOT treated as success here because it is
+		// indistinguishable from a dial timeout (e.g. the server was never reached), in which
+		// case we should fall back to signal-based termination.
+		if status, ok := status.FromError(err); ok && status.Code() == codes.Unavailable {
 			return nil
-		} else {
-			return errw.Wrap(err, "calling Shutdown RPC")
 		}
+		return errw.Wrap(err, "calling Shutdown RPC")
 	}
 
 	s.logger.Debug("Shutdown RPC completed successfully")
