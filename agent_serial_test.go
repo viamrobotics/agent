@@ -169,8 +169,10 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 
 	// Wifi provisioning
 	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
+	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
+	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -375,6 +377,11 @@ func testClearWifiConnections(ctx context.Context) (context.Context, error) {
 	return ctx, output.Error()
 }
 
+func testForceProvisioningMode(ctx context.Context) (context.Context, error) {
+	output := serialClient.ForceProvisioning()
+	return ctx, output.Error()
+}
+
 func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error) {
 	// this script checks for the provisioning network every 5 seconds, then connects to it
 	// if it finds it
@@ -385,6 +392,20 @@ func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ctx, fmt.Errorf("test_provisioning_join_network.sh failed: %w\n%s", err, out)
+	}
+	return ctx, nil
+}
+
+func testProvisioningHotspotDisables(ctx context.Context) (context.Context, error) {
+	// this script checks for the provisioning network every 5 seconds, then connects to it
+	// if it finds it
+	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_network_gone.sh")
+	cmd.Env = append(os.Environ(), "ROBOT_NAME="+cfg.RobotName)
+
+	// TODO: this should error out if cmd returns a nonzero exit code
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("test_provisioning_network_gone.sh failed: %w\n%s", err, out)
 	}
 	return ctx, nil
 }

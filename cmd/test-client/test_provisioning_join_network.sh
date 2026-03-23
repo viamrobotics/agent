@@ -26,6 +26,7 @@ for i in $(seq 1 5); do
         continue
     else
         connected=true
+        sleep 10
         break
     fi
     sleep 3
