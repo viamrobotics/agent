@@ -222,6 +222,7 @@ func rebootRequired(ctx context.Context) bool {
 		// ExitError is returned if the command starts but returns non-zero. In the
 		// case of `needs-restarting` that means a restart is required. If the
 		// command cannot be started a different error type is returned.
+		//nolint: errcheck
 		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			return true
 		}
