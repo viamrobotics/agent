@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 
 	"github.com/viamrobotics/agent"
 	"github.com/viamrobotics/agent/utils"
@@ -112,34 +109,16 @@ func zapChildren(ctx context.Context) error {
 
 	pid := os.Getpid()
 
-	// Use a fixed command string to prevent injection
-	//nolint:gosec // WMIC.exe is a fixed command
-	cmd := exec.CommandContext(ctx, "WMIC.exe", "process", "where", fmt.Sprintf("ParentProcessId=%d", pid), "get", "ProcessId")
-	output, err := cmd.Output()
+	childProcesses, err := utils.FindChildProcesses(ctx, pid)
 	if err != nil {
 		return err
 	}
-	lines := strings.Split(string(output), "\r\n")
 	if elog != nil {
-		goutils.UncheckedError(elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(lines), pid)))
+		goutils.UncheckedError(elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(childProcesses), pid)))
 	}
-	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if _, err := strconv.Atoi(line); err != nil {
-			continue
-		}
-		var childPID int
-		_, err := fmt.Sscan(line, &childPID)
-		if err != nil {
-			if elog != nil {
-				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("not a valid childProcess line %q, #%s", line, err)))
-			}
-			continue
-		}
-
-		//nolint:gosec // taskkill is a fixed command
-		cmd = exec.CommandContext(ctx, "taskkill", "/F", "/T", "/PID", strconv.Itoa(childPID))
-		err = cmd.Run()
+	for _, childProcess := range childProcesses {
+		childPID := childProcess.PID
+		err := utils.KillTree(ctx, childPID)
 		if elog != nil {
 			if err != nil {
 				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error running taskkill pid %d: #%s", childPID, err)))
