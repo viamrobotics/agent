@@ -63,6 +63,12 @@ var (
 	maxBytesForTesting int64
 )
 
+// Process holds identifying info about a running process.
+type Process struct {
+	PID  int
+	Name string
+}
+
 type ViamDirsData struct {
 	Viam  string
 	Bin   string

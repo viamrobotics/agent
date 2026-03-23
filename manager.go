@@ -83,6 +83,42 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cache:          NewVersionCache(logger),
 		agentStartTime: time.Now(),
 	}
+
+	preexistingProcesses := manager.findPreexistingViamServerProcesses(ctx)
+	if len(preexistingProcesses) > 0 {
+		logger.Warnw(
+			"found process(es) from before agent startup still running; will log every minute while they remain",
+			"processes", preexistingProcesses,
+		)
+		manager.activeBackgroundWorkers.Go(func() {
+			defer utils.Recover(manager.logger, nil)
+
+			remaining := preexistingProcesses
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					var stillRunning []utils.Process
+					for _, proc := range remaining {
+						if utils.IsProcessAlive(proc.PID) {
+							stillRunning = append(stillRunning, proc)
+						}
+					}
+					if len(stillRunning) == 0 {
+						manager.logger.Info("all process(es) from before agent startup have exited")
+						return
+					}
+					manager.logger.Warnw("process(es) from before agent startup are still running",
+						"processes", stillRunning)
+					remaining = stillRunning
+				}
+			}
+		})
+	}
+
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
 	manager.sysConfig = syscfg.New(
 		ctx,
@@ -716,7 +752,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		m.logger.Error(errw.Wrapf(err, "processing update data for %s", viamserver.SubsysName))
 	}
 
-	cfgFromCloud, err := utils.StackProtoConfig(resp)
+	cfgFromCloud, err := utils.StackConfigs(resp)
 	if err != nil {
 		m.logger.Warn(errw.Wrap(err, "processing config"))
 	}
@@ -801,6 +837,27 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 	}
 
 	return vers
+}
+
+// findPreexistingViamServerProcesses returns any viam-server processes already running when the
+// agent starts, along with their module children. Returns nil if none are found.
+func (m *Manager) findPreexistingViamServerProcesses(ctx context.Context) []utils.Process {
+	pids, err := utils.FindProcessesByName(ctx, viamserver.SubsysName)
+	if err != nil {
+		m.logger.Warnw("error checking for preexisting viam-server processes", "err", err)
+		return nil
+	}
+	var all []utils.Process
+	for _, pid := range pids {
+		all = append(all, utils.Process{PID: pid, Name: viamserver.SubsysName})
+		children, err := utils.FindChildProcesses(ctx, pid)
+		if err != nil {
+			m.logger.Warnw("error checking for module processes under preexisting viam-server", "pid", pid, "err", err)
+			continue
+		}
+		all = append(all, children...)
+	}
+	return all
 }
 
 func (m *Manager) Exit(reason string) {

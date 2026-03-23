@@ -336,6 +336,14 @@ main() {
 	echo && echo && echo
 	echo "Viam Agent has been installed and started successfully."
 	echo "You may return to your machine at https://app.viam.com/ to continue configuring."
+	echo && echo
+	if [ "$OS" = "Linux" ]; then
+		echo "Local logs are viewable through 'journalctl -u viam-agent' or 'systemctl status viam-agent'"
+	else
+		echo "Local logs are viewable at the following path: /var/log/viam-agent.log"
+		echo "Use 'less', 'cat', 'tail', etc. to view them"
+		echo "Logs are also viewable through the Console MacOS app under 'Log Reports'"
+	fi
 }
 
 main
