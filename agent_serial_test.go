@@ -3,6 +3,7 @@
 package agent_test
 
 import (
+	"bufio"
 	"context"
 	_ "embed"
 	"errors"
@@ -111,8 +112,11 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				panic(fmt.Errorf("login failed: %w", err))
 			}
 
-			// TODO: this will fail while the test runner is connected to the provisioning hotspot
-			appClient = dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey).MustGet()
+			appClientRes := dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey)
+			if appClientRes.IsError() {
+				panic(fmt.Errorf("failed to dial app (is the test runner online?): %w", appClientRes.Error()))
+			}
+			appClient = appClientRes.MustGet()
 
 			if err := serialClient.Sudo(); err != nil {
 				panic(err)
@@ -127,8 +131,19 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 		})
 		tsc.AfterSuite(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+			// Give a pretty long timeout since there's actual user interaction in the loop now
+			// Also a bad idea...
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
 			defer cancel()
+			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+				t.Logf("error reconnecting to wifi during cleanup: %v", err)
+			}
+			if _, err := hostEnsureOnline(ctx); err != nil {
+				t.Logf("error restoring host connection to internet during cleanup: %v", err)
+			}
+			// Just wait after reconnecting everything to make sure all the connections are back
+			// This isn't great...
+			time.Sleep(time.Second * 5)
 			if _, err := applyAgentVersionPin(ctx, "stable"); err != nil {
 				t.Logf("error pinning agent back to stable during cleanup: %v", err)
 			}
@@ -210,6 +225,36 @@ func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, 
 			return apppb.NewAppServiceClient(conn)
 		}),
 	)
+}
+
+func hostEnsureOnline(ctx context.Context) (context.Context, error) {
+	cmd := exec.Command("ping", "-c", "1", "-W", "5", "app.viam.com")
+	if err := cmd.Run(); err == nil {
+		// Already connected.
+		return ctx, nil
+	}
+
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return ctx, fmt.Errorf("cannot open /dev/tty: %w", err)
+	}
+	defer tty.Close()
+
+	fmt.Println("===================================================================================")
+	fmt.Println("===================================================================================")
+	fmt.Println("")
+	fmt.Println("Host cannot reach app.viam.com. Connect to a network and press Enter to continue...")
+	fmt.Println("")
+	fmt.Println("===================================================================================")
+	fmt.Println("===================================================================================")
+	reader := bufio.NewReader(tty)
+	reader.ReadString('\n')
+
+	cmd = exec.Command("ping", "-c", "1", "-W", "5", "app.viam.com")
+	if err := cmd.Run(); err != nil {
+		return ctx, fmt.Errorf("host still cannot reach app.viam.com")
+	}
+	return ctx, nil
 }
 
 // gcsURL constructs the GCS download URL for a viam binary given its subsystem

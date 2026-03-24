@@ -536,12 +536,14 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		return clearRes.Error()
 	}
 
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 2)
 
 	connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
 	if connectWifiRes.IsError() {
 		return errw.Wrap(connectWifiRes.Error(), "failed to connect to wifi network")
 	}
+
+	time.Sleep(time.Second * 2)
 
 	// Rerun the ping test. If this fails we have no way to recover
 	return c.getPingPacketLoss().FlatMap(func(value int) mo.Result[int] {
@@ -552,8 +554,9 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 	}).Error()
 }
 
-// getPingPacketLoss attempts to ping app.viam.com and returns an error if
-// the ping returns a nonzero status code, nil otherwise.
+// CanPing attempts to ping app.viam.com and returns false
+// the ping returns a nonzero status code, true if it returns "0",
+// and error if the command doesn't run properly
 func (c *Client) CanPing() mo.Result[bool] {
 	res := c.runCmd("ping -c 2 -w 10 -q app.viam.com; echo $?")
 	if res.IsError() {
