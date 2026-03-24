@@ -536,6 +536,8 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		return clearRes.Error()
 	}
 
+	time.Sleep(time.Second * 1)
+
 	connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
 	if connectWifiRes.IsError() {
 		return errw.Wrap(connectWifiRes.Error(), "failed to connect to wifi network")
@@ -553,16 +555,15 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 // getPingPacketLoss attempts to ping app.viam.com and returns an error if
 // the ping returns a nonzero status code, nil otherwise.
 func (c *Client) CanPing() mo.Result[bool] {
-	c.runCmd("ping -c 2 -w 10 -q app.viam.com")
-	exitCodeRes := c.runCmd("echo $?")
-	if exitCodeRes.IsError() {
-		return mo.Err[bool](exitCodeRes.Error())
+	res := c.runCmd("ping -c 2 -w 10 -q app.viam.com; echo $?")
+	if res.IsError() {
+		return mo.Err[bool](res.Error())
 	}
-	lines := exitCodeRes.MustGet()
-	if len(lines) != 1 {
-		return mo.Errf[bool]("expected single line from echo $? but got %d", len(lines))
+	lines := res.MustGet()
+	if len(lines) == 0 {
+		return mo.Errf[bool]("no output from ping command")
 	}
-	return mo.Ok(lines[0] == "0")
+	return mo.Ok(lines[len(lines)-1] == "0")
 }
 
 // getPingPacketLoss attempts to ping app.viam.com and returns the packet loss
