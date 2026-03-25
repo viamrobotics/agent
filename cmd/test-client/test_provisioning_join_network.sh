@@ -2,7 +2,7 @@
 set -e
 
 network=""
-for i in $(seq 1 30); do
+for i in $(seq 1 50); do
     network=$(system_profiler SPAirPortDataType -json \
         | grep -o '"_name" *: *"[^"]*viam-setup-'"$ROBOT_NAME"'[^"]*"' \
         | head -1 \
@@ -17,6 +17,12 @@ echo $network
 
 if [ -z "$network" ]; then
     exit 1
+fi
+
+current=$(networksetup -getairportnetwork en0 2>&1 | sed 's/.*: //')
+if [ "$current" = "$network" ]; then
+    echo "already connected to $network"
+    exit 0
 fi
 
 connected=false
