@@ -208,6 +208,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-server is pinned to a url$`, applyViamServerURLPin)
 	ctx.Step(`viam-server is pinned to a file$`, applyViamServerFilePin)
 	ctx.Step(`an old viam-server binary is present on the device$`, downloadOldViamServerBinary)
+
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+		if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+			return ctx, err
+		}
+		return ctx, nil
+	})
 }
 
 func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
