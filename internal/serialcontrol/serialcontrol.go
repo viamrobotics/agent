@@ -543,7 +543,7 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		return errw.Wrap(connectWifiRes.Error(), "failed to connect to wifi network")
 	}
 
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second * 4)
 
 	// Rerun the ping test. If this fails we have no way to recover
 	return c.getPingPacketLoss().FlatMap(func(value int) mo.Result[int] {
