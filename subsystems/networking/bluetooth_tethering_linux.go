@@ -25,6 +25,10 @@ type pairingAgent struct {
 	trustAll bool
 	pairable bool
 
+	// tetherChan notifies the main loop when BT tethering achieves connectivity,
+	// so it can avoid tearing down BLE before the mobile app sends exit_provisioning.
+	tetherChan chan<- EventTetherOnline
+
 	workers sync.WaitGroup
 	cancel  context.CancelFunc
 
@@ -166,6 +170,15 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 				b.logger.Warn(err)
 			}
 			if b.networking.connState.getOnline() {
+				b.mu.Lock()
+				ch := b.tetherChan
+				b.mu.Unlock()
+				if ch != nil {
+					select {
+					case ch <- EventTetherOnline{BDAddr: bdaddr}:
+					case <-ctx.Done():
+					}
+				}
 				break
 			}
 		}
@@ -186,7 +199,7 @@ func rfkillUnblock(ctx context.Context) error {
 	return errw.Wrapf(err, "failed to unblock bluetooth: %v", output)
 }
 
-func (n *Subsystem) enablePairing(deviceName string) error {
+func (n *Subsystem) enablePairing(deviceName string, tetherChan chan<- EventTetherOnline) error {
 	conn, adapter, err := getBluetoothDBus()
 	if err != nil {
 		return err
@@ -218,6 +231,7 @@ func (n *Subsystem) enablePairing(deviceName string) error {
 	n.btAgent.conn = conn
 	// remove temporary pairing approval if leftover from previous invocation
 	n.btAgent.pairable = false
+	n.btAgent.tetherChan = tetherChan
 	n.btAgent.mu.Unlock()
 
 	if err := conn.Export(n.btAgent, BluezAgentPath, BluezAgent); err != nil {
@@ -261,6 +275,10 @@ func (n *Subsystem) disablePairing() error {
 	if err != nil {
 		return errw.Wrap(err, "disabling bluetooth discovery")
 	}
+
+	n.btAgent.mu.Lock()
+	n.btAgent.tetherChan = nil
+	n.btAgent.mu.Unlock()
 
 	//nolint:errcheck
 	n.btAgent.Cancel()

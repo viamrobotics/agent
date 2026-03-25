@@ -253,7 +253,7 @@ func (n *Subsystem) checkConnections() {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- userInput, tetherChan chan<- EventTetherOnline) error {
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
@@ -268,7 +268,7 @@ func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- user
 	if hotspotErr != nil {
 		n.logger.Errorw("failed to start hotspot provisioning", "err", hotspotErr)
 	}
-	bluetoothErr := n.startProvisioningBluetooth(ctx)
+	bluetoothErr := n.startProvisioningBluetooth(ctx, tetherChan)
 	if bluetoothErr != nil {
 		n.logger.Errorw("failed to start bluetooth provisioning", "err", bluetoothErr)
 	}
@@ -852,6 +852,9 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 
 	scanChan := make(chan bool, 16)
 	inputChan := make(chan userInput, 10)
+	tetherChan := make(chan EventTetherOnline, 4)
+
+	var btTetherOnline bool
 
 	n.monitorWorkers.Add(1)
 	go n.backgroundLoop(ctx, scanChan)
@@ -869,6 +872,9 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 			if !n.processUserInput(userInput) {
 				continue
 			}
+		case ev := <-tetherChan:
+			btTetherOnline = true
+			n.logger.Infof("BT tethering online via %s", ev.BDAddr)
 		default:
 			select {
 			case <-ctx.Done():
@@ -879,6 +885,9 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				if !n.processUserInput(userInput) {
 					continue
 				}
+			case ev := <-tetherChan:
+				btTetherOnline = true
+				n.logger.Infof("BT tethering online via %s", ev.BDAddr)
 			case <-scanChan:
 				// ticks after every completed scan/update cycle (minimum of scanLoopDelay), see backgroundLoop()
 			case <-time.After((scanLoopDelay + scanTimeout) * 2):
@@ -894,6 +903,9 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 		isConnected := n.connState.getConnected()
 		lastConnected := n.connState.getLastConnected()
 		hasConnectivity := isConnected || isOnline
+		if btTetherOnline && !isOnline {
+			btTetherOnline = false
+		}
 		lastConnectivity := lastConnected
 		if lastOnline.After(lastConnected) {
 			lastConnectivity = lastOnline
@@ -919,6 +931,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 			"internet", isOnline,
 			"configPresent", isConfigured,
 			"forceProvisioning", forceProvisioning,
+			"btTetherOnline", btTetherOnline,
 		)
 
 		if pMode {
@@ -954,9 +967,14 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 			shouldRebootSystem := n.Config().DeviceRebootAfterOfflineMinutes > 0 &&
 				lastConnectivity.Before(now.Add(time.Duration(n.Config().DeviceRebootAfterOfflineMinutes)*-1))
 
+			// If BT tethering brought us online, don't let allGood alone exit provisioning.
+			// The mobile app needs time to reconnect BLE and read final status.
+			// Require explicit exit_provisioning or fallback timeout.
+			allGoodExits := allGood && (!btTetherOnline || userInputReceived)
+
 			// only way for exit early when in forceProvisioning is userInput, otherwise the logic is any of the remaining conditions
 			shouldExitPMode := (!forceProvisioning || userInputReceived) &&
-				(allGood || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived)
+				(allGoodExits || haveCandidates || fallbackHit || shouldRebootSystem || userInputReceived)
 
 			if shouldExitPMode {
 				if userInputReceived {
@@ -971,6 +989,8 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 					"forceProvisioning", forceProvisioning,
 					"userInputReceived", userInputReceived,
 					"allGood", allGood,
+					"allGoodExits", allGoodExits,
+					"btTetherOnline", btTetherOnline,
 					"haveCandidates", haveCandidates,
 					"fallbackHit", fallbackHit,
 					"shouldRebootSystem", shouldRebootSystem,
@@ -988,6 +1008,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				} else {
 					pMode = n.connState.getProvisioning()
 					pModeChange = n.connState.getProvisioningChange()
+					btTetherOnline = false
 				}
 			}
 
@@ -1052,7 +1073,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				"lastSsid", n.netState.lastSSID,
 			)
 			n.netState.mu.RUnlock()
-			if err := n.startProvisioning(ctx, inputChan); err != nil {
+			if err := n.startProvisioning(ctx, inputChan, tetherChan); err != nil {
 				n.logger.Warnw("failed to start provisioning mode", "err", err)
 			}
 		}

@@ -36,6 +36,13 @@ const (
 	BTDiscoveryContentsDisable = "[General]\n# Explicitly disable\nReverseServiceDiscovery = false\n"
 )
 
+// EventTetherOnline is sent by the pairing worker when BT tethering
+// achieves internet connectivity. The main loop uses this to avoid
+// tearing down BLE before the mobile app sends exit_provisioning.
+type EventTetherOnline struct {
+	BDAddr string
+}
+
 var (
 	ErrBadPassword             = errors.New("bad or missing password")
 	ErrConnCheckDisabled       = errors.New("NetworkManager connectivity checking disabled by user, network management will be unavailable")

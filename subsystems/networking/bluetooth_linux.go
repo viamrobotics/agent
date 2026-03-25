@@ -20,7 +20,7 @@ const (
 )
 
 // startProvisioningBluetooth should only be called by 'StartProvisioning' (to ensure opMutex is acquired).
-func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
+func (n *Subsystem) startProvisioningBluetooth(ctx context.Context, tetherChan chan<- EventTetherOnline) error {
 	if !n.bluetoothEnabled() {
 		return nil
 	}
@@ -53,7 +53,7 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 		n.logger.Warn("could not update BT networks characteristic")
 	}
 
-	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
+	if err := n.enablePairing(n.Config().HotspotSSID, tetherChan); err != nil {
 		return err
 	}
 
