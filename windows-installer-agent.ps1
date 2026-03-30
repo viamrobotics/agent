@@ -119,6 +119,7 @@ try {
     # Invoke-WebRequest extremely slow on PS 5.1.
     $prevPref = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
+    # todo: System.Net.WebClient has a progress hook for less greedy logging
     Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $agentCachePath
     $ProgressPreference = $prevPref
     if (-not (Test-Path $agentCachePath)) {
