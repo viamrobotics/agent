@@ -523,6 +523,8 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 // getPingPacketLoss attempts to ping app.viam.com and returns the packet loss
 // percentage. A successful result does not mean that the internet on the
 // device is working, only that we were able to run ping and parse its output.
+// It will also return success while reporting 100% packet loss if we see a
+// "Temporary failure in name resolution" error, which is a strong signal that we're offline.
 func (c *Client) getPingPacketLoss() mo.Result[int] {
 	pingRegex := regexp.MustCompile(`\d+ packets transmitted, \d+ received, (\d+)% packet loss, time \d+\w+$`)
 	const pingCmd = "ping -c 2 -w 10 -q app.viam.com"
@@ -533,6 +535,9 @@ func (c *Client) getPingPacketLoss() mo.Result[int] {
 
 	packetLoss, err := lom.Map1[string, int](loz.IterSlice(pingRes.MustGet())).
 		FilterMap(func(line string) (int, bool) {
+			if strings.Contains(line, "Temporary failure in name resolution") {
+				return 100, true
+			}
 			matches := pingRegex.FindStringSubmatch(line)
 			if len(matches) < 2 {
 				return 0, false
