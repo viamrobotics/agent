@@ -81,7 +81,7 @@ func main() {
 
 	commonMain()
 
-	if err := zapChildren(context.Background()); err != nil {
+	if _, err := zapChildren(context.Background()); err != nil {
 		goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error killing subtree %s", err)))
 	}
 	goutils.UncheckedError(elog.Info(1, fmt.Sprintf("%s service stopped", serviceName)))
@@ -99,8 +99,12 @@ func runPlatformProvisioning(_ context.Context, _ utils.AgentConfig, _ *agent.Ma
 	return false
 }
 
-// zapChildren kills any stray processes we might have upon exit.
-func zapChildren(ctx context.Context) error {
+// zapChildren finds all children of the current process and kills them + their
+// descendants. It returns a count of how many direct children were killed w/o
+// any errors. The total number of children killed may be more, such as if any
+// children have sub-processes or taskkill returns an error but the target
+// process died anyway.
+func zapChildren(ctx context.Context) (int, error) {
 	elog, err := eventlog.Open("viam-agent")
 	if err != nil {
 		// Check error but continue since we want this to work
@@ -111,11 +115,12 @@ func zapChildren(ctx context.Context) error {
 
 	childProcesses, err := utils.FindChildProcesses(ctx, pid)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if elog != nil {
 		goutils.UncheckedError(elog.Info(1, fmt.Sprintf("KillTree stopping %d children of pid %d", len(childProcesses), pid)))
 	}
+	killed := 0
 	for _, childProcess := range childProcesses {
 		childPID := childProcess.PID
 		err := utils.KillTree(ctx, childPID)
@@ -124,11 +129,12 @@ func zapChildren(ctx context.Context) error {
 				goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error running taskkill pid %d: #%s", childPID, err)))
 			} else {
 				goutils.UncheckedError(elog.Info(1, fmt.Sprintf("killed pid %d", childPID)))
+				killed++
 			}
 		}
 	}
 	if elog != nil {
 		goutils.UncheckedError(elog.Info(1, "KillTree finished"))
 	}
-	return nil
+	return killed, nil
 }
