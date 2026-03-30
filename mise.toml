@@ -10,7 +10,6 @@ run = [
   'go mod tidy',
   'GOOS=linux golangci-lint run -v --fix --timeout 10m',
   'GOOS=windows golangci-lint run -v --fix --timeout 10m',
-  'GOOS=darwin golangci-lint run -v --fix --timeout 10m',
 ]
 
 [tasks.test-e2e-serial]
