@@ -39,7 +39,8 @@ func NewLaunchdManager(logger logging.Logger) *LaunchdManager {
 
 func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error) {
 	serviceFilePath := filepath.Join(l.serviceDir, serviceName+".plist")
-	uninstalled := l.IsServiceRemoved(ctx, serviceName)
+	installed := !l.IsServiceRemoved(ctx, serviceName)
+	needsBootstrap := !installed
 
 	newFile, err := utils.WriteFileIfNew(serviceFilePath, serviceFileContents)
 	if err != nil {
@@ -49,8 +50,8 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 	if newFile {
 		l.logger.Infof("Wrote new launchd plist file to %s", serviceFilePath)
 	}
-	// We only need to "bootout" an existing service if this isn't a new installation.
-	if !uninstalled {
+	// We only need to "bootout" an existing service if agent is already installed and the file has been updated.
+	if installed && newFile {
 		// MacOS is different from Linux in that there is no `systemctl daemon-reload`
 		// analog in launchd. To replace the .plist for a running launchd service, one needs
 		// to "bootout" the existing service, which will both stop any running processes and
@@ -89,13 +90,18 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 			}
 		}
 		l.logger.Infof("Old %s launchd service booted out", serviceName)
+
+		// Since the service was already installed, this is not a "new install".
+		// However, since we booted out the old service, we do need to bootstrap the new service before kickstarting.
+		needsBootstrap = true
 	}
 
-	if err := l.Bootstrap(ctx, serviceFilePath); err != nil {
-		return "", false, err
+	if needsBootstrap {
+		if err := l.Bootstrap(ctx, serviceFilePath); err != nil {
+			return "", false, err
+		}
+		l.logger.Infof("New %s launchd service bootstrapped", serviceName)
 	}
-
-	l.logger.Infof("New %s launchd service bootstrapped", serviceName)
 
 	if err = l.Kickstart(ctx, serviceName, true /* killExisting */); err != nil {
 		return "", false, err
@@ -103,5 +109,5 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 
 	l.logger.Infof("%s launchd service restarted", serviceName)
 
-	return serviceFilePath, uninstalled, nil
+	return serviceFilePath, !installed, nil
 }
