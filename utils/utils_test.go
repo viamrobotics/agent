@@ -556,7 +556,7 @@ func TestIsValidAgentBinary(t *testing.T) {
 
 	// TODO(RSDK-12820): Remove this conditional once we support more agent features on
 	// MacOS.
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == osDarwin {
 		t.Skip("Built viam-agent binary will not run -version on MacOS; skipping")
 	}
 

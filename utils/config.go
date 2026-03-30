@@ -135,13 +135,15 @@ type AdvancedSettings struct {
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
 
+const osDarwin = "darwin"
+
 // GetDisableNetworkConfiguration is a wrapper which force-disables on some OSes, or if running without --enable-networking.
 func (as AdvancedSettings) GetDisableNetworkConfiguration() bool {
 	if !CLIEnableNetworkingSubsystem {
 		return true
 	}
-	//nolint:goconst
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+
+	if runtime.GOOS == "windows" || runtime.GOOS == osDarwin {
 		return true
 	}
 	return as.DisableNetworkConfiguration.Get()
@@ -152,8 +154,8 @@ func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 	if !CLIEnableSyscfgSubsystem {
 		return true
 	}
-	//nolint:goconst
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+
+	if runtime.GOOS == "windows" || runtime.GOOS == osDarwin {
 		return true
 	}
 	return as.DisableSystemConfiguration.Get()
