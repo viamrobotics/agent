@@ -81,6 +81,8 @@ linters:
     goconst:
       ignore-string-values:
         - '^windows$'
+        - '^darwin$'
+        - '^.exe$'
     gomoddirectives:
       replace-allow-list:
         - github.com/hashicorp/go-getter
