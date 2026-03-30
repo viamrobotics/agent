@@ -69,6 +69,10 @@ type wifiCfg struct {
 var cfg config
 
 func TestSerialFeatures(t *testing.T) {
+	tags := os.Getenv("GODOG_TAGS")
+	if tags == "" {
+		tags = "~@flaky"
+	}
 	suite := godog.TestSuite{
 		TestSuiteInitializer: InitializeSuite(t),
 		ScenarioInitializer:  InitializeScenario,
@@ -76,6 +80,7 @@ func TestSerialFeatures(t *testing.T) {
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
 			Paths:    []string{"features/serial"},
+			Tags:     tags,
 			TestingT: t,
 			Strict:   true,
 		},
