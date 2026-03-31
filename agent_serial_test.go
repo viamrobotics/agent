@@ -3,7 +3,6 @@
 package agent_test
 
 import (
-	"bufio"
 	"context"
 	_ "embed"
 	"errors"
@@ -69,10 +68,6 @@ type wifiCfg struct {
 var cfg config
 
 func TestSerialFeatures(t *testing.T) {
-	tags := os.Getenv("GODOG_TAGS")
-	if tags == "" {
-		tags = "~@flaky"
-	}
 	suite := godog.TestSuite{
 		TestSuiteInitializer: InitializeSuite(t),
 		ScenarioInitializer:  InitializeScenario,
@@ -80,7 +75,7 @@ func TestSerialFeatures(t *testing.T) {
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
 			Paths:    []string{"features/serial"},
-			Tags:     tags,
+			Tags:     os.Getenv("GODOG_TAGS"),
 			TestingT: t,
 			Strict:   true,
 		},
@@ -241,31 +236,11 @@ func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, 
 }
 
 func hostEnsureOnline(ctx context.Context) (context.Context, error) {
-	cmd := exec.Command("ping", "-c", "1", "-W", "5", "app.viam.com")
-	if err := cmd.Run(); err == nil {
-		// Already connected.
-		return ctx, nil
-	}
-
-	tty, err := os.Open("/dev/tty")
+	cmd := exec.CommandContext(ctx, "bash", "cmd/test-client/test_provisioning_connect_host.sh")
+	cmd.Env = append(os.Environ(), "SSID="+cfg.Wifi.SSID, "PASSWORD="+cfg.Wifi.Password)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return ctx, fmt.Errorf("cannot open /dev/tty: %w", err)
-	}
-	defer tty.Close()
-
-	fmt.Println("===================================================================================")
-	fmt.Println("===================================================================================")
-	fmt.Println("")
-	fmt.Println("Host cannot reach app.viam.com. Connect to a network and press Enter to continue...")
-	fmt.Println("")
-	fmt.Println("===================================================================================")
-	fmt.Println("===================================================================================")
-	reader := bufio.NewReader(tty)
-	reader.ReadString('\n')
-
-	cmd = exec.Command("ping", "-c", "1", "-W", "5", "app.viam.com")
-	if err := cmd.Run(); err != nil {
-		return ctx, fmt.Errorf("host still cannot reach app.viam.com")
+		return ctx, fmt.Errorf("failed to reconnect host: %w\n%s", err, out)
 	}
 	return ctx, nil
 }

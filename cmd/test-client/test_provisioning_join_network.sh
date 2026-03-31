@@ -9,7 +9,7 @@ for i in $(seq 1 50); do
         echo "connected to $network"
         exit 0
     fi
-    sleep 5
+    sleep 2
 done
 
 exit 1
