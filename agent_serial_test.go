@@ -231,6 +231,9 @@ func setField(root *structpb.Struct, value *structpb.Value, path ...string) erro
 			}
 			fields[p] = structpb.NewStructValue(next)
 		}
+		if next.Fields == nil {
+			next.Fields = make(map[string]*structpb.Value)
+		}
 		fields = next.Fields
 	}
 	fields[path[len(path)-1]] = value
