@@ -31,21 +31,36 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 	// the method itself returns appropriate values.
 
 	tests := []struct {
-		name                string
-		previousFileExists  bool
-		previousFileHasDiff bool
+		name                   string
+		serviceInstalled       bool
+		previousFileExists     bool
+		previousFileHasDiff    bool
+		expectedNewInstall     bool
+		expectedBootoutCount   int
+		expectedBootstrapCount int
 	}{
 		{
-			name: "new install",
+			name:                   "new install",
+			expectedNewInstall:     true,
+			expectedBootoutCount:   0,
+			expectedBootstrapCount: 1,
 		},
 		{
-			name:               "identical existing install",
-			previousFileExists: true,
+			name:                   "identical existing install",
+			serviceInstalled:       true,
+			previousFileExists:     true,
+			expectedNewInstall:     false,
+			expectedBootoutCount:   0,
+			expectedBootstrapCount: 0,
 		},
 		{
-			name:                "changed existing install",
-			previousFileExists:  true,
-			previousFileHasDiff: true,
+			name:                   "changed existing install",
+			serviceInstalled:       true,
+			previousFileExists:     true,
+			previousFileHasDiff:    true,
+			expectedNewInstall:     false,
+			expectedBootoutCount:   1,
+			expectedBootstrapCount: 1,
 		},
 	}
 
@@ -57,7 +72,7 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 			err := os.MkdirAll(serviceDir, 0o755)
 			test.That(t, err, test.ShouldBeNil)
 
-			executor := &fakeExecutor{}
+			executor := &fakeExecutor{serviceInstalled: tc.serviceInstalled}
 			manager := NewLaunchdManager(logger)
 			manager.privateExecutor = executor
 			manager.serviceDir = serviceDir
@@ -75,25 +90,12 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 			serviceFile, newInstall, err := manager.InstallService(t.Context(), "my-service", myPlistBytes)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, serviceFile, test.ShouldEqual, filepath.Join(serviceDir, "my-service.plist"))
-			test.That(t, newInstall, test.ShouldEqual, !tc.previousFileExists)
+			test.That(t, newInstall, test.ShouldEqual, tc.expectedNewInstall)
 
 			// Kickstart is always called.
 			test.That(t, executor.kickstartCallCount, test.ShouldEqual, 1)
-
-			switch {
-			case !tc.previousFileExists:
-				// New install: bootstrap called, bootout not called.
-				test.That(t, executor.bootstrapCallCount, test.ShouldEqual, 1)
-				test.That(t, executor.bootoutCallCount, test.ShouldEqual, 0)
-			case tc.previousFileHasDiff:
-				// Changed existing: bootout and bootstrap both called.
-				test.That(t, executor.bootoutCallCount, test.ShouldEqual, 1)
-				test.That(t, executor.bootstrapCallCount, test.ShouldEqual, 1)
-			default:
-				// Identical existing: no bootout, no bootstrap (only kickstart).
-				test.That(t, executor.bootoutCallCount, test.ShouldEqual, 0)
-				test.That(t, executor.bootstrapCallCount, test.ShouldEqual, 0)
-			}
+			test.That(t, executor.bootoutCallCount, test.ShouldEqual, tc.expectedBootoutCount)
+			test.That(t, executor.bootstrapCallCount, test.ShouldEqual, tc.expectedBootstrapCount)
 		})
 	}
 }
@@ -102,6 +104,7 @@ type fakeExecutor struct {
 	bootstrapCallCount int
 	bootoutCallCount   int
 	kickstartCallCount int
+	serviceInstalled   bool
 }
 
 // Bootstrap implements LaunchdExecutor.
@@ -128,8 +131,8 @@ func (f *fakeExecutor) IsAvailable(_ context.Context) error {
 
 // IsServiceRemoved implements LaunchdExecutor.
 func (f *fakeExecutor) IsServiceRemoved(_ context.Context, _ string) bool {
-	// Always return true so the wait loop in InstallService exits immediately.
-	return true
+	// Return false (service present) until bootout is called, then true so the wait loop exits.
+	return !f.serviceInstalled || f.bootoutCallCount > 0
 }
 
 // Kickstart implements LaunchdExecutor.

@@ -3,7 +3,6 @@ package launchd
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -40,10 +39,8 @@ func NewLaunchdManager(logger logging.Logger) *LaunchdManager {
 
 func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error) {
 	serviceFilePath := filepath.Join(l.serviceDir, serviceName+".plist")
-	var newInstall bool
-	if _, err := os.Stat(serviceFilePath); err != nil {
-		newInstall = true
-	}
+	installed := !l.IsServiceRemoved(ctx, serviceName)
+	needsBootstrap := !installed
 
 	newFile, err := utils.WriteFileIfNew(serviceFilePath, serviceFileContents)
 	if err != nil {
@@ -52,53 +49,57 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 
 	if newFile {
 		l.logger.Infof("Wrote new launchd plist file to %s", serviceFilePath)
+	}
+	// We only need to "bootout" an existing service if agent is already installed and the file has been updated.
+	if installed && newFile {
+		// MacOS is different from Linux in that there is no `systemctl daemon-reload`
+		// analog in launchd. To replace the .plist for a running launchd service, one needs
+		// to "bootout" the existing service, which will both stop any running processes and
+		// remove the plist file from launchd's program memory. That _stopping_ of
+		// viam-agent and viam-server means we need to potentially wait a while here for the
+		// service to no longer show up in `launchctl print`. Per the ExitTimeOut property
+		// in com.viam.agent.plist, launchd will send SIGTERM to viam-agent and, if the
+		// process is still running after 240s (4m), will send SIGKILL. We'll wait up to 4
+		// minutes here.
 
-		// We only need to "bootout" an existing service if this isn't a new installation.
-		if !newInstall {
-			// MacOS is different from Linux in that there is no `systemctl daemon-reload`
-			// analog in launchd. To replace the .plist for a running launchd service, one needs
-			// to "bootout" the existing service, which will both stop any running processes and
-			// remove the plist file from launchd's program memory. That _stopping_ of
-			// viam-agent and viam-server means we need to potentially wait a while here for the
-			// service to no longer show up in `launchctl print`. Per the ExitTimeOut property
-			// in com.viam.agent.plist, launchd will send SIGTERM to viam-agent and, if the
-			// process is still running after 240s (4m), will send SIGKILL. We'll wait up to 4
-			// minutes here.
-
-			l.logger.Infof("Booting out old %s launchd service", serviceName)
-			if err := l.Bootout(ctx, serviceName); err != nil {
-				// Booting out may return an error if the system was never bootstrapped in the
-				// first place or was manually removed by user. Log and continue here in that
-				// case.
-				l.logger.Infow("Ignoring error from bootout", "error", err.Error())
-			}
-
-			t := time.NewTimer(launchdExitTimeOut)
-			var timesChecked int
-			for {
-				if l.IsServiceRemoved(ctx, serviceName) {
-					break
-				}
-				select {
-				case <-time.After(time.Second):
-					timesChecked++
-					if timesChecked%10 == 0 {
-						l.logger.Debugf("Waited %d seconds for existing service to stop and be removed", timesChecked)
-					}
-				case <-t.C:
-					return "", false, errors.Errorf("bootout failed to stop and remove existing service after %s",
-						launchdExitTimeOut)
-				case <-ctx.Done():
-					return "", false, errors.WithMessage(ctx.Err(), "bootout failed to stop and remove existing service")
-				}
-			}
-			l.logger.Infof("Old %s launchd service booted out", serviceName)
+		l.logger.Infof("Booting out old %s launchd service", serviceName)
+		if err := l.Bootout(ctx, serviceName); err != nil {
+			// Booting out may return an error if the system was never bootstrapped in the
+			// first place or was manually removed by user. Log and continue here in that
+			// case.
+			l.logger.Infow("Ignoring error from bootout", "error", err.Error())
 		}
 
+		t := time.NewTimer(launchdExitTimeOut)
+		var timesChecked int
+		for {
+			if l.IsServiceRemoved(ctx, serviceName) {
+				break
+			}
+			select {
+			case <-time.After(time.Second):
+				timesChecked++
+				if timesChecked%10 == 0 {
+					l.logger.Debugf("Waited %d seconds for existing service to stop and be removed", timesChecked)
+				}
+			case <-t.C:
+				return "", false, errors.Errorf("bootout failed to stop and remove existing service after %s",
+					launchdExitTimeOut)
+			case <-ctx.Done():
+				return "", false, errors.WithMessage(ctx.Err(), "bootout failed to stop and remove existing service")
+			}
+		}
+		l.logger.Infof("Old %s launchd service booted out", serviceName)
+
+		// Since the service was already installed, this is not a "new install".
+		// However, since we booted out the old service, we do need to bootstrap the new service before kickstarting.
+		needsBootstrap = true
+	}
+
+	if needsBootstrap {
 		if err := l.Bootstrap(ctx, serviceFilePath); err != nil {
 			return "", false, err
 		}
-
 		l.logger.Infof("New %s launchd service bootstrapped", serviceName)
 	}
 
@@ -108,5 +109,5 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 
 	l.logger.Infof("%s launchd service restarted", serviceName)
 
-	return serviceFilePath, newInstall, nil
+	return serviceFilePath, !installed, nil
 }

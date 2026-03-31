@@ -347,7 +347,6 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				expectedMimes = []string{"application/vnd.microsoft.portable-executable"}
 			}
 
-			//nolint:goconst
 			if runtime.GOOS == "darwin" {
 				expectedMimes = []string{"application/x-mach-binary"}
 			}
@@ -409,7 +408,6 @@ func (c *VersionCache) getProtectedFilesAndCleanVersions(ctx context.Context, ma
 	// add protection for the current symlinked binaries
 	for _, path := range []string{"viam-agent", "viam-server"} {
 		if runtime.GOOS == "windows" {
-			//nolint:goconst
 			path += ".exe"
 		}
 
