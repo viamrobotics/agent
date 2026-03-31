@@ -500,6 +500,19 @@ func (c *Client) GetDeviceArch() mo.Result[string] {
 	return mo.Ok(output[0])
 }
 
+// GetHostName returns the machine hostname
+func (c *Client) GetHostName() mo.Result[string] {
+	cmdRes := c.runCmd("hostname")
+	if cmdRes.IsError() {
+		return mo.Err[string](cmdRes.Error())
+	}
+	output := cmdRes.MustGet()
+	if len(output) != 1 {
+		return mo.Errf[string]("expected single line from hostname but got %d", len(output))
+	}
+	return mo.Ok(output[0])
+}
+
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
 func (c *Client) EnsureOnline(ssid, password string) error {

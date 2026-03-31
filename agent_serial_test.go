@@ -35,17 +35,17 @@ var (
 	serialClient *serialcontrol.Client
 	appClient    apppb.AppServiceClient
 	deviceArch   string
+	hostName     string
 )
 
 type config struct {
-	APIKeyID  string      `toml:"api_key_id"`
-	APIKey    string      `toml:"api_key"`
-	RobotID   string      `toml:"robot_id"`
-	RobotName string      `toml:"robot_name"`
-	PartID    string      `toml:"part_id"`
-	Serial    serialCfg   `toml:"serial"`
-	Versions  versionsCfg `toml:"versions"`
-	Wifi      wifiCfg     `toml:"wifi"`
+	APIKeyID string      `toml:"api_key_id"`
+	APIKey   string      `toml:"api_key"`
+	RobotID  string      `toml:"robot_id"`
+	PartID   string      `toml:"part_id"`
+	Serial   serialCfg   `toml:"serial"`
+	Versions versionsCfg `toml:"versions"`
+	Wifi     wifiCfg     `toml:"wifi"`
 }
 
 type versionsCfg struct {
@@ -127,6 +127,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				panic(err)
 			}
 			deviceArch = serialClient.GetDeviceArch().MustGet()
+			hostName = serialClient.GetHostName().MustGet()
 
 			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
 				// The AfterSuite hook doesn't run if we panic here so try to restore the terminal state manually
@@ -446,7 +447,7 @@ func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error
 	// this script checks for the provisioning network every 5 seconds, then connects to it
 	// if it finds it
 	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_join_network.sh")
-	cmd.Env = append(os.Environ(), "ROBOT_NAME="+cfg.RobotName)
+	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
 
 	// TODO: this should error out if cmd returns a nonzero exit code
 	out, err := cmd.CombinedOutput()
@@ -460,7 +461,7 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 	// this script checks for the provisioning network every 5 seconds, then connects to it
 	// if it finds it
 	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_network_gone.sh")
-	cmd.Env = append(os.Environ(), "ROBOT_NAME="+cfg.RobotName)
+	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
 
 	// TODO: this should error out if cmd returns a nonzero exit code
 	out, err := cmd.CombinedOutput()

@@ -4,7 +4,7 @@ set -e
 network=""
 for i in $(seq 1 50); do
     network=$(system_profiler SPAirPortDataType -json \
-        | grep -o '"_name" *: *"[^"]*viam-setup-'"$ROBOT_NAME"'[^"]*"' \
+        | grep -o '"_name" *: *"[^"]*viam-setup-'"$HOSTNAME"'[^"]*"' \
         | head -1 \
         | sed 's/.*: *"//;s/"//')
     if [ -n "$network" ]; then
