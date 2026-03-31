@@ -1,12 +1,11 @@
 #!/bin/bash
 set -e
 
+network="viam-setup-$HOSTNAME"
+
 for i in $(seq 1 10); do
-    network=$(system_profiler SPAirPortDataType -json \
-        | grep -o '"_name" *: *"[^"]*viam-setup-'"$ROBOT_NAME"'[^"]*"' \
-        | head -1 \
-        | sed 's/.*: *"//;s/"//')
-    if [ -z "$network" ]; then
+    result=$(networksetup -setairportnetwork en0 "$network" "viamsetup" 2>&1)
+    if [ -n "$result" ]; then
         echo "provisioning network gone"
         exit 0
     fi
