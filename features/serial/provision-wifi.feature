@@ -1,3 +1,4 @@
+@darwin
 Feature: wifi provisioning
   Background:
     Given viam-agent is installed

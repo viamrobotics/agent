@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -75,7 +76,7 @@ func TestSerialFeatures(t *testing.T) {
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
 			Paths:    []string{"features/serial"},
-			Tags:     os.Getenv("GODOG_TAGS"),
+			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
 		},
@@ -139,8 +140,10 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
 				t.Logf("error reconnecting to wifi during cleanup: %v", err)
 			}
-			if _, err := hostEnsureOnline(ctx); err != nil {
-				t.Logf("error restoring host connection to internet during cleanup: %v", err)
+			if runtime.GOOS == "darwin" {
+				if _, err := hostEnsureOnline(ctx); err != nil {
+					t.Logf("error restoring host connection to internet during cleanup: %v", err)
+				}
 			}
 			// Just wait after reconnecting everything to make sure all the connections are back
 			// This isn't great...
@@ -683,3 +686,17 @@ func (t *tomlOption[T]) UnmarshalTOML(val any) error {
 }
 
 var _ toml.Unmarshaler = &tomlOption[string]{}
+
+// serialTestTags returns the godog tag expression for serial tests. On
+// non-darwin hosts, scenarios tagged @darwin (e.g. wifi provisioning) are
+// excluded because they depend on macOS-specific tooling (networksetup).
+func serialTestTags() string {
+	tags := os.Getenv("GODOG_TAGS")
+	if runtime.GOOS != "darwin" {
+		if tags != "" {
+			tags += " && "
+		}
+		tags += "~@darwin"
+	}
+	return tags
+}
