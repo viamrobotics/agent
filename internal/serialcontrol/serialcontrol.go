@@ -516,22 +516,21 @@ func (c *Client) GetHostName() mo.Result[string] {
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
 func (c *Client) EnsureOnline(ssid, password string) error {
-	if c.CanPing().MustGet() {
-		// if we can ping, check for packet loss
-
+	canPingRes := c.CanPing()
+	if canPingRes.MustGet() {
 		packetLossRes := c.getPingPacketLoss()
 		if packetLossRes.IsError() {
 			return packetLossRes.Error()
 		}
-		if packetLossRes.MustGet() == 0 {
-			// If we're already online then don't meddle with the internet connection.
+		packetLoss := packetLossRes.MustGet()
+		if packetLoss == 0 {
 			return nil
 		}
 
 		if ssid == "" || password == "" {
 			return fmt.Errorf(
 				"device offline with packet loss of %d%% but no wifi credentials provided, cannot continue",
-				packetLossRes.MustGet(),
+				packetLoss,
 			)
 		}
 	}
@@ -540,26 +539,44 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		return fmt.Errorf("device offline with bad ping but no wifi credentials provided, cannot continue")
 	}
 
-	// If we're offline try connecting to the specified wifi network.
-
-	// Clear any existing wifi connections first, since connection will fail if
-	// the network we are trying to connect to is already known
 	clearRes := c.ClearWifiConnections()
 	if clearRes.IsError() {
 		return clearRes.Error()
 	}
 
-	time.Sleep(time.Second * 2)
-
-	connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
-	if connectWifiRes.IsError() {
-		return errw.Wrap(connectWifiRes.Error(), "failed to connect to wifi network")
+	var connectErr error
+	for i := range 5 {
+		if i > 0 {
+			time.Sleep(time.Second * 3)
+		}
+		connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
+		output := strings.Join(connectWifiRes.OrEmpty(), " ")
+		if strings.Contains(output, "successfully activated") {
+			connectErr = nil
+			break
+		}
+		// Network is already saved — nmcli won't re-add it with "device wifi
+		// connect", so activate the existing profile instead.
+		if strings.Contains(output, "property is missing") {
+			upRes := c.runCmd(fmt.Sprintf(`nmcli connection up "%s"`, ssid))
+			upOutput := strings.Join(upRes.OrEmpty(), " ")
+			if strings.Contains(upOutput, "successfully activated") {
+				connectErr = nil
+				break
+			}
+			connectErr = fmt.Errorf("nmcli connection up failed: %s", upOutput)
+		} else {
+			connectErr = fmt.Errorf("nmcli connect failed: %s", output)
+		}
+	}
+	if connectErr != nil {
+		return errw.Wrap(connectErr, "failed to connect to wifi network after retries")
 	}
 
-	time.Sleep(time.Second * 4)
+	time.Sleep(time.Second * 2)
 
-	// Rerun the ping test. If this fails we have no way to recover
-	return c.getPingPacketLoss().FlatMap(func(value int) mo.Result[int] {
+	finalRes := c.getPingPacketLoss()
+	return finalRes.FlatMap(func(value int) mo.Result[int] {
 		if value != 0 {
 			return mo.Err[int](fmt.Errorf("internet connection unstable with packet loss of %d%%", value))
 		}
