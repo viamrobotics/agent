@@ -187,6 +187,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
 	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
 	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
+	ctx.Step(`the journald config is loaded$`, testJournaldConfigLoaded)
+	ctx.Step(`the wifi power save config is loaded$`, testWifiPowerSaveConfigLoaded)
 
 	// Wifi provisioning
 	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
@@ -413,6 +415,62 @@ func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
 	}
 
 	return ctx, nil
+}
+
+func testJournaldConfigLoaded(ctx context.Context) (context.Context, error) {
+	var err error
+	for i := range 30 {
+		if i > 0 {
+			time.Sleep(time.Second * 2)
+		}
+		// Check the most recent journald startup log line which reports the
+		// live max size and journal path. Persistent storage uses
+		// /var/log/journal/ (volatile would be /run/log/journal/).
+		res := serialClient.RunScript(
+			`journalctl --no-pager -u systemd-journald -n 5 --output=short-monotonic 2>&1 | grep "System Journal"`,
+			"sh",
+		)
+		if res.IsError() {
+			err = res.Error()
+			continue
+		}
+		output := strings.Join(res.MustGet(), "\n")
+		if !strings.Contains(output, "/var/log/journal/") {
+			err = fmt.Errorf("journald not using persistent storage, got: %s", output)
+			continue
+		}
+		if !strings.Contains(output, "max 512") {
+			err = fmt.Errorf("journald not using expected max size, got: %s", output)
+			continue
+		}
+		return ctx, nil
+	}
+	return ctx, fmt.Errorf("journald config not loaded after timeout: %w", err)
+}
+
+func testWifiPowerSaveConfigLoaded(ctx context.Context) (context.Context, error) {
+	const wifiPowerSaveFilepath = "/etc/NetworkManager/conf.d/81-viam-wifi-powersave.conf"
+	var err error
+	for i := range 30 {
+		if i > 0 {
+			time.Sleep(time.Second * 2)
+		}
+		res := serialClient.RunScript(
+			fmt.Sprintf("test -f %s && echo EXISTS", wifiPowerSaveFilepath),
+			"sh",
+		)
+		if res.IsError() {
+			err = res.Error()
+			continue
+		}
+		output := strings.Join(res.MustGet(), "")
+		if !strings.Contains(output, "EXISTS") {
+			err = fmt.Errorf("wifi power save config not found at %s", wifiPowerSaveFilepath)
+			continue
+		}
+		return ctx, nil
+	}
+	return ctx, fmt.Errorf("wifi power save config not loaded after timeout: %w", err)
 }
 
 func testClearWifiConnections(ctx context.Context) (context.Context, error) {

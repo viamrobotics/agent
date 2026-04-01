@@ -5,3 +5,5 @@ Feature: install viam-agent
     When viam-agent is installed
     Then the viam-agent systemd unit is running
     And the viam-agent systemd unit is enabled
+    And the journald config is loaded
+    And the wifi power save config is loaded
