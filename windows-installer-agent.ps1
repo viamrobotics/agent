@@ -1,8 +1,10 @@
 # Viam Agent Installation Script for Windows
+$DefaultRootPath = "C:\opt\viam"
+
 [CmdletBinding()]
 param(
     [switch]$Silent = $false,
-    [string]$RootPath = "C:\opt\viam",
+    [string]$RootPath = $DefaultRootPath,
     [switch]$ServiceAccount = $false,  # use NT SERVICE\viam-agent virtual account instead of SYSTEM
     [switch]$EnableAuditLogging = $false,
     [switch]$UwfCommit = $false,  # commit registry changes through UWF overlay
@@ -206,6 +208,13 @@ try {
     $svcBinCmd = "`"$agentBinPath`" --viam-dir `"$RootPath`""
     if ($ConfigPath -ne "") { $svcBinCmd += " --config `"$ConfigPath`"" }
     New-Service -Name "viam-agent" -BinaryPathName $svcBinCmd -StartupType Automatic | Out-Null
+
+    # Set VIAM_HOME environment variable on the service so child processes
+    # (viam-server, modules) inherit the correct root path.
+    if ($RootPath -ne $DefaultRootPath) {
+        $svcRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\viam-agent"
+        Set-ItemProperty -Path $svcRegPath -Name "Environment" -Value @("VIAM_HOME=$RootPath") -Type MultiString
+    }
 
     # Configure failure actions (no PS builtin for recovery policy)
     & sc.exe failure "viam-agent" reset= 0 actions= restart/5000/restart/5000/restart/5000 | Out-Null
