@@ -4,7 +4,6 @@ param(
     [switch]$Silent = $false,
     [string]$RootPath = "C:\opt\viam",
     [switch]$ServiceAccount = $false,  # use NT SERVICE\viam-agent virtual account instead of SYSTEM
-    [switch]$UwfCommit = $false,  # commit registry changes through UWF overlay
     [string]$Url = "",  # override agent download URL entirely
     [string]$ConfigPath = ""  # path to viam.json -- passed as --config to the agent
 )
@@ -23,7 +22,6 @@ if (-not $isAdmin) {
     $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -RootPath `"$RootPath`""
     if ($Silent) { $elevateArgs += " -Silent" }
     if ($ServiceAccount) { $elevateArgs += " -ServiceAccount" }
-    if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
     if ($Url -ne "") { $elevateArgs += " -Url `"$Url`"" }
     if ($ConfigPath -ne "") { $elevateArgs += " -ConfigPath `"$ConfigPath`"" }
     Start-Process powershell.exe -ArgumentList $elevateArgs -Verb RunAs
@@ -277,50 +275,6 @@ try {
 } catch {
     Write-Error "Failed to configure or start service: $_"
     exit 1
-}
-
-# Commit registry changes through UWF overlay so they survive reboot.
-# This is needed on LTSC devices where UWF protects C: -- without this,
-# service registration, firewall rules, etc. are lost on reboot.
-#
-# TODO: finalize this list with procmon on an actual LTSC device.
-# This list MUST be rechecked with procmon whenever the installer changes,
-# since new operations may write to additional registry paths.
-if ($UwfCommit) {
-    if (-not $Silent) { Write-Host "Committing registry changes through UWF..." }
-
-    # Check that uwfmgr is available
-    $uwfmgr = Get-Command uwfmgr.exe -ErrorAction SilentlyContinue
-    if (-not $uwfmgr) {
-        Write-Warning "uwfmgr.exe not found -- UWF may not be enabled on this system. Skipping commits."
-    } else {
-        # Registry paths written by this installer (best-known list, pending procmon verification):
-        $registryCommits = @(
-            # Service registration (New-Service, sc.exe failure/failureflag/sdset)
-            "HKLM\SYSTEM\CurrentControlSet\Services\viam-agent"
-            # Event log source (New-EventLog)
-            "HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\viam-agent"
-            # Firewall rule (New-NetFirewallRule) -- rules stored under SharedAccess
-            "HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"
-        )
-
-        # If using a virtual service account, the BFE DACL change needs committing.
-        # No SAM/security policy commits needed -- virtual accounts are built-in.
-        if ($ServiceAccount) {
-            $registryCommits += "HKLM\SYSTEM\CurrentControlSet\Services\BFE"
-        }
-
-        foreach ($regPath in $registryCommits) {
-            $result = & uwfmgr.exe registry commit "$regPath" 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                if (-not $Silent) { Write-Host "  Committed: $regPath" }
-            } else {
-                Write-Warning "  Failed to commit $regPath : $result"
-            }
-        }
-
-        if (-not $Silent) { Write-Host "UWF registry commits complete." }
-    }
 }
 
 if (-not $Silent) { Write-Host "Installation completed successfully." }
