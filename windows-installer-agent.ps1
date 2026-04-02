@@ -1,10 +1,8 @@
 # Viam Agent Installation Script for Windows
-$DefaultRootPath = "C:\opt\viam"
-
 [CmdletBinding()]
 param(
     [switch]$Silent = $false,
-    [string]$RootPath = $DefaultRootPath,
+    [string]$RootPath = "C:\opt\viam",
     [switch]$ServiceAccount = $false,  # use NT SERVICE\viam-agent virtual account instead of SYSTEM
     [switch]$EnableAuditLogging = $false,
     [switch]$UwfCommit = $false,  # commit registry changes through UWF overlay
@@ -23,7 +21,8 @@ if (-not $isAdmin) {
     
     # Self-elevate the script
     $scriptPath = $MyInvocation.MyCommand.Path
-    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -Silent -RootPath `"$RootPath`""
+    $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -RootPath `"$RootPath`""
+    if ($Silent) { $elevateArgs += " -Silent" }
     if ($ServiceAccount) { $elevateArgs += " -ServiceAccount" }
     if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
     if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
@@ -77,8 +76,11 @@ if ($serviceExists) {
         
         # Delete the service
         & sc.exe delete "viam-agent" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "sc.exe delete failed with exit code $LASTEXITCODE"
+        }
         Start-Sleep -Seconds 2  # Give it time to complete
-        
+
         if (-not $Silent) { Write-Host "Service removed successfully." }
     } catch {
         Write-Warning "Error removing existing service: $_"
@@ -123,13 +125,14 @@ try {
     $ProgressPreference = 'SilentlyContinue'
     # todo: System.Net.WebClient has a progress hook for less greedy logging
     Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $agentCachePath
-    $ProgressPreference = $prevPref
     if (-not (Test-Path $agentCachePath)) {
         throw "Failed to download agent executable."
     }
 } catch {
     Write-Error "Failed to download Viam Agent: $_"
     exit 1
+} finally {
+    $ProgressPreference = $prevPref
 }
 
 if (-not $Silent) { Write-Host "Download completed successfully." }
@@ -181,26 +184,6 @@ function Add-ServiceDaclAce {
     }
 }
 
-# Remove a previously-added ACE from a Windows service's DACL.
-function Remove-ServiceDaclAce {
-    param([string]$ServiceName, [string]$Account, [string]$AccessMask)
-
-    $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
-        [System.Security.Principal.SecurityIdentifier]).Value
-    $currentSD = ((& sc.exe sdshow $ServiceName) | Where-Object { $_ -match '^D:' })
-    if (-not $currentSD) {
-        Write-Warning "Failed to read DACL for service $ServiceName"
-        return
-    }
-    $ace = "(A;;$AccessMask;;;$sid)"
-    if ($currentSD -notmatch [regex]::Escape($ace)) { return }  # not present
-    $newSD = $currentSD -replace [regex]::Escape($ace), ""
-    & sc.exe sdset $ServiceName $newSD | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Failed to set DACL on service $ServiceName"
-    }
-}
-
 # Configure and start service
 if (-not $Silent) { Write-Host "Configuring service..." }
 try {
@@ -211,7 +194,7 @@ try {
 
     # Set VIAM_HOME environment variable on the service so child processes
     # (viam-server, modules) inherit the correct root path.
-    if ($RootPath -ne $DefaultRootPath) {
+    if ($PSBoundParameters.ContainsKey('RootPath')) {
         $svcRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\viam-agent"
         Set-ItemProperty -Path $svcRegPath -Name "Environment" -Value @("VIAM_HOME=$RootPath") -Type MultiString
     }
