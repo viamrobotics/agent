@@ -4,7 +4,6 @@ param(
     [switch]$Silent = $false,
     [string]$RootPath = "C:\opt\viam",
     [switch]$ServiceAccount = $false,  # use NT SERVICE\viam-agent virtual account instead of SYSTEM
-    [switch]$EnableAuditLogging = $false,
     [switch]$UwfCommit = $false,  # commit registry changes through UWF overlay
     [string]$Url = "",  # override agent download URL entirely
     [string]$ConfigPath = ""  # path to viam.json -- passed as --config to the agent
@@ -24,7 +23,6 @@ if (-not $isAdmin) {
     $elevateArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" -RootPath `"$RootPath`""
     if ($Silent) { $elevateArgs += " -Silent" }
     if ($ServiceAccount) { $elevateArgs += " -ServiceAccount" }
-    if ($EnableAuditLogging) { $elevateArgs += " -EnableAuditLogging" }
     if ($UwfCommit) { $elevateArgs += " -UwfCommit" }
     if ($Url -ne "") { $elevateArgs += " -Url `"$Url`"" }
     if ($ConfigPath -ne "") { $elevateArgs += " -ConfigPath `"$ConfigPath`"" }
@@ -34,21 +32,6 @@ if (-not $isAdmin) {
 
 if (-not $Silent) {
     Write-Host "Starting Viam Agent installation..."
-}
-
-# Enable security audit logging for diagnosing permission issues
-if ($EnableAuditLogging) {
-    if (-not $Silent) { Write-Host "Enabling audit logging for permission diagnostics..." }
-    # Log failed object access attempts (file/registry/service ACL denials)
-    & auditpol /set /category:"Object Access" /failure:enable | Out-Null
-    # Log failed privilege use (e.g. firewall, service control)
-    & auditpol /set /category:"Privilege Use" /failure:enable | Out-Null
-    # Log process creation (helps trace what the agent spawns)
-    & auditpol /set /subcategory:"Process Creation" /success:enable /failure:enable | Out-Null
-    if (-not $Silent) {
-        Write-Host "  Audit logging enabled. View events in Event Viewer > Security log."
-        Write-Host "  Relevant Event IDs: 4656 (handle request), 4673 (privilege use), 4688 (process creation)"
-    }
 }
 
 # Define installation paths
