@@ -91,6 +91,14 @@ func (s *Subsystem) Start(ctx context.Context) error {
 	s.startStopMu.Lock()
 	defer s.startStopMu.Unlock()
 
+	// Re-check ctx after acquiring the lock: Stop() may have held it for a long time
+	// (waiting for viam-server to exit), and ctx may have been canceled in the interim.
+	// Without this check, a Start() call blocked on startStopMu would spawn an orphan
+	// viam-server process and return immediately, leaving it untracked.
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	s.mu.Lock()
 
 	if s.running {

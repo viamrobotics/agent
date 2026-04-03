@@ -31,17 +31,19 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 	// the method itself returns appropriate values.
 
 	tests := []struct {
-		name                   string
-		serviceInstalled       bool
-		previousFileExists     bool
-		previousFileHasDiff    bool
-		expectedNewInstall     bool
-		expectedBootoutCount   int
-		expectedBootstrapCount int
+		name                    string
+		serviceInstalled        bool
+		previousFileExists      bool
+		previousFileHasDiff     bool
+		expectedNewInstall      bool
+		expectedKickstartCount  int
+		expectedBootoutCount    int
+		expectedBootstrapCount  int
 	}{
 		{
 			name:                   "new install",
 			expectedNewInstall:     true,
+			expectedKickstartCount: 1,
 			expectedBootoutCount:   0,
 			expectedBootstrapCount: 1,
 		},
@@ -50,6 +52,7 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 			serviceInstalled:       true,
 			previousFileExists:     true,
 			expectedNewInstall:     false,
+			expectedKickstartCount: 0,
 			expectedBootoutCount:   0,
 			expectedBootstrapCount: 0,
 		},
@@ -59,6 +62,7 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 			previousFileExists:     true,
 			previousFileHasDiff:    true,
 			expectedNewInstall:     false,
+			expectedKickstartCount: 0,
 			expectedBootoutCount:   1,
 			expectedBootstrapCount: 1,
 		},
@@ -92,8 +96,7 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 			test.That(t, serviceFile, test.ShouldEqual, filepath.Join(serviceDir, "my-service.plist"))
 			test.That(t, newInstall, test.ShouldEqual, tc.expectedNewInstall)
 
-			// Kickstart is always called.
-			test.That(t, executor.kickstartCallCount, test.ShouldEqual, 1)
+			test.That(t, executor.kickstartCallCount, test.ShouldEqual, tc.expectedKickstartCount)
 			test.That(t, executor.bootoutCallCount, test.ShouldEqual, tc.expectedBootoutCount)
 			test.That(t, executor.bootstrapCallCount, test.ShouldEqual, tc.expectedBootstrapCount)
 		})

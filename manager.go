@@ -284,9 +284,19 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			if m.viamServer.RestartAllowed(ctx) {
+			// On macOS, launchd may cancel our ctx (via kickstart -k or bootout) before
+			// we reach this block. Use a fresh context so the RestartAllowed + Stop + Exit
+			// sequence can still complete cleanly rather than falling through to CloseAll,
+			// which races with the new agent process starting.
+			restartCtx := ctx
+			if ctx.Err() != nil {
+				var cancel context.CancelFunc
+				restartCtx, cancel = context.WithTimeout(context.Background(), stopAllTimeout)
+				defer cancel()
+			}
+			if m.viamServer.RestartAllowed(restartCtx) {
 				m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
-				if err := m.viamServer.Stop(ctx); err != nil {
+				if err := m.viamServer.Stop(restartCtx); err != nil {
 					m.logger.Warn(err)
 				} else {
 					m.viamServerNeedsRestart = false

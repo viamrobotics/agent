@@ -103,11 +103,17 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 		l.logger.Infof("New %s launchd service bootstrapped", serviceName)
 	}
 
-	if err = l.Kickstart(ctx, serviceName, true /* killExisting */); err != nil {
-		return "", false, err
+	// Only kickstart for fresh installs where no agent is already running.
+	// For updates, the running agent exits via m.Exit() and launchd's KeepAlive
+	// restarts it automatically with the new binary — same as the Linux/systemd path.
+	// Kickstarting a running service with -k kills the agent before it can cleanly
+	// stop viam-server, canceling its context mid-update.
+	if !installed {
+		if err = l.Kickstart(ctx, serviceName, false); err != nil {
+			return "", false, err
+		}
+		l.logger.Infof("%s launchd service started", serviceName)
 	}
-
-	l.logger.Infof("%s launchd service restarted", serviceName)
 
 	return serviceFilePath, !installed, nil
 }
