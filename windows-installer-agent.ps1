@@ -39,8 +39,8 @@ if ($Url -ne "") {
     $downloadUrl = $Url
     $agentFileName = $Url.Split("/")[-1]
 } else {
-    $agentFileName = "viam-agent-stable-windows-x86_64"
-    $downloadUrl = "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/$agentFileName"
+    $agentFileName = "viam-agent-from-installer.exe"
+    $downloadUrl = "https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64"
 }
 $agentCachePath = Join-Path $cachePath $agentFileName
 $agentBinPath = Join-Path $binPath "viam-agent.exe"
