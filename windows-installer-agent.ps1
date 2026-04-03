@@ -259,7 +259,7 @@ try {
 
         # Grant firewall management rights (BFE service) so the agent can create
         # firewall rules at runtime for viam-server and other downloaded binaries.
-        # CCLCRPWPRC = connect, query status, start, read control, write property
+        # CCLCRPWPRC = query config, query status, start, stop, read control
         if (-not $Silent) { Write-Host "  Granting $svcAccountName firewall management rights (BFE service)..." }
         Add-ServiceDaclAce -ServiceName "BFE" -Account $svcAccountName -AccessMask "CCLCRPWPRC"
 
