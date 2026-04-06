@@ -62,8 +62,9 @@ type serialCfg struct {
 }
 
 type wifiCfg struct {
-	SSID     string `toml:"ssid"`
-	Password string `toml:"password"`
+	SSID         string `toml:"ssid"`
+	Password     string `toml:"password"`
+	SSIDInsecure string `toml:"ssid_insecure"`
 }
 
 var cfg config
@@ -424,7 +425,6 @@ func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error
 	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_join_network.sh")
 	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
 
-	// TODO: this should error out if cmd returns a nonzero exit code
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ctx, fmt.Errorf("test_provisioning_join_network.sh failed: %w\n%s", err, out)
@@ -438,7 +438,6 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_network_gone.sh")
 	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
 
-	// TODO: this should error out if cmd returns a nonzero exit code
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ctx, fmt.Errorf("test_provisioning_network_gone.sh failed: %w\n%s", err, out)
@@ -472,6 +471,17 @@ func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
 		time.Sleep(5 * time.Second)
 	}
 	return ctx, fmt.Errorf("viam-agent did not go offline within timeout")
+}
+
+func testSendInsecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_send_network.sh")
+	cmd.Env = append(os.Environ(), "SSID="+cfg.Wifi.SSIDInsecure)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("test_provisioning_send_network.sh failed: %w\n%s", err, out)
+	}
+	return ctx, nil
 }
 
 func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
