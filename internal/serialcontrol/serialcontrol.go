@@ -500,7 +500,7 @@ func (c *Client) GetDeviceArch() mo.Result[string] {
 	return mo.Ok(output[0])
 }
 
-// GetHostName returns the machine hostname
+// GetHostName returns the machine hostname.
 func (c *Client) GetHostName() mo.Result[string] {
 	cmdRes := c.runCmd("hostname")
 	if cmdRes.IsError() {
@@ -545,10 +545,7 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 	}
 
 	var connectErr error
-	for i := range 5 {
-		if i > 0 {
-			time.Sleep(time.Second * 3)
-		}
+	for range 5 {
 		connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
 		output := strings.Join(connectWifiRes.OrEmpty(), " ")
 		if strings.Contains(output, "successfully activated") {
@@ -568,11 +565,13 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		} else {
 			connectErr = fmt.Errorf("nmcli connect failed: %s", output)
 		}
+		time.Sleep(time.Second * 3)
 	}
 	if connectErr != nil {
 		return errw.Wrap(connectErr, "failed to connect to wifi network after retries")
 	}
 
+	// Wait a bit after joining the network for things to settle before running ping.
 	time.Sleep(time.Second * 2)
 
 	finalRes := c.getPingPacketLoss()
@@ -586,7 +585,7 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 
 // CanPing attempts to ping app.viam.com and returns false
 // the ping returns a nonzero status code, true if it returns "0",
-// and error if the command doesn't run properly
+// and error if the command doesn't run properly.
 func (c *Client) CanPing() mo.Result[bool] {
 	res := c.runCmd("ping -c 2 -w 10 -q app.viam.com; echo $?")
 	if res.IsError() {
