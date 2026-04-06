@@ -133,9 +133,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 		})
 		tsc.AfterSuite(func() {
-			// Give a pretty long timeout since there's actual user interaction in the loop now
-			// Also a bad idea...
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*60)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 			defer cancel()
 			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
 				t.Logf("error reconnecting to wifi during cleanup: %v", err)
@@ -146,8 +144,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				}
 			}
 			// Just wait after reconnecting everything to make sure all the connections are back
-			// This isn't great...
-			time.Sleep(time.Second * 5)
+			time.Sleep(time.Second * 3)
 			if _, err := applyAgentVersionPin(ctx, "stable"); err != nil {
 				t.Logf("error pinning agent back to stable during cleanup: %v", err)
 			}
