@@ -430,8 +430,7 @@ func testForceProvisioningMode(ctx context.Context) (context.Context, error) {
 }
 
 func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error) {
-	// this script checks for the provisioning network every 5 seconds, then connects to it
-	// if it finds it
+	// Try to connect to the provisioning hotspot in a retry loop, return success if joined successfully.
 	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_join_network.sh")
 	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
 
@@ -443,8 +442,7 @@ func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error
 }
 
 func testProvisioningHotspotDisables(ctx context.Context) (context.Context, error) {
-	// this script checks for the provisioning network every 5 seconds, then connects to it
-	// if it finds it
+	// Try to connect to the provisioning hotspot in a retry loop, return success if it cannot be found.
 	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_network_gone.sh")
 	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
 

@@ -310,10 +310,6 @@ func (c *Client) RunScript(script, command string) mo.Result[[]string] {
 	// while you're manually entering a heredoc - to keep everything cleaner
 	c.runCmd("PS2=''")
 
-	// clear the "secondary prompt" - the ">" character that shows in the tty
-	// while you're manually entering a heredoc - to keep everything cleaner
-	c.runCmd("PS2=''")
-
 	// NOTE: putting the EOF delimiter in single quotes disables shell expansions
 	//       how neat is that?
 	header := fmt.Sprintf("cat > %s << 'EOF'\r", scriptPath)
@@ -516,23 +512,20 @@ func (c *Client) GetHostName() mo.Result[string] {
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
 func (c *Client) EnsureOnline(ssid, password string) error {
-	canPingRes := c.CanPing()
-	if canPingRes.MustGet() {
-		packetLossRes := c.getPingPacketLoss()
-		if packetLossRes.IsError() {
-			return packetLossRes.Error()
-		}
-		packetLoss := packetLossRes.MustGet()
-		if packetLoss == 0 {
-			return nil
-		}
+	packetLossRes := c.getPingPacketLoss()
+	if packetLossRes.IsError() {
+		return packetLossRes.Error()
+	}
+	packetLoss := packetLossRes.MustGet()
+	if packetLoss == 0 {
+		return nil
+	}
 
-		if ssid == "" || password == "" {
-			return fmt.Errorf(
-				"device offline with packet loss of %d%% but no wifi credentials provided, cannot continue",
-				packetLoss,
-			)
-		}
+	if ssid == "" || password == "" {
+		return fmt.Errorf(
+			"device offline with packet loss of %d%% but no wifi credentials provided, cannot continue",
+			packetLoss,
+		)
 	}
 
 	if ssid == "" || password == "" {
