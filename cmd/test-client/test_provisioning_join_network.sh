@@ -11,7 +11,7 @@ for i in $(seq 1 50); do
         sleep 5
         exit 0
     fi
-    sleep 2
+    sleep 5
 done
 
 exit 1

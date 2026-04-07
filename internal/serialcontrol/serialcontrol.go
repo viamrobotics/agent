@@ -556,6 +556,13 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 				connectErr = nil
 				break
 			}
+			// If that fails, try "%s@wlan0", since viam-agent adds that suffix to connections it creates.
+			upRes = c.runCmd(fmt.Sprintf(`nmcli connection up "%s@wlan0"`, ssid))
+			upOutput = strings.Join(upRes.OrEmpty(), " ")
+			if strings.Contains(upOutput, "successfully activated") {
+				connectErr = nil
+				break
+			}
 			connectErr = fmt.Errorf("nmcli connection up failed: %s", upOutput)
 		} else {
 			connectErr = fmt.Errorf("nmcli connect failed: %s", output)

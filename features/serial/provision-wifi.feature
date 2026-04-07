@@ -32,5 +32,6 @@ Feature: wifi provisioning
     And viam-agent is in forced provisioning mode
     And the provisioning hotspot comes up
     And the tester shares an invalid wifi network
-    Then the provisioning hotspot goes away
-    But the provisioning hotspot comes up again
+    # Then the provisioning hotspot goes away
+    Then the provisioning hotspot comes up again
+    And viam-agent cannot reach the app

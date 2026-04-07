@@ -20,11 +20,15 @@ import (
 	"github.com/samber/mo"
 	"github.com/samber/mo/result"
 	"github.com/viamrobotics/agent/internal/serialcontrol"
+	"github.com/viamrobotics/agent/subsystems/networking"
 	apppb "go.viam.com/api/app/v1"
+	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	rutils "go.viam.com/rdk/utils"
 	"go.viam.com/test"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -215,6 +219,11 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
 		if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
 			return ctx, err
+		}
+		if runtime.GOOS == "darwin" {
+			if _, err := hostEnsureOnline(ctx); err != nil {
+				return ctx, err
+			}
 		}
 		return ctx, nil
 	})
@@ -474,37 +483,46 @@ func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
 	return ctx, fmt.Errorf("viam-agent did not go offline within timeout")
 }
 
-func testSendInsecureConnectionInfo(ctx context.Context) (context.Context, error) {
-	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_send_network.sh")
-	cmd.Env = append(os.Environ(), "SSID="+cfg.Wifi.SSIDInsecure)
-
-	out, err := cmd.CombinedOutput()
+func sendNetworkCredentials(ctx context.Context, ssid, psk string) error {
+	conn, err := grpc.NewClient("10.42.0.1:4772",
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return ctx, fmt.Errorf("test_provisioning_send_network.sh failed: %w\n%s", err, out)
+		return err
 	}
-	return ctx, nil
+	defer conn.Close()
+
+	client := pb.NewProvisioningServiceClient(conn)
+
+	var lastErr error
+	for range 5 {
+		if lastErr != nil {
+			time.Sleep(2 * time.Second)
+		}
+		if _, lastErr = client.SetNetworkCredentials(ctx, &pb.SetNetworkCredentialsRequest{
+			Type: networking.NetworkTypeWifi,
+			Ssid: ssid,
+			Psk:  psk,
+		}); lastErr != nil {
+			continue
+		}
+		if _, lastErr = client.ExitProvisioning(ctx, &pb.ExitProvisioningRequest{}); lastErr != nil {
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func testSendInsecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSIDInsecure, "")
 }
 
 func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
-	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_send_network.sh")
-	cmd.Env = append(os.Environ(), "SSID="+cfg.Wifi.SSID, "PASSWORD="+cfg.Wifi.Password)
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return ctx, fmt.Errorf("test_provisioning_send_network.sh failed: %w\n%s", err, out)
-	}
-	return ctx, nil
+	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSID, cfg.Wifi.Password)
 }
 
 func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
-	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_send_network.sh")
-	cmd.Env = append(os.Environ(), "SSID=thisnetwork", "PASSWORD=doesnotexist")
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return ctx, fmt.Errorf("test_provisioning_send_network.sh failed: %w\n%s", err, out)
-	}
-	return ctx, nil
+	return ctx, sendNetworkCredentials(ctx, "thisnetwork", "doesnotexist")
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
