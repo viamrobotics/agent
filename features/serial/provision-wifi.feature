@@ -11,6 +11,7 @@ Feature: wifi provisioning
     And the provisioning hotspot comes up
     And the tester shares an insecure wifi network
     Then the provisioning hotspot goes away
+    And viam-agent can reach the app
   Scenario: The agent can join an unknown secure network when one is provided during wifi hotspot provisioning
     When there are no available wifi networks
     And viam-agent cannot reach the app

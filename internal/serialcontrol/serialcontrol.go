@@ -539,11 +539,6 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		return fmt.Errorf("device offline with bad ping but no wifi credentials provided, cannot continue")
 	}
 
-	clearRes := c.ClearWifiConnections()
-	if clearRes.IsError() {
-		return clearRes.Error()
-	}
-
 	var connectErr error
 	for range 5 {
 		connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))

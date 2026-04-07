@@ -189,6 +189,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
+	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
 	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
 	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
