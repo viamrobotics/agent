@@ -501,11 +501,13 @@ func testProvisioningHotspotEnablesWithinTimeout(ctx context.Context) (context.C
 
 		out, err := cmd.CombinedOutput()
 		outStr := string(out)
+		// this rarely happens, err is only non-nil when the cmd fails to run at all
 		if err != nil {
 			return ctx, fmt.Errorf("joining provisioning hotspot failed: %w\n%s", err, out)
 		}
+		// we can't check return codes because networksetup always returns 0, even when it fails to join
 		if outStr == "" {
-			// success is an empty return
+			// if the network is joined, the output is just an empty string
 			return ctx, nil
 		}
 		lastOut = outStr
