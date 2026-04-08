@@ -90,25 +90,18 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 			}
 		}
 		l.logger.Infof("Old %s launchd service booted out", serviceName)
-
-		// Since the service was already installed, this is not a "new install".
-		// However, since we booted out the old service, we do need to bootstrap the new service before kickstarting.
 		needsBootstrap = true
 	}
 
+	// Bootstrap and kickstart when needed: covers new installs and plist-changed updates
+	// (after bootout, the service is removed from launchd's registry so KeepAlive won't
+	// restart it). For unchanged existing installs, the running agent exits via m.Exit()
+	// and launchd's KeepAlive restarts it automatically — no bootstrap or kickstart needed.
 	if needsBootstrap {
 		if err := l.Bootstrap(ctx, serviceFilePath); err != nil {
 			return "", false, err
 		}
 		l.logger.Infof("New %s launchd service bootstrapped", serviceName)
-	}
-
-	// Only kickstart for fresh installs where no agent is already running.
-	// For updates, the running agent exits via m.Exit() and launchd's KeepAlive
-	// restarts it automatically with the new binary — same as the Linux/systemd path.
-	// Kickstarting a running service with -k kills the agent before it can cleanly
-	// stop viam-server, canceling its context mid-update.
-	if !installed {
 		if err = l.Kickstart(ctx, serviceName, false); err != nil {
 			return "", false, err
 		}
