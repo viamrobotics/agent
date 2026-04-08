@@ -187,8 +187,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
 	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
 	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
-	ctx.Step(`the journald config is loaded$`, testJournaldConfigLoaded)
-	ctx.Step(`the wifi power save config is loaded$`, testWifiPowerSaveConfigLoaded)
+	ctx.Step(`the journald config is live$`, testJournaldConfigLoaded)
+	ctx.Step(`the wifi power save config is live$`, testWifiPowerSaveConfigLoaded)
 
 	// Wifi provisioning
 	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
