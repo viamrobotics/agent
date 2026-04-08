@@ -62,7 +62,7 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 			previousFileExists:     true,
 			previousFileHasDiff:    true,
 			expectedNewInstall:     false,
-			expectedKickstartCount: 0,
+			expectedKickstartCount: 1,
 			expectedBootoutCount:   1,
 			expectedBootstrapCount: 1,
 		},
