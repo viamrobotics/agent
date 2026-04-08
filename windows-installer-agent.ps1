@@ -203,9 +203,7 @@ try {
         Set-Acl -Path $RootPath -AclObject $acl
 
         # Grant read access to the config file's directory so the service account
-        # can read viam.json. If ConfigPath is under RootPath this is redundant
-        # but harmless. Defaults to C:\etc which SYSTEM can read but virtual
-        # service accounts cannot.
+        # can read viam.json.
         if ($ConfigPath -ne "") {
             $configDir = Split-Path -Parent $ConfigPath
         } else {
