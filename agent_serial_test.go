@@ -80,7 +80,7 @@ func TestSerialFeatures(t *testing.T) {
 		Options: &godog.Options{
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
-			Paths:    []string{"features/serial/provision-wifi.feature"},
+			Paths:    []string{"features/serial"},
 			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
@@ -538,9 +538,18 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 		} else if outStr == "" {
 			// This means we joined the hotspot, so disconnect from it by toggling the adapter
 			// and removing it as a preferred network.
-			exec.Command("networksetup", "-setairportpower", "en0", "off")
+			cmd = exec.Command("networksetup", "-setairportpower", "en0", "off")
+			if out, err = cmd.CombinedOutput(); err != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning off adapter: %w\n", err)
+			}
 			exec.Command("networksetup", "-removepreferredwirelessnetwork", "en0", hotspotName)
+			if out, err = cmd.CombinedOutput(); err != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while removing preferred network: %w\n", err)
+			}
 			exec.Command("networksetup", "-setairportpower", "en0", "on")
+			if out, err = cmd.CombinedOutput(); err != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning on adapter: %w\n", err)
+			}
 		}
 		lastOut = outStr
 	}
@@ -576,17 +585,17 @@ func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
 }
 
 func sendNetworkCredentials(ctx context.Context, ssid, psk string) error {
-	conn, err := grpc.NewClient("10.42.0.1:4772",
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	client := pb.NewProvisioningServiceClient(conn)
-
 	var lastErr error
 	for range 5 {
+		conn, err := grpc.NewClient("10.42.0.1:4772",
+			grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		client := pb.NewProvisioningServiceClient(conn)
+
 		if lastErr != nil {
 			time.Sleep(2 * time.Second)
 		}
