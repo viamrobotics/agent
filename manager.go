@@ -260,7 +260,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		} else {
 			_, err := InstallNewVersion(ctx, m.logger)
 			if err != nil {
-				m.logger.Warnw("running install of new agent version", "error", err)
+				m.logger.Warnw("Error running install of new agent version", "error", err)
 			}
 			m.viamAgentNeedsRestart = true
 		}
@@ -284,22 +284,22 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			// On macOS, launchd may cancel our ctx (via kickstart -k or bootout) before
-			// we reach this block. Use a fresh context so the RestartAllowed + Stop + Exit
-			// sequence can still complete cleanly rather than falling through to CloseAll,
-			// which races with the new agent process starting.
-			restartCtx := ctx
-			if ctx.Err() != nil {
-				var cancel context.CancelFunc
-				restartCtx, cancel = context.WithTimeout(context.Background(), stopAllTimeout)
+			// On macOS, launchd bootout cancels ctx before we reach this block. We know
+			// the agent is shutting down, so skip the RestartAllowed check and stop
+			// viam-server unconditionally using a fresh context.
+			//
+			// The ordering of statements means that if the context is cancelled, the check is skipped.
+			if ctx.Err() != nil || m.viamServer.RestartAllowed(ctx) {
+				stopCtx, cancel := context.WithTimeout(context.Background(), stopAllTimeout)
 				defer cancel()
-			}
-			if m.viamServer.RestartAllowed(restartCtx) {
-				m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
-				if err := m.viamServer.Stop(restartCtx); err != nil {
-					m.logger.Warn(err)
+				if ctx.Err() != nil {
+					m.logger.Infof("agent shutting down; stopping %s before exit", viamserver.SubsysName)
 				} else {
-					m.viamServerNeedsRestart = false
+					m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
+				}
+
+				if err := m.viamServer.Stop(stopCtx); err != nil {
+					m.logger.Warn(err)
 				}
 				if m.viamAgentNeedsRestart {
 					m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
