@@ -31,14 +31,14 @@ func TestLaunchdManagerInstallService(t *testing.T) {
 	// the method itself returns appropriate values.
 
 	tests := []struct {
-		name                    string
-		serviceInstalled        bool
-		previousFileExists      bool
-		previousFileHasDiff     bool
-		expectedNewInstall      bool
-		expectedKickstartCount  int
-		expectedBootoutCount    int
-		expectedBootstrapCount  int
+		name                   string
+		serviceInstalled       bool
+		previousFileExists     bool
+		previousFileHasDiff    bool
+		expectedNewInstall     bool
+		expectedKickstartCount int
+		expectedBootoutCount   int
+		expectedBootstrapCount int
 	}{
 		{
 			name:                   "new install",
