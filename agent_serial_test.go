@@ -538,17 +538,17 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 		} else if outStr == "" {
 			// This means we joined the hotspot, so disconnect from it by toggling the adapter
 			// and removing it as a preferred network.
-			cmd = exec.Command("networksetup", "-setairportpower", "en0", "off")
-			if out, err = cmd.CombinedOutput(); err != nil {
-				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning off adapter: %w\n", err)
+			cmdOff := exec.Command("networksetup", "-setairportpower", "en0", "off")
+			if outOff, errOff := cmdOff.CombinedOutput(); errOff != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning off adapter: %w\n%s", errOff, outOff)
 			}
-			exec.Command("networksetup", "-removepreferredwirelessnetwork", "en0", hotspotName)
-			if out, err = cmd.CombinedOutput(); err != nil {
-				return ctx, fmt.Errorf("joining provisioning hotspot failed while removing preferred network: %w\n", err)
+			cmdRm := exec.Command("networksetup", "-removepreferredwirelessnetwork", "en0", hotspotName)
+			if outRm, errRm := cmdRm.CombinedOutput(); errRm != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while removing preferred network: %w\n%s", errRm, outRm)
 			}
-			exec.Command("networksetup", "-setairportpower", "en0", "on")
-			if out, err = cmd.CombinedOutput(); err != nil {
-				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning on adapter: %w\n", err)
+			cmdOn := exec.Command("networksetup", "-setairportpower", "en0", "on")
+			if outOn, errOn := cmdOn.CombinedOutput(); errOn != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning on adapter: %w\n%s", errOn, outOn)
 			}
 		}
 		lastOut = outStr
