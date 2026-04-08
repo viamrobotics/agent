@@ -197,7 +197,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
 	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
 	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
-	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
+	ctx.Step(`the provisioning hotspot (goes away|is not up)`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
 
@@ -534,7 +534,7 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 			// success is an empty return
 			return ctx, nil
 		} else if outStr == "" {
-			// This means we joined hotspot, so disconnect from it by toggling the adapter
+			// This means we joined the hotspot, so disconnect from it by toggling the adapter
 			// and removing it as a preferred network.
 			exec.Command("networksetup", "-setairportpower", "en0", "off")
 			exec.Command("networksetup", "-removepreferredwirelessnetwork", "en0", hotspotName)
