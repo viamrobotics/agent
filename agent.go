@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,26 +24,6 @@ type systemManager interface {
 	IsAvailable(ctx context.Context) error
 	InstallService(ctx context.Context, serviceName string, serviceFileContents []byte) (string, bool, error)
 	Enable(ctx context.Context, serviceName string) error
-}
-
-// InstallNewVersion runs the newly downloaded binary's Install() for installation of systemd files and the like.
-func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error) {
-	if runtime.GOOS == "windows" {
-		// windows doesn't have systemctl so we don't do a postinstall yet.
-		return true, nil
-	}
-	expectedPath := filepath.Join(utils.ViamDirs.Bin, SubsystemName)
-
-	// Run the newly updated version to install systemd and other service files.
-	//nolint:gosec
-	cmd := exec.CommandContext(ctx, expectedPath, "--install")
-	output, err := cmd.CombinedOutput()
-	logger.Info("running viam-agent --install for new version")
-	logger.Info(string(output))
-	if err != nil {
-		return false, errw.Wrapf(err, "running post install step %s", output)
-	}
-	return true, nil
 }
 
 // Install is directly executed from main() when --install is passed.

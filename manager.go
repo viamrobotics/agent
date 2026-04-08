@@ -284,11 +284,9 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			// On macOS, launchd bootout cancels ctx before we reach this block. We know
-			// the agent is shutting down, so skip the RestartAllowed check and stop
-			// viam-server unconditionally using a fresh context.
-			//
-			// The ordering of statements means that if the context is cancelled, the check is skipped.
+			// If ctx is canceled (e.g. on macOS, launchd bootout cancels ctx before we
+			// reach this block), we know the agent is shutting down — skip RestartAllowed
+			// and stop viam-server unconditionally. Otherwise, defer to RestartAllowed.
 			if ctx.Err() != nil || m.viamServer.RestartAllowed(ctx) {
 				stopCtx, cancel := context.WithTimeout(context.Background(), stopAllTimeout)
 				defer cancel()
