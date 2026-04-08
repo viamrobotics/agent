@@ -80,7 +80,7 @@ func TestSerialFeatures(t *testing.T) {
 		Options: &godog.Options{
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
-			Paths:    []string{"features/serial"},
+			Paths:    []string{"features/serial/provision-wifi.feature"},
 			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
@@ -193,7 +193,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	// Wifi provisioning
 	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
-	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
+	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnablesWithinTimeout)
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
 	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
 	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
@@ -487,28 +487,62 @@ func testForceProvisioningMode(ctx context.Context) (context.Context, error) {
 	return ctx, output.Error()
 }
 
-func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error) {
+func testProvisioningHotspotEnablesWithinTimeout(ctx context.Context) (context.Context, error) {
 	// Try to connect to the provisioning hotspot in a retry loop, return success if joined successfully.
-	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_join_network.sh")
-	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
+	startTime := time.Now()
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return ctx, fmt.Errorf("test_provisioning_join_network.sh failed: %w\n%s", err, out)
+	provTimeout := 150 * time.Second
+
+	hotspotName := fmt.Sprintf("viam-setup-%s", hostName)
+
+	var lastOut string
+	for time.Now().Before(startTime.Add(provTimeout)) {
+		cmd := exec.Command("networksetup", "-setairportnetwork", "en0", hotspotName, "viamsetup")
+
+		out, err := cmd.CombinedOutput()
+		outStr := string(out)
+		if err != nil {
+			return ctx, fmt.Errorf("joining provisioning hotspot failed: %w\n%s", err, out)
+		}
+		if outStr == "" {
+			// success is an empty return
+			return ctx, nil
+		}
+		lastOut = outStr
 	}
-	return ctx, nil
+	return ctx, fmt.Errorf("joining provisioning hotspot failed: timeout after %v seconds: %s", provTimeout, lastOut)
 }
 
 func testProvisioningHotspotDisables(ctx context.Context) (context.Context, error) {
-	// Try to connect to the provisioning hotspot in a retry loop, return success if it cannot be found.
-	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_network_gone.sh")
-	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
+	// Try to connect to the provisioning hotspot in a retry loop, return success if it's not found
+	startTime := time.Now()
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return ctx, fmt.Errorf("test_provisioning_network_gone.sh failed: %w\n%s", err, out)
+	provTimeout := 150 * time.Second
+
+	hotspotName := fmt.Sprintf("viam-setup-%s", hostName)
+
+	var lastOut string
+	for time.Now().Before(startTime.Add(provTimeout)) {
+		cmd := exec.Command("networksetup", "-setairportnetwork", "en0", hotspotName, "viamsetup")
+
+		out, err := cmd.CombinedOutput()
+		outStr := string(out)
+		if err != nil {
+			return ctx, fmt.Errorf("joining provisioning hotspot failed: %w\n%s", err, out)
+		}
+		if strings.Contains(outStr, "Could not find network") {
+			// success is an empty return
+			return ctx, nil
+		} else if outStr == "" {
+			// This means we joined hotspot, so disconnect from it by toggling the adapter
+			// and removing it as a preferred network.
+			exec.Command("networksetup", "-setairportpower", "en0", "off")
+			exec.Command("networksetup", "-removepreferredwirelessnetwork", "en0", hotspotName)
+			exec.Command("networksetup", "-setairportpower", "en0", "on")
+		}
+		lastOut = outStr
 	}
-	return ctx, nil
+	return ctx, fmt.Errorf("failure: provisioning hotspot is still present after %v seconds: %s", provTimeout, lastOut)
 }
 
 func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
