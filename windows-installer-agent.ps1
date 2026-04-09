@@ -140,31 +140,6 @@ try {
     # Continue despite firewall error
 }
 
-# Add an ACE to a Windows service's DACL for the given account.
-# Used to grant non-SYSTEM accounts specific service permissions.
-function Add-ServiceDaclAce {
-    param([string]$ServiceName, [string]$Account, [string]$AccessMask)
-
-    $sid = (New-Object System.Security.Principal.NTAccount($Account)).Translate(
-        [System.Security.Principal.SecurityIdentifier]).Value
-    $currentSD = ((& sc.exe sdshow $ServiceName) | Where-Object { $_ -match '^D:' })
-    if (-not $currentSD) {
-        Write-Warning "Failed to read DACL for service $ServiceName"
-        return
-    }
-    $ace = "(A;;$AccessMask;;;$sid)"
-    if ($currentSD -match [regex]::Escape($ace)) { return }  # already present
-    $newSD = $currentSD -replace '(S:)', "$ace`$1"
-    if ($newSD -eq $currentSD) {
-        # No SACL present, append to end
-        $newSD = $currentSD + $ace
-    }
-    & sc.exe sdset $ServiceName $newSD | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Failed to set DACL on service $ServiceName"
-    }
-}
-
 # Configure and start service
 if (-not $Silent) { Write-Host "Configuring service..." }
 try {
@@ -254,17 +229,6 @@ try {
 
         # Register event log source (so the non-admin account can write events)
         New-EventLog -LogName Application -Source "viam-agent" -ErrorAction SilentlyContinue
-
-        # Grant firewall management rights (BFE service) so the agent can create
-        # firewall rules at runtime for viam-server and other downloaded binaries.
-        # CCLCRPWPRC = query config, query status, start, stop, read control
-        if (-not $Silent) { Write-Host "  Granting $svcAccountName firewall management rights (BFE service)..." }
-        Add-ServiceDaclAce -ServiceName "BFE" -Account $svcAccountName -AccessMask "CCLCRPWPRC"
-
-        # Grant service self-management rights.
-        # LCRPWPLORC = query status, start, stop, interrogate, read control
-        if (-not $Silent) { Write-Host "  Granting $svcAccountName service self-management rights..." }
-        Add-ServiceDaclAce -ServiceName "viam-agent" -Account $svcAccountName -AccessMask "LCRPWPLORC"
     }
 
     # Start service
