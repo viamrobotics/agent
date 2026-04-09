@@ -508,9 +508,13 @@ func testProvisioningHotspotEnablesWithinTimeout(ctx context.Context) (context.C
 		// we can't check return codes because networksetup always returns 0, even when it fails to join
 		if outStr == "" {
 			// if the network is joined, the output is just an empty string
+			// sleep for a bit before going on to give the connection time to settle
+			time.Sleep(3 * time.Second)
 			return ctx, nil
 		}
 		lastOut = outStr
+		// sleep for a bit between attempts
+		time.Sleep(1 * time.Second)
 	}
 	return ctx, fmt.Errorf("joining provisioning hotspot failed: timeout after %v seconds: %s", provTimeout, lastOut)
 }
@@ -542,46 +546,54 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 			if outOff, errOff := cmdOff.CombinedOutput(); errOff != nil {
 				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning off adapter: %w\n%s", errOff, outOff)
 			}
+			time.Sleep(100 * time.Millisecond)
 			cmdRm := exec.Command("networksetup", "-removepreferredwirelessnetwork", "en0", hotspotName)
 			if outRm, errRm := cmdRm.CombinedOutput(); errRm != nil {
 				return ctx, fmt.Errorf("joining provisioning hotspot failed while removing preferred network: %w\n%s", errRm, outRm)
 			}
+			time.Sleep(100 * time.Millisecond)
 			cmdOn := exec.Command("networksetup", "-setairportpower", "en0", "on")
 			if outOn, errOn := cmdOn.CombinedOutput(); errOn != nil {
 				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning on adapter: %w\n%s", errOn, outOn)
 			}
 		}
 		lastOut = outStr
+		// sleep for a bit between attempts
+		time.Sleep(1 * time.Second)
 	}
 	return ctx, fmt.Errorf("failure: provisioning hotspot is still present after %v seconds: %s", provTimeout, lastOut)
 }
 
 func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
+	var lastErr error
 	for range 30 {
 		res := serialClient.GetPingPacketLoss()
 		if res.IsError() {
-			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+			lastErr = res.Error()
+			continue
 		}
 		if res.MustGet() == 0 {
 			return ctx, nil
 		}
 		time.Sleep(1 * time.Second)
 	}
-	return ctx, fmt.Errorf("viam-agent did not come online within timeout")
+	return ctx, fmt.Errorf("viam-agent did not come online within timeout: %w", lastErr)
 }
 
 func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
+	var lastErr error
 	for range 30 {
 		res := serialClient.GetPingPacketLoss()
 		if res.IsError() {
-			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+			lastErr = res.Error()
+			continue
 		}
 		if res.MustGet() > 0 {
 			return ctx, nil
 		}
 		time.Sleep(1 * time.Second)
 	}
-	return ctx, fmt.Errorf("viam-agent did not go offline within timeout")
+	return ctx, fmt.Errorf("viam-agent did not go offline within timeout: %w", lastErr)
 }
 
 func sendNetworkCredentials(ctx context.Context, ssid, psk string) error {
