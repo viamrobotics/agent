@@ -111,6 +111,26 @@ lint-ps:
 windows-installer:
 	@./build-windows-installer-exe.sh
 
+# MSI installer build (requires Windows with .NET + WiX)
+# WiX path validation does not work on Linux.
+# 1. Downloads the agent exe from GCS (same URL as the ps1 installer)
+# 2. Builds the MSI with WiX v6
+.PHONY: msi
+msi: msi/viam-agent.msi
+
+msi/viam-agent.msi: msi/Package.wxs msi/Package.wixproj
+	@echo "Downloading agent executable for MSI bundle..."
+	@mkdir -p msi/agent-bin
+	@curl -fsSL -o msi/agent-bin/viam-agent-from-installer.exe \
+		"https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64"
+	@echo "Building MSI..."
+	dotnet tool restore
+	cd msi && dotnet build -p:AgentBinDir=agent-bin -c Release
+	@cp msi/bin/Release/*.msi msi/viam-agent.msi 2>/dev/null || \
+		cp msi/bin/x64/Release/*.msi msi/viam-agent.msi 2>/dev/null || \
+		echo "WARNING: could not find output .msi -- check msi/bin/ for output location"
+	@echo "MSI built: msi/viam-agent.msi"
+
 .PHONY: upload-windows-installer
 upload-windows-installer:
 	@if [ -n "$$(find . -name 'viam-agent-windows-installer*.exe')" ]; then \

@@ -1,0 +1,28 @@
+<Project Sdk="WixToolset.Sdk/6.0.0">
+
+  <PropertyGroup>
+    <!-- Build a 64-bit MSI (required for ProgramFiles64Folder and 64-bit service) -->
+    <Platform>x64</Platform>
+    <OutputType>Package</OutputType>
+  </PropertyGroup>
+
+  <!-- WixFirewall extension for firewall rule support -->
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="6.0.0" />
+  </ItemGroup>
+
+  <!--
+    Bind path for the agent executable.
+    At build time, set this to the directory containing viam-agent-from-installer.exe:
+      dotnet build -p:AgentBinDir=/path/to/downloaded/agent/
+    Or download it first (see Makefile target).
+  -->
+  <PropertyGroup>
+    <AgentBinDir Condition="'$(AgentBinDir)' == ''">.</AgentBinDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <BindPath Include="$(AgentBinDir)" BindName="agent" />
+  </ItemGroup>
+
+</Project>
