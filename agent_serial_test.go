@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,11 +20,15 @@ import (
 	"github.com/samber/mo"
 	"github.com/samber/mo/result"
 	"github.com/viamrobotics/agent/internal/serialcontrol"
+	"github.com/viamrobotics/agent/subsystems/networking"
 	apppb "go.viam.com/api/app/v1"
+	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	rutils "go.viam.com/rdk/utils"
 	"go.viam.com/test"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -33,6 +39,7 @@ var (
 	serialClient *serialcontrol.Client
 	appClient    apppb.AppServiceClient
 	deviceArch   string
+	hostName     string
 )
 
 type config struct {
@@ -59,8 +66,9 @@ type serialCfg struct {
 }
 
 type wifiCfg struct {
-	SSID     string `toml:"ssid"`
-	Password string `toml:"password"`
+	SSID         string `toml:"ssid"`
+	Password     string `toml:"password"`
+	SSIDInsecure string `toml:"ssid_insecure"`
 }
 
 var cfg config
@@ -73,6 +81,7 @@ func TestSerialFeatures(t *testing.T) {
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
 			Paths:    []string{"features/serial"},
+			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
 		},
@@ -109,12 +118,17 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				panic(fmt.Errorf("login failed: %w", err))
 			}
 
-			appClient = dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey).MustGet()
+			appClientRes := dialApp(t.Context(), logger, "app.viam.com:443", cfg.APIKeyID, cfg.APIKey)
+			if appClientRes.IsError() {
+				panic(fmt.Errorf("failed to dial app (is the test runner online?): %w", appClientRes.Error()))
+			}
+			appClient = appClientRes.MustGet()
 
 			if err := serialClient.Sudo(); err != nil {
 				panic(err)
 			}
 			deviceArch = serialClient.GetDeviceArch().MustGet()
+			hostName = serialClient.GetHostName().MustGet()
 
 			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
 				// The AfterSuite hook doesn't run if we panic here so try to restore the terminal state manually
@@ -124,8 +138,18 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 		})
 		tsc.AfterSuite(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 			defer cancel()
+			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+				t.Logf("error reconnecting to wifi during cleanup: %v", err)
+			}
+			if runtime.GOOS == "darwin" {
+				if _, err := hostEnsureOnline(ctx); err != nil {
+					t.Logf("error restoring host connection to internet during cleanup: %v", err)
+				}
+			}
+			// Just wait after reconnecting everything to make sure all the connections are back
+			time.Sleep(time.Second * 3)
 			if _, err := applyAgentVersionPin(ctx, "stable"); err != nil {
 				t.Logf("error pinning agent back to stable during cleanup: %v", err)
 			}
@@ -164,6 +188,17 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
 	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
 
+	// Wifi provisioning
+	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
+	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
+	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
+	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
+	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
+	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
+	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
+	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
+	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
+
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit started with %s`, versionGroup), testSystemdAgentStartVersion)
@@ -180,6 +215,18 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-server is pinned to a url$`, applyViamServerURLPin)
 	ctx.Step(`viam-server is pinned to a file$`, applyViamServerFilePin)
 	ctx.Step(`an old viam-server binary is present on the device$`, downloadOldViamServerBinary)
+
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+		if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+			return ctx, err
+		}
+		if runtime.GOOS == "darwin" {
+			if _, err := hostEnsureOnline(ctx); err != nil {
+				return ctx, err
+			}
+		}
+		return ctx, nil
+	})
 }
 
 func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
@@ -197,6 +244,16 @@ func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, 
 			return apppb.NewAppServiceClient(conn)
 		}),
 	)
+}
+
+func hostEnsureOnline(ctx context.Context) (context.Context, error) {
+	cmd := exec.CommandContext(ctx, "bash", "cmd/test-client/test_provisioning_connect_host.sh")
+	cmd.Env = append(os.Environ(), "SSID="+cfg.Wifi.SSID, "PASSWORD="+cfg.Wifi.Password)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("failed to reconnect host: %w\n%s", err, out)
+	}
+	return ctx, nil
 }
 
 // gcsURL constructs the GCS download URL for a viam binary given its subsystem
@@ -356,6 +413,114 @@ func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
 	}
 
 	return ctx, nil
+}
+
+func testClearWifiConnections(ctx context.Context) (context.Context, error) {
+	clearRes := serialClient.ClearWifiConnections()
+	if clearRes.Error() != nil {
+		return ctx, clearRes.Error()
+	}
+	output := serialClient.ListWifiConnections()
+	return ctx, output.Error()
+}
+
+func testForceProvisioningMode(ctx context.Context) (context.Context, error) {
+	output := serialClient.ForceProvisioning()
+	return ctx, output.Error()
+}
+
+func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error) {
+	// Try to connect to the provisioning hotspot in a retry loop, return success if joined successfully.
+	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_join_network.sh")
+	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("test_provisioning_join_network.sh failed: %w\n%s", err, out)
+	}
+	return ctx, nil
+}
+
+func testProvisioningHotspotDisables(ctx context.Context) (context.Context, error) {
+	// Try to connect to the provisioning hotspot in a retry loop, return success if it cannot be found.
+	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_network_gone.sh")
+	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("test_provisioning_network_gone.sh failed: %w\n%s", err, out)
+	}
+	return ctx, nil
+}
+
+func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
+	for range 30 {
+		res := serialClient.GetPingPacketLoss()
+		if res.IsError() {
+			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+		}
+		if res.MustGet() == 0 {
+			return ctx, nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return ctx, fmt.Errorf("viam-agent did not come online within timeout")
+}
+
+func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
+	for range 30 {
+		res := serialClient.GetPingPacketLoss()
+		if res.IsError() {
+			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+		}
+		if res.MustGet() > 0 {
+			return ctx, nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return ctx, fmt.Errorf("viam-agent did not go offline within timeout")
+}
+
+func sendNetworkCredentials(ctx context.Context, ssid, psk string) error {
+	conn, err := grpc.NewClient("10.42.0.1:4772",
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := pb.NewProvisioningServiceClient(conn)
+
+	var lastErr error
+	for range 5 {
+		if lastErr != nil {
+			time.Sleep(2 * time.Second)
+		}
+		if _, lastErr = client.SetNetworkCredentials(ctx, &pb.SetNetworkCredentialsRequest{
+			Type: networking.NetworkTypeWifi,
+			Ssid: ssid,
+			Psk:  psk,
+		}); lastErr != nil {
+			continue
+		}
+		if _, lastErr = client.ExitProvisioning(ctx, &pb.ExitProvisioningRequest{}); lastErr != nil {
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func testSendInsecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSIDInsecure, "")
+}
+
+func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSID, cfg.Wifi.Password)
+}
+
+func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentials(ctx, "thisnetwork", "doesnotexist")
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
@@ -545,3 +710,17 @@ func (t *tomlOption[T]) UnmarshalTOML(val any) error {
 }
 
 var _ toml.Unmarshaler = &tomlOption[string]{}
+
+// serialTestTags returns the godog tag expression for serial tests. On
+// non-darwin hosts, scenarios tagged @darwin (e.g. wifi provisioning) are
+// excluded because they depend on macOS-specific tooling (networksetup).
+func serialTestTags() string {
+	tags := os.Getenv("GODOG_TAGS")
+	if runtime.GOOS != "darwin" {
+		if tags != "" {
+			tags += " && "
+		}
+		tags += "~@darwin"
+	}
+	return tags
+}

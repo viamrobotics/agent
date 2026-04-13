@@ -272,6 +272,16 @@ func (c *Client) Sudo() error {
 	return nil
 }
 
+func (c *Client) ClearWifiConnections() mo.Result[[]string] {
+	// clear all wifi connections except for the setup hotspot
+	return c.runCmd(`nmcli -f NAME,TYPE connection show | awk '$NF == "wifi" && !/viam-setup/ {NF--; print}'` +
+		` | xargs -I{} nmcli connection delete "{}"`)
+}
+
+func (c *Client) ListWifiConnections() mo.Result[[]string] {
+	return c.runCmd(`nmcli -f NAME,TYPE connection show | awk '$NF == "wifi" && !/viam-setup/ {NF--; print}'`)
+}
+
 // RunScript transfers a script to the device and executes it with a specified
 // command. The command parameter is the full shell command to run the script, e.g.
 // "FORCE=1 sh" or just "sh". The script is written to a temp file, executed,
@@ -486,6 +496,19 @@ func (c *Client) GetDeviceArch() mo.Result[string] {
 	return mo.Ok(output[0])
 }
 
+// GetHostName returns the machine hostname.
+func (c *Client) GetHostName() mo.Result[string] {
+	cmdRes := c.runCmd("hostname")
+	if cmdRes.IsError() {
+		return mo.Err[string](cmdRes.Error())
+	}
+	output := cmdRes.MustGet()
+	if len(output) != 1 {
+		return mo.Errf[string]("expected single line from hostname but got %d", len(output))
+	}
+	return mo.Ok(output[0])
+}
+
 // EnsureOnline verifies that the device has an internet connection and attempts
 // to connect to the specified WiFi network if it is not.
 func (c *Client) EnsureOnline(ssid, password string) error {
@@ -493,31 +516,70 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 	if packetLossRes.IsError() {
 		return packetLossRes.Error()
 	}
-	if packetLossRes.MustGet() == 0 {
-		// If we're already online then don't meddle with the internet connection.
+	packetLoss := packetLossRes.MustGet()
+	if packetLoss == 0 {
 		return nil
 	}
 
 	if ssid == "" || password == "" {
 		return fmt.Errorf(
 			"device offline with packet loss of %d%% but no wifi credentials provided, cannot continue",
-			packetLossRes.MustGet(),
+			packetLoss,
 		)
 	}
 
-	// If we're offline try connecting to the specified wifi network.
-	connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
-	if connectWifiRes.IsError() {
-		return errw.Wrap(connectWifiRes.Error(), "failed to connect to wifi network")
+	if ssid == "" || password == "" {
+		return fmt.Errorf("device offline with bad ping but no wifi credentials provided, cannot continue")
 	}
 
-	// Rerun the ping test. If this fails we have no way to recover
-	return c.getPingPacketLoss().FlatMap(func(value int) mo.Result[int] {
+	var connectErr error
+	for range 5 {
+		connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
+		output := strings.Join(connectWifiRes.OrEmpty(), " ")
+		if strings.Contains(output, "successfully activated") {
+			connectErr = nil
+			break
+		}
+		// Network is already saved — nmcli won't re-add it with "device wifi
+		// connect", so activate the existing profile instead.
+		if strings.Contains(output, "property is missing") {
+			upRes := c.runCmd(fmt.Sprintf(`nmcli connection up "%s"`, ssid))
+			upOutput := strings.Join(upRes.OrEmpty(), " ")
+			if strings.Contains(upOutput, "successfully activated") {
+				connectErr = nil
+				break
+			}
+			// If that fails, try "%s@wlan0", since viam-agent adds that suffix to connections it creates.
+			upRes = c.runCmd(fmt.Sprintf(`nmcli connection up "%s@wlan0"`, ssid))
+			upOutput = strings.Join(upRes.OrEmpty(), " ")
+			if strings.Contains(upOutput, "successfully activated") {
+				connectErr = nil
+				break
+			}
+			connectErr = fmt.Errorf("nmcli connection up failed: %s", upOutput)
+		} else {
+			connectErr = fmt.Errorf("nmcli connect failed: %s", output)
+		}
+		time.Sleep(time.Second * 3)
+	}
+	if connectErr != nil {
+		return errw.Wrap(connectErr, "failed to connect to wifi network after retries")
+	}
+
+	// Wait a bit after joining the network for things to settle before running ping.
+	time.Sleep(time.Second * 2)
+
+	finalRes := c.getPingPacketLoss()
+	return finalRes.FlatMap(func(value int) mo.Result[int] {
 		if value != 0 {
 			return mo.Err[int](fmt.Errorf("internet connection unstable with packet loss of %d%%", value))
 		}
 		return mo.Ok(value)
 	}).Error()
+}
+
+func (c *Client) GetPingPacketLoss() mo.Result[int] {
+	return c.getPingPacketLoss()
 }
 
 // getPingPacketLoss attempts to ping app.viam.com and returns the packet loss

@@ -21,3 +21,4 @@ viam_server_old = "<old viam-server version string e.g. 0.114.0>"
 # ssid = "<wifi ssid>"
 # password = "<wifi password>"
 
+# ssid_insecure = "<insecure wifi ssid>"
