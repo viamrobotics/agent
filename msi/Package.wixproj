@@ -9,6 +9,8 @@
   <!-- WixFirewall extension for firewall rule support -->
   <ItemGroup>
     <PackageReference Include="WixToolset.Firewall.wixext" Version="6.0.0" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.0" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.0" />
   </ItemGroup>
 
   <!--
