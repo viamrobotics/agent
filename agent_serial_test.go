@@ -455,28 +455,28 @@ func testProvisioningHotspotDisables(ctx context.Context) (context.Context, erro
 
 func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
 	for range 30 {
-		res := serialClient.CanPing()
+		res := serialClient.GetPingPacketLoss()
 		if res.IsError() {
 			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
 		}
-		if res.MustGet() {
+		if res.MustGet() == 0 {
 			return ctx, nil
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 	return ctx, fmt.Errorf("viam-agent did not come online within timeout")
 }
 
 func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
 	for range 30 {
-		res := serialClient.CanPing()
+		res := serialClient.GetPingPacketLoss()
 		if res.IsError() {
 			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
 		}
-		if !res.MustGet() {
+		if res.MustGet() > 0 {
 			return ctx, nil
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 	return ctx, fmt.Errorf("viam-agent did not go offline within timeout")
 }

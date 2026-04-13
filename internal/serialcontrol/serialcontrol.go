@@ -578,19 +578,8 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 	}).Error()
 }
 
-// CanPing attempts to ping app.viam.com and returns false
-// the ping returns a nonzero status code, true if it returns "0",
-// and error if the command doesn't run properly.
-func (c *Client) CanPing() mo.Result[bool] {
-	res := c.runCmd("ping -c 2 -w 10 -q app.viam.com; echo $?")
-	if res.IsError() {
-		return mo.Err[bool](res.Error())
-	}
-	lines := res.MustGet()
-	if len(lines) == 0 {
-		return mo.Errf[bool]("no output from ping command")
-	}
-	return mo.Ok(lines[len(lines)-1] == "0")
+func (c *Client) GetPingPacketLoss() mo.Result[int] {
+	return c.getPingPacketLoss()
 }
 
 // getPingPacketLoss attempts to ping app.viam.com and returns the packet loss
