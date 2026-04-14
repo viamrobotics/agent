@@ -195,12 +195,16 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is connected to a network`, testEnsureOnline)
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnablesWithinTimeout)
-	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
-	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
-	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
+	ctx.Step(`the host shares a secure wifi network via the hotspot`, testSendSecureConnectionInfo)
+	ctx.Step(`the host shares an insecure wifi network via the hotspot`, testSendInsecureConnectionInfo)
+	ctx.Step(`the host shares an invalid wifi network via the hotspot`, testSendInvalidConnectionInfo)
 	ctx.Step(`the provisioning hotspot (goes away|is not up)`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
+
+	// Bluetooth provisioning
+	ctx.Step(`the viam-agent bluetooth device is discoverable`, testBleIsDiscoverable)
+	ctx.Step(`the host shares a secure wifi network via bluetooth`, testBleSendSecureConnectionInfo)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -640,6 +644,10 @@ func testSendInsecureConnectionInfo(ctx context.Context) (context.Context, error
 
 func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
 	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSID, cfg.Wifi.Password)
+}
+
+func testBleSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
+
 }
 
 func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
