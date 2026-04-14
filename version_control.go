@@ -152,11 +152,11 @@ func (c *VersionCache) save() error {
 
 	cacheData, err := json.Marshal(c)
 	if err != nil {
-		return err
+		return errw.Wrap(err, "marshaling version cache")
 	}
 
 	_, err = utils.WriteFileIfNew(cacheFilePath, cacheData)
-	return err
+	return errw.Wrap(err, "writing updated version cache")
 }
 
 // Update processes data for the two binaries: agent itself, and viam-server.
@@ -311,7 +311,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		// chmod with execute permissions if the file is executable
 		//nolint:gosec
 		if err := os.Chmod(verData.DlPath, 0o755); err != nil {
-			return needRestart, err
+			return needRestart, errw.Wrapf(err, "chmodding %s to 0o755", verData.DlPath)
 		}
 
 		actualSha, err := utils.GetFileSum(verData.DlPath)
@@ -373,7 +373,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	// ensure the version we are switching to is indeed executable
 	//nolint:gosec
 	if err := os.Chmod(verData.UnpackedPath, 0o755); err != nil {
-		return needRestart, err
+		return needRestart, errw.Wrapf(err, "chmodding %s to 0o755", verData.UnpackedPath)
 	}
 
 	// symlink the extracted file to bin
