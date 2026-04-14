@@ -280,7 +280,6 @@ func (c *Client) ClearWifiConnections() mo.Result[[]string] {
 	var allOutput []string
 	for _, conn := range conns.MustGet() {
 		res := c.runCmd(fmt.Sprintf(`nmcli connection delete "%s"`, conn))
-		fmt.Printf("delete connection %s", conn)
 		if res.IsError() {
 			return mo.Err[[]string](errw.Wrapf(res.Error(), "failed to delete wifi connection %q", conn))
 		}
