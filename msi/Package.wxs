@@ -52,7 +52,7 @@
          SERVICEACCOUNT=1  run as NT SERVICE\viam-agent instead of LocalSystem.
          ROOTPATH          install root; maps to ROOTDIR (default C:\opt\viam).
          CONFIGDIR         directory containing viam.json (default C:\etc).
-                           Used to assemble --config "[CONFIGDIR]\viam.json" and
+                           Used to assemble \-\-config "[CONFIGDIR]\viam.json" and
                            as the ACL grant target in ServiceAccount mode. -->
     <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
     <Property Id="SERVICEACCOUNT" Value="0" />
@@ -195,10 +195,10 @@
                   DllEntry="WixQuietExec64" />
 
     <!-- ================================================================
-         ConfigPath: update the service binary path to include --config.
+         ConfigPath: update the service binary path to include \-\-config.
 
          ServiceInstall can only set a static Arguments string, so we
-         use sc.exe config to append --config after the service exists.
+         use sc.exe config to append \-\-config after the service exists.
          The config file path is assembled from CONFIGDIR + viam.json.
          ================================================================ -->
 
@@ -326,7 +326,7 @@
               Condition="NOT REMOVE" />
       <Custom Action="ConfigureServiceFailureFlag" After="ConfigureServiceFailure"
               Condition="NOT REMOVE" />
-      <!-- ConfigPath: update service binary path to include --config -->
+      <!-- ConfigPath: update service binary path to include \-\-config -->
       <Custom Action="SetServiceConfigPath" After="InstallServices"
               Condition="NOT REMOVE" />
       <!-- VIAM_HOME env var on the service registry key -->
