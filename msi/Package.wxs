@@ -29,9 +29,6 @@
 
   TODOs (not yet implemented):
     - Rollback custom action for symlink removal on failed install
-    - Configurable RootPath via MSI property (currently hardcoded)
-    - ConfigPath pass-through
-    - VIAM_HOME environment variable on the service registry key
 -->
 
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
@@ -53,10 +50,20 @@
     <!-- Public properties forwarded to the execute sequence.
          AGENTDOWNLOADURL  URL for the agent binary; override on the command line.
          SERVICEACCOUNT=1  run as NT SERVICE\viam-agent instead of LocalSystem.
-         CONFIGDIR         directory the agent reads viam.json from (ACL grant target). -->
+         ROOTPATH          install root; maps to ROOTDIR (default C:\opt\viam).
+         CONFIGDIR         directory containing viam.json (default C:\etc).
+                           Used to assemble --config "[CONFIGDIR]\viam.json" and
+                           as the ACL grant target in ServiceAccount mode. -->
     <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
     <Property Id="SERVICEACCOUNT" Value="0" />
+    <Property Id="ROOTPATH" Value="C:\opt\viam" />
     <Property Id="CONFIGDIR" Value="C:\etc" />
+
+    <!-- Override ROOTDIR from the ROOTPATH property so the install
+         directory is configurable (msiexec /i ... ROOTPATH="D:\viam").
+         Runs before CostInitialize in both UI and execute sequences so
+         directory costing picks up the override. -->
+    <SetProperty Id="ROOTDIR" Before="CostInitialize" Sequence="both" Value="[ROOTPATH]" />
 
     <!-- ================================================================
          Directory layout
@@ -188,6 +195,47 @@
                   DllEntry="WixQuietExec64" />
 
     <!-- ================================================================
+         ConfigPath: update the service binary path to include --config.
+
+         ServiceInstall can only set a static Arguments string, so we
+         use sc.exe config to append --config after the service exists.
+         The config file path is assembled from CONFIGDIR + viam.json.
+         ================================================================ -->
+
+    <SetProperty Id="SetServiceConfigPath"
+                 Before="SetServiceConfigPath"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]sc.exe&quot; config &quot;viam-agent&quot; binPath= &quot;\&quot;[BINDIR]viam-agent.exe\&quot; --viam-dir \&quot;[ROOTDIR].\&quot; --config \&quot;[CONFIGDIR]viam.json\&quot;&quot;" />
+
+    <CustomAction Id="SetServiceConfigPath"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- ================================================================
+         VIAM_HOME environment variable on the service registry key.
+
+         Sets the Environment REG_MULTI_SZ so child processes
+         (viam-server, modules) inherit the correct root path.
+         Mirrors the ps1: Set-ItemProperty … -Name "Environment"
+                          -Value @("VIAM_HOME=$RootPath") -Type MultiString
+         ================================================================ -->
+
+    <SetProperty Id="SetViamHomeEnv"
+                 Before="SetViamHomeEnv"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]reg.exe&quot; add &quot;HKLM\SYSTEM\CurrentControlSet\Services\viam-agent&quot; /v Environment /t REG_MULTI_SZ /d &quot;VIAM_HOME=[ROOTDIR].&quot; /f" />
+
+    <CustomAction Id="SetViamHomeEnv"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- ================================================================
          ServiceAccount mode CAs (run only when SERVICEACCOUNT=1)
 
          Sequencing: all run after InstallServices (service must exist
@@ -277,6 +325,12 @@
       <Custom Action="ConfigureServiceFailure" After="InstallServices"
               Condition="NOT REMOVE" />
       <Custom Action="ConfigureServiceFailureFlag" After="ConfigureServiceFailure"
+              Condition="NOT REMOVE" />
+      <!-- ConfigPath: update service binary path to include --config -->
+      <Custom Action="SetServiceConfigPath" After="InstallServices"
+              Condition="NOT REMOVE" />
+      <!-- VIAM_HOME env var on the service registry key -->
+      <Custom Action="SetViamHomeEnv" After="InstallServices"
               Condition="NOT REMOVE" />
       <!-- ServiceAccount mode: all conditioned on SERVICEACCOUNT=1, run after service is created -->
       <Custom Action="SetServiceAccount" After="InstallServices"
@@ -377,6 +431,8 @@
       <ProgressText Action="RemoveSymlink" Message="Removing viam-agent symlink..." />
       <ProgressText Action="ConfigureServiceFailure" Message="Configuring service failure recovery..." />
       <ProgressText Action="ConfigureServiceFailureFlag" Message="Enabling service failure-on-crash flag..." />
+      <ProgressText Action="SetServiceConfigPath" Message="Setting agent config path..." />
+      <ProgressText Action="SetViamHomeEnv" Message="Setting VIAM_HOME environment variable on service..." />
       <!-- Built-in StartServices can take ~2 minutes waiting for viam-agent to report running -->
       <ProgressText Action="StartServices" Message="Starting Viam Agent service (this may take a minute)..." />
       <!-- ServiceAccount mode steps -->
