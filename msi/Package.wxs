@@ -13,9 +13,16 @@
     - Symlink: bin\viam-agent.exe -> cache\viam-agent-from-installer.exe
       (MSI has no native symlink support; we shell out to cmd /c mklink)
     - Service failure recovery (sc.exe failure config)
+    - ServiceAccount mode (sc.exe config, icacls, secedit, event log source)
+
+  ServiceAccount mode (pass SERVICEACCOUNT=1 on the msiexec command line):
+    - Switches service logon from LocalSystem to NT SERVICE\viam-agent
+    - Grants NT SERVICE\viam-agent full control of ROOTDIR (C:\opt\viam)
+    - Grants NT SERVICE\viam-agent read+execute on CONFIGDIR (default C:\etc)
+    - Grants SeCreateSymbolicLinkPrivilege for self-update symlinks
+    - Registers Application event log source so the non-admin account can write events
 
   TODOs (not yet implemented):
-    - ServiceAccount mode (ACL grants, secedit privilege, event log source)
     - Download-at-install-time (currently we bundle the exe at build time)
     - Rollback custom action for symlink removal on failed install
     - Configurable RootPath via MSI property (currently hardcoded)
@@ -38,6 +45,12 @@
 
     <!-- Major upgrade: remove older versions before installing -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of Viam Agent is already installed." />
+
+    <!-- Public properties forwarded to the execute sequence.
+         SERVICEACCOUNT=1  run as NT SERVICE\viam-agent instead of LocalSystem.
+         CONFIGDIR         directory the agent reads viam.json from (ACL grant target). -->
+    <Property Id="SERVICEACCOUNT" Value="0" />
+    <Property Id="CONFIGDIR" Value="C:\etc" />
 
     <!-- ================================================================
          Directory layout
@@ -137,6 +150,86 @@
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec64" />
 
+    <!-- ================================================================
+         ServiceAccount mode CAs (run only when SERVICEACCOUNT=1)
+
+         Sequencing: all run after InstallServices (service must exist
+         before switching the logon account and resolving its SID).
+
+         secedit note: the GrantSymlinkPrivilege CA avoids all [...]
+         .NET type syntax in the PowerShell -Command string because MSI's
+         property formatter would expand [Foo.Bar] as property "Foo.Bar"
+         (→ empty). Instead we use sc.exe showsid to get the SID,
+         Get-Content/Set-Content instead of [IO.File], $env:TEMP instead
+         of [IO.Path]::GetTempFileName(), and .* instead of [^\r\n]*.
+         ================================================================ -->
+
+    <SetProperty Id="SetServiceAccount"
+                 Before="SetServiceAccount"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]sc.exe&quot; config &quot;viam-agent&quot; obj= &quot;NT SERVICE\viam-agent&quot;" />
+
+    <CustomAction Id="SetServiceAccount"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- icacls "(OI)(CI)F" = full control, inherited by files and subdirs -->
+    <SetProperty Id="GrantRootDirAcl"
+                 Before="GrantRootDirAcl"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]icacls.exe&quot; &quot;[ROOTDIR].&quot; /grant &quot;NT SERVICE\viam-agent:(OI)(CI)F&quot;" />
+
+    <CustomAction Id="GrantRootDirAcl"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- Create CONFIGDIR if it doesn't exist (mirrors ps1: New-Item -Force) -->
+    <SetProperty Id="CreateConfigDir"
+                 Before="CreateConfigDir"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]cmd.exe&quot; /c if not exist &quot;[CONFIGDIR]&quot; mkdir &quot;[CONFIGDIR]&quot;" />
+
+    <CustomAction Id="CreateConfigDir"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- icacls "(OI)(CI)RX" = read+execute, inherited by files and subdirs -->
+    <SetProperty Id="GrantConfigDirAcl"
+                 Before="GrantConfigDirAcl"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]icacls.exe&quot; &quot;[CONFIGDIR]&quot; /grant &quot;NT SERVICE\viam-agent:(OI)(CI)RX&quot;" />
+
+    <CustomAction Id="GrantConfigDirAcl"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- Grant SeCreateSymbolicLinkPrivilege via secedit.
+         Uses sc.exe showsid to resolve the virtual-account SID (algorithmic,
+         works even before the service has ever run). -->
+    <SetProperty Id="GrantSymlinkPrivilege"
+                 Before="GrantSymlinkPrivilege"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass -NonInteractive -Command &quot;$sid = (&amp; sc.exe showsid viam-agent | Where-Object { $_ -match 'SERVICE SID' } | ForEach-Object { $_ -replace '.*:\s*' } | Select-Object -First 1).Trim(); $inf = $env:TEMP + '\viam-secedit.inf'; $db = $env:TEMP + '\viam-secedit.db'; secedit /export /cfg $inf /quiet; $c = Get-Content $inf -Raw -Encoding Default; if ($c -notmatch ('SeCreateSymbolicLinkPrivilege.*' + $sid)) { $c = $c -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*.*)', ('$1,*' + $sid); $c | Set-Content $inf -Encoding Default -NoNewline; Remove-Item $db -EA SilentlyContinue; secedit /configure /db $db /cfg $inf /quiet }; Remove-Item $inf, $db -EA SilentlyContinue&quot;" />
+
+    <CustomAction Id="GrantSymlinkPrivilege"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
     <InstallExecuteSequence>
       <Custom Action="CreateSymlink" After="InstallFiles"
               Condition="NOT REMOVE" />
@@ -146,6 +239,17 @@
               Condition="NOT REMOVE" />
       <Custom Action="ConfigureServiceFailureFlag" After="ConfigureServiceFailure"
               Condition="NOT REMOVE" />
+      <!-- ServiceAccount mode: all conditioned on SERVICEACCOUNT=1, run after service is created -->
+      <Custom Action="SetServiceAccount" After="InstallServices"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="GrantRootDirAcl" After="SetServiceAccount"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="CreateConfigDir" After="GrantRootDirAcl"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="GrantConfigDirAcl" After="CreateConfigDir"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="GrantSymlinkPrivilege" After="GrantConfigDirAcl"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
     </InstallExecuteSequence>
 
     <!-- ================================================================
@@ -174,6 +278,17 @@
                        Name="Installed"
                        Type="integer"
                        Value="1" />
+
+        <!-- Register Application event log source so NT SERVICE\viam-agent
+             (a non-admin account) can write events without an Access Denied error.
+             Mirrors: New-EventLog -LogName Application -Source "viam-agent"
+             Always registered (harmless when running as SYSTEM). -->
+        <RegistryKey Root="HKLM"
+                     Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\viam-agent">
+          <RegistryValue Name="EventMessageFile"
+                         Type="expandable"
+                         Value="%SystemRoot%\System32\EventCreate.exe" />
+        </RegistryKey>
 
         <ServiceInstall Id="ViamAgentService"
                         Name="viam-agent"
@@ -224,6 +339,12 @@
       <ProgressText Action="ConfigureServiceFailureFlag" Message="Enabling service failure-on-crash flag..." />
       <!-- Built-in StartServices can take ~2 minutes waiting for viam-agent to report running -->
       <ProgressText Action="StartServices" Message="Starting Viam Agent service (this may take a minute)..." />
+      <!-- ServiceAccount mode steps -->
+      <ProgressText Action="SetServiceAccount" Message="Switching service to virtual service account..." />
+      <ProgressText Action="GrantRootDirAcl" Message="Granting service account access to install directory..." />
+      <ProgressText Action="CreateConfigDir" Message="Creating config directory..." />
+      <ProgressText Action="GrantConfigDirAcl" Message="Granting service account access to config directory..." />
+      <ProgressText Action="GrantSymlinkPrivilege" Message="Granting SeCreateSymbolicLinkPrivilege..." />
     </UI>
 
     <!-- ================================================================
