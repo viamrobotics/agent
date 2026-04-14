@@ -284,8 +284,7 @@ main() {
 		fi
 	fi
 
-	PLIST_DEST="/Library/LaunchDaemons/com.viam.agent.plist"
-	if [ -f /etc/systemd/system/viam-agent.service ] || [ -f /usr/local/lib/systemd/system/viam-agent.service ] || [ -f "$PLIST_DEST" ]; then
+	if [ -f /etc/systemd/system/viam-agent.service ] || [ -f /usr/local/lib/systemd/system/viam-agent.service ] || ([ "$OS" = "Darwin" ] && launchctl list com.viam.agent >/dev/null 2>&1); then
 		RESTART_CMD="systemctl restart viam-agent"
 		if [ "$OS" = Darwin ]; then
 			RESTART_CMD="sudo launchctl kickstart -k system/com.viam.agent"

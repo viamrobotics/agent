@@ -260,7 +260,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		} else {
 			_, err := InstallNewVersion(ctx, m.logger)
 			if err != nil {
-				m.logger.Warnw("running install of new agent version", "error", err)
+				m.logger.Warnw("Error running install of new agent version", "error", err)
 			}
 			m.viamAgentNeedsRestart = true
 		}
@@ -284,12 +284,20 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
 
 		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
-			if m.viamServer.RestartAllowed(ctx) {
-				m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
-				if err := m.viamServer.Stop(ctx); err != nil {
-					m.logger.Warn(err)
+			// If ctx is canceled (e.g. on macOS, launchd bootout cancels ctx before we
+			// reach this block), we know the agent is shutting down — skip RestartAllowed
+			// and stop viam-server unconditionally. Otherwise, defer to RestartAllowed.
+			if ctx.Err() != nil || m.viamServer.RestartAllowed(ctx) {
+				stopCtx, cancel := context.WithTimeout(context.Background(), stopAllTimeout)
+				defer cancel()
+				if ctx.Err() != nil {
+					m.logger.Infof("agent shutting down; stopping %s before exit", viamserver.SubsysName)
 				} else {
-					m.viamServerNeedsRestart = false
+					m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
+				}
+
+				if err := m.viamServer.Stop(stopCtx); err != nil {
+					m.logger.Warn(err)
 				}
 				if m.viamAgentNeedsRestart {
 					m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
