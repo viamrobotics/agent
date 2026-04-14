@@ -32,7 +32,8 @@
 -->
 
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
 
   <Package Name="Viam Agent"
@@ -47,23 +48,22 @@
     <!-- Major upgrade: remove older versions before installing -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of Viam Agent is already installed." />
 
+    <!-- Embed the cab inside the MSI so it ships as a single file -->
+    <MediaTemplate EmbedCab="yes" />
+
     <!-- Public properties forwarded to the execute sequence.
          AGENTDOWNLOADURL  URL for the agent binary; override on the command line.
          SERVICEACCOUNT=1  run as NT SERVICE\viam-agent instead of LocalSystem.
-         ROOTPATH          install root; maps to ROOTDIR (default C:\opt\viam).
+         ROOTDIR           install root (default C:\opt\viam). Also settable
+                           via the GUI directory browse or command line:
+                           msiexec /i ... ROOTDIR="D:\viam"
          CONFIGDIR         directory containing viam.json (default C:\etc).
-                           Used to assemble \-\-config "[CONFIGDIR]\viam.json" and
+                           Used to assemble the config flag for the agent and
                            as the ACL grant target in ServiceAccount mode. -->
     <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
-    <Property Id="SERVICEACCOUNT" Value="0" />
-    <Property Id="ROOTPATH" Value="C:\opt\viam" />
+    <Property Id="SERVICEACCOUNT" Secure="yes" />
+    <Property Id="ROOTDIR" Value="C:\opt\viam" />
     <Property Id="CONFIGDIR" Value="C:\etc" />
-
-    <!-- Override ROOTDIR from the ROOTPATH property so the install
-         directory is configurable (msiexec /i ... ROOTPATH="D:\viam").
-         Runs before CostInitialize in both UI and execute sequences so
-         directory costing picks up the override. -->
-    <SetProperty Id="ROOTDIR" Before="CostInitialize" Sequence="both" Value="[ROOTPATH]" />
 
     <!-- ================================================================
          Directory layout
@@ -205,7 +205,7 @@
     <SetProperty Id="SetServiceConfigPath"
                  Before="SetServiceConfigPath"
                  Sequence="execute"
-                 Value="&quot;[System64Folder]sc.exe&quot; config &quot;viam-agent&quot; binPath= &quot;\&quot;[BINDIR]viam-agent.exe\&quot; --viam-dir \&quot;[ROOTDIR].\&quot; --config \&quot;[CONFIGDIR]viam.json\&quot;&quot;" />
+                 Value="&quot;[System64Folder]sc.exe&quot; config &quot;viam-agent&quot; binPath= &quot;\&quot;[BINDIR]viam-agent.exe\&quot; --viam-dir \&quot;[ROOTDIR].\&quot; --config \&quot;[CONFIGDIR]\viam.json\&quot;&quot;" />
 
     <CustomAction Id="SetServiceConfigPath"
                   Execute="deferred"
@@ -422,10 +422,79 @@
     </ComponentGroup>
 
     <!-- ================================================================
-         Progress text (shown in the installer UI status area)
+         Installer UI
+
+         WixUI_InstallDir provides:
+           Welcome → License → InstallDir → VerifyReady → Progress → Exit
+
+         We insert a custom ServiceAccountDlg between InstallDirDlg and
+         VerifyReadyDlg with a checkbox bound to the SERVICEACCOUNT
+         property. Both the directory browse and the checkbox respect
+         values passed on the command line (e.g. ROOTDIR="D:\viam"
+         SERVICEACCOUNT=1); silent installs skip the GUI entirely.
          ================================================================ -->
 
     <UI>
+      <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="ROOTDIR" />
+
+      <!-- ============================================================
+           ServiceAccountDlg: checkbox to opt into the virtual service
+           account (NT SERVICE\viam-agent) instead of Local System.
+           ============================================================ -->
+
+      <Dialog Id="ServiceAccountDlg" Width="370" Height="270"
+              Title="!(loc.InstallDirDlg_Title)">
+        <!-- Banner area (matches WixUI standard layout) -->
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Service Account" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="Choose how the Viam Agent service should run." />
+
+        <!-- Checkbox + explanation -->
+        <Control Id="ServiceAccountCheckbox" Type="CheckBox"
+                 X="20" Y="65" Width="330" Height="18"
+                 Property="SERVICEACCOUNT" CheckBoxValue="1"
+                 Text="Run as virtual service account (NT SERVICE\viam-agent)" />
+        <Control Id="ServiceAccountDesc" Type="Text"
+                 X="35" Y="88" Width="315" Height="50" NoPrefix="yes"
+                 Text="When checked, the service runs with minimal privileges using a virtual service account. Recommended for production deployments. When unchecked, the service runs as Local System." />
+
+        <!-- Bottom bar -->
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Skip LicenseAgreementDlg: Welcome → InstallDirDlg directly.
+           High Order values override the default WixUI navigation
+           (last Publish whose condition is true wins). -->
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog"
+               Value="InstallDirDlg" Order="10" Condition="1" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog"
+               Value="WelcomeDlg" Order="10" Condition="1" />
+
+      <!-- Wire ServiceAccountDlg: InstallDirDlg → ServiceAccountDlg → VerifyReadyDlg -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog"
+               Value="ServiceAccountDlg" Order="10" Condition="1" />
+      <Publish Dialog="ServiceAccountDlg" Control="Back" Event="NewDialog"
+               Value="InstallDirDlg" Condition="1" />
+      <Publish Dialog="ServiceAccountDlg" Control="Next" Event="NewDialog"
+               Value="VerifyReadyDlg" Condition="1" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog"
+               Value="ServiceAccountDlg" Order="10" Condition="1" />
+
+      <!-- Progress text (shown in the progress dialog status area) -->
       <ProgressText Action="DownloadAgent" Message="Downloading Viam Agent binary..." />
       <ProgressText Action="CreateSymlink" Message="Creating viam-agent symlink..." />
       <ProgressText Action="RemoveSymlink" Message="Removing viam-agent symlink..." />
