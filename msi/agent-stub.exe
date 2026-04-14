@@ -1,0 +1,4 @@
+This file is a build-time placeholder bundled into the MSI for the service
+component's file KeyPath. At install time it is written to bin\viam-agent.exe
+and immediately replaced by a symlink pointing to the downloaded agent binary
+in cache\viam-agent-from-installer.exe. The content is never executed.

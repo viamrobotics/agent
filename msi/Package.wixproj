@@ -18,18 +18,5 @@
     <PackageReference Include="WixToolset.Util.wixext" Version="6.0.0" />
   </ItemGroup>
 
-  <!--
-    Bind path for the agent executable.
-    At build time, set this to the directory containing viam-agent-from-installer.exe:
-      dotnet build -p:AgentBinDir=/path/to/downloaded/agent/
-    Or download it first (see Makefile target).
-  -->
-  <PropertyGroup>
-    <AgentBinDir Condition="'$(AgentBinDir)' == ''">.</AgentBinDir>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <BindPath Include="$(AgentBinDir)" BindName="agent" />
-  </ItemGroup>
 
 </Project>

@@ -5,17 +5,22 @@
 
   What this handles declaratively:
     - Directory creation (RootPath\cache, RootPath\bin)
-    - Bundled agent executable (downloaded at MSI build time)
     - Windows service (viam-agent) with automatic start
     - Firewall inbound rule via WixFirewall
 
   What uses custom actions:
+    - Download: curl.exe fetches the agent binary into cache\ at install time
     - Symlink: bin\viam-agent.exe -> cache\viam-agent-from-installer.exe
       (MSI has no native symlink support; we shell out to cmd /c mklink)
     - Service failure recovery (sc.exe failure config)
     - ServiceAccount mode (sc.exe config, icacls, secedit, event log source)
 
-  ServiceAccount mode (pass SERVICEACCOUNT=1 on the msiexec command line):
+  Download (AGENTDOWNLOADURL property):
+    - curl.exe (built-in since Win10 1803) downloads AGENTDOWNLOADURL into CACHEDIR
+    - Default URL: GCS stable channel (same as windows-installer-agent.ps1)
+    - Override: msiexec /i Package.msi AGENTDOWNLOADURL="https://..."
+
+  ServiceAccount mode (SERVICEACCOUNT=1 property):
     - Switches service logon from LocalSystem to NT SERVICE\viam-agent
     - Grants NT SERVICE\viam-agent full control of ROOTDIR (C:\opt\viam)
     - Grants NT SERVICE\viam-agent read+execute on CONFIGDIR (default C:\etc)
@@ -23,7 +28,6 @@
     - Registers Application event log source so the non-admin account can write events
 
   TODOs (not yet implemented):
-    - Download-at-install-time (currently we bundle the exe at build time)
     - Rollback custom action for symlink removal on failed install
     - Configurable RootPath via MSI property (currently hardcoded)
     - ConfigPath pass-through
@@ -47,8 +51,10 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Viam Agent is already installed." />
 
     <!-- Public properties forwarded to the execute sequence.
+         AGENTDOWNLOADURL  URL for the agent binary; override on the command line.
          SERVICEACCOUNT=1  run as NT SERVICE\viam-agent instead of LocalSystem.
          CONFIGDIR         directory the agent reads viam.json from (ACL grant target). -->
+    <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
     <Property Id="SERVICEACCOUNT" Value="0" />
     <Property Id="CONFIGDIR" Value="C:\etc" />
 
@@ -71,17 +77,48 @@
     </StandardDirectory>
 
     <!-- ================================================================
-         Files
+         Cache directory
+
+         No file is bundled in the CAB for CACHEDIR — the agent binary is
+         downloaded at install time by the DownloadAgent custom action.
+         This component exists solely to:
+           1. Force CACHEDIR creation (CreateFolder) before DownloadAgent runs.
+           2. Remove the downloaded binary on uninstall (RemoveFile).
          ================================================================ -->
 
-    <ComponentGroup Id="AgentFiles" Directory="CACHEDIR">
-      <Component Id="AgentExe" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
-        <File Id="AgentExeFile"
-              Source="!(bindpath.agent)\viam-agent-from-installer.exe"
-              Name="viam-agent-from-installer.exe"
-              KeyPath="yes" />
+    <ComponentGroup Id="AgentCache" Directory="CACHEDIR">
+      <Component Id="CacheDir" Guid="D4E5F6A7-B8C9-0123-DEAB-345678901234">
+        <CreateFolder />
+        <!-- Clean up the downloaded binary on uninstall.
+             viam-agent-from-installer.exe is not tracked by a file component
+             (it is downloaded by the DownloadAgent CA), so MSI won't remove it
+             automatically; this RemoveFile entry bridges that gap. -->
+        <RemoveFile Id="RemoveCachedAgent"
+                    Name="viam-agent-from-installer.exe"
+                    On="uninstall" />
       </Component>
     </ComponentGroup>
+
+    <!-- ================================================================
+         Download agent binary at install time
+
+         curl.exe is built into Windows 10 1803+. The -fail flag causes a
+         non-zero exit on HTTP 4xx/5xx, preventing a silent write of an error
+         page. The -retry 3 flag retries on transient network failures.
+         Runs after CreateFolders (CACHEDIR exists) and before InstallFiles.
+         ================================================================ -->
+
+    <SetProperty Id="DownloadAgent"
+                 Before="DownloadAgent"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]curl.exe&quot; -L --fail --retry 3 -o &quot;[CACHEDIR]viam-agent-from-installer.exe&quot; &quot;[AGENTDOWNLOADURL]&quot;" />
+
+    <CustomAction Id="DownloadAgent"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
 
     <!-- ================================================================
          Symlink: bin\viam-agent.exe -> ..\cache\viam-agent-from-installer.exe
@@ -231,6 +268,8 @@
                   DllEntry="WixQuietExec64" />
 
     <InstallExecuteSequence>
+      <Custom Action="DownloadAgent" After="CreateFolders"
+              Condition="NOT REMOVE" />
       <Custom Action="CreateSymlink" After="InstallFiles"
               Condition="NOT REMOVE" />
       <Custom Action="RemoveSymlink" Before="RemoveFiles"
@@ -265,12 +304,12 @@
            exists from a prior failed install, which also skips InstallServices. -->
       <Component Id="ServiceComponent" Guid="B3C4D5E6-F7A8-9012-BCDE-F01234567890">
         <!-- File KeyPath: InstallServices reads the component KeyPath to get the
-             service ImagePath. CreateSymlink (After=InstallFiles) replaces this
-             real binary with a symlink before InstallServices runs (~5800), so
-             the SCM registers D:\opt\viam\bin\viam-agent.exe which it then
-             follows as a symlink to the actual binary in cache\. -->
+             service ImagePath. agent-stub.exe is a tiny build-time placeholder;
+             CreateSymlink (After=InstallFiles) replaces it with a symlink before
+             InstallServices runs (~5800), so the SCM registers
+             bin\viam-agent.exe which it then follows to cache\viam-agent-from-installer.exe. -->
         <File Id="AgentBinExe"
-              Source="!(bindpath.agent)\viam-agent-from-installer.exe"
+              Source="agent-stub.exe"
               Name="viam-agent.exe"
               KeyPath="yes" />
         <RegistryValue Root="HKLM"
@@ -333,6 +372,7 @@
          ================================================================ -->
 
     <UI>
+      <ProgressText Action="DownloadAgent" Message="Downloading Viam Agent binary..." />
       <ProgressText Action="CreateSymlink" Message="Creating viam-agent symlink..." />
       <ProgressText Action="RemoveSymlink" Message="Removing viam-agent symlink..." />
       <ProgressText Action="ConfigureServiceFailure" Message="Configuring service failure recovery..." />
@@ -352,7 +392,7 @@
          ================================================================ -->
 
     <Feature Id="MainFeature" Title="Viam Agent" Level="1">
-      <ComponentGroupRef Id="AgentFiles" />
+      <ComponentGroupRef Id="AgentCache" />
       <ComponentGroupRef Id="AgentService" />
       <ComponentGroupRef Id="FirewallRules" />
     </Feature>
