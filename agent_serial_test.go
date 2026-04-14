@@ -192,23 +192,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 
 	// Wifi provisioning
 	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
+	ctx.Step(`viam-agent is connected to a network`, testEnsureOnline)
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnablesWithinTimeout)
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
 	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
 	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
 	ctx.Step(`the provisioning hotspot (goes away|is not up)`, testProvisioningHotspotDisables)
-	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
-	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
-
-	// Wifi provisioning
-	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
-	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
-	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
-	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
-	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
-	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
-	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
 
@@ -491,6 +481,13 @@ func testClearWifiConnections(ctx context.Context) (context.Context, error) {
 	}
 	output := serialClient.ListWifiConnections()
 	return ctx, output.Error()
+}
+
+func testEnsureOnline(ctx context.Context) (context.Context, error) {
+	if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+		return ctx, err
+	}
+	return ctx, nil
 }
 
 func testForceProvisioningMode(ctx context.Context) (context.Context, error) {
