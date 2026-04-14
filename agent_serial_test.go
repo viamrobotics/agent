@@ -201,6 +201,17 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
 
+	// Wifi provisioning
+	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
+	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
+	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
+	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
+	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
+	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
+	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
+	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
+	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
+
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit started with %s`, versionGroup), testSystemdAgentStartVersion)
