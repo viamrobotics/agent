@@ -6,10 +6,10 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	"github.com/viamrobotics/agent/utils/launchd"
 	"go.viam.com/rdk/logging"
 	rutils "go.viam.com/rdk/utils"
 )
@@ -27,7 +27,7 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 
 	// Run the newly updated version to install launchd service files.
 	logger.Info("running viam-agent --install for new version")
-	// On macOS, --install may triggers a launchd bootout which kills the running agent's
+	// On macOS, --install may trigger a launchd bootout which kills the running agent's
 	// process group before the subprocess can finish bootstrapping and kickstarting the
 	// new agent. So start the subprocess in its own process group.
 	//nolint:gosec
@@ -37,7 +37,7 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 		logger,
 	)
 	defer cleanup()
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, launchd.LaunchdExitTimeOut)
 	defer cancel()
 
 	cmd := exec.Command(expectedPath, "--install")
@@ -48,8 +48,9 @@ func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error)
 	}
 
 	// We intentionally start the Wait() in a goroutine. It is expected that if the plist file
-	// is updated, the installer will trigger a bootout, which will kill this agent process before the
-	// installer process exits. In that case, this goroutine will be leaked but will exit when the installer completes.
+	// is updated, the installer will trigger a bootout, which will kill this agent process (including this goroutine) before the
+	// installer process completes the install and bootstrap the agent again. The installer process will be
+	// orphaned in the mean time and then adopted by parent process of the agent (which should be init).
 	//
 	// If the plist file is unchanged, this goroutine will wait for the installer to exit and then return cleanly.
 	doneCh := make(chan struct{})

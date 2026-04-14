@@ -14,7 +14,7 @@ import (
 const (
 	systemLaunchDaemonDir = "/Library/LaunchDaemons"
 	// Should match ExitTimeOut in com.viam.agent.plist.
-	launchdExitTimeOut = 4 * time.Minute
+	LaunchdExitTimeOut = 4 * time.Minute
 )
 
 // Annoying workaround to allow embedding LaunchdExecutor in LaunchdManager w/o
@@ -70,7 +70,7 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 			l.logger.Infow("Ignoring error from bootout", "error", err.Error())
 		}
 
-		t := time.NewTimer(launchdExitTimeOut)
+		t := time.NewTimer(LaunchdExitTimeOut)
 		var timesChecked int
 		for {
 			if l.IsServiceRemoved(ctx, serviceName) {
@@ -84,7 +84,7 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 				}
 			case <-t.C:
 				return "", false, errors.Errorf("bootout failed to stop and remove existing service after %s",
-					launchdExitTimeOut)
+					LaunchdExitTimeOut)
 			case <-ctx.Done():
 				return "", false, errors.WithMessage(ctx.Err(), "bootout failed to stop and remove existing service")
 			}
