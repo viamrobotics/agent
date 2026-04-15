@@ -1,0 +1,22 @@
+<Project Sdk="WixToolset.Sdk/6.0.0">
+
+  <PropertyGroup>
+    <!-- Build a 64-bit MSI (required for ProgramFiles64Folder and 64-bit service) -->
+    <Platform>x64</Platform>
+    <OutputType>Package</OutputType>
+    <!-- ICE03 flags the long PowerShell -Command string in GrantSymlinkPrivilege as
+         exceeding the CustomAction.Target schema column width (S255). In practice the
+         MSI string pool stores arbitrary-length strings and the runtime reads them
+         correctly; S255 is a schema hint, not a hard storage limit. -->
+    <SuppressIces>ICE03</SuppressIces>
+  </PropertyGroup>
+
+  <!-- WixFirewall extension for firewall rule support -->
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="6.0.0" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.0" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.0" />
+  </ItemGroup>
+
+
+</Project>
