@@ -187,15 +187,18 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
 	ctx.Step(`the viam-agent systemd unit is not found$`, testAgentNotFound)
 	ctx.Step(`the viam files have all been removed`, testViamFilesRemoved)
+	ctx.Step(`the journald config is live$`, testJournaldConfigLoaded)
+	ctx.Step(`the wifi power save config is live$`, testWifiPowerSaveConfigLoaded)
 
 	// Wifi provisioning
 	ctx.Step(`there are no available wifi networks`, testClearWifiConnections)
+	ctx.Step(`viam-agent is connected to a network`, testEnsureOnline)
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
-	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnables)
+	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnablesWithinTimeout)
 	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
 	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
 	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
-	ctx.Step(`the provisioning hotspot goes away`, testProvisioningHotspotDisables)
+	ctx.Step(`the provisioning hotspot (goes away|is not up)`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
 
@@ -415,6 +418,70 @@ func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
+func testJournaldConfigLoaded(ctx context.Context) (context.Context, error) {
+	var err error
+	for i := range 10 {
+		if i > 0 {
+			time.Sleep(time.Second * 1)
+		}
+		// get the PID of the actively running journald process
+		pidRes := serialClient.RunCmd(`systemctl show systemd-journald --property=MainPID`)
+		if pidRes.IsError() {
+			err = pidRes.Error()
+			continue
+		}
+		pidString := strings.Join(pidRes.MustGet(), " ")
+		journalPid := strings.SplitN(pidString, "=", 2)[1]
+
+		// Check the journald logs for log lines from this actively running systemd-journald process.
+		// The lines contain the path and the max allowed storage
+		res := serialClient.RunScript(
+			fmt.Sprintf(`journalctl --no-pager -u systemd-journald --output=short-monotonic 2>&1 | grep %s | grep "System Journal"`, journalPid),
+			"sh",
+		)
+		if res.IsError() {
+			err = res.Error()
+			continue
+		}
+		output := strings.Join(res.MustGet(), "\n")
+		if !strings.Contains(output, "/var/log/journal/") {
+			err = fmt.Errorf("journald not using persistent storage, got: %s", output)
+			continue
+		}
+		if !strings.Contains(output, "max 512") {
+			err = fmt.Errorf("journald not using expected max size, got: %s", output)
+			continue
+		}
+		return ctx, nil
+	}
+	return ctx, fmt.Errorf("journald config not loaded after timeout: %w", err)
+}
+
+func testWifiPowerSaveConfigLoaded(ctx context.Context) (context.Context, error) {
+	const wifiPowerSaveFilepath = "/etc/NetworkManager/conf.d/81-viam-wifi-powersave.conf"
+	var err error
+	for i := range 30 {
+		if i > 0 {
+			time.Sleep(time.Second * 2)
+		}
+		res := serialClient.RunScript(
+			fmt.Sprintf("test -f %s && echo EXISTS", wifiPowerSaveFilepath),
+			"sh",
+		)
+		if res.IsError() {
+			err = res.Error()
+			continue
+		}
+		output := strings.Join(res.MustGet(), "")
+		if !strings.Contains(output, "EXISTS") {
+			err = fmt.Errorf("wifi power save config not found at %s", wifiPowerSaveFilepath)
+			continue
+		}
+		return ctx, nil
+	}
+	return ctx, fmt.Errorf("wifi power save config not loaded after timeout: %w", err)
+}
+
 func testClearWifiConnections(ctx context.Context) (context.Context, error) {
 	clearRes := serialClient.ClearWifiConnections()
 	if clearRes.Error() != nil {
@@ -424,75 +491,139 @@ func testClearWifiConnections(ctx context.Context) (context.Context, error) {
 	return ctx, output.Error()
 }
 
+func testEnsureOnline(ctx context.Context) (context.Context, error) {
+	if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+		return ctx, err
+	}
+	return ctx, nil
+}
+
 func testForceProvisioningMode(ctx context.Context) (context.Context, error) {
 	output := serialClient.ForceProvisioning()
 	return ctx, output.Error()
 }
 
-func testProvisioningHotspotEnables(ctx context.Context) (context.Context, error) {
+func testProvisioningHotspotEnablesWithinTimeout(ctx context.Context) (context.Context, error) {
 	// Try to connect to the provisioning hotspot in a retry loop, return success if joined successfully.
-	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_join_network.sh")
-	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
+	startTime := time.Now()
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return ctx, fmt.Errorf("test_provisioning_join_network.sh failed: %w\n%s", err, out)
+	provTimeout := 150 * time.Second
+
+	hotspotName := fmt.Sprintf("viam-setup-%s", hostName)
+
+	var lastOut string
+	for time.Now().Before(startTime.Add(provTimeout)) {
+		cmd := exec.Command("networksetup", "-setairportnetwork", "en0", hotspotName, "viamsetup")
+
+		out, err := cmd.CombinedOutput()
+		outStr := string(out)
+		// this rarely happens, err is only non-nil when the cmd fails to run at all
+		if err != nil {
+			return ctx, fmt.Errorf("joining provisioning hotspot failed: %w\n%s", err, out)
+		}
+		// we can't check return codes because networksetup always returns 0, even when it fails to join
+		if outStr == "" {
+			// if the network is joined, the output is just an empty string
+			// sleep for a bit before going on to give the connection time to settle
+			time.Sleep(3 * time.Second)
+			return ctx, nil
+		}
+		lastOut = outStr
+		// sleep for a bit between attempts
+		time.Sleep(1 * time.Second)
 	}
-	return ctx, nil
+	return ctx, fmt.Errorf("joining provisioning hotspot failed: timeout after %v seconds: %s", provTimeout, lastOut)
 }
 
 func testProvisioningHotspotDisables(ctx context.Context) (context.Context, error) {
-	// Try to connect to the provisioning hotspot in a retry loop, return success if it cannot be found.
-	cmd := exec.Command("bash", "cmd/test-client/test_provisioning_network_gone.sh")
-	cmd.Env = append(os.Environ(), "HOSTNAME="+hostName)
+	// Try to connect to the provisioning hotspot in a retry loop, return success if it's not found
+	startTime := time.Now()
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return ctx, fmt.Errorf("test_provisioning_network_gone.sh failed: %w\n%s", err, out)
+	provTimeout := 150 * time.Second
+
+	hotspotName := fmt.Sprintf("viam-setup-%s", hostName)
+
+	var lastOut string
+	for time.Now().Before(startTime.Add(provTimeout)) {
+		cmd := exec.Command("networksetup", "-setairportnetwork", "en0", hotspotName, "viamsetup")
+
+		out, err := cmd.CombinedOutput()
+		outStr := string(out)
+		if err != nil {
+			return ctx, fmt.Errorf("joining provisioning hotspot failed: %w\n%s", err, out)
+		}
+		if strings.Contains(outStr, "Could not find network") {
+			// success is an empty return
+			return ctx, nil
+		} else if outStr == "" {
+			// This means we joined the hotspot, so disconnect from it by toggling the adapter
+			// and removing it as a preferred network.
+			cmdOff := exec.Command("networksetup", "-setairportpower", "en0", "off")
+			if outOff, errOff := cmdOff.CombinedOutput(); errOff != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning off adapter: %w\n%s", errOff, outOff)
+			}
+			time.Sleep(100 * time.Millisecond)
+			cmdRm := exec.Command("networksetup", "-removepreferredwirelessnetwork", "en0", hotspotName)
+			if outRm, errRm := cmdRm.CombinedOutput(); errRm != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while removing preferred network: %w\n%s", errRm, outRm)
+			}
+			time.Sleep(100 * time.Millisecond)
+			cmdOn := exec.Command("networksetup", "-setairportpower", "en0", "on")
+			if outOn, errOn := cmdOn.CombinedOutput(); errOn != nil {
+				return ctx, fmt.Errorf("joining provisioning hotspot failed while turning on adapter: %w\n%s", errOn, outOn)
+			}
+		}
+		lastOut = outStr
+		// sleep for a bit between attempts
+		time.Sleep(1 * time.Second)
 	}
-	return ctx, nil
+	return ctx, fmt.Errorf("failure: provisioning hotspot is still present after %v seconds: %s", provTimeout, lastOut)
 }
 
 func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
+	var lastErr error
 	for range 30 {
 		res := serialClient.GetPingPacketLoss()
 		if res.IsError() {
-			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+			lastErr = res.Error()
+			continue
 		}
 		if res.MustGet() == 0 {
 			return ctx, nil
 		}
 		time.Sleep(1 * time.Second)
 	}
-	return ctx, fmt.Errorf("viam-agent did not come online within timeout")
+	return ctx, fmt.Errorf("viam-agent did not come online within timeout: %w", lastErr)
 }
 
 func testAgentCannotReachApp(ctx context.Context) (context.Context, error) {
+	var lastErr error
 	for range 30 {
 		res := serialClient.GetPingPacketLoss()
 		if res.IsError() {
-			return ctx, fmt.Errorf("canPing failed: %w", res.Error())
+			lastErr = res.Error()
+			continue
 		}
 		if res.MustGet() > 0 {
 			return ctx, nil
 		}
 		time.Sleep(1 * time.Second)
 	}
-	return ctx, fmt.Errorf("viam-agent did not go offline within timeout")
+	return ctx, fmt.Errorf("viam-agent did not go offline within timeout: %w", lastErr)
 }
 
 func sendNetworkCredentials(ctx context.Context, ssid, psk string) error {
-	conn, err := grpc.NewClient("10.42.0.1:4772",
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	client := pb.NewProvisioningServiceClient(conn)
-
 	var lastErr error
 	for range 5 {
+		conn, err := grpc.NewClient("10.42.0.1:4772",
+			grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		client := pb.NewProvisioningServiceClient(conn)
+
 		if lastErr != nil {
 			time.Sleep(2 * time.Second)
 		}

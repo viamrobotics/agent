@@ -202,6 +202,10 @@ func (c *Client) Close() error {
 	return nil
 }
 
+func (c *Client) RunCmd(cmd string) mo.Result[[]string] {
+	return c.runCmd(cmd)
+}
+
 func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	if c.extraShellLevels < 1 {
 		// Sudo() does more setup than just elevating privileges to make the serial
@@ -273,9 +277,19 @@ func (c *Client) Sudo() error {
 }
 
 func (c *Client) ClearWifiConnections() mo.Result[[]string] {
-	// clear all wifi connections except for the setup hotspot
-	return c.runCmd(`nmcli -f NAME,TYPE connection show | awk '$NF == "wifi" && !/viam-setup/ {NF--; print}'` +
-		` | xargs -I{} nmcli connection delete "{}"`)
+	conns := c.ListWifiConnections()
+	if conns.IsError() {
+		return mo.Err[[]string](errw.Wrap(conns.Error(), "failed to list wifi connections"))
+	}
+	var allOutput []string
+	for _, conn := range conns.MustGet() {
+		res := c.runCmd(fmt.Sprintf(`nmcli connection delete "%s"`, conn))
+		if res.IsError() {
+			return mo.Err[[]string](errw.Wrapf(res.Error(), "failed to delete wifi connection %q", conn))
+		}
+		allOutput = append(allOutput, res.MustGet()...)
+	}
+	return mo.Ok(allOutput)
 }
 
 func (c *Client) ListWifiConnections() mo.Result[[]string] {
@@ -528,36 +542,52 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		)
 	}
 
-	if ssid == "" || password == "" {
-		return fmt.Errorf("device offline with bad ping but no wifi credentials provided, cannot continue")
-	}
-
 	var connectErr error
 	for range 5 {
-		connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
-		output := strings.Join(connectWifiRes.OrEmpty(), " ")
-		if strings.Contains(output, "successfully activated") {
-			connectErr = nil
-			break
+		conns := c.ListWifiConnections()
+		if conns.IsError() {
+			connectErr = errw.Wrap(conns.Error(), "failed to list wifi connections")
+			time.Sleep(time.Second * 1)
+			continue
 		}
-		// Network is already saved — nmcli won't re-add it with "device wifi
-		// connect", so activate the existing profile instead.
-		if strings.Contains(output, "property is missing") {
-			upRes := c.runCmd(fmt.Sprintf(`nmcli connection up "%s"`, ssid))
+		// Look for an existing wifi connection
+		// If agent makes the connection, @wlan0 is appended, so check for that too
+		connName := ""
+		if slices.Contains(conns.MustGet(), ssid) {
+			connName = ssid
+		} else if slices.Contains(conns.MustGet(), ssid+"@wlan0") {
+			connName = ssid + "@wlan0"
+		}
+
+		// Connect to the existing network, if there is one
+		if connName != "" {
+			upRes := c.runCmd(fmt.Sprintf(`nmcli connection up "%s"`, connName))
+			if upRes.IsError() {
+				connectErr = upRes.Error()
+			}
 			upOutput := strings.Join(upRes.OrEmpty(), " ")
 			if strings.Contains(upOutput, "successfully activated") {
 				connectErr = nil
 				break
 			}
-			// If that fails, try "%s@wlan0", since viam-agent adds that suffix to connections it creates.
-			upRes = c.runCmd(fmt.Sprintf(`nmcli connection up "%s@wlan0"`, ssid))
-			upOutput = strings.Join(upRes.OrEmpty(), " ")
-			if strings.Contains(upOutput, "successfully activated") {
-				connectErr = nil
-				break
+			if !upRes.IsError() {
+				connectErr = fmt.Errorf("nmcli connection up %q failed: %s", connName, upOutput)
 			}
-			connectErr = fmt.Errorf("nmcli connection up failed: %s", upOutput)
-		} else {
+			time.Sleep(time.Second * 1)
+			continue
+		}
+
+		// if there's no existing network, connect to the specified network as a new connection
+		connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
+		if connectWifiRes.IsError() {
+			connectErr = connectWifiRes.Error()
+		}
+		output := strings.Join(connectWifiRes.OrEmpty(), " ")
+		if strings.Contains(output, "successfully activated") {
+			connectErr = nil
+			break
+		}
+		if !connectWifiRes.IsError() {
 			connectErr = fmt.Errorf("nmcli connect failed: %s", output)
 		}
 		time.Sleep(time.Second * 3)
