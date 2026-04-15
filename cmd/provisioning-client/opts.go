@@ -5,8 +5,25 @@ import (
 	"fmt"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/viamrobotics/agent/utils"
 )
+
+// APIKey is inlined from github.com/viamrobotics/agent/utils to avoid depending on the parent module.
+type APIKey struct {
+	ID  string `json:"id"`
+	Key string `json:"key"`
+}
+
+func (a APIKey) IsEmpty() bool {
+	return a.ID == "" && a.Key == ""
+}
+
+func (a APIKey) IsFullySet() bool {
+	return a.ID != "" && a.Key != ""
+}
+
+func (a APIKey) IsPartiallySet() bool {
+	return !a.IsEmpty() && !a.IsFullySet()
+}
 
 var opts struct {
 	BTMode   bool   `description:"Bluetooth Mode" long:"bluetooth"                           short:"b"`
@@ -27,7 +44,7 @@ var opts struct {
 	Secret    string `description:"Device secret to set in viam.json" long:"secret"`
 	APIKeyID  string `description:"API Key ID"                        long:"api-key-id"`
 	APIKeyKey string `description:"API Key secret"                    long:"api-key-key"`
-	APIKey    utils.APIKey
+	APIKey    APIKey
 
 	Exit bool `description:"Tell the device to exit provisioning mode" long:"exit" short:"e"`
 
@@ -38,7 +55,7 @@ var opts struct {
 }
 
 func SetAPIKey() {
-	opts.APIKey = utils.APIKey{
+	opts.APIKey = APIKey{
 		ID:  opts.APIKeyID,
 		Key: opts.APIKeyKey,
 	}

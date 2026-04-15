@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/viamrobotics/agent/subsystems/networking"
-	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/provisioning/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -92,7 +90,7 @@ func GetNetworks(ctx context.Context, client pb.ProvisioningServiceClient) error
 	return nil
 }
 
-func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string, apiKey utils.APIKey) error {
+func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id, secret, appaddr string, apiKey APIKey) error {
 	fmt.Println("Writing device credentials...")
 
 	req := &pb.SetSmartMachineCredentialsRequest{
@@ -114,7 +112,7 @@ func SetDeviceCreds(ctx context.Context, client pb.ProvisioningServiceClient, id
 func SetWifiCreds(ctx context.Context, client pb.ProvisioningServiceClient, ssid, psk string) error {
 	fmt.Println("Writing wifi credentials...")
 	req := &pb.SetNetworkCredentialsRequest{
-		Type: networking.NetworkTypeWifi,
+		Type: "wifi",
 		Ssid: ssid,
 		Psk:  psk,
 	}
