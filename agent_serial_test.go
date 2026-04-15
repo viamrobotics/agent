@@ -420,15 +420,23 @@ func testViamFilesRemoved(ctx context.Context) (context.Context, error) {
 
 func testJournaldConfigLoaded(ctx context.Context) (context.Context, error) {
 	var err error
-	for i := range 30 {
+	for i := range 10 {
 		if i > 0 {
-			time.Sleep(time.Second * 2)
+			time.Sleep(time.Second * 1)
 		}
-		// Check the most recent journald startup log line which reports the
-		// live max size and journal path. Persistent storage uses
-		// /var/log/journal/ (volatile would be /run/log/journal/).
+		// get the PID of the actively running journald process
+		pidRes := serialClient.RunCmd(`systemctl show systemd-journald --property=MainPID`)
+		if pidRes.IsError() {
+			err = pidRes.Error()
+			continue
+		}
+		pidString := strings.Join(pidRes.MustGet(), " ")
+		journalPid := strings.SplitN(pidString, "=", 2)[1]
+
+		// Check the journald logs for log lines from this actively running systemd-journald process.
+		// The lines contain the path and the max allowed storage
 		res := serialClient.RunScript(
-			`journalctl --no-pager -u systemd-journald -n 5 --output=short-monotonic 2>&1 | grep "System Journal"`,
+			fmt.Sprintf(`journalctl --no-pager -u systemd-journald --output=short-monotonic 2>&1 | grep %s | grep "System Journal"`, journalPid),
 			"sh",
 		)
 		if res.IsError() {

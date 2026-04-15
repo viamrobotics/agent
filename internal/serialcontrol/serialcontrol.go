@@ -202,6 +202,10 @@ func (c *Client) Close() error {
 	return nil
 }
 
+func (c *Client) RunCmd(cmd string) mo.Result[[]string] {
+	return c.runCmd(cmd)
+}
+
 func (c *Client) runCmd(cmd string) mo.Result[[]string] {
 	if c.extraShellLevels < 1 {
 		// Sudo() does more setup than just elevating privileges to make the serial
@@ -558,24 +562,34 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		// Connect to the existing network, if there is one
 		if connName != "" {
 			upRes := c.runCmd(fmt.Sprintf(`nmcli connection up "%s"`, connName))
+			if upRes.IsError() {
+				connectErr = upRes.Error()
+			}
 			upOutput := strings.Join(upRes.OrEmpty(), " ")
 			if strings.Contains(upOutput, "successfully activated") {
 				connectErr = nil
 				break
 			}
-			connectErr = fmt.Errorf("nmcli connection up %q failed: %s", connName, upOutput)
+			if !upRes.IsError() {
+				connectErr = fmt.Errorf("nmcli connection up %q failed: %s", connName, upOutput)
+			}
 			time.Sleep(time.Second * 1)
 			continue
 		}
 
 		// if there's no existing network, connect to the specified network as a new connection
 		connectWifiRes := c.runCmd(fmt.Sprintf(`nmcli device wifi connect "%s" password "%s"`, ssid, password))
+		if connectWifiRes.IsError() {
+			connectErr = connectWifiRes.Error()
+		}
 		output := strings.Join(connectWifiRes.OrEmpty(), " ")
 		if strings.Contains(output, "successfully activated") {
 			connectErr = nil
 			break
 		}
-		connectErr = fmt.Errorf("nmcli connect failed: %s", output)
+		if !connectWifiRes.IsError() {
+			connectErr = fmt.Errorf("nmcli connect failed: %s", output)
+		}
 		time.Sleep(time.Second * 3)
 	}
 	if connectErr != nil {
