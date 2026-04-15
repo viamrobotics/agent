@@ -11,11 +11,11 @@ func main() {
 
 	if opts.BTScan || opts.BTMode {
 		if err := btClient(); err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 	} else {
 		if err := grpcClient(); err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 	}
 }
