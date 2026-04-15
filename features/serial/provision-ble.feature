@@ -1,4 +1,3 @@
-@darwin
 Feature: bluetooth provisioning
   Background:
     Given viam-agent is installed

@@ -655,11 +655,12 @@ func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
 		if lastErr != nil {
 			time.Sleep(1 * time.Second)
 		}
-		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+		cmd := exec.CommandContext(ctx, "go", "run", ".",
 			"-b",
 			"--status",
 			"--filter", filter,
 		)
+		cmd.Dir = "cmd/provisioning-client"
 		out, lastErr := cmd.CombinedOutput()
 		if lastErr != nil {
 			lastErr = fmt.Errorf("BLE device not discoverable: %w\n%s", lastErr, out)
@@ -679,7 +680,7 @@ func testBleSendSecureConnectionInfo(ctx context.Context) (context.Context, erro
 	}
 	robotKeys := robotKeysResp.ApiKeys[0]
 
-	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+	cmd := exec.CommandContext(ctx, "go", "run", ".",
 		"-b",
 		"--filter", fmt.Sprintf("viam-setup-%s", hostName),
 		"--psk", "viamsetup",
@@ -689,6 +690,7 @@ func testBleSendSecureConnectionInfo(ctx context.Context) (context.Context, erro
 		"--api-key-id", robotKeys.ApiKey.Id,
 		"--api-key-key", robotKeys.ApiKey.Key,
 	)
+	cmd.Dir = "cmd/provisioning-client"
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ctx, fmt.Errorf("BLE provisioning failed: %w\n%s", err, out)
