@@ -265,6 +265,11 @@ func (n *Subsystem) Start(ctx context.Context) error {
 		n.mainLoopHealth.MarkGood()
 		n.bgLoopHealth.MarkGood()
 		go n.mainLoop(cancelCtx)
+
+		if !n.Config().DisableBTProvisioning.Get() {
+			n.monitorWorkers.Add(1)
+			go n.bleLoop(cancelCtx)
+		}
 	} else {
 		n.logger.Warn("Both wifi and bluetooth provisioning have been disabled by configuration. Provisioning will not be available.")
 	}
@@ -367,7 +372,7 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	// bleOff and bleRunning are both fine.
 	bleHealthy := currentBleState == bleOff || currentBleState == bleRunning
 	wifiOk := bgLoopHealthy && mainLoopHealthy
-	btOk := !btEnabled || bleHealthy
+t	btOk := !btEnabled || bleHealthy
 	if wifiOk || btOk {
 		if !wifiOk || (btEnabled && !btOk) {
 			// If any form of networking is still working we should return nil so the
