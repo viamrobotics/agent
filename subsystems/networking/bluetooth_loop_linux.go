@@ -36,7 +36,7 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 			return
 		case <-tick.C:
 			n.reconcileBluetooth(ctx)
-			if n.getBleState() == bleRunning {
+			if n.ble.getState() == bleRunning {
 				n.pushBluetoothCharacteristics()
 			}
 		}
@@ -82,7 +82,7 @@ func decideBleAction(in bleDecisionInput) bleAction {
 func (n *Subsystem) reconcileBluetooth(ctx context.Context) {
 	action := decideBleAction(bleDecisionInput{
 		desired:          n.bluetoothDesired(),
-		currentState:     n.getBleState(),
+		currentState:     n.ble.getState(),
 		now:              time.Now(),
 		nextAttempt:      n.bleNextAttempt,
 		retriesExhausted: n.bleBackoff >= bleBackoffMax,

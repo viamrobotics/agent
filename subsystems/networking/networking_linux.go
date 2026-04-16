@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
@@ -16,7 +15,6 @@ import (
 	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	"google.golang.org/grpc"
-	"tinygo.org/x/bluetooth"
 )
 
 // Subsystem represents the networking subsystem.
@@ -62,12 +60,11 @@ type Subsystem struct {
 	visibleNetworksMu    sync.RWMutex
 	visibleNetworksCache []NetworkInfo
 
-	// bluetooth — written exclusively from bleLoop; bleState is atomic for HealthCheck reads.
-	bleState       atomic.Int32
+	// bluetooth — ble and backoff fields written exclusively from bleLoop.
+	ble            bleTracker
 	bleNextAttempt time.Time
 	bleBackoff     time.Duration
 	btChar         *btCharacteristics
-	btAdv          *bluetooth.Advertisement
 	btAgent        *pairingAgent
 
 	pb.UnimplementedProvisioningServiceServer
@@ -369,7 +366,7 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	bgLoopHealthy := n.bgLoopHealth.IsHealthy()
 	mainLoopHealthy := n.mainLoopHealth.IsHealthy()
 	btEnabled := n.bluetoothEnabled()
-	currentBleState := n.getBleState()
+	currentBleState := n.ble.getState()
 	bleHealthy := currentBleState == bleOff || currentBleState == bleRunning
 	wifiOk := bgLoopHealthy && mainLoopHealthy
 	btOk := !btEnabled || bleHealthy
