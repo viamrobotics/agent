@@ -63,8 +63,7 @@ type Subsystem struct {
 	bleState       bleState
 	bleNextAttempt time.Time
 	bleBackoff     time.Duration
-	noBT           bool
-	btChar   *btCharacteristics
+	btChar         *btCharacteristics
 	btAdv    *bluetooth.Advertisement
 	btAgent  *pairingAgent
 
