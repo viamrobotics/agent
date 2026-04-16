@@ -60,8 +60,10 @@ type Subsystem struct {
 	// bluetooth — bleState and btAdv are written exclusively from bleLoop.
 	// HealthCheck reads bleState from another goroutine; word-sized read,
 	// not subject to tearing.
-	bleState bleState
-	noBT     bool
+	bleState       bleState
+	bleNextAttempt time.Time
+	bleBackoff     time.Duration
+	noBT           bool
 	btChar   *btCharacteristics
 	btAdv    *bluetooth.Advertisement
 	btAgent  *pairingAgent

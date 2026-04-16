@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/google/uuid"
@@ -220,4 +221,115 @@ func (n *Subsystem) bluetoothEnabled() bool {
 	noBT := n.noBT
 	n.dataMu.RUnlock()
 	return !noBT && !n.Config().DisableBTProvisioning.Get()
+}
+
+// --- BLE reconciler ---
+
+const (
+	bleBackoffInitial = 5 * time.Second
+	bleBackoffMax     = 10 * time.Minute
+)
+
+type bleAction int
+
+const (
+	bleActionNone  bleAction = iota
+	bleActionStart
+	bleActionStop
+)
+
+type bleDecisionInput struct {
+	want        bool
+	state       bleState
+	now         time.Time
+	nextAttempt time.Time
+}
+
+func decideBleAction(in bleDecisionInput) bleAction {
+	have := in.state == bleRunning
+	switch {
+	case in.want && !have:
+		if in.now.Before(in.nextAttempt) {
+			return bleActionNone
+		}
+		return bleActionStart
+	case !in.want && have:
+		return bleActionStop
+	default:
+		return bleActionNone
+	}
+}
+
+// reconcileBluetooth converges BLE state toward the desired state.
+// Must only be called from bleLoop (single goroutine).
+func (n *Subsystem) reconcileBluetooth(ctx context.Context) {
+	action := decideBleAction(bleDecisionInput{
+		want:        n.bluetoothDesired(),
+		state:       n.bleState,
+		now:         time.Now(),
+		nextAttempt: n.bleNextAttempt,
+	})
+	switch action {
+	case bleActionStart:
+		started := time.Now()
+		if err := n.startProvisioningBluetooth(ctx); err != nil {
+			n.bleBackoffBump()
+			n.logger.Warnw(
+				"ble_reconcile_start_failed",
+				"event", "ble_reconcile_start_failed",
+				"err", err,
+				"backoff", n.bleBackoff,
+				"next_attempt", n.bleNextAttempt,
+			)
+			return
+		}
+		n.bleBackoffReset()
+		n.logger.Infow(
+			"ble_reconcile_started",
+			"event", "ble_reconcile_started",
+			"duration_ms", time.Since(started).Milliseconds(),
+		)
+	case bleActionStop:
+		started := time.Now()
+		if err := n.stopProvisioningBluetooth(); err != nil {
+			n.logger.Warnw(
+				"ble_reconcile_stop_failed",
+				"event", "ble_reconcile_stop_failed",
+				"err", err,
+			)
+			return
+		}
+		n.logger.Infow(
+			"ble_reconcile_stopped",
+			"event", "ble_reconcile_stopped",
+			"duration_ms", time.Since(started).Milliseconds(),
+		)
+	}
+}
+
+func (n *Subsystem) bluetoothDesired() bool {
+	if !n.bluetoothEnabled() {
+		return false
+	}
+	if n.connState.getConfigured() && n.connState.getOnline() {
+		return false
+	}
+	return true
+}
+
+func (n *Subsystem) bleBackoffBump() {
+	if n.bleBackoff == 0 {
+		n.bleBackoff = bleBackoffInitial
+	} else {
+		n.bleBackoff *= 2
+		if n.bleBackoff > bleBackoffMax {
+			n.bleBackoff = bleBackoffMax
+		}
+	}
+	n.bleNextAttempt = time.Now().Add(n.bleBackoff)
+}
+
+func (n *Subsystem) bleBackoffReset() {
+	n.bleBackoff = 0
+	n.bleNextAttempt = time.Time{}
 }
