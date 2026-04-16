@@ -9,6 +9,7 @@ import (
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -223,7 +224,42 @@ func (n *Subsystem) bluetoothEnabled() bool {
 	return !noBT && !n.Config().DisableBTProvisioning.Get()
 }
 
-// --- BLE reconciler ---
+// --- BLE loop and reconciler ---
+
+const bleLoopTick = time.Second
+
+// bleLoop owns BLE lifecycle and characteristic updates. It is the sole
+// goroutine that writes to bleState, btAdv, btChar cache, bleBackoff,
+// and bleNextAttempt.
+func (n *Subsystem) bleLoop(ctx context.Context) {
+	defer utils.Recover(n.logger, nil)
+	defer n.monitorWorkers.Done()
+	defer func() {
+		if err := n.stopProvisioningBluetooth(); err != nil {
+			n.logger.Warnw(
+				"ble_reconcile_stop_failed",
+				"event", "ble_reconcile_stop_failed",
+				"err", err,
+				"phase", "shutdown",
+			)
+		}
+	}()
+
+	tick := time.NewTicker(bleLoopTick)
+	defer tick.Stop()
+
+	n.logger.Info("bleLoop started")
+	defer n.logger.Info("bleLoop stopped")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			n.reconcileBluetooth(ctx)
+		}
+	}
+}
 
 const (
 	bleBackoffInitial = 5 * time.Second
@@ -239,21 +275,21 @@ const (
 )
 
 type bleDecisionInput struct {
-	want        bool
-	state       bleState
+	desired     bool
+	currentState bleState
 	now         time.Time
 	nextAttempt time.Time
 }
 
 func decideBleAction(in bleDecisionInput) bleAction {
-	have := in.state == bleRunning
+	have := in.currentState == bleRunning
 	switch {
-	case in.want && !have:
+	case in.desired && !have:
 		if in.now.Before(in.nextAttempt) {
 			return bleActionNone
 		}
 		return bleActionStart
-	case !in.want && have:
+	case !in.desired && have:
 		return bleActionStop
 	default:
 		return bleActionNone
@@ -264,8 +300,8 @@ func decideBleAction(in bleDecisionInput) bleAction {
 // Must only be called from bleLoop (single goroutine).
 func (n *Subsystem) reconcileBluetooth(ctx context.Context) {
 	action := decideBleAction(bleDecisionInput{
-		want:        n.bluetoothDesired(),
-		state:       n.bleState,
+		desired:     n.bluetoothDesired(),
+		currentState: n.bleState,
 		now:         time.Now(),
 		nextAttempt: n.bleNextAttempt,
 	})
