@@ -9,9 +9,7 @@ import (
 
 const bleLoopTick = time.Second
 
-// bleLoop owns BLE lifecycle and characteristic updates. It is the sole
-// goroutine that writes to bleState, btAdv, btChar cache, bleBackoff,
-// and bleNextAttempt.
+// bleLoop owns BLE lifecycle and characteristic updates. Single writer of all BLE state.
 func (n *Subsystem) bleLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
@@ -80,8 +78,7 @@ func decideBleAction(in bleDecisionInput) bleAction {
 	}
 }
 
-// reconcileBluetooth converges BLE state toward the desired state.
-// Must only be called from bleLoop (single goroutine).
+// reconcileBluetooth converges BLE state toward the desired state. Called from bleLoop only.
 func (n *Subsystem) reconcileBluetooth(ctx context.Context) {
 	action := decideBleAction(bleDecisionInput{
 		desired:          n.bluetoothDesired(),
@@ -161,7 +158,6 @@ func (n *Subsystem) bleBackoffReset() {
 }
 
 // pushBluetoothCharacteristics writes fresh state into BLE characteristics.
-// Called from bleLoop only, gated on bleState == bleRunning.
 func (n *Subsystem) pushBluetoothCharacteristics() {
 	isOnline := n.connState.getOnline()
 	isConnected := n.connState.getConnected()
