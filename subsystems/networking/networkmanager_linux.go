@@ -268,17 +268,9 @@ func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- user
 	if hotspotErr != nil {
 		n.logger.Errorw("failed to start hotspot provisioning", "err", hotspotErr)
 	}
-	bluetoothErr := n.startProvisioningBluetooth(ctx)
-	if bluetoothErr != nil {
-		n.logger.Errorw("failed to start bluetooth provisioning", "err", bluetoothErr)
-	}
 
-	// Do not return an error if at least one provisioning method succeeds.
-	n.connState.setProvisioning(hotspotErr == nil || bluetoothErr == nil)
-	if hotspotErr == nil || bluetoothErr == nil {
-		return nil
-	}
-	return errors.Join(hotspotErr, bluetoothErr)
+	n.connState.setProvisioning(hotspotErr == nil)
+	return hotspotErr
 }
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to
@@ -310,11 +302,7 @@ func (n *Subsystem) startProvisioningHotspot(ctx context.Context) error {
 
 func (n *Subsystem) stopProvisioning() error {
 	n.errors.Clear()
-	err := errors.Join(
-		n.stopProvisioningHotspot(),
-		n.stopProvisioningBluetooth(),
-	)
-	if err != nil {
+	if err := n.stopProvisioningHotspot(); err != nil {
 		return err
 	}
 	n.connState.setProvisioning(false)
