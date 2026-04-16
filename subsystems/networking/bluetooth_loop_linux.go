@@ -67,14 +67,13 @@ type bleDecisionInput struct {
 }
 
 func decideBleAction(in bleDecisionInput) bleAction {
-	have := in.currentState == bleRunning
 	switch {
-	case in.desired && !have:
+	case in.desired && in.currentState == bleOff:
 		if in.retriesExhausted || in.now.Before(in.nextAttempt) {
 			return bleActionNone
 		}
 		return bleActionStart
-	case !in.desired && have:
+	case !in.desired && in.currentState == bleRunning:
 		return bleActionStop
 	default:
 		return bleActionNone
