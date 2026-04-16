@@ -38,6 +38,9 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 			return
 		case <-tick.C:
 			n.reconcileBluetooth(ctx)
+			if n.bleState == bleRunning {
+				n.pushBluetoothCharacteristics()
+			}
 		}
 	}
 }
@@ -155,4 +158,26 @@ func (n *Subsystem) bleBackoffBump() {
 func (n *Subsystem) bleBackoffReset() {
 	n.bleBackoff = 0
 	n.bleNextAttempt = time.Time{}
+}
+
+// pushBluetoothCharacteristics writes fresh state into BLE characteristics.
+// Called from bleLoop only, gated on bleState == bleRunning.
+func (n *Subsystem) pushBluetoothCharacteristics() {
+	isOnline := n.connState.getOnline()
+	isConnected := n.connState.getConnected()
+	hasConnectivity := isConnected || isOnline
+	if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
+		hasConnectivity = isOnline
+	}
+	isConfigured := n.connState.getConfigured()
+
+	if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
+		n.logger.Warnw("could not update BT status characteristic", "err", err)
+	}
+	if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
+		n.logger.Warnw("could not update BT networks characteristic", "err", err)
+	}
+	if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
+		n.logger.Warnw("could not update BT errors characteristic", "err", err)
+	}
 }
