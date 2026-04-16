@@ -371,7 +371,8 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	// bleOff and bleRunning are both fine.
 	bleHealthy := currentBleState == bleOff || currentBleState == bleRunning
 	wifiOk := bgLoopHealthy && mainLoopHealthy
-t	btOk := !btEnabled || bleHealthy
+	// BT is OK when disabled or when not stuck in a half-initialized state.
+	btOk := !btEnabled || bleHealthy
 	if wifiOk || btOk {
 		if !wifiOk || (btEnabled && !btOk) {
 			// If any form of networking is still working we should return nil so the
