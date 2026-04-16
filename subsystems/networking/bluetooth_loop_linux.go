@@ -174,7 +174,7 @@ func (n *Subsystem) pushBluetoothCharacteristics() {
 	if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
 		n.logger.Warnw("could not update BT status characteristic", "err", err)
 	}
-	if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
+	if err := n.btChar.updateNetworks(n.cachedVisibleNetworks()); err != nil {
 		n.logger.Warnw("could not update BT networks characteristic", "err", err)
 	}
 	if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
