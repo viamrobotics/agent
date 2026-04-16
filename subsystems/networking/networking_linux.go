@@ -46,7 +46,6 @@ type Subsystem struct {
 
 	mainLoopHealth *health
 	bgLoopHealth   *health
-	btHealthy      bool
 
 	// locking for config updates
 	dataMu sync.RWMutex
@@ -58,11 +57,14 @@ type Subsystem struct {
 	grpcServer *grpc.Server
 	portalData *userInputData
 
-	// bluetooth
-	noBT    bool
-	btChar  *btCharacteristics
-	btAdv   *bluetooth.Advertisement
-	btAgent *pairingAgent
+	// bluetooth — bleState and btAdv are written exclusively from bleLoop.
+	// HealthCheck reads bleState from another goroutine; word-sized read,
+	// not subject to tearing.
+	bleState bleState
+	noBT     bool
+	btChar   *btCharacteristics
+	btAdv    *bluetooth.Advertisement
+	btAgent  *pairingAgent
 
 	pb.UnimplementedProvisioningServiceServer
 }
@@ -358,10 +360,12 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	bgLoopHealthy := n.bgLoopHealth.IsHealthy()
 	mainLoopHealthy := n.mainLoopHealth.IsHealthy()
 	btEnabled := n.bluetoothEnabled()
-	btAdvUnset := n.btAdv == nil
-	btHealthy := n.btHealthy
+	currentBleState := n.bleState
+	// Only the half-initialized state (bleStarting) counts as unhealthy —
+	// bleOff and bleRunning are both fine.
+	bleHealthy := currentBleState == bleOff || currentBleState == bleRunning
 	wifiOk := bgLoopHealthy && mainLoopHealthy
-	btOk := !btEnabled || btAdvUnset || btHealthy
+	btOk := !btEnabled || bleHealthy
 	if wifiOk || btOk {
 		if !wifiOk || (btEnabled && !btOk) {
 			// If any form of networking is still working we should return nil so the
@@ -378,8 +382,7 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 		bgLoopHealthy:   bgLoopHealthy,
 		mainLoopHealthy: mainLoopHealthy,
 		btEnabled:       btEnabled,
-		btAdvUnset:      btAdvUnset,
-		btHealthy:       btHealthy,
+		bleState:        currentBleState,
 	}
 }
 
@@ -387,19 +390,18 @@ type networkingUnresponsiveError struct {
 	bgLoopHealthy   bool
 	mainLoopHealthy bool
 	btEnabled       bool
-	btAdvUnset      bool
-	btHealthy       bool
+	bleState        bleState
 }
 
 func (e networkingUnresponsiveError) Error() string {
-	reasons := make([]string, 0, 4)
+	reasons := make([]string, 0, 3)
 	if !e.bgLoopHealthy {
 		reasons = append(reasons, "background loop unhealthy")
 	}
 	if !e.mainLoopHealthy {
 		reasons = append(reasons, "main loop unhealthy")
 	}
-	if e.btEnabled && !e.btAdvUnset && !e.btHealthy {
+	if e.btEnabled && e.bleState == bleStarting {
 		reasons = append(reasons, "bluetooth unhealthy")
 	}
 	return "networking system not responsive )" +
