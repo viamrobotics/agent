@@ -20,13 +20,23 @@ const (
 )
 
 // bleState is the lifecycle state of BLE advertising. Single writer: bleLoop.
-type bleState int
+// Stored in an atomic.Int32 so HealthCheck can read it from another goroutine
+// without a mutex.
+type bleState int32
 
 const (
 	bleOff      bleState = iota // not started, or cleanly stopped
 	bleStarting                 // partial init in progress, Start() not yet succeeded
 	bleRunning                  // Start() succeeded, advertising
 )
+
+func (n *Subsystem) getBleState() bleState {
+	return bleState(n.bleState.Load())
+}
+
+func (n *Subsystem) setBleState(s bleState) {
+	n.bleState.Store(int32(s))
+}
 
 // startProvisioningBluetooth is atomic: on success it leaves bleState == bleRunning;
 // on any error it walks partial state back to bleState == bleOff with btAdv == nil.
@@ -35,18 +45,18 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 	if !n.bluetoothEnabled() {
 		return nil
 	}
-	if n.bleState != bleOff {
+	if n.getBleState() != bleOff {
 		return errors.New("invalid request, advertising already active")
 	}
-	n.bleState = bleStarting
+	n.setBleState(bleStarting)
 
 	if err := n.ensureBluetoothConfiguration(ctx); err != nil {
-		n.bleState = bleOff
+		n.setBleState(bleOff)
 		return err
 	}
 
 	if err := n.checkBluetoothdVersion(ctx); err != nil {
-		n.bleState = bleOff
+		n.setBleState(bleOff)
 		return err
 	}
 
@@ -76,7 +86,7 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 		n.cleanupPartialBluetooth()
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
-	n.bleState = bleRunning
+	n.setBleState(bleRunning)
 
 	n.logger.Info("Bluetooth provisioning started.")
 	return nil
@@ -99,14 +109,21 @@ func (n *Subsystem) cleanupPartialBluetooth() {
 	if err := n.removeServices(); err != nil {
 		n.logger.Debugw("no gatt services to remove during rollback", "err", err)
 	}
-	n.bleState = bleOff
+	n.setBleState(bleOff)
 }
 
 // stopProvisioningBluetooth stops BLE advertising and tears down the gatt service.
 // On success bleState == bleOff and btAdv == nil. Must only be called from bleLoop.
 func (n *Subsystem) stopProvisioningBluetooth() error {
-	if n.bleState == bleOff {
+	currentState := n.getBleState()
+	if currentState == bleOff {
 		n.logger.Warnf("bluetooth already stopped")
+		return nil
+	}
+	// If we're mid-init (bleStarting), btAdv may be nil or partially set up.
+	// cleanupPartialBluetooth handles this safely.
+	if currentState == bleStarting {
+		n.cleanupPartialBluetooth()
 		return nil
 	}
 	// 'not started' is unexported but comes from here
@@ -130,7 +147,7 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 		return err
 	}
 
-	n.bleState = bleOff
+	n.setBleState(bleOff)
 	n.logger.Debug("Stopped advertising bluetooth service.")
 	return nil
 }

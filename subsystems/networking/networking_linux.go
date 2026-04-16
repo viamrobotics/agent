@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
@@ -63,9 +64,8 @@ type Subsystem struct {
 	visibleNetworksCache []NetworkInfo
 
 	// bluetooth — bleState and btAdv are written exclusively from bleLoop.
-	// HealthCheck reads bleState from another goroutine; word-sized read,
-	// not subject to tearing.
-	bleState       bleState
+	// HealthCheck reads bleState from another goroutine via atomic load.
+	bleState       atomic.Int32
 	bleNextAttempt time.Time
 	bleBackoff     time.Duration
 	btChar         *btCharacteristics
@@ -371,7 +371,7 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	bgLoopHealthy := n.bgLoopHealth.IsHealthy()
 	mainLoopHealthy := n.mainLoopHealth.IsHealthy()
 	btEnabled := n.bluetoothEnabled()
-	currentBleState := n.bleState
+	currentBleState := n.getBleState()
 	// Only the half-initialized state (bleStarting) counts as unhealthy —
 	// bleOff and bleRunning are both fine.
 	bleHealthy := currentBleState == bleOff || currentBleState == bleRunning
@@ -416,7 +416,7 @@ func (e networkingUnresponsiveError) Error() string {
 	if e.btEnabled && e.bleState == bleStarting {
 		reasons = append(reasons, "bluetooth unhealthy")
 	}
-	return "networking system not responsive )" +
+	return "networking system not responsive (" +
 		strings.Join(reasons, ", ") +
 		")"
 }
