@@ -53,7 +53,7 @@ const (
 type bleAction int
 
 const (
-	bleActionNone  bleAction = iota
+	bleActionNone bleAction = iota
 	bleActionStart
 	bleActionStop
 )
@@ -92,6 +92,7 @@ func (n *Subsystem) reconcileBluetooth(ctx context.Context) {
 		retriesExhausted: n.bleBackoff >= bleBackoffMax,
 	})
 	switch action {
+	case bleActionNone:
 	case bleActionStart:
 		started := time.Now()
 		if err := n.startProvisioningBluetooth(ctx); err != nil {
