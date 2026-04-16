@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/google/uuid"
 	errw "github.com/pkg/errors"
+	"go.viam.com/rdk/logging"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -23,7 +25,7 @@ const (
 	btErrAdvNotStarted = "bluetooth: advertisement is not started"
 )
 
-// bleState is the BLE advertising lifecycle. Atomic so HealthCheck can read without a mutex.
+// bleState is the BLE advertising lifecycle.
 type bleState int32
 
 const (
@@ -32,12 +34,37 @@ const (
 	bleRunning                  // Start() succeeded, advertising
 )
 
-func (n *Subsystem) getBleState() bleState {
-	return bleState(n.bleState.Load())
+// bleTracker couples BLE state and advertisement so they're always updated together.
+type bleTracker struct {
+	state atomic.Int32
+	adv   *bluetooth.Advertisement // only accessed from bleLoop
 }
 
-func (n *Subsystem) setBleState(s bleState) {
-	n.bleState.Store(int32(s))
+func (bt *bleTracker) getState() bleState {
+	return bleState(bt.state.Load())
+}
+
+func (bt *bleTracker) setStarting() {
+	bt.state.Store(int32(bleStarting))
+}
+
+func (bt *bleTracker) setRunning() error {
+	if bt.adv == nil {
+		return errors.New("bug: cannot transition to bleRunning with nil advertisement")
+	}
+	bt.state.Store(int32(bleRunning))
+	return nil
+}
+
+// clearAndSetOff stops the advertisement (if non-nil), nils it, and transitions to bleOff.
+func (bt *bleTracker) clearAndSetOff(logger logging.Logger) {
+	if bt.adv != nil {
+		if err := bt.adv.Stop(); err != nil && err.Error() != btErrAdvNotStarted {
+			logger.Warnw("error stopping BT advertising during cleanup", "err", err)
+		}
+		bt.adv = nil
+	}
+	bt.state.Store(int32(bleOff))
 }
 
 // startProvisioningBluetooth starts BLE advertising. On any error it rolls back to bleOff.
@@ -46,18 +73,18 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 	if !n.bluetoothEnabled() {
 		return nil
 	}
-	if n.getBleState() != bleOff {
+	if n.ble.getState() != bleOff {
 		return errors.New("invalid request, advertising already active")
 	}
-	n.setBleState(bleStarting)
+	n.ble.setStarting()
 
 	if err := n.ensureBluetoothConfiguration(ctx); err != nil {
-		n.setBleState(bleOff)
+		n.ble.clearAndSetOff(n.logger)
 		return err
 	}
 
 	if err := n.checkBluetoothdVersion(ctx); err != nil {
-		n.setBleState(bleOff)
+		n.ble.clearAndSetOff(n.logger)
 		return err
 	}
 
@@ -81,11 +108,15 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 	}
 
 	// Start advertising the bluetooth service.
-	if err := n.btAdv.Start(); err != nil {
+	if err := n.ble.adv.Start(); err != nil {
 		n.cleanupPartialBluetooth()
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
-	n.setBleState(bleRunning)
+	if err := n.ble.setRunning(); err != nil {
+		n.logger.Errorw("BLE state transition failed", "err", err)
+		n.cleanupPartialBluetooth()
+		return err
+	}
 
 	n.logger.Info("Bluetooth provisioning started.")
 	return nil
@@ -93,25 +124,19 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 
 // cleanupPartialBluetooth is idempotent BLE teardown; transitions to bleOff.
 func (n *Subsystem) cleanupPartialBluetooth() {
-	if n.btAdv != nil {
-		if err := n.btAdv.Stop(); err != nil && err.Error() != btErrAdvNotStarted {
-			n.logger.Warnw("error stopping BT advertising during rollback", "err", err)
-		}
-		n.btAdv = nil
-	}
+	n.ble.clearAndSetOff(n.logger)
 	if err := n.disablePairing(); err != nil {
 		n.logger.Warnw("error disabling BT pairing during rollback", "err", err)
 	}
 	if err := n.removeServices(); err != nil {
 		n.logger.Debugw("no gatt services to remove during rollback", "err", err)
 	}
-	n.setBleState(bleOff)
 }
 
 // stopProvisioningBluetooth stops BLE advertising and tears down the gatt service.
 // Must only be called from bleLoop.
 func (n *Subsystem) stopProvisioningBluetooth() error {
-	currentState := n.getBleState()
+	currentState := n.ble.getState()
 	if currentState == bleOff {
 		n.logger.Warnf("bluetooth already stopped")
 		return nil
@@ -120,30 +145,16 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 		n.cleanupPartialBluetooth()
 		return nil
 	}
-	if n.btAdv != nil {
-		if err := n.btAdv.Stop(); err != nil {
-			if err.Error() == btErrAdvNotStarted {
-				n.logger.Warnf("ignoring %q from Stop()", err)
-			} else {
-				// Full cleanup so bleState doesn't get stuck at bleRunning with btAdv nil.
-				n.cleanupPartialBluetooth()
-				return fmt.Errorf("failed to stop BT advertising: %w", err)
-			}
-		}
-		n.btAdv = nil
-	}
+	n.ble.clearAndSetOff(n.logger)
 
 	if err := n.disablePairing(); err != nil {
-		n.cleanupPartialBluetooth()
 		return err
 	}
 
 	if err := n.removeServices(); err != nil {
-		n.cleanupPartialBluetooth()
 		return err
 	}
 
-	n.setBleState(bleOff)
 	n.logger.Debug("Stopped advertising bluetooth service.")
 	return nil
 }
@@ -181,7 +192,7 @@ func (n *Subsystem) initializeBluetoothService(
 		return err
 	}
 
-	n.btAdv = adv
+	n.ble.adv = adv
 	n.logger.Debugf("Bluetooth service UUID: %s.", serviceUUID.String())
 	return nil
 }
