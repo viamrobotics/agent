@@ -57,7 +57,7 @@ func TestDecideBleAction(t *testing.T) {
 		{
 			name:     "not desired and starting",
 			input:    bleDecisionInput{desired: false, currentState: bleStarting, now: now},
-			expected: bleActionNone,
+			expected: bleActionStop,
 		},
 		{
 			name:     "not desired and running",
@@ -157,10 +157,9 @@ func TestBleBackoff(t *testing.T) {
 			160 * time.Second,
 			320 * time.Second,
 		}
-		for i, exp := range expected {
+		for _, exp := range expected {
 			n.bleBackoffBump()
 			test.That(t, n.bleBackoff, test.ShouldEqual, exp)
-			_ = i
 		}
 	})
 
