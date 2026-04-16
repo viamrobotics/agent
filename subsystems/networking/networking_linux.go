@@ -57,6 +57,11 @@ type Subsystem struct {
 	grpcServer *grpc.Server
 	portalData *userInputData
 
+	// visibleNetworks is refreshed by backgroundLoop after each scan.
+	// Read by bleLoop via cachedVisibleNetworks().
+	visibleNetworksMu    sync.RWMutex
+	visibleNetworksCache []NetworkInfo
+
 	// bluetooth — bleState and btAdv are written exclusively from bleLoop.
 	// HealthCheck reads bleState from another goroutine; word-sized read,
 	// not subject to tearing.
@@ -64,8 +69,8 @@ type Subsystem struct {
 	bleNextAttempt time.Time
 	bleBackoff     time.Duration
 	btChar         *btCharacteristics
-	btAdv    *bluetooth.Advertisement
-	btAgent  *pairingAgent
+	btAdv          *bluetooth.Advertisement
+	btAgent        *pairingAgent
 
 	pb.UnimplementedProvisioningServiceServer
 }

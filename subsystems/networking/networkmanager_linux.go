@@ -59,6 +59,19 @@ func (n *Subsystem) warnIfMultiplePrimaryNetworks() {
 	}
 }
 
+func (n *Subsystem) refreshVisibleNetworksCache() {
+	networks := n.getVisibleNetworks()
+	n.visibleNetworksMu.Lock()
+	n.visibleNetworksCache = networks
+	n.visibleNetworksMu.Unlock()
+}
+
+func (n *Subsystem) cachedVisibleNetworks() []NetworkInfo {
+	n.visibleNetworksMu.RLock()
+	defer n.visibleNetworksMu.RUnlock()
+	return n.visibleNetworksCache
+}
+
 func (n *Subsystem) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
 	for _, nw := range n.netState.Networks() {
@@ -761,6 +774,7 @@ func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Warn(err)
 		}
+		n.refreshVisibleNetworksCache()
 		select {
 		case scanChan <- true:
 		case <-ctx.Done():
