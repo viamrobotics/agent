@@ -58,13 +58,11 @@ type Subsystem struct {
 	grpcServer *grpc.Server
 	portalData *userInputData
 
-	// visibleNetworks is refreshed by backgroundLoop after each scan.
-	// Read by bleLoop via cachedVisibleNetworks().
+	// visibleNetworks cache, refreshed by backgroundLoop, read by bleLoop.
 	visibleNetworksMu    sync.RWMutex
 	visibleNetworksCache []NetworkInfo
 
-	// bluetooth — bleState and btAdv are written exclusively from bleLoop.
-	// HealthCheck reads bleState from another goroutine via atomic load.
+	// bluetooth — written exclusively from bleLoop; bleState is atomic for HealthCheck reads.
 	bleState       atomic.Int32
 	bleNextAttempt time.Time
 	bleBackoff     time.Duration
@@ -372,11 +370,8 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	mainLoopHealthy := n.mainLoopHealth.IsHealthy()
 	btEnabled := n.bluetoothEnabled()
 	currentBleState := n.getBleState()
-	// Only the half-initialized state (bleStarting) counts as unhealthy —
-	// bleOff and bleRunning are both fine.
 	bleHealthy := currentBleState == bleOff || currentBleState == bleRunning
 	wifiOk := bgLoopHealthy && mainLoopHealthy
-	// BT is OK when disabled or when not stuck in a half-initialized state.
 	btOk := !btEnabled || bleHealthy
 	if wifiOk || btOk {
 		if !wifiOk || (btEnabled && !btOk) {
@@ -385,7 +380,7 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 			// down a functioning wifi access point when only bluetooth is broken,
 			// but still log that something is wrong.
 			n.logger.Warnw("Networking subsystem is partially unhealthy",
-				"wikiOk", wifiOk,
+				"wifiOk", wifiOk,
 				"bluetoothOk", btOk)
 		}
 		return nil

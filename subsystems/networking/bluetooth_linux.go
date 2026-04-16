@@ -17,11 +17,13 @@ const (
 	BluezAgent        = "org.bluez.Agent1"
 	BluezAgentPath    = "/com/viam/btagent"
 	BluezConfigPath   = "/etc/bluetooth/main.conf"
+
+	// Unexported error from tinygo/bluetooth when Stop() is called on an advertisement that hasn't started.
+	// https://github.com/tinygo-org/bluetooth/blob/5c615298c3e4400150c44da3636f3d3b10967e3c/gap_linux.go#L48
+	btErrAdvNotStarted = "bluetooth: advertisement is not started"
 )
 
-// bleState is the lifecycle state of BLE advertising. Single writer: bleLoop.
-// Stored in an atomic.Int32 so HealthCheck can read it from another goroutine
-// without a mutex.
+// bleState is the BLE advertising lifecycle. Atomic so HealthCheck can read without a mutex.
 type bleState int32
 
 const (
@@ -38,9 +40,8 @@ func (n *Subsystem) setBleState(s bleState) {
 	n.bleState.Store(int32(s))
 }
 
-// startProvisioningBluetooth is atomic: on success it leaves bleState == bleRunning;
-// on any error it walks partial state back to bleState == bleOff with btAdv == nil.
-// Must only be called from bleLoop (single writer of bleState/btAdv).
+// startProvisioningBluetooth starts BLE advertising. On any error it rolls back to bleOff.
+// Must only be called from bleLoop.
 func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 	if !n.bluetoothEnabled() {
 		return nil
@@ -60,9 +61,7 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 		return err
 	}
 
-	// Create a bluetooth service comprised of the above configs.
-	// initializeBluetoothService may fail after adapter.AddService but before
-	// n.btAdv is assigned, so run cleanup to unwind any partial adapter state.
+	// initializeBluetoothService may fail after AddService but before btAdv is assigned.
 	if err := n.initializeBluetoothService(ctx, n.Config().HotspotSSID, n.btChar.initCharacteristics(ctx)); err != nil {
 		n.cleanupPartialBluetooth()
 		return fmt.Errorf("failed to initialize bluetooth service: %w", err)
@@ -92,13 +91,10 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 	return nil
 }
 
-// cleanupPartialBluetooth is idempotent rollback for a failed
-// startProvisioningBluetooth. Safe to call from any failure site: it inspects
-// whatever partial state exists (btAdv != nil, services registered, pairing
-// enabled) and walks it back, transitioning bleState to bleOff.
+// cleanupPartialBluetooth is idempotent BLE teardown; transitions to bleOff.
 func (n *Subsystem) cleanupPartialBluetooth() {
 	if n.btAdv != nil {
-		if err := n.btAdv.Stop(); err != nil && err.Error() != "bluetooth: advertisement is not started" {
+		if err := n.btAdv.Stop(); err != nil && err.Error() != btErrAdvNotStarted {
 			n.logger.Warnw("error stopping BT advertising during rollback", "err", err)
 		}
 		n.btAdv = nil
@@ -113,26 +109,24 @@ func (n *Subsystem) cleanupPartialBluetooth() {
 }
 
 // stopProvisioningBluetooth stops BLE advertising and tears down the gatt service.
-// On success bleState == bleOff and btAdv == nil. Must only be called from bleLoop.
+// Must only be called from bleLoop.
 func (n *Subsystem) stopProvisioningBluetooth() error {
 	currentState := n.getBleState()
 	if currentState == bleOff {
 		n.logger.Warnf("bluetooth already stopped")
 		return nil
 	}
-	// If we're mid-init (bleStarting), btAdv may be nil or partially set up.
-	// cleanupPartialBluetooth handles this safely.
 	if currentState == bleStarting {
 		n.cleanupPartialBluetooth()
 		return nil
 	}
-	// 'not started' is unexported but comes from here
-	// https://github.com/tinygo-org/bluetooth/blob/5c615298c3e4400150c44da3636f3d3b10967e3c/gap_linux.go#L48
 	if n.btAdv != nil {
 		if err := n.btAdv.Stop(); err != nil {
-			if err.Error() == "bluetooth: advertisement is not started" {
+			if err.Error() == btErrAdvNotStarted {
 				n.logger.Warnf("ignoring %q from Stop()", err)
 			} else {
+				// Full cleanup so bleState doesn't get stuck at bleRunning with btAdv nil.
+				n.cleanupPartialBluetooth()
 				return fmt.Errorf("failed to stop BT advertising: %w", err)
 			}
 		}
@@ -140,10 +134,12 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 	}
 
 	if err := n.disablePairing(); err != nil {
+		n.cleanupPartialBluetooth()
 		return err
 	}
 
 	if err := n.removeServices(); err != nil {
+		n.cleanupPartialBluetooth()
 		return err
 	}
 
