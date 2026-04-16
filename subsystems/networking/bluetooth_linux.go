@@ -218,4 +218,3 @@ func (n *Subsystem) removeServices() error {
 func (n *Subsystem) bluetoothEnabled() bool {
 	return !n.Config().DisableBTProvisioning.Get()
 }
-
