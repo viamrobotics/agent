@@ -99,37 +99,17 @@ upload-installer:
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
 	gsutil -h "Cache-Control:no-cache" cp preinstall.sh install.sh uninstall.sh gs://packages.viam.com/apps/viam-agent/
 
-.PHONY: lint-ps
-lint-ps:
-	# I installed from .deb in releases here https://github.com/PowerShell/PowerShell
-	# note: this linter is not incredibly useful; for example it won't catch some missing reference errors. Don't over-rely
-	@echo "Checking for non-ASCII characters (breaks PS 5.1 without BOM)..."
-	@if grep -Pn '[^\x00-\x7F]' windows-installer-agent.ps1; then echo "ERROR: non-ASCII characters found above — PS 5.1 will misparse"; exit 1; fi
-	pwsh -Command 'if (-not (Get-Module PSScriptAnalyzer -ListAvailable)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop }; Invoke-ScriptAnalyzer -Path windows-installer-agent.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error -EnableExit'
-
 .PHONY: windows-installer
 windows-installer:
 	@./build-windows-installer-exe.sh
 
-# MSI installer build (requires Windows with .NET + WiX)
-# WiX path validation does not work on Linux.
-# 1. Downloads the agent exe from GCS (same URL as the ps1 installer)
-# 2. Builds the MSI with WiX v6
 .PHONY: msi
 msi: msi/viam-agent.msi
 
+# this only works on windows
 msi/viam-agent.msi: msi/Package.wxs msi/Package.wixproj
-	@echo "Downloading agent executable for MSI bundle..."
-	@mkdir -p msi/agent-bin
-	@curl -fsSL -o msi/agent-bin/viam-agent-from-installer.exe \
-		"https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64"
-	@echo "Building MSI..."
 	dotnet tool restore
-	cd msi && dotnet build -p:AgentBinDir=agent-bin -c Release
-	@cp msi/bin/Release/*.msi msi/viam-agent.msi 2>/dev/null || \
-		cp msi/bin/x64/Release/*.msi msi/viam-agent.msi 2>/dev/null || \
-		echo "WARNING: could not find output .msi -- check msi/bin/ for output location"
-	@echo "MSI built: msi/viam-agent.msi"
+	cd msi && dotnet build -c Release
 
 .PHONY: upload-windows-installer
 upload-windows-installer:
