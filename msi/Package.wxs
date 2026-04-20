@@ -33,12 +33,14 @@
 
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
+  <!-- note: 'version' here is the version of the installer, not of agent. Agent self-manages. -->
   <Package Name="Viam Agent"
            Manufacturer="Viam Inc."
            Version="0.0.1"
-           UpgradeCode="E7A14B3C-6D2F-4F8A-9B1E-3C5D7F9A2B4E"
+           UpgradeCode="3FBC9034-E5C1-46B2-8BB8-3BA9A82158C3"
            Scope="perMachine">
 
     <Launch Condition="Privileged" Message="This installer requires administrator privileges." />
@@ -50,23 +52,33 @@
     <!-- These can be overridden in CLI with: `installer.msi SERVICEACCOUNT=1` -->
     <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
     <Property Id="SERVICEACCOUNT" Secure="yes" />
+    <!-- if you change rootdir, also change the conditional on SetViamHomeEnv -->
     <Property Id="ROOTDIR" Value="C:\opt\viam" />
     <Property Id="CONFIGDIR" Value="C:\etc" />
 
+    <!-- hide repair + modify options in the OS uninstall menu because these paths are untested -->
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
     <StandardDirectory Id="TARGETDIR">
-      <Directory Id="OPTDIR" Name="opt">
-        <Directory Id="ROOTDIR" Name="viam">
-          <Directory Id="CACHEDIR" Name="cache" />
-          <Directory Id="BINDIR" Name="bin" />
-        </Directory>
+      <Directory Id="ROOTDIR" Name="viam">
+        <Directory Id="CACHEDIR" Name="cache" />
+        <Directory Id="BINDIR" Name="bin" />
       </Directory>
     </StandardDirectory>
 
     <ComponentGroup Id="AgentCache" Directory="CACHEDIR">
-      <Component Id="CacheDir" Guid="D4E5F6A7-B8C9-0123-DEAB-345678901234">
+      <Component Id="CacheDir" Guid="01A2E465-CBC5-4807-BE48-F7791C3B7EF7">
         <CreateFolder />
       </Component>
     </ComponentGroup>
+
+    <!-- how to read these custom action blocks:
+      - SetProperty is an immediate action that has access to properties and formats the command string, and is then available as CustomActionData, which is read by WixQuietExec64? This behavior is sort of documented here https://learn.microsoft.com/en-us/windows/win32/msi/obtaining-context-information-for-deferred-execution-custom-actions (search 'same name' on that page)
+      - the CustomAction is deferred, which means it runs after UAC elevation
+      - Wix4UtilCA_X64 / WixQuietExec run with the SYSTEM privilege of the elevated msi process, rather than the default of running custom actions in an MSI sandbox
+      - see https://docs.firegiant.com/wix/tools/wixext/quietexec/#quiet-running-as-deferred-custom-actions
+    -->
 
     <SetProperty Id="DownloadAgent"
                  Before="DownloadAgent"
@@ -80,33 +92,12 @@
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec64" />
 
-    <!-- WixQuietExec64 runs as a DLL inside the msiexec.exe service process and
-         inherits its full SYSTEM token (including SeCreateSymbolicLinkPrivilege).
-         A Type-34 ExeCommand CA instead spawns a child process with a stripped
-         MSI sandbox token that lacks that privilege, causing mklink to fail.
-         SetProperty is an immediate action with access to all MSI properties;
-         the formatted value is stored and later read as CustomActionData by the
-         deferred WixQuietExec64 CA. -->
-
     <SetProperty Id="CreateSymlink"
                  Before="CreateSymlink"
                  Sequence="execute"
                  Value="&quot;[System64Folder]cmd.exe&quot; /c del /f &quot;[BINDIR]viam-agent.exe&quot; 2&gt;nul &amp; mklink &quot;[BINDIR]viam-agent.exe&quot; &quot;[CACHEDIR]viam-agent-from-installer.exe&quot;" />
 
     <CustomAction Id="CreateSymlink"
-                  Execute="deferred"
-                  Impersonate="no"
-                  Return="check"
-                  BinaryRef="Wix4UtilCA_X64"
-                  DllEntry="WixQuietExec64" />
-
-    <!-- service failure actions -->
-    <SetProperty Id="ConfigureServiceFailure"
-                 Before="ConfigureServiceFailure"
-                 Sequence="execute"
-                 Value="&quot;[System64Folder]sc.exe&quot; failure &quot;viam-agent&quot; reset= 0 actions= restart/5000/restart/5000/restart/5000" />
-
-    <CustomAction Id="ConfigureServiceFailure"
                   Execute="deferred"
                   Impersonate="no"
                   Return="check"
@@ -138,7 +129,7 @@
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec64" />
 
-    <!-- todo: decide whether this should be optional -->
+    <!-- this is a custom action instead of <RegistryValue> to make sure it runs after InstallServices; check if that's necessary -->
     <SetProperty Id="SetViamHomeEnv"
                  Before="SetViamHomeEnv"
                  Sequence="execute"
@@ -232,18 +223,14 @@
               Condition="NOT REMOVE" />
       <Custom Action="CreateSymlink" After="InstallFiles"
               Condition="NOT REMOVE" />
-      <Custom Action="RemoveSymlink" Before="RemoveFiles"
-              Condition="REMOVE=&quot;ALL&quot;" />
-      <Custom Action="ConfigureServiceFailure" After="InstallServices"
-              Condition="NOT REMOVE" />
-      <Custom Action="ConfigureServiceFailureFlag" After="ConfigureServiceFailure"
+      <Custom Action="ConfigureServiceFailureFlag" After="InstallServices"
               Condition="NOT REMOVE" />
       <!-- ConfigPath: update service binary path to include \-\-config -->
       <Custom Action="SetServiceBinPath" After="InstallServices"
               Condition="NOT REMOVE" />
-      <!-- VIAM_HOME env var on the service registry key -->
+      <!-- VIAM_HOME env var on the service registry key (only when ROOTDIR has been overridden) -->
       <Custom Action="SetViamHomeEnv" After="InstallServices"
-              Condition="NOT REMOVE" />
+              Condition="NOT REMOVE AND NOT (ROOTDIR = &quot;C:\opt\viam&quot;)" />
       <!-- ServiceAccount mode: all conditioned on SERVICEACCOUNT=1, run after service is created -->
       <Custom Action="SetServiceAccount" After="InstallServices"
               Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
@@ -262,18 +249,8 @@
          ================================================================ -->
 
     <ComponentGroup Id="AgentService" Directory="BINDIR">
-      <!-- GUID changed from B2C3D4E5-… because the KeyPath changed to the file.
-           No NeverOverwrite: repair reinstalls the file, then CreateSymlink
-           (condition NOT REMOVE, runs on repair too) immediately converts it
-           back to a symlink — self-healing without needing NeverOverwrite.
-           NeverOverwrite would skip the whole component if a leftover symlink
-           exists from a prior failed install, which also skips InstallServices. -->
-      <Component Id="ServiceComponent" Guid="B3C4D5E6-F7A8-9012-BCDE-F01234567890">
-        <!-- File KeyPath: InstallServices reads the component KeyPath to get the
-             service ImagePath. agent-stub.exe is a tiny build-time placeholder;
-             CreateSymlink (After=InstallFiles) replaces it with a symlink before
-             InstallServices runs (~5800), so the SCM registers
-             bin\viam-agent.exe which it then follows to cache\viam-agent-from-installer.exe. -->
+      <Component Id="ServiceComponent" Guid="91D23F86-FD04-4972-83DB-8CD80B120AC4">
+        <!-- We embed a file because <ServiceInstall> needs a KeyPath -->
         <File Id="AgentBinExe"
               Source="agent-stub.exe"
               Name="viam-agent.exe"
@@ -299,7 +276,14 @@
                         Start="auto"
                         Type="ownProcess"
                         ErrorControl="normal"
-                        Arguments="--viam-dir &quot;[ROOTDIR].&quot;" />
+                        Arguments="--viam-dir &quot;[ROOTDIR].&quot;">
+          <util:ServiceConfig ServiceName="viam-agent"
+                              FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="5"
+                              ResetPeriodInDays="0" />
+        </ServiceInstall>
 
         <ServiceControl Id="StartViamAgent"
                         Name="viam-agent"
@@ -311,7 +295,7 @@
     </ComponentGroup>
 
     <ComponentGroup Id="FirewallRules" Directory="BINDIR">
-      <Component Id="FirewallComponent" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+      <Component Id="FirewallComponent" Guid="382C032F-E4AB-400C-B6FC-9A5134F6F40C">
         <RegistryValue Root="HKLM"
                        Key="SOFTWARE\Viam\Agent"
                        Name="FirewallConfigured"
@@ -383,7 +367,6 @@
       <!-- messages shown above the progress bar for each step -->
       <ProgressText Action="DownloadAgent" Message="Downloading Viam Agent binary..." />
       <ProgressText Action="CreateSymlink" Message="Creating viam-agent symlink..." />
-      <ProgressText Action="RemoveSymlink" Message="Removing viam-agent symlink..." />
       <ProgressText Action="ConfigureServiceFailure" Message="Configuring service failure recovery..." />
       <ProgressText Action="ConfigureServiceFailureFlag" Message="Enabling service failure-on-crash flag..." />
       <ProgressText Action="SetServiceBinPath" Message="Setting agent config path..." />
