@@ -56,9 +56,9 @@
     <Property Id="ROOTDIR" Value="C:\opt\viam" />
     <Property Id="CONFIGDIR" Value="C:\etc" />
 
-    <!-- hide repair + modify options in the OS uninstall menu because these paths are untested -->
+    <!-- hide repair + modify options in the OS uninstall menu because these paths are untested.
+         ARPNOMODIFY is already set by WixUI_InstallDir. -->
     <Property Id="ARPNOREPAIR" Value="1" />
-    <Property Id="ARPNOMODIFY" Value="1" />
 
     <StandardDirectory Id="TARGETDIR">
       <Directory Id="ROOTDIR" Name="viam">
