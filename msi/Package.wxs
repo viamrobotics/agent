@@ -203,10 +203,6 @@
               Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
     </InstallExecuteSequence>
 
-    <!-- ================================================================
-         Windows Service
-         ================================================================ -->
-
     <ComponentGroup Id="AgentService" Directory="BINDIR">
       <Component Id="ServiceComponent" Guid="91D23F86-FD04-4972-83DB-8CD80B120AC4">
         <!-- We embed a file because <ServiceInstall> needs a KeyPath -->
