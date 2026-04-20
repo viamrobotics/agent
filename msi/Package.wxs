@@ -21,7 +21,7 @@
     <!-- These can be overridden in CLI with: `installer.msi SERVICEACCOUNT=1` -->
     <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
     <Property Id="SERVICEACCOUNT" Secure="yes" />
-    <!-- if you change rootdir, also change the conditional on SetViamHomeEnv -->
+    <!-- if you change default rootdir, also change the conditional on SetViamHomeEnv -->
     <Property Id="ROOTDIR" Value="C:\opt\viam" />
     <Property Id="CONFIGDIR" Value="C:\etc" />
 
