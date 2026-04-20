@@ -1,36 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!--
-  Viam Agent MSI Installer
-
-  What this handles declaratively:
-    - Directory creation (RootPath\cache, RootPath\bin)
-    - Windows service (viam-agent) with automatic start
-    - Firewall inbound rule via WixFirewall
-
-  What uses custom actions:
-    - Download: curl.exe fetches the agent binary into cache\ at install time
-    - Symlink: bin\viam-agent.exe -> cache\viam-agent-from-installer.exe
-      (MSI has no native symlink support; we shell out to cmd /c mklink)
-    - Service failure recovery (sc.exe failure config)
-    - ServiceAccount mode (sc.exe config, icacls, secedit, event log source)
-
-  Download (AGENTDOWNLOADURL property):
-    - curl.exe (built-in since Win10 1803) downloads AGENTDOWNLOADURL into CACHEDIR
-    - Default URL: GCS stable channel (same as windows-installer-agent.ps1)
-    - Override: msiexec /i Package.msi AGENTDOWNLOADURL="https://..."
-
-  ServiceAccount mode (SERVICEACCOUNT=1 property):
-    - Switches service logon from LocalSystem to NT SERVICE\viam-agent
-    - Grants NT SERVICE\viam-agent full control of ROOTDIR (C:\opt\viam)
-    - Grants NT SERVICE\viam-agent read+execute on CONFIGDIR (default C:\etc)
-    - Grants SeCreateSymbolicLinkPrivilege for self-update symlinks
-    - Registers Application event log source so the non-admin account can write events
-
-  TODOs (not yet implemented):
-    - Rollback custom action for symlink removal on failed install
--->
-
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
@@ -142,20 +111,9 @@
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec64" />
 
-    <!-- ================================================================
-         ServiceAccount mode CAs (run only when SERVICEACCOUNT=1)
+    <!-- commands in this section are conditional on SERVICEACCOUNT=1 -->
 
-         Sequencing: all run after InstallServices (service must exist
-         before switching the logon account and resolving its SID).
-
-         secedit note: the GrantSymlinkPrivilege CA avoids all [...]
-         .NET type syntax in the PowerShell -Command string because MSI's
-         property formatter would expand [Foo.Bar] as property "Foo.Bar"
-         (→ empty). Instead we use sc.exe showsid to get the SID,
-         Get-Content/Set-Content instead of [IO.File], $env:TEMP instead
-         of [IO.Path]::GetTempFileName(), and .* instead of [^\r\n]*.
-         ================================================================ -->
-
+    <!-- we do this here instead of <InstallService> because it needs to be conditional -->
     <SetProperty Id="SetServiceAccount"
                  Before="SetServiceAccount"
                  Sequence="execute"
@@ -206,6 +164,7 @@
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec64" />
 
+    <!-- todo: look at extracting this to an embedded .ps1 for readability -->
     <SetProperty Id="GrantSymlinkPrivilege"
                  Before="GrantSymlinkPrivilege"
                  Sequence="execute"
@@ -214,7 +173,7 @@
     <CustomAction Id="GrantSymlinkPrivilege"
                   Execute="deferred"
                   Impersonate="no"
-                  Return="ignore"
+                  Return="check"
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec64" />
 
@@ -303,11 +262,16 @@
                        Value="1"
                        KeyPath="yes" />
 
-        <fw:FirewallException Id="ViamAgentFirewall"
-                              Name="Viam Agent"
+        <fw:FirewallException Id="ViamAgentFirewallTcp"
+                              Name="Viam Agent (TCP)"
                               Program="[BINDIR]viam-agent.exe"
                               Scope="any"
                               Protocol="tcp" />
+        <fw:FirewallException Id="ViamAgentFirewallUdp"
+                              Name="Viam Agent (UDP)"
+                              Program="[BINDIR]viam-agent.exe"
+                              Scope="any"
+                              Protocol="udp" />
       </Component>
     </ComponentGroup>
 
