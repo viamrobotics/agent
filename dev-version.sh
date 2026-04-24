@@ -20,8 +20,9 @@ if [ -z "$GITHUB_REF_NAME" ]; then
 	GITHUB_REF_NAME=$(git rev-parse --abbrev-ref HEAD)
 fi
 
-# If we're not on main, we have no (automated) version to create
-if [ "$GITHUB_REF_NAME" != "main" ]; then
+# Outside of CI, only main gets an automated version (avoids local branch
+# builds producing CI-looking version labels).
+if [ -z "$GITHUB_ACTIONS" ] && [ "$GITHUB_REF_NAME" != "main" ]; then
 	exit 0
 fi
 
