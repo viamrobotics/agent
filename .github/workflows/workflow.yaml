@@ -88,9 +88,11 @@ jobs:
     outputs:
       pr_urls: ${{ steps.pr_urls.outputs.urls }}
     env:
-      # Empty on non-PR events; dev-version.sh consumes this to stamp PR builds
-      # with the branch HEAD SHA (not the synthetic merge-commit SHA GitHub
-      # checks out for pull_request events).
+      # Empty on non-PR events; dev-version.sh consumes these to stamp PR
+      # builds as v<next>-pr.<pr-num>.<head-sha>. PR_HEAD_SHA is the branch
+      # HEAD (not the synthetic merge-commit SHA GitHub checks out for
+      # pull_request events).
+      PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
     - uses: actions/checkout@v4

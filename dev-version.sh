@@ -1,7 +1,8 @@
 #!/bin/bash
 # dev-version.sh -- generates version labels for prereleases.
 #   main/manual CI builds: 'viam-agent-v0.15.1-dev.4-<arch>' (commits past last tag)
-#   PR dev-release builds: 'viam-agent-v0.15.1-pr.<head-sha>-<arch>' (unique per commit)
+#   PR dev-release builds: 'viam-agent-v0.15.1-pr.<pr-num>.<head-sha>-<arch>'
+#     (PR number scopes, SHA pinpoints the commit)
 # To test locally, comment out the `git status` stanza and do:
 # `GITHUB_REF_NAME=main ./dev-setup.sh` (to just see the version)
 # `GITHUB_REF_NAME=main make all` (for an actual build)
@@ -41,10 +42,10 @@ NEXT_VERSION=$(echo "$BASE_VERSION" | awk -F. '{$3+=1}1' OFS=.)
 if [ "$COMMITS_SINCE_TAG" -eq 0 ]; then
 	TAG_VERSION="$BASE_VERSION"
 elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-	# PR builds use the head commit SHA for unambiguous provenance across
-	# simultaneous PRs branched from the same base. PR_HEAD_SHA is plumbed
-	# from github.event.pull_request.head.sha; fall back to HEAD for local use.
-	TAG_VERSION="${NEXT_VERSION}-pr.${PR_HEAD_SHA:-$(git rev-parse HEAD)}"
+	# PR builds embed both PR number and head SHA. PR_NUMBER and PR_HEAD_SHA
+	# are plumbed from the workflow (github.event.pull_request.{number,head.sha});
+	# PR_HEAD_SHA falls back to HEAD for local simulation.
+	TAG_VERSION="${NEXT_VERSION}-pr.${PR_NUMBER:-unknown}.${PR_HEAD_SHA:-$(git rev-parse HEAD)}"
 else
 	TAG_VERSION="${NEXT_VERSION}-dev.${COMMITS_SINCE_TAG}"
 fi
