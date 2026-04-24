@@ -125,7 +125,7 @@ func ExitProvisioning(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	_, err = chars[exitProvisioningKey].WriteWithoutResponse(cryptExit)
+	_, err = chars[exitProvisioningKey].Write(cryptExit)
 	if err != nil {
 		return errw.Wrap(err, "writing app address")
 	}
@@ -312,22 +312,22 @@ func BTSetDeviceCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	_, err = chars[robotPartIDKey].WriteWithoutResponse(cryptPartID)
+	_, err = chars[robotPartIDKey].Write(cryptPartID)
 	if err != nil {
 		return errw.Wrap(err, "writing part id")
 	}
 
-	_, err = chars[robotPartSecretKey].WriteWithoutResponse(cryptSecret)
+	_, err = chars[robotPartSecretKey].Write(cryptSecret)
 	if err != nil {
 		return errw.Wrap(err, "writing secret")
 	}
 
-	_, err = chars[apiKeyCredsKey].WriteWithoutResponse(cryptAPIKey)
+	_, err = chars[apiKeyCredsKey].Write(cryptAPIKey)
 	if err != nil {
 		return errw.Wrap(err, "writing api key")
 	}
 
-	_, err = chars[appAddressKey].WriteWithoutResponse(cryptAppAddr)
+	_, err = chars[appAddressKey].Write(cryptAppAddr)
 	if err != nil {
 		return errw.Wrap(err, "writing app address")
 	}
@@ -351,12 +351,12 @@ func BTSetWifiCreds(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	_, err = chars[ssidKey].WriteWithoutResponse(cryptSSID)
+	_, err = chars[ssidKey].Write(cryptSSID)
 	if err != nil {
 		return errw.Wrap(err, "writing ssid")
 	}
 
-	_, err = chars[pskKey].WriteWithoutResponse(cryptPSK)
+	_, err = chars[pskKey].Write(cryptPSK)
 	if err != nil {
 		return errw.Wrap(err, "writing psk")
 	}
@@ -374,7 +374,7 @@ func BTUnlockPairing(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	_, err = chars[unlockPairingKey].WriteWithoutResponse(cryptAddr)
+	_, err = chars[unlockPairingKey].Write(cryptAddr)
 	if err != nil {
 		return errw.Wrap(err, "writing unlock pairing request")
 	}
@@ -393,7 +393,7 @@ func BTExitProvisioning(chars map[string]bluetooth.DeviceCharacteristic) error {
 		return err
 	}
 
-	_, err = chars[exitProvisioningKey].WriteWithoutResponse(cryptExit)
+	_, err = chars[exitProvisioningKey].Write(cryptExit)
 	if err != nil {
 		return errw.Wrap(err, "writing exit command")
 	}

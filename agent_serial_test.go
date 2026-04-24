@@ -195,12 +195,16 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is connected to a network`, testEnsureOnline)
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnablesWithinTimeout)
-	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
-	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
-	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
+	ctx.Step(`the host shares a secure wifi network via the hotspot`, testSendSecureConnectionInfo)
+	ctx.Step(`the host shares an insecure wifi network via the hotspot`, testSendInsecureConnectionInfo)
+	ctx.Step(`the host shares an invalid wifi network via the hotspot`, testSendInvalidConnectionInfo)
 	ctx.Step(`the provisioning hotspot (goes away|is not up)`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
+
+	// Bluetooth provisioning
+	ctx.Step(`the viam-agent bluetooth device is discoverable`, testBleIsDiscoverable)
+	ctx.Step(`the host shares a secure wifi network via bluetooth`, testBleSendSecureConnectionInfo)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -648,6 +652,58 @@ func testSendInsecureConnectionInfo(ctx context.Context) (context.Context, error
 
 func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
 	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSID, cfg.Wifi.Password)
+}
+
+func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
+	filter := fmt.Sprintf("viam-setup-%s", hostName)
+
+	var lastErr error
+	// don't need much in the way of retries because the client already tries for 30 seconds
+	for range 3 {
+		if lastErr != nil {
+			time.Sleep(1 * time.Second)
+		}
+		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+			"-b",
+			"--status",
+			"--filter", filter,
+		)
+		out, lastErr := cmd.CombinedOutput()
+		if lastErr != nil {
+			lastErr = fmt.Errorf("BLE device not discoverable: %w\n%s", lastErr, out)
+			continue
+		}
+		return ctx, nil
+	}
+	return ctx, lastErr
+}
+
+func testBleSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	robotKeysResp, err := appClient.GetRobotAPIKeys(ctx, &apppb.GetRobotAPIKeysRequest{
+		RobotId: cfg.RobotID,
+	})
+	if err != nil {
+		return ctx, fmt.Errorf("getting robot API keys: %w", err)
+	}
+	robotKeys := robotKeysResp.ApiKeys[0]
+
+	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+		"-b",
+		"--filter", fmt.Sprintf("viam-setup-%s", hostName),
+		"--psk", "viamsetup",
+		"--wifi-ssid", cfg.Wifi.SSID,
+		"--wifi-psk", cfg.Wifi.Password,
+		"--part-id", cfg.PartID,
+		"--api-key-id", robotKeys.ApiKey.Id,
+		"--api-key-key", robotKeys.ApiKey.Key,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ctx, fmt.Errorf("BLE provisioning failed: %w\n%s", err, out)
+	}
+	// wait a bit after sending the network before going on
+	time.Sleep(5 * time.Second)
+	return ctx, nil
 }
 
 func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
