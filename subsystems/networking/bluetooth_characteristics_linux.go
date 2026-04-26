@@ -148,6 +148,7 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 
 		// WriteEvent is triggered by BT, and we store it in the valuesByName map
 		WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+			b.logger.Infof("BLE write received: %s (%d bytes)", cName, len(value))
 			plaintext, err := b.decrypt(value)
 			if err != nil {
 				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
