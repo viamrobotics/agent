@@ -365,48 +365,27 @@ func (n *Subsystem) HealthCheck(ctx context.Context) error {
 	}
 	bgLoopHealthy := n.bgLoopHealth.IsHealthy()
 	mainLoopHealthy := n.mainLoopHealth.IsHealthy()
-	btEnabled := n.bluetoothEnabled()
-	currentBleState := n.ble.getState()
-	bleHealthy := currentBleState == bleOff || currentBleState == bleRunning
-	wifiOk := bgLoopHealthy && mainLoopHealthy
-	btOk := !btEnabled || bleHealthy
-	if wifiOk || btOk {
-		if !wifiOk || (btEnabled && !btOk) {
-			// If any form of networking is still working we should return nil so the
-			// agent doesn't shut down the entire subsystem, for example shutting
-			// down a functioning wifi access point when only bluetooth is broken,
-			// but still log that something is wrong.
-			n.logger.Warnw("Networking subsystem is partially unhealthy",
-				"wifiOk", wifiOk,
-				"bluetoothOk", btOk)
-		}
+	if bgLoopHealthy && mainLoopHealthy {
 		return nil
 	}
 	return networkingUnresponsiveError{
 		bgLoopHealthy:   bgLoopHealthy,
 		mainLoopHealthy: mainLoopHealthy,
-		btEnabled:       btEnabled,
-		bleState:        currentBleState,
 	}
 }
 
 type networkingUnresponsiveError struct {
 	bgLoopHealthy   bool
 	mainLoopHealthy bool
-	btEnabled       bool
-	bleState        bleState
 }
 
 func (e networkingUnresponsiveError) Error() string {
-	reasons := make([]string, 0, 3)
+	reasons := make([]string, 0, 2)
 	if !e.bgLoopHealthy {
 		reasons = append(reasons, "background loop unhealthy")
 	}
 	if !e.mainLoopHealthy {
 		reasons = append(reasons, "main loop unhealthy")
-	}
-	if e.btEnabled && e.bleState == bleStarting {
-		reasons = append(reasons, "bluetooth unhealthy")
 	}
 	return "networking system not responsive (" +
 		strings.Join(reasons, ", ") +
