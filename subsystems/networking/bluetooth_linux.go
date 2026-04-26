@@ -114,14 +114,6 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize bluetooth service: %w", err)
 	}
 
-	// Update bluetooth read-only characteristics
-	if err := n.btChar.updateStatus(n.connState.getConfigured(), n.hasInternet()); err != nil {
-		n.logger.Warnf("failed to write initial BLE status characteristic: %v", err)
-	}
-	if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
-		n.logger.Warnf("failed to write initial BLE networks characteristic: %v", err)
-	}
-
 	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
 		n.cleanupPartialBluetooth()
 		return err

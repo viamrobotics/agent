@@ -221,6 +221,7 @@ func (n *Subsystem) reconcileBle(ctx context.Context) {
 			return
 		}
 		n.bleBackoffReset()
+		n.pushBleCharacteristics()
 		elapsed := time.Since(startTime)
 		n.logger.Infof("BLE provisioning started in %s", elapsed.Round(time.Millisecond))
 	case bleActionStop:
