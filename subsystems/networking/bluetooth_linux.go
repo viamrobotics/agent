@@ -34,6 +34,19 @@ const (
 	bleRunning                  // Start() succeeded, advertising
 )
 
+func (s bleState) String() string {
+	switch s {
+	case bleOff:
+		return "off"
+	case bleStarting:
+		return "starting"
+	case bleRunning:
+		return "running"
+	default:
+		return fmt.Sprintf("bleState(%d)", int32(s))
+	}
+}
+
 // bleTracker couples BLE state and advertisement so they're always updated together.
 type bleTracker struct {
 	state atomic.Int32             // holds a bleState
@@ -118,8 +131,6 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 		n.cleanupPartialBluetooth()
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
-
-	n.logger.Info("Bluetooth provisioning started.")
 	return nil
 }
 
@@ -141,7 +152,7 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 	state := n.ble.getState()
 	switch state {
 	case bleOff:
-		n.logger.Warn("bluetooth already stopped")
+		n.logger.Debug("bluetooth already stopped")
 		return nil
 	case bleStarting:
 		n.cleanupPartialBluetooth()
