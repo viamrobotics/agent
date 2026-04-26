@@ -62,8 +62,8 @@ func (n *Subsystem) warnIfMultiplePrimaryNetworks() {
 func (n *Subsystem) refreshVisibleNetworksCache() {
 	networks := n.getVisibleNetworks()
 	n.visibleNetworksMu.Lock()
+	defer n.visibleNetworksMu.Unlock()
 	n.visibleNetworksCache = networks
-	n.visibleNetworksMu.Unlock()
 }
 
 func (n *Subsystem) cachedVisibleNetworks() []NetworkInfo {
