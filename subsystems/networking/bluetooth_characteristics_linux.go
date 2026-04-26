@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -60,6 +61,10 @@ type btCharacteristics struct {
 	mu        sync.RWMutex
 	writables map[string]*bluetooth.Characteristic
 
+	// last value per key; skip redundant writes (each Write emits a GATT notification). Reset in initCharacteristics.
+	lastWrittenMu sync.Mutex
+	lastWritten   map[string][]byte
+
 	userInputData *userInputData
 
 	privKey   *rsa.PrivateKey
@@ -71,6 +76,7 @@ func newBTCharacteristics(logger logging.Logger, userInputData *userInputData, p
 	return &btCharacteristics{
 		logger:        logger,
 		writables:     map[string]*bluetooth.Characteristic{},
+		lastWritten:   map[string][]byte{},
 		userInputData: userInputData,
 		PSK:           psk,
 		trustFunc:     trustFunc,
@@ -90,6 +96,11 @@ func (b *btCharacteristics) initCharacteristics(ctx context.Context) []bluetooth
 		charList = append(charList, cfg)
 		b.writables[char] = cfg.Handle
 	}
+
+	// new GATT handles → previous-value cache is stale.
+	b.lastWrittenMu.Lock()
+	b.lastWritten = map[string][]byte{}
+	b.lastWrittenMu.Unlock()
 
 	return charList
 }
@@ -176,8 +187,17 @@ func (b *btCharacteristics) writeCharacteristic(cName string, value []byte) erro
 	if !ok {
 		return fmt.Errorf("no writable characteristic named %s", cName)
 	}
-	_, err := char.Write(value)
-	return err
+
+	b.lastWrittenMu.Lock()
+	defer b.lastWrittenMu.Unlock()
+	if prev, ok := b.lastWritten[cName]; ok && bytes.Equal(prev, value) {
+		return nil
+	}
+	if _, err := char.Write(value); err != nil {
+		return err
+	}
+	b.lastWritten[cName] = append([]byte(nil), value...)
+	return nil
 }
 
 func (b *btCharacteristics) updateNetworks(networks []NetworkInfo) error {
