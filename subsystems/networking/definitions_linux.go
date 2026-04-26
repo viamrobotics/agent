@@ -189,6 +189,7 @@ func (u *userInputData) sendInput(ctx context.Context) {
 	case u.inputChan <- *u.input:
 		u.connState.resetLastInteraction()
 		u.input = &userInput{}
+		u.connState.logger.Info("Provisioning credentials handed off to networking main loop")
 	case <-ctx.Done():
 		u.connState.logger.Warn("user input not received by main loop after 60 seconds")
 	}

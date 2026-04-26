@@ -161,7 +161,11 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 					return
 				}
 				b.trustFunc(trustBool)
+				b.logger.Infof("BLE pairing trust set to %v", trustBool)
 				return
+			}
+			if cName == exitProvisioningKey {
+				b.logger.Info("BLE exit-provisioning signaled, sending credentials to networking main loop")
 			}
 			b.recordInput(ctx, cName, plaintext)
 		},
