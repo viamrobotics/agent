@@ -45,7 +45,7 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 
 const (
 	bleBackoffInitial = 5 * time.Second
-	bleBackoffCap     = 10 * time.Minute
+	bleBackoffCap     = 20 * time.Minute
 )
 
 type bleAction int

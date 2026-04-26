@@ -51,8 +51,8 @@ func (bt *bleTracker) setStarting(logger logging.Logger) {
 	bt.state.Store(int32(bleStarting))
 }
 
-// start calls adv.Start() and transitions to bleRunning on success.
-func (bt *bleTracker) start() error {
+// startAdvAndSetRunning calls adv.Start() and transitions to bleRunning on success.
+func (bt *bleTracker) startAdvAndSetRunning() error {
 	if bt.adv == nil {
 		return errors.New("bug: cannot start with nil advertisement")
 	}
@@ -114,7 +114,7 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 		return err
 	}
 
-	if err := n.ble.start(); err != nil {
+	if err := n.ble.startAdvAndSetRunning(); err != nil {
 		n.cleanupPartialBluetooth()
 		return fmt.Errorf("failed to start advertising: %w", err)
 	}
@@ -138,7 +138,8 @@ func (n *Subsystem) cleanupPartialBluetooth() {
 // stopProvisioningBluetooth stops BLE advertising and tears down the gatt service.
 // Must only be called from bleLoop.
 func (n *Subsystem) stopProvisioningBluetooth() error {
-	switch n.ble.getState() {
+	state := n.ble.getState()
+	switch state {
 	case bleOff:
 		n.logger.Warn("bluetooth already stopped")
 		return nil
@@ -155,8 +156,9 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 		}
 		n.logger.Debug("Stopped advertising bluetooth service.")
 		return nil
+	default:
+		return fmt.Errorf("unknown ble state %d", state)
 	}
-	return nil
 }
 
 // initializeBluetoothService performs low-level system configuration to enable bluetooth advertisement.
