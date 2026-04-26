@@ -97,6 +97,16 @@ func (n *Subsystem) getLastNetworkTried() NetworkInfo {
 	return lastNetwork.getInfo()
 }
 
+// nmReportsGlobalConnectivity returns true iff NM currently reports full internet
+// connectivity.
+func (n *Subsystem) nmReportsGlobalConnectivity() bool {
+	state, err := n.nm.State()
+	if err != nil {
+		return false
+	}
+	return state == gnm.NmStateConnectedGlobal
+}
+
 func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 	networkStatusLogger := n.logger.Sublogger("network_status")
 	if force {
@@ -111,12 +121,11 @@ func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 		return err
 	}
 
-	var online bool
+	online := state == gnm.NmStateConnectedGlobal
 
 	//nolint:exhaustive
 	switch state {
 	case gnm.NmStateConnectedGlobal:
-		online = true
 		networkStatusLogger.Debugw("NetworkManager reports full connectivity (global).", "state", state)
 	case gnm.NmStateConnectedLocal:
 		// do nothing, but may need these two in the future
