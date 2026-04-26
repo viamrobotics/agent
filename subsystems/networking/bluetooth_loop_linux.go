@@ -268,15 +268,7 @@ func (n *Subsystem) bleBackoffExhausted() bool {
 
 // pushBleCharacteristics writes fresh state into BLE characteristics.
 func (n *Subsystem) pushBleCharacteristics() {
-	isOnline := n.hasInternet()
-	isConnected := n.connState.getConnected()
-	hasConnectivity := isConnected || isOnline
-	if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
-		hasConnectivity = isOnline
-	}
-	isConfigured := n.connState.getConfigured()
-
-	if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
+	if err := n.btChar.updateStatus(n.connState.getConfigured(), n.hasInternet()); err != nil {
 		n.logger.Warnf("failed to refresh BLE status characteristic: %v", err)
 	}
 	if err := n.btChar.updateNetworks(n.cachedVisibleNetworks()); err != nil {

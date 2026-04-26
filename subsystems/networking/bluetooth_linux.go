@@ -115,7 +115,7 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 	}
 
 	// Update bluetooth read-only characteristics
-	if err := n.btChar.updateStatus(n.connState.getConfigured(), n.connState.getConnected() || n.hasInternet()); err != nil {
+	if err := n.btChar.updateStatus(n.connState.getConfigured(), n.hasInternet()); err != nil {
 		n.logger.Warnf("failed to write initial BLE status characteristic: %v", err)
 	}
 	if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
