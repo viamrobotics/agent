@@ -142,7 +142,9 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 			"desired", desired,
 			"backoff_pending", backoffPending,
 			"backoff_exhausted", n.bleBackoffExhausted(),
-			"next_attempt", n.bleNextAttempt,
+		}
+		if !n.bleNextAttempt.IsZero() {
+			fields = append(fields, "next_attempt", n.bleNextAttempt)
 		}
 		switch {
 		case state == bleOff && !desired:
