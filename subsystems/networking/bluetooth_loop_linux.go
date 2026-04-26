@@ -34,8 +34,8 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 	tick := time.NewTicker(bleLoopTick)
 	defer tick.Stop()
 
-	n.logger.Info("bleLoop started")
-	defer n.logger.Info("bleLoop stopped")
+	n.logger.Info("BLE provisioning monitor started")
+	defer n.logger.Info("BLE provisioning monitor stopped")
 
 	var logState bleLoopLogState
 	for {
@@ -97,7 +97,7 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 
 	if !s.initialized {
 		n.logger.Infow(
-			"BLE reconciler initial state: "+summary,
+			"BLE provisioning monitor initial state: "+summary,
 			"event", "ble_initial_state",
 			"desired", desired,
 			"state", state,
