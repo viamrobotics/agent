@@ -59,7 +59,7 @@ func (bt *bleTracker) getState() bleState {
 
 func (bt *bleTracker) setStarting(logger logging.Logger) {
 	if prev := bt.getState(); prev == bleRunning {
-		logger.Warnw("unexpected BLE transition to starting from running", "from", prev)
+		logger.Warnf("unexpected BLE transition: starting from %s", prev)
 	}
 	bt.state.Store(int32(bleStarting))
 }
@@ -80,7 +80,7 @@ func (bt *bleTracker) startAdvAndSetRunning() error {
 func (bt *bleTracker) clearAndSetOff(logger logging.Logger) {
 	if bt.adv != nil {
 		if err := bt.adv.Stop(); err != nil && err.Error() != btErrAdvNotStarted {
-			logger.Warnw("error stopping BT advertising during cleanup", "err", err)
+			logger.Warnf("BLE advertisement stop failed during cleanup: %v", err)
 		}
 		bt.adv = nil
 	}
@@ -116,10 +116,10 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 
 	// Update bluetooth read-only characteristics
 	if err := n.btChar.updateStatus(n.connState.getConfigured(), n.connState.getConnected() || n.connState.getOnline()); err != nil {
-		n.logger.Warn("could not update BT status characteristic")
+		n.logger.Warnf("failed to write initial BLE status characteristic: %v", err)
 	}
 	if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
-		n.logger.Warn("could not update BT networks characteristic")
+		n.logger.Warnf("failed to write initial BLE networks characteristic: %v", err)
 	}
 
 	if err := n.enablePairing(n.Config().HotspotSSID); err != nil {
@@ -139,10 +139,10 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 func (n *Subsystem) cleanupPartialBluetooth() {
 	n.ble.clearAndSetOff(n.logger)
 	if err := n.disablePairing(); err != nil {
-		n.logger.Warnw("error disabling BT pairing during rollback", "err", err)
+		n.logger.Warnf("BLE pairing disable failed during rollback: %v", err)
 	}
 	if err := n.removeServices(); err != nil {
-		n.logger.Debugw("error removing gatt services during rollback", "err", err)
+		n.logger.Debugf("BLE gatt service removal failed during rollback: %v", err)
 	}
 }
 
@@ -152,7 +152,7 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 	state := n.ble.getState()
 	switch state {
 	case bleOff:
-		n.logger.Debug("bluetooth already stopped")
+		n.logger.Debug("BLE stop requested but already off")
 		return nil
 	case bleStarting:
 		n.cleanupPartialBluetooth()
@@ -165,7 +165,7 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 		if err := n.removeServices(); err != nil {
 			return err
 		}
-		n.logger.Debug("Stopped advertising bluetooth service.")
+		n.logger.Debug("BLE advertising stopped")
 		return nil
 	default:
 		return fmt.Errorf("unknown ble state %d", state)

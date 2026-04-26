@@ -2,6 +2,7 @@ package networking
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/viamrobotics/agent/utils"
@@ -26,12 +27,7 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 	defer n.monitorWorkers.Done()
 	defer func() {
 		if err := n.stopProvisioningBluetooth(); err != nil {
-			n.logger.Warnw(
-				"BLE reconciler failed to stop on shutdown",
-				"event", "ble_reconcile_stop_failed",
-				"err", err,
-				"phase", "shutdown",
-			)
+			n.logger.Warnf("BLE failed to stop on shutdown: %v", err)
 		}
 	}()
 
@@ -56,6 +52,40 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 	}
 }
 
+// bleSummary returns a one-line, self-describing description of BLE state and
+// the reason for it. Designed so the message remains useful even if a log viewer
+// strips structured fields.
+func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) string {
+	switch state {
+	case bleRunning:
+		return "BLE running"
+	case bleStarting:
+		return "BLE starting"
+	case bleOff:
+		// fall through
+	default:
+		return fmt.Sprintf("BLE in unknown state %s", state)
+	}
+	if !desired {
+		switch {
+		case !n.bluetoothEnabled():
+			return "BLE off (bluetooth disabled in config)"
+		case n.connState.getOnline() && n.connState.getConfigured():
+			return "BLE off (device online and configured)"
+		default:
+			return "BLE off (not desired)"
+		}
+	}
+	switch {
+	case n.bleBackoffExhausted():
+		return "BLE off (desired running but retries exhausted; if device has no bluetooth hardware, set disable_bt_provisioning)"
+	case backoffPending:
+		return "BLE off (desired running, waiting on backoff)"
+	default:
+		return "BLE off (desired running, will retry)"
+	}
+}
+
 // logBleObservability emits BLE state transitions and a periodic status heartbeat
 // so an operator can answer "what is BLE doing and why" from logs alone.
 func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
@@ -63,10 +93,11 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 	desired := n.bleDesired()
 	state := n.ble.getState()
 	backoffPending := n.bleBackoff > 0 && now.Before(n.bleNextAttempt)
+	summary := n.bleSummary(state, desired, backoffPending)
 
 	if !s.initialized {
 		n.logger.Infow(
-			"BLE reconciler initial state",
+			"BLE reconciler initial state: "+summary,
 			"event", "ble_initial_state",
 			"desired", desired,
 			"state", state,
@@ -83,7 +114,7 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 
 	if desired != s.lastDesired {
 		n.logger.Infow(
-			"BLE desired state changed",
+			"BLE desired state changed: "+summary,
 			"event", "ble_desired_changed",
 			"desired", desired,
 			"bluetooth_enabled", n.bluetoothEnabled(),
@@ -95,7 +126,7 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 
 	if backoffPending && !s.lastBackoffPending {
 		n.logger.Infow(
-			"BLE start backed off, will retry",
+			fmt.Sprintf("BLE start backed off, retrying in %s", n.bleBackoff),
 			"event", "ble_backoff_pending",
 			"backoff", n.bleBackoff,
 			"next_attempt", n.bleNextAttempt,
@@ -104,15 +135,25 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 	s.lastBackoffPending = backoffPending
 
 	if now.Sub(s.lastStatusLog) >= bleStatusHeartbeat {
-		n.logger.Infow(
-			"BLE status",
+		msg := "BLE status: " + summary
+		fields := []any{
 			"event", "ble_status",
 			"state", state,
 			"desired", desired,
 			"backoff_pending", backoffPending,
 			"backoff_exhausted", n.bleBackoffExhausted(),
 			"next_attempt", n.bleNextAttempt,
-		)
+		}
+		switch {
+		case state == bleOff && !desired:
+			// "BLE off because it isn't needed" is the steady state — keep noise low.
+			n.logger.Debugw(msg, fields...)
+		case state == bleOff && desired && n.bleBackoffExhausted():
+			// BLE wanted but reconciler has given up — surface louder.
+			n.logger.Warnw(msg, fields...)
+		default:
+			n.logger.Infow(msg, fields...)
+		}
 		s.lastStatusLog = now
 	}
 }
@@ -167,40 +208,27 @@ func (n *Subsystem) reconcileBle(ctx context.Context) {
 		startTime := time.Now()
 		if err := n.startProvisioningBluetooth(ctx); err != nil {
 			n.bleBackoffBump()
-			n.logger.Warnw(
-				"BLE reconciler failed to start",
-				"event", "ble_reconcile_start_failed",
-				"err", err,
-				"backoff", n.bleBackoff,
-				"next_attempt", n.bleNextAttempt,
+			n.logger.Warnf(
+				"BLE start failed, next attempt at %s (in %s): %v",
+				n.bleNextAttempt.Format(time.RFC3339), n.bleBackoff, err,
 			)
 			if n.bleBackoffExhausted() {
-				n.logger.Warn("BLE startup keeps failing. If this device has no bluetooth hardware, " +
-					"set disable_bt_provisioning to avoid these retries.")
+				n.logger.Warn("BLE startup keeps failing and retries are exhausted. " +
+					"If this device has no bluetooth hardware, set disable_bt_provisioning to avoid these retries.")
 			}
 			return
 		}
 		n.bleBackoffReset()
-		n.logger.Infow(
-			"BLE reconciler started provisioning",
-			"event", "ble_reconcile_started",
-			"start_duration_ms", time.Since(startTime).Milliseconds(),
-		)
+		elapsed := time.Since(startTime)
+		n.logger.Infof("BLE provisioning started in %s", elapsed.Round(time.Millisecond))
 	case bleActionStop:
 		startTime := time.Now()
 		if err := n.stopProvisioningBluetooth(); err != nil {
-			n.logger.Warnw(
-				"BLE reconciler failed to stop",
-				"event", "ble_reconcile_stop_failed",
-				"err", err,
-			)
+			n.logger.Warnf("BLE stop failed: %v", err)
 			return
 		}
-		n.logger.Infow(
-			"BLE reconciler stopped provisioning",
-			"event", "ble_reconcile_stopped",
-			"stop_duration_ms", time.Since(startTime).Milliseconds(),
-		)
+		elapsed := time.Since(startTime)
+		n.logger.Infof("BLE provisioning stopped in %s", elapsed.Round(time.Millisecond))
 	}
 }
 
@@ -247,12 +275,12 @@ func (n *Subsystem) pushBleCharacteristics() {
 	isConfigured := n.connState.getConfigured()
 
 	if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
-		n.logger.Warnw("could not update BT status characteristic", "err", err)
+		n.logger.Warnf("failed to refresh BLE status characteristic: %v", err)
 	}
 	if err := n.btChar.updateNetworks(n.cachedVisibleNetworks()); err != nil {
-		n.logger.Warnw("could not update BT networks characteristic", "err", err)
+		n.logger.Warnf("failed to refresh BLE networks characteristic: %v", err)
 	}
 	if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
-		n.logger.Warnw("could not update BT errors characteristic", "err", err)
+		n.logger.Warnf("failed to refresh BLE errors characteristic: %v", err)
 	}
 }
