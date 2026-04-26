@@ -107,6 +107,14 @@ func (n *Subsystem) nmReportsGlobalConnectivity() bool {
 	return state == gnm.NmStateConnectedGlobal
 }
 
+// hasInternet returns true if the machine is currently reachable to the internet.
+func (n *Subsystem) hasInternet() bool {
+	if n.nmReportsGlobalConnectivity() {
+		return true
+	}
+	return os.Getenv("SOCKS_PROXY") != "" && n.connState.getOnline()
+}
+
 func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 	networkStatusLogger := n.logger.Sublogger("network_status")
 	if force {

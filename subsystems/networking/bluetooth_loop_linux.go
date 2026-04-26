@@ -70,7 +70,7 @@ func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) str
 		switch {
 		case !n.bluetoothEnabled():
 			return "BLE off (bluetooth disabled in config)"
-		case n.nmReportsGlobalConnectivity() && n.connState.getConfigured():
+		case n.hasInternet() && n.connState.getConfigured():
 			return "BLE off (device online and configured)"
 		default:
 			return "BLE off (not desired)"
@@ -102,7 +102,7 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 			"desired", desired,
 			"state", state,
 			"bluetooth_enabled", n.bluetoothEnabled(),
-			"online", n.nmReportsGlobalConnectivity(),
+			"online", n.hasInternet(),
 			"configured", n.connState.getConfigured(),
 		)
 		s.initialized = true
@@ -118,7 +118,7 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 			"event", "ble_desired_changed",
 			"desired", desired,
 			"bluetooth_enabled", n.bluetoothEnabled(),
-			"online", n.nmReportsGlobalConnectivity(),
+			"online", n.hasInternet(),
 			"configured", n.connState.getConfigured(),
 		)
 		s.lastDesired = desired
@@ -238,7 +238,7 @@ func (n *Subsystem) bleDesired() bool {
 	if !n.bluetoothEnabled() {
 		return false
 	}
-	if n.connState.getConfigured() && n.nmReportsGlobalConnectivity() {
+	if n.connState.getConfigured() && n.hasInternet() {
 		return false
 	}
 	return true
@@ -268,7 +268,7 @@ func (n *Subsystem) bleBackoffExhausted() bool {
 
 // pushBleCharacteristics writes fresh state into BLE characteristics.
 func (n *Subsystem) pushBleCharacteristics() {
-	isOnline := n.nmReportsGlobalConnectivity()
+	isOnline := n.hasInternet()
 	isConnected := n.connState.getConnected()
 	hasConnectivity := isConnected || isOnline
 	if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
