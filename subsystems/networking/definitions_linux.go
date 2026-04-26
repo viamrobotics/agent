@@ -194,7 +194,7 @@ func (u *userInputData) sendInput(ctx context.Context) {
 	}
 }
 
-func (u *userInputData) resetInputData(inputChan chan<- userInput) {
+func (u *userInputData) resetInputData() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.cancel != nil {
@@ -203,7 +203,6 @@ func (u *userInputData) resetInputData(inputChan chan<- userInput) {
 	u.workers.Wait()
 	u.cancel = nil
 	u.input = &userInput{}
-	u.inputChan = inputChan
 }
 
 type userInput struct {

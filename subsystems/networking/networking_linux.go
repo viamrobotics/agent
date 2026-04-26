@@ -55,6 +55,9 @@ type Subsystem struct {
 	webServer  *http.Server
 	grpcServer *grpc.Server
 	portalData *userInputData
+	// inputChan carries credentials from any provisioning channel (BLE, hotspot)
+	// to mainLoop. Owned by Subsystem so BLE writes work before startProvisioning runs.
+	inputChan chan userInput
 
 	// visibleNetworks cache, refreshed by backgroundLoop, read by bleLoop.
 	visibleNetworksMu    sync.RWMutex
@@ -85,7 +88,12 @@ func New(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) *Sub
 		mainLoopHealth: &health{},
 		bgLoopHealth:   &health{},
 	}
-	subsys.portalData = &userInputData{connState: subsys.connState}
+	subsys.inputChan = make(chan userInput, 10)
+	subsys.portalData = &userInputData{
+		connState: subsys.connState,
+		input:     &userInput{},
+		inputChan: subsys.inputChan,
+	}
 	subsys.btAgent = &pairingAgent{
 		logger:     logger,
 		networking: subsys,

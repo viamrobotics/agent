@@ -283,7 +283,7 @@ func (n *Subsystem) checkConnections() {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Subsystem) startProvisioning(ctx context.Context) error {
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
@@ -293,7 +293,7 @@ func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- user
 		return ctx.Err()
 	}
 
-	n.portalData.resetInputData(inputChan)
+	n.portalData.resetInputData()
 	hotspotErr := n.startProvisioningHotspot(ctx)
 	if hotspotErr != nil {
 		n.logger.Errorw("failed to start hotspot provisioning", "err", hotspotErr)
@@ -870,7 +870,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 	}()
 
 	scanChan := make(chan bool, 16)
-	inputChan := make(chan userInput, 10)
+	inputChan := n.inputChan
 
 	n.monitorWorkers.Add(1)
 	go n.backgroundLoop(ctx, scanChan)
@@ -1058,7 +1058,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				"lastSsid", n.netState.lastSSID,
 			)
 			n.netState.mu.RUnlock()
-			if err := n.startProvisioning(ctx, inputChan); err != nil {
+			if err := n.startProvisioning(ctx); err != nil {
 				n.logger.Warnw("failed to start provisioning mode", "err", err)
 			}
 		}
