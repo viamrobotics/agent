@@ -14,7 +14,6 @@ import (
 	errw "github.com/pkg/errors"
 	goutils "go.viam.com/utils"
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/svc"
 )
 
 func PlatformProcSettings(cmd *exec.Cmd) {
@@ -144,9 +143,11 @@ func SignalForTermination(pid int) error {
 }
 
 func writePlatformOutput(p []byte) (int, error) {
-	if inService, err := svc.IsWindowsService(); err != nil {
-		return len(p), err
-	} else if inService {
+	// IsRunningLocally is set to true if the agent is not running as a Windows service.
+	// This check blanks out console logs if we are running as a service, since they're not needed,
+	// but it passes them through if we're running locally so they can be viewed (in the user's terminal,
+	// for example)
+	if !IsRunningLocally {
 		return len(p), nil
 	}
 	return os.Stdout.Write(p)
