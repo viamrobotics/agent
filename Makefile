@@ -103,6 +103,14 @@ upload-installer:
 windows-installer:
 	@./build-windows-installer-exe.sh
 
+.PHONY: msi
+msi: msi/viam-agent.msi
+
+# this only works on windows
+msi/viam-agent.msi: msi/Package.wxs msi/Package.wixproj
+	dotnet tool restore
+	cd msi && dotnet build -c Release
+
 .PHONY: upload-windows-installer
 upload-windows-installer:
 	@if [ -n "$$(find . -name 'viam-agent-windows-installer*.exe')" ]; then \

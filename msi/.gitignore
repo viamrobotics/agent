@@ -1,0 +1,5 @@
+agent-bin/
+obj/
+bin/
+*.msi
+.wix/
