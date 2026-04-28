@@ -203,7 +203,6 @@ func (u *userInputData) resetInputData() {
 	}
 	u.workers.Wait()
 	u.cancel = nil
-	u.input = &userInput{}
 }
 
 type userInput struct {
