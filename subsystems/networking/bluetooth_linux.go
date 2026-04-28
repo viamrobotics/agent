@@ -88,9 +88,7 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 		return err
 	}
 
-	if err := n.removeServices(); err != nil {
-		return err
-	}
+	n.removeServices()
 
 	n.btHealthy = false
 	n.logger.Debug("Stopped advertising bluetooth service.")
@@ -111,9 +109,11 @@ func (n *Subsystem) initializeBluetoothService(
 	if err := adapter.Enable(); err != nil {
 		return fmt.Errorf("failed to enable bluetooth adapter: %w", err)
 	}
-	if err := adapter.AddService(&bluetooth.Service{UUID: serviceUUID, Characteristics: characteristics}); err != nil {
+	svc := &bluetooth.Service{UUID: serviceUUID, Characteristics: characteristics}
+	if err := adapter.AddService(svc); err != nil {
 		return fmt.Errorf("unable to add bluetooth service to default adapter: %w", err)
 	}
+	n.bleService = svc
 
 	adv := adapter.DefaultAdvertisement()
 	opts := bluetooth.AdvertisementOptions{
@@ -153,28 +153,24 @@ func getBluetoothDBus() (*dbus.Conn, dbus.BusObject, error) {
 	return conn, hci0Adapter, nil
 }
 
-func (n *Subsystem) removeServices() error {
-	_, adapter, err := getBluetoothDBus()
-	if err != nil {
-		return err
+func (n *Subsystem) removeServices() {
+	if n.bleService == nil {
+		return
 	}
+	defer func() { n.bleService = nil }()
 
-	// TODO(APP-8081) tinygo/bluetooth only has a AddService() method, no RemoveService() and doesn't expose the service path
-	// As it sequentially names them, we'll just iterate over 10000 of them to make sure we reasonably have cleaned up
-	// This takes about one realtime second on a pi5, so not THAT expensive
-	var ok bool
-	for id := range 10000 {
-		path := dbus.ObjectPath(fmt.Sprintf("/org/tinygo/bluetooth/service%d", id))
-		if adapter.Call("org.bluez.GattManager1.UnregisterApplication", 0, path).Err == nil {
-			n.logger.Debugf("removed gatt service %s", path)
-			ok = true
-		}
+	err := bluetooth.DefaultAdapter.RemoveService(n.bleService)
+	if err == nil {
+		return
 	}
-
-	if ok {
-		return nil
+	dErr := &dbus.Error{}
+	if errors.As(err, dErr) && dErr.Name == "org.bluez.Error.DoesNotExist" {
+		// BlueZ already cleaned up the service (e.g. adapter power-cycled). Nothing to do.
+		return
 	}
-	return errors.New("could not find previous gatt service to remove")
+	n.logger.Errorf(
+		"failed to unregister gatt service in bluez; orphaned service will persist until agent restart: %v", err,
+	)
 }
 
 func (n *Subsystem) bluetoothEnabled() bool {
