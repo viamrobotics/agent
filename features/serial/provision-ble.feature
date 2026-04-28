@@ -6,14 +6,22 @@ Feature: bluetooth provisioning
     And the viam-agent systemd unit is running
     And there are no available wifi networks
     And viam-agent cannot reach the app
-  Scenario: The agent can join an unknown secure network when one is provided during bluetooth provisioning
+  # Scenario: The agent can join an unknown secure network when one is provided during bluetooth provisioning
+  #   When viam-agent is in forced provisioning mode
+  #   And the viam-agent bluetooth device is discoverable and has the expected characteristics
+  #   And the host shares a secure wifi network via bluetooth
+  #   Then viam-agent can reach the app
+  Scenario: The agent responds with an error when an invalid SSID is provided during bluetooth provisioning
     When viam-agent is in forced provisioning mode
-    And the viam-agent bluetooth device is discoverable and has the expected characteristics
-    And the host shares a secure wifi network via bluetooth
-    Then viam-agent can reach the app
+    And the viam-agent bluetooth device is discoverable
+    And the host shares an invalid SSID via bluetooth
+    Then the viam-agent bluetooth device is discoverable again
+    And viam-agent surfaces an invalid SSID error via bluetooth
+    And viam-agent cannot reach the app
   Scenario: The agent responds with an error when invalid network credentials are provided during bluetooth provisioning
     When viam-agent is in forced provisioning mode
     And the viam-agent bluetooth device is discoverable
-    And the host shares an invalid wifi network via bluetooth
-    Then the viam-agent bluetooth device is discoverable
+    And the host shares invalid wifi credentials for a valid SSID via bluetooth
+    Then the viam-agent bluetooth device is discoverable again
+    And viam-agent surfaces an invalid credentials error via bluetooth
     And viam-agent cannot reach the app

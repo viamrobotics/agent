@@ -93,6 +93,9 @@ var agentBleChars = []string{
 
 var cfg config
 
+// cache the last BLE status because performing BLE scans with the provisioning client is slow
+var lastBleStatus []string
+
 func TestSerialFeatures(t *testing.T) {
 	suite := godog.TestSuite{
 		TestSuiteInitializer: InitializeSuite(t),
@@ -100,7 +103,7 @@ func TestSerialFeatures(t *testing.T) {
 		Options: &godog.Options{
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
-			Paths:    []string{"features/serial/provision-ble.feature"},
+			Paths:    []string{"features/serial"},
 			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
@@ -225,7 +228,10 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	// Bluetooth provisioning
 	ctx.Step(`the viam-agent bluetooth device is discoverable`, testBleIsDiscoverable)
 	ctx.Step(`the host shares a secure wifi network via bluetooth`, testBleSendSecureConnectionInfo)
-	ctx.Step(`the host shares an invalid wifi network via bluetooth`, testBleSendInvalidConnectionInfo)
+	ctx.Step(`the host shares invalid wifi credentials for a valid SSID via bluetooth`, testBleSendInvalidPasswordConnectionInfo)
+	ctx.Step(`the host shares an invalid SSID via bluetooth`, testBleSendInvalidSSIDConnectionInfo)
+	ctx.Step(`viam-agent surfaces an invalid SSID error via bluetooth`, testBleSurfacesInvalidSSIDError)
+	ctx.Step(`viam-agent surfaces an invalid credentials error via bluetooth`, testBleSurfacesInvalidCredentialsErr)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -690,8 +696,6 @@ func sendNetworkCredentialsBle(ctx context.Context, ssid, psk string) error {
 	if err != nil {
 		return fmt.Errorf("BLE provisioning failed: %w\n%s", err, out)
 	}
-	// wait a bit after sending the network before going on
-	time.Sleep(5 * time.Second)
 	return nil
 }
 
@@ -709,25 +713,35 @@ func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
 	var lastErr error
 	// don't need much in the way of retries because the client already tries for 30 seconds
 	for range 3 {
+		lastBleStatus = []string{}
 		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
 			"-b",
 			"--status",
+			"--info",
 			"--filter", filter,
 		)
 		out, lastErr := cmd.CombinedOutput()
+		outString := strings.Split(string(out), "\n")
+
 		// check for all the expected BLE characteristics
 		for _, char := range agentBleChars {
-			for _, line := range out {
-				if !strings.Contains(string(line), char) {
-					lastErr = fmt.Errorf("discovered BLE device missing characteristic: %s\n", char)
+			charFound := false
+			for _, line := range outString {
+				// cache the last BLE status here so it can be used to check for errors later
+				lastBleStatus = append(lastBleStatus, line)
+				if strings.Contains(line, char) {
+					charFound = true
 				}
+			}
+			if !charFound {
+				lastErr = fmt.Errorf("discovered BLE device missing characteristic: %s\n", char)
 			}
 		}
 		if lastErr != nil {
-			lastErr = fmt.Errorf("BLE discovery failed: %w\n%s", lastErr, out)
 			continue
+		} else {
+			return ctx, nil
 		}
-		return ctx, nil
 	}
 	return ctx, lastErr
 }
@@ -740,8 +754,33 @@ func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error)
 	return ctx, sendNetworkCredentials(ctx, "thisnetwork", "doesnotexist")
 }
 
-func testBleSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
-	return ctx, sendNetworkCredentialsBle(ctx, "thisnetwork", "doesnotexist")
+func testBleSendInvalidPasswordConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentialsBle(ctx, cfg.Wifi.SSID, "itdoesnotexist")
+}
+
+func testBleSendInvalidSSIDConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentialsBle(ctx, "thisnetworkisfake", "itdoesnotexist")
+}
+
+func testBleSurfacesInvalidSSIDError(ctx context.Context) (context.Context, error) {
+	return ctx, bleSurfacesExpectedError("NmDeviceStateReasonSsidNotFound")
+}
+
+func testBleSurfacesInvalidCredentialsErr(ctx context.Context) (context.Context, error) {
+	return ctx, bleSurfacesExpectedError("bad or missing password")
+}
+
+func bleSurfacesExpectedError(expectedErr string) error {
+	for _, line := range lastBleStatus {
+		fmt.Printf("%s\n", line)
+		if strings.Contains(line, "Errors:") {
+			if strings.Contains(line, expectedErr) {
+				return nil
+			}
+			return fmt.Errorf("found error, but not expected error (%s): %s", expectedErr, line)
+		}
+	}
+	return fmt.Errorf("did not find any error (expected %s) in BLE info", expectedErr)
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
