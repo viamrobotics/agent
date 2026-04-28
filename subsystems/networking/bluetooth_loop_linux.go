@@ -26,8 +26,15 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
 	defer func() {
-		if err := n.stopProvisioningBluetooth(); err != nil {
-			n.logger.Warnf("BLE failed to stop on shutdown: %v", err)
+		done := make(chan error, 1)
+		go func() { done <- n.stopProvisioningBluetooth() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				n.logger.Warnf("BLE failed to stop on shutdown: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			n.logger.Warn("BLE stop on shutdown timed out after 10s; bluez may be unresponsive")
 		}
 	}()
 
