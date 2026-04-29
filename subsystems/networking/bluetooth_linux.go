@@ -88,7 +88,9 @@ func (n *Subsystem) stopProvisioningBluetooth() error {
 		return err
 	}
 
-	n.removeServices()
+	if err := n.removeServices(); err != nil {
+		return err
+	}
 
 	n.btHealthy = false
 	n.logger.Debug("Stopped advertising bluetooth service.")
@@ -153,24 +155,21 @@ func getBluetoothDBus() (*dbus.Conn, dbus.BusObject, error) {
 	return conn, hci0Adapter, nil
 }
 
-func (n *Subsystem) removeServices() {
+func (n *Subsystem) removeServices() error {
 	if n.bleService == nil {
-		return
+		return nil
 	}
-	defer func() { n.bleService = nil }()
-
 	err := bluetooth.DefaultAdapter.RemoveService(n.bleService)
+	n.bleService = nil
 	if err == nil {
-		return
+		return nil
 	}
 	dErr := &dbus.Error{}
 	if errors.As(err, dErr) && dErr.Name == "org.bluez.Error.DoesNotExist" {
 		// BlueZ already cleaned up the service (e.g. adapter power-cycled). Nothing to do.
-		return
+		return nil
 	}
-	n.logger.Errorf(
-		"failed to unregister gatt service in bluez; orphaned service will persist until agent restart: %v", err,
-	)
+	return fmt.Errorf("failed to unregister gatt service: %w", err)
 }
 
 func (n *Subsystem) bluetoothEnabled() bool {
