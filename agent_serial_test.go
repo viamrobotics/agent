@@ -712,7 +712,7 @@ func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
 
 	var lastErr error
 	// don't need much in the way of retries because the client already tries for 30 seconds
-	for range 3 {
+	for range 4 {
 		lastBleStatus = []string{}
 		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
 			"-b",
@@ -720,28 +720,43 @@ func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
 			"--info",
 			"--filter", filter,
 		)
-		out, lastErr := cmd.CombinedOutput()
-		outString := strings.Split(string(out), "\n")
-
+		out, err := cmd.CombinedOutput()
+		// the command failed to run at all, try again
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		outString := string(out)
+		outStringSplit := strings.Split(outString, "\n")
+		// cache the last BLE status here so it can be used to check for errors in future steps
+		lastBleStatus = outStringSplit
+		// failed to find the device, try again
+		if !strings.Contains(outString, "Found device:") {
+			lastErr = fmt.Errorf("BLE device was not discoverable")
+			continue
+		}
+		if strings.Contains(outString, "timeout on Connect") {
+			lastErr = fmt.Errorf("BLE device found, but connection timed out")
+			continue
+		}
+		if strings.Contains(outString, "did not find all requested services") {
+			lastErr = fmt.Errorf("BLE device connected, but could not find all requested services")
+			continue
+		}
 		// check for all the expected BLE characteristics
 		for _, char := range agentBleChars {
 			charFound := false
-			for _, line := range outString {
-				// cache the last BLE status here so it can be used to check for errors later
-				lastBleStatus = append(lastBleStatus, line)
+			for _, line := range outStringSplit {
 				if strings.Contains(line, char) {
 					charFound = true
 				}
 			}
+			// if we find a device but it's missing an expected characteristic, bail
 			if !charFound {
-				lastErr = fmt.Errorf("discovered BLE device missing characteristic: %s\n", char)
+				return ctx, fmt.Errorf("discovered BLE device missing characteristic: %s", char)
 			}
 		}
-		if lastErr != nil {
-			continue
-		} else {
-			return ctx, nil
-		}
+		return ctx, nil
 	}
 	return ctx, lastErr
 }
@@ -772,7 +787,6 @@ func testBleSurfacesInvalidCredentialsErr(ctx context.Context) (context.Context,
 
 func bleSurfacesExpectedError(expectedErr string) error {
 	for _, line := range lastBleStatus {
-		fmt.Printf("%s\n", line)
 		if strings.Contains(line, "Errors:") {
 			if strings.Contains(line, expectedErr) {
 				return nil
