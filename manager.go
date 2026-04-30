@@ -298,6 +298,8 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 
 				if err := m.viamServer.Stop(stopCtx); err != nil {
 					m.logger.Warn(err)
+				} else {
+					m.viamServerNeedsRestart = false
 				}
 				if m.viamAgentNeedsRestart {
 					m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
