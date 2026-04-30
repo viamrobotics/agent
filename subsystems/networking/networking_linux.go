@@ -59,10 +59,11 @@ type Subsystem struct {
 	portalData *userInputData
 
 	// bluetooth
-	noBT    bool
-	btChar  *btCharacteristics
-	btAdv   *bluetooth.Advertisement
-	btAgent *pairingAgent
+	noBT       bool
+	btChar     *btCharacteristics
+	btAdv      *bluetooth.Advertisement
+	bleService *bluetooth.Service
+	btAgent    *pairingAgent
 
 	pb.UnimplementedProvisioningServiceServer
 }

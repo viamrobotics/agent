@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!-- note: 'version' here is the version of the installer, not of agent. Agent self-manages. -->
+  <Package Name="Viam Agent"
+           Manufacturer="Viam Inc."
+           Version="0.0.1"
+           UpgradeCode="3FBC9034-E5C1-46B2-8BB8-3BA9A82158C3"
+           Scope="perMachine">
+
+    <Launch Condition="Privileged" Message="This installer requires administrator privileges." />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Viam Agent is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- These can be overridden in CLI with: `installer.msi SERVICEACCOUNT=1` -->
+    <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
+    <Property Id="SERVICEACCOUNT" Secure="yes" />
+    <!-- if you change default rootdir, also change the conditional on SetViamHomeEnv -->
+    <Property Id="ROOTDIR" Value="C:\opt\viam" />
+    <Property Id="CONFIGDIR" Value="C:\etc" />
+
+    <!-- hide repair + modify options in the OS uninstall menu because these paths are untested.
+         ARPNOMODIFY is already set by WixUI_InstallDir. -->
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="TARGETDIR">
+      <Directory Id="ROOTDIR" Name="viam">
+        <Directory Id="CACHEDIR" Name="cache" />
+        <Directory Id="BINDIR" Name="bin" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="AgentCache" Directory="CACHEDIR">
+      <Component Id="CacheDir" Guid="01A2E465-CBC5-4807-BE48-F7791C3B7EF7">
+        <CreateFolder />
+      </Component>
+    </ComponentGroup>
+
+    <!-- how to read these custom action blocks:
+      - SetProperty is an immediate action that has access to properties and formats the command string, and is then available as CustomActionData, which is read by WixQuietExec64? This behavior is sort of documented here https://learn.microsoft.com/en-us/windows/win32/msi/obtaining-context-information-for-deferred-execution-custom-actions (search 'same name' on that page)
+      - the CustomAction is deferred, which means it runs after UAC elevation
+      - Wix4UtilCA_X64 / WixQuietExec run with the SYSTEM privilege of the elevated msi process, rather than the default of running custom actions in an MSI sandbox
+      - see https://docs.firegiant.com/wix/tools/wixext/quietexec/#quiet-running-as-deferred-custom-actions
+    -->
+
+    <SetProperty Id="DownloadAgent"
+                 Before="DownloadAgent"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]curl.exe&quot; -L --fail --retry 3 -o &quot;[CACHEDIR]viam-agent-from-installer.exe&quot; &quot;[AGENTDOWNLOADURL]&quot;" />
+
+    <CustomAction Id="DownloadAgent"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <SetProperty Id="CreateSymlink"
+                 Before="CreateSymlink"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]cmd.exe&quot; /c del /f &quot;[BINDIR]viam-agent.exe&quot; 2&gt;nul &amp; mklink &quot;[BINDIR]viam-agent.exe&quot; &quot;[CACHEDIR]viam-agent-from-installer.exe&quot;" />
+
+    <CustomAction Id="CreateSymlink"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- tell service to restart on failure (not just on clean exit) -->
+    <SetProperty Id="ConfigureServiceFailureFlag"
+                 Before="ConfigureServiceFailureFlag"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]sc.exe&quot; failureflag &quot;viam-agent&quot; 1" />
+
+    <CustomAction Id="ConfigureServiceFailureFlag"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <SetProperty Id="SetServiceBinPath"
+                 Before="SetServiceBinPath"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]sc.exe&quot; config &quot;viam-agent&quot; binPath= &quot;\&quot;[BINDIR]viam-agent.exe\&quot; --viam-dir \&quot;[ROOTDIR].\&quot; --config \&quot;[CONFIGDIR]\viam.json\&quot;&quot;" />
+
+    <CustomAction Id="SetServiceBinPath"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- this is a custom action instead of <RegistryValue> to make sure it runs after InstallServices; check if that's necessary -->
+    <SetProperty Id="SetViamHomeEnv"
+                 Before="SetViamHomeEnv"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]reg.exe&quot; add &quot;HKLM\SYSTEM\CurrentControlSet\Services\viam-agent&quot; /v Environment /t REG_MULTI_SZ /d &quot;VIAM_HOME=[ROOTDIR].&quot; /f" />
+
+    <CustomAction Id="SetViamHomeEnv"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- commands in this section are conditional on SERVICEACCOUNT=1 -->
+
+    <!-- we do this here instead of <InstallService> because it needs to be conditional -->
+    <SetProperty Id="SetServiceAccount"
+                 Before="SetServiceAccount"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]sc.exe&quot; config &quot;viam-agent&quot; obj= &quot;NT SERVICE\viam-agent&quot;" />
+
+    <CustomAction Id="SetServiceAccount"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- icacls "(OI)(CI)F" = full control, inherited by files and subdirs -->
+    <SetProperty Id="GrantRootDirAcl"
+                 Before="GrantRootDirAcl"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]icacls.exe&quot; &quot;[ROOTDIR].&quot; /grant &quot;NT SERVICE\viam-agent:(OI)(CI)F&quot;" />
+
+    <CustomAction Id="GrantRootDirAcl"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <SetProperty Id="CreateConfigDir"
+                 Before="CreateConfigDir"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]cmd.exe&quot; /c if not exist &quot;[CONFIGDIR]&quot; mkdir &quot;[CONFIGDIR]&quot;" />
+
+    <CustomAction Id="CreateConfigDir"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- icacls "(OI)(CI)RX" = read+execute, inherited by files and subdirs -->
+    <SetProperty Id="GrantConfigDirAcl"
+                 Before="GrantConfigDirAcl"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]icacls.exe&quot; &quot;[CONFIGDIR]&quot; /grant &quot;NT SERVICE\viam-agent:(OI)(CI)RX&quot;" />
+
+    <CustomAction Id="GrantConfigDirAcl"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <!-- todo: look at extracting this to an embedded .ps1 for readability -->
+    <SetProperty Id="GrantSymlinkPrivilege"
+                 Before="GrantSymlinkPrivilege"
+                 Sequence="execute"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass -NonInteractive -Command &quot;$sid = (&amp; sc.exe showsid viam-agent | Where-Object { $_ -match 'SERVICE SID' } | ForEach-Object { $_ -replace '.*:\s*' } | Select-Object -First 1).Trim(); $inf = $env:TEMP + '\viam-secedit.inf'; $db = $env:TEMP + '\viam-secedit.db'; secedit /export /cfg $inf /quiet; $c = Get-Content $inf -Raw -Encoding Default; if ($c -notmatch ('SeCreateSymbolicLinkPrivilege.*' + $sid)) { $c = $c -replace '(SeCreateSymbolicLinkPrivilege\s*=\s*.*)', ('$1,*' + $sid); $c | Set-Content $inf -Encoding Default -NoNewline; Remove-Item $db -EA SilentlyContinue; secedit /configure /db $db /cfg $inf /quiet }; Remove-Item $inf, $db -EA SilentlyContinue&quot;" />
+
+    <CustomAction Id="GrantSymlinkPrivilege"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64" />
+
+    <InstallExecuteSequence>
+      <Custom Action="DownloadAgent" After="CreateFolders"
+              Condition="NOT REMOVE" />
+      <Custom Action="CreateSymlink" After="InstallFiles"
+              Condition="NOT REMOVE" />
+      <Custom Action="ConfigureServiceFailureFlag" After="InstallServices"
+              Condition="NOT REMOVE" />
+      <!-- ConfigPath: update service binary path to include \-\-config -->
+      <Custom Action="SetServiceBinPath" After="InstallServices"
+              Condition="NOT REMOVE" />
+      <!-- VIAM_HOME env var on the service registry key (only when ROOTDIR has been overridden) -->
+      <Custom Action="SetViamHomeEnv" After="InstallServices"
+              Condition="NOT REMOVE AND NOT (ROOTDIR = &quot;C:\opt\viam&quot;)" />
+      <!-- ServiceAccount mode: all conditioned on SERVICEACCOUNT=1, run after service is created -->
+      <Custom Action="SetServiceAccount" After="InstallServices"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="GrantRootDirAcl" After="SetServiceAccount"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="CreateConfigDir" After="GrantRootDirAcl"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="GrantConfigDirAcl" After="CreateConfigDir"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+      <Custom Action="GrantSymlinkPrivilege" After="GrantConfigDirAcl"
+              Condition="NOT REMOVE AND SERVICEACCOUNT = &quot;1&quot;" />
+    </InstallExecuteSequence>
+
+    <ComponentGroup Id="AgentService" Directory="BINDIR">
+      <Component Id="ServiceComponent" Guid="91D23F86-FD04-4972-83DB-8CD80B120AC4">
+        <!-- We embed a file because <ServiceInstall> needs a KeyPath -->
+        <File Id="AgentBinExe"
+              Source="agent-stub.exe"
+              Name="viam-agent.exe"
+              KeyPath="yes" />
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\Viam\Agent"
+                       Name="Installed"
+                       Type="integer"
+                       Value="1" />
+
+        <!-- Register Application event log source so NT SERVICE\viam-agent
+             (a non-admin account) can write events without an Access Denied error -->
+        <RegistryKey Root="HKLM"
+                     Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\viam-agent">
+          <RegistryValue Name="EventMessageFile"
+                         Type="expandable"
+                         Value="%SystemRoot%\System32\EventCreate.exe" />
+        </RegistryKey>
+
+        <ServiceInstall Id="ViamAgentService"
+                        Name="viam-agent"
+                        DisplayName="Viam Agent"
+                        Start="auto"
+                        Type="ownProcess"
+                        ErrorControl="normal"
+                        Arguments="--viam-dir &quot;[ROOTDIR].&quot;">
+          <util:ServiceConfig ServiceName="viam-agent"
+                              FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="5"
+                              ResetPeriodInDays="0" />
+        </ServiceInstall>
+
+        <ServiceControl Id="StartViamAgent"
+                        Name="viam-agent"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="FirewallRules" Directory="BINDIR">
+      <Component Id="FirewallComponent" Guid="382C032F-E4AB-400C-B6FC-9A5134F6F40C">
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\Viam\Agent"
+                       Name="FirewallConfigured"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+
+        <fw:FirewallException Id="ViamAgentFirewallTcp"
+                              Name="Viam Agent (TCP)"
+                              Program="[BINDIR]viam-agent.exe"
+                              Scope="any"
+                              Protocol="tcp" />
+        <fw:FirewallException Id="ViamAgentFirewallUdp"
+                              Name="Viam Agent (UDP)"
+                              Program="[BINDIR]viam-agent.exe"
+                              Scope="any"
+                              Protocol="udp" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- this is the section that shows the dialog box UX-->
+    <UI>
+      <!-- this lets the user override the install directory -->
+      <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="ROOTDIR" />
+
+      <!-- custom dialog with -->
+      <Dialog Id="ServiceAccountDlg" Width="370" Height="270"
+              Title="!(loc.InstallDirDlg_Title)">
+        <!-- Banner area (matches WixUI standard layout) -->
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Service Account" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="Choose how the Viam Agent service should run." />
+
+        <!-- Checkbox + explanation -->
+        <Control Id="ServiceAccountCheckbox" Type="CheckBox"
+                 X="20" Y="65" Width="330" Height="18"
+                 Property="SERVICEACCOUNT" CheckBoxValue="1"
+                 Text="Run as virtual service account (NT SERVICE\viam-agent)" />
+        <Control Id="ServiceAccountDesc" Type="Text"
+                 X="35" Y="88" Width="315" Height="50" NoPrefix="yes"
+                 Text="When checked, the service runs with minimal privileges using a virtual service account. Recommended for production deployments. When unchecked, the service runs as Local System." />
+
+        <!-- Bottom bar -->
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog"
+               Value="InstallDirDlg" Order="10" Condition="1" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog"
+               Value="WelcomeDlg" Order="10" Condition="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog"
+               Value="ServiceAccountDlg" Order="10" Condition="1" />
+      <Publish Dialog="ServiceAccountDlg" Control="Back" Event="NewDialog"
+               Value="InstallDirDlg" Condition="1" />
+      <Publish Dialog="ServiceAccountDlg" Control="Next" Event="NewDialog"
+               Value="VerifyReadyDlg" Condition="1" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog"
+               Value="ServiceAccountDlg" Order="10" Condition="1" />
+
+      <!-- messages shown above the progress bar for each step -->
+      <ProgressText Action="DownloadAgent" Message="Downloading Viam Agent binary..." />
+      <ProgressText Action="CreateSymlink" Message="Creating viam-agent symlink..." />
+      <ProgressText Action="ConfigureServiceFailure" Message="Configuring service failure recovery..." />
+      <ProgressText Action="ConfigureServiceFailureFlag" Message="Enabling service failure-on-crash flag..." />
+      <ProgressText Action="SetServiceBinPath" Message="Setting agent config path..." />
+      <ProgressText Action="SetViamHomeEnv" Message="Setting VIAM_HOME environment variable on service..." />
+      <ProgressText Action="StartServices" Message="Starting Viam Agent service (this may take a minute)..." />
+      <ProgressText Action="SetServiceAccount" Message="Switching service to virtual service account..." />
+      <ProgressText Action="GrantRootDirAcl" Message="Granting service account access to install directory..." />
+      <ProgressText Action="CreateConfigDir" Message="Creating config directory..." />
+      <ProgressText Action="GrantConfigDirAcl" Message="Granting service account access to config directory..." />
+      <ProgressText Action="GrantSymlinkPrivilege" Message="Granting SeCreateSymbolicLinkPrivilege..." />
+    </UI>
+
+    <Feature Id="MainFeature" Title="Viam Agent" Level="1">
+      <ComponentGroupRef Id="AgentCache" />
+      <ComponentGroupRef Id="AgentService" />
+      <ComponentGroupRef Id="FirewallRules" />
+    </Feature>
+
+  </Package>
+
+</Wix>
