@@ -145,15 +145,13 @@ func (n *networkState) LockingNetworks() []*lockingNetwork {
 }
 
 func (n *networkState) Networks() []network {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-
-	nets := []network{}
-
-	for _, net := range n.network {
-		nets = append(nets, net.network)
+	lns := n.LockingNetworks()
+	nets := make([]network, 0, len(lns))
+	for _, ln := range lns {
+		ln.mu.Lock()
+		nets = append(nets, ln.network)
+		ln.mu.Unlock()
 	}
-
 	return nets
 }
 
