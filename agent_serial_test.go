@@ -619,8 +619,11 @@ func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
 			lastErr = res.Error()
 			continue
 		}
-		if res.MustGet() == 0 {
+		resGet := res.MustGet()
+		if resGet == 0 {
 			return ctx, nil
+		} else if resGet > 0 {
+			lastErr = fmt.Errorf("Bad connection, or no connection: %d%% packet loss", resGet)
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -787,7 +790,7 @@ func testBleSurfacesInvalidCredentialsErr(ctx context.Context) (context.Context,
 
 func bleSurfacesExpectedError(expectedErr string) error {
 	for _, line := range lastBleStatus {
-		if strings.Contains(line, "Errors:") {
+		if strings.Contains(line, "Errors:") && !strings.Contains(line, "Errors: []") {
 			if strings.Contains(line, expectedErr) {
 				return nil
 			}
