@@ -968,6 +968,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				if userInputReceived {
 					// user theoretically finished their interaction, so reset the trigger timer
 					n.connState.setForceProvisioningTime(false)
+					forceProvisioning = false
 					// We could get to this point before the user receives our response (poor UX, but likely not critical)
 					// E.g. try to avoid "Not connected" web portal screen.
 					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
