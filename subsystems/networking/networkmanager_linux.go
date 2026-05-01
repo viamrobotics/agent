@@ -314,11 +314,12 @@ func (n *Subsystem) stopProvisioning() error {
 		n.stopProvisioningHotspot(),
 		n.stopProvisioningBluetooth(),
 	)
-	if err != nil {
-		return err
-	}
+	// Always flip the provisioning flag, even if cleanup returned an error.
+	// Resources are already torn down at this point; leaving the flag set
+	// makes connState inaccurate with reality and blocks the agent from
+	// re-entering or exiting provisioning correctly until the next restart.
 	n.connState.setProvisioning(false)
-	return nil
+	return err
 }
 
 func (n *Subsystem) stopProvisioningHotspot() error {
