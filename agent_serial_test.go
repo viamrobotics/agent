@@ -71,7 +71,30 @@ type wifiCfg struct {
 	SSIDInsecure string `toml:"ssid_insecure"`
 }
 
+// expected agent Bluetooth Low Energy characteristics
+var agentBleChars = []string{
+	"61eba4df-b901-502c-b278-fadf9d52802b (networks)",
+	"37a720ee-86e5-55a8-b876-d200fb7e4f72 (ssid)",
+	"10cd57f1-01bb-5937-89fb-64cc40be53d2 (exit_provisioning)",
+	"49d34f00-cf76-55fa-9f8d-23f6836136ab (manufacturer)",
+	"ea8a8689-548f-5941-829b-82aeff8095b7 (status)",
+	"96a4bebb-a361-5c73-9d76-45a0faa9d4a0 (unlock_pairing)",
+	"c2be234e-1975-5e85-b97b-bb30c3bf43d2 (id)",
+	"444ee2b0-b3fa-5d74-bb35-f194642188b3 (app_address)",
+	"cd5b8fb9-4006-56e5-a78b-044cf6ae48cb (psk)",
+	"70bc8310-68ca-5011-9282-72f201293dfb (pub_key)",
+	"f30e26d6-155c-5a24-bd7f-6b1a40e463da (api_key)",
+	"d2eae9e8-30bc-5fdf-bd9f-bd4e8a4017d2 (fragment_id)",
+	"d0029d11-a8c2-5231-8fcc-83de66952f01 (secret)",
+	"6e164616-ee96-5835-b199-115ddbcd885f (agent_version)",
+	"e7e1ac15-fb59-54ab-8538-72008ad4ee43 (model)",
+	"75f64044-b604-5547-a723-7f8618255ddc (errors)",
+}
+
 var cfg config
+
+// cache the last BLE status because performing BLE scans with the provisioning client is slow
+var lastBleStatus []string
 
 func TestSerialFeatures(t *testing.T) {
 	suite := godog.TestSuite{
@@ -195,12 +218,20 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent is connected to a network`, testEnsureOnline)
 	ctx.Step(`viam-agent is in forced provisioning mode`, testForceProvisioningMode)
 	ctx.Step(`the provisioning hotspot (is|comes) up`, testProvisioningHotspotEnablesWithinTimeout)
-	ctx.Step(`the tester shares a secure wifi network`, testSendSecureConnectionInfo)
-	ctx.Step(`the tester shares an insecure wifi network`, testSendInsecureConnectionInfo)
-	ctx.Step(`the tester shares an invalid wifi network`, testSendInvalidConnectionInfo)
+	ctx.Step(`the host shares a secure wifi network via the hotspot`, testSendSecureConnectionInfo)
+	ctx.Step(`the host shares an insecure wifi network via the hotspot`, testSendInsecureConnectionInfo)
+	ctx.Step(`the host shares an invalid wifi network via the hotspot`, testSendInvalidConnectionInfo)
 	ctx.Step(`the provisioning hotspot (goes away|is not up)`, testProvisioningHotspotDisables)
 	ctx.Step(`viam-agent can reach the app`, testAgentCanReachApp)
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
+
+	// Bluetooth provisioning
+	ctx.Step(`the viam-agent bluetooth device is discoverable`, testBleIsDiscoverable)
+	ctx.Step(`the host shares a secure wifi network via bluetooth`, testBleSendSecureConnectionInfo)
+	ctx.Step(`the host shares invalid wifi credentials for a valid SSID via bluetooth`, testBleSendInvalidPasswordConnectionInfo)
+	ctx.Step(`the host shares an invalid SSID via bluetooth`, testBleSendInvalidSSIDConnectionInfo)
+	ctx.Step(`viam-agent surfaces an invalid SSID error via bluetooth`, testBleSurfacesInvalidSSIDError)
+	ctx.Step(`viam-agent surfaces an invalid credentials error via bluetooth`, testBleSurfacesInvalidCredentialsErr)
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
@@ -588,8 +619,11 @@ func testAgentCanReachApp(ctx context.Context) (context.Context, error) {
 			lastErr = res.Error()
 			continue
 		}
-		if res.MustGet() == 0 {
+		resGet := res.MustGet()
+		if resGet == 0 {
 			return ctx, nil
+		} else if resGet > 0 {
+			lastErr = fmt.Errorf("Bad connection, or no connection: %d%% packet loss", resGet)
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -642,6 +676,32 @@ func sendNetworkCredentials(ctx context.Context, ssid, psk string) error {
 	return lastErr
 }
 
+func sendNetworkCredentialsBle(ctx context.Context, ssid, psk string) error {
+	robotKeysResp, err := appClient.GetRobotAPIKeys(ctx, &apppb.GetRobotAPIKeysRequest{
+		RobotId: cfg.RobotID,
+	})
+	if err != nil {
+		return fmt.Errorf("getting robot API keys: %w", err)
+	}
+	robotKeys := robotKeysResp.ApiKeys[0]
+
+	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+		"-b",
+		"--filter", fmt.Sprintf("viam-setup-%s", hostName),
+		"--psk", "viamsetup",
+		"--wifi-ssid", ssid,
+		"--wifi-psk", psk,
+		"--part-id", cfg.PartID,
+		"--api-key-id", robotKeys.ApiKey.Id,
+		"--api-key-key", robotKeys.ApiKey.Key,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("BLE provisioning failed: %w\n%s", err, out)
+	}
+	return nil
+}
+
 func testSendInsecureConnectionInfo(ctx context.Context) (context.Context, error) {
 	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSIDInsecure, "")
 }
@@ -650,8 +710,94 @@ func testSendSecureConnectionInfo(ctx context.Context) (context.Context, error) 
 	return ctx, sendNetworkCredentials(ctx, cfg.Wifi.SSID, cfg.Wifi.Password)
 }
 
+func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
+	filter := fmt.Sprintf("viam-setup-%s", hostName)
+
+	var lastErr error
+	// don't need much in the way of retries because the client already tries for 30 seconds
+	for range 4 {
+		lastBleStatus = []string{}
+		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+			"-b",
+			"--status",
+			"--info",
+			"--filter", filter,
+		)
+		out, err := cmd.CombinedOutput()
+		// the command failed to run at all, try again
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		outString := string(out)
+		outStringSplit := strings.Split(outString, "\n")
+		// cache the last BLE status here so it can be used to check for errors in future steps
+		lastBleStatus = outStringSplit
+		// failed to find the device, try again
+		if !strings.Contains(outString, "Found device:") {
+			lastErr = fmt.Errorf("BLE device was not discoverable")
+			continue
+		}
+		if strings.Contains(outString, "timeout on Connect") {
+			lastErr = fmt.Errorf("BLE device found, but connection timed out")
+			continue
+		}
+		if strings.Contains(outString, "did not find all requested services") {
+			lastErr = fmt.Errorf("BLE device connected, but could not find all requested services")
+			continue
+		}
+		// check for all the expected BLE characteristics
+		for _, char := range agentBleChars {
+			charFound := false
+			for _, line := range outStringSplit {
+				if strings.Contains(line, char) {
+					charFound = true
+				}
+			}
+			// if we find a device but it's missing an expected characteristic, bail
+			if !charFound {
+				return ctx, fmt.Errorf("discovered BLE device missing characteristic: %s", char)
+			}
+		}
+		return ctx, nil
+	}
+	return ctx, lastErr
+}
+
+func testBleSendSecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentialsBle(ctx, cfg.Wifi.SSID, cfg.Wifi.Password)
+}
+
 func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
 	return ctx, sendNetworkCredentials(ctx, "thisnetwork", "doesnotexist")
+}
+
+func testBleSendInvalidPasswordConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentialsBle(ctx, cfg.Wifi.SSID, "itdoesnotexist")
+}
+
+func testBleSendInvalidSSIDConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentialsBle(ctx, "thisnetworkisfake", "itdoesnotexist")
+}
+
+func testBleSurfacesInvalidSSIDError(ctx context.Context) (context.Context, error) {
+	return ctx, bleSurfacesExpectedError("NmDeviceStateReasonSsidNotFound")
+}
+
+func testBleSurfacesInvalidCredentialsErr(ctx context.Context) (context.Context, error) {
+	return ctx, bleSurfacesExpectedError("bad or missing password")
+}
+
+func bleSurfacesExpectedError(expectedErr string) error {
+	for _, line := range lastBleStatus {
+		if strings.Contains(line, "Errors:") && !strings.Contains(line, "Errors: []") {
+			if strings.Contains(line, expectedErr) {
+				return nil
+			}
+			return fmt.Errorf("found error, but not expected error (%s): %s", expectedErr, line)
+		}
+	}
+	return fmt.Errorf("did not find any error (expected %s) in BLE info", expectedErr)
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {

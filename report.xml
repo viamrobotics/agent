@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="" tests="2" skipped="0" failures="1" errors="0" time="268.642837541">
+  <testsuite name="bluetooth provisioning" tests="2" skipped="0" failures="1" errors="0" time="254.951441416">
+    <testcase name="The agent responds with an error when an invalid SSID is provided during bluetooth provisioning" status="failed" time="165.784054541">
+      <failure message="Step the viam-agent bluetooth device is discoverable again: BLE device was not discoverable"></failure>
+      <error message="Step viam-agent surfaces an invalid SSID error via bluetooth" type="skipped"></error>
+      <error message="Step viam-agent cannot reach the app" type="skipped"></error>
+    </testcase>
+    <testcase name="The agent responds with an error when invalid network credentials are provided during bluetooth provisioning" status="passed" time="89.166662125"></testcase>
+  </testsuite>
+</testsuites>

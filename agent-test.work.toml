@@ -1,0 +1,24 @@
+# Uncommented fields are required. Text <in brackets> is a placeholder and
+# should be replaced with appropriate values.
+
+api_key_id = "3472e763-f252-4909-9062-78b06e63b5fb"
+api_key = "25gr5ave8xz3d3gqta14mek6npmmumb5"
+robot_id = "48b387db-729c-4c80-90f3-65c4eb0ca23e"
+part_id = "ab733bff-dd7f-4bdb-ab40-e6c7935bab86"
+
+[serial]
+serial_path = "/dev/cu.usbserial-110"
+serial_user = "evan"
+serial_pass = "89iokl,."
+
+[versions]
+viam_agent_stable = '0.27.2'
+viam_agent_old = '0.24.2'
+viam_server_stable = '0.123.0'
+viam_server_old = '0.115.0'
+
+[wifi]
+ssid = "Viam"
+password = "checkmate"
+
+ssid_insecure = "Viam-Guest"
