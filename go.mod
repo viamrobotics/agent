@@ -36,7 +36,7 @@ require (
 	golang.org/x/sys v0.39.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
-	tinygo.org/x/bluetooth v0.11.0
+	tinygo.org/x/bluetooth v0.15.0
 )
 
 require (
@@ -102,15 +102,16 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/cors v1.11.1 // indirect
-	github.com/saltosystems/winrt-go v0.0.0-20240509164145-4f7860a3bd2b // indirect
+	github.com/saltosystems/winrt-go v0.0.0-20260317170058-9c2fec580d96 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/soypat/cyw43439 v0.0.0-20241116210509-ae1ce0e084c5 // indirect
-	github.com/soypat/seqs v0.0.0-20240527012110-1201bab640ef // indirect
+	github.com/soypat/cyw43439 v0.1.0 // indirect
+	github.com/soypat/lneto v0.1.0 // indirect
+	github.com/soypat/seqs v0.0.0-20250124201400-0d65bc7c1710 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/srikrsna/protoc-gen-gotag v0.6.2 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tinygo-org/cbgo v0.0.4 // indirect
-	github.com/tinygo-org/pio v0.0.0-20231216154340-cd888eb58899 // indirect
+	github.com/tinygo-org/pio v0.3.0 // indirect
 	github.com/viamrobotics/ice/v2 v2.3.40 // indirect
 	github.com/viamrobotics/webrtc/v3 v3.99.16 // indirect
 	github.com/viamrobotics/zeroconf v1.0.13 // indirect

@@ -16,6 +16,7 @@ import (
 	pb "go.viam.com/api/provisioning/v1"
 	"go.viam.com/rdk/logging"
 	"google.golang.org/grpc"
+	"tinygo.org/x/bluetooth"
 )
 
 // Subsystem represents the networking subsystem.
@@ -69,6 +70,7 @@ type Subsystem struct {
 	bleNextAttempt time.Time
 	bleBackoff     time.Duration
 	btChar         *btCharacteristics
+	bleService     *bluetooth.Service
 	btAgent        *pairingAgent
 
 	pb.UnimplementedProvisioningServiceServer
