@@ -21,6 +21,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/samber/lo v1.52.0
 	github.com/samber/mo v1.16.0
+	github.com/sasha-s/go-deadlock v0.3.9
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/sergeymakinen/go-systemdconf/v2 v2.0.2
 	github.com/tidwall/jsonc v0.3.2
@@ -82,6 +83,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
+	github.com/petermattis/goid v0.0.0-20250813065127-a731cc31b4fe // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/interceptor v0.1.42 // indirect

@@ -10,6 +10,7 @@ import (
 
 	dbus "github.com/godbus/dbus/v5"
 	errw "github.com/pkg/errors"
+	"github.com/sasha-s/go-deadlock"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 )
@@ -18,7 +19,7 @@ var errPairingRejected = &dbus.Error{Name: "org.bluez.Error.Rejected"}
 
 // this will be the bluetooth "agent" used for pairing requests.
 type pairingAgent struct {
-	mu       sync.Mutex
+	mu       deadlock.Mutex
 	conn     *dbus.Conn
 	logger   logging.Logger
 	trusted  map[string]bool

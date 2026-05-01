@@ -2,14 +2,14 @@ package networking
 
 import (
 	"runtime"
-	"sync"
 
+	"github.com/sasha-s/go-deadlock"
 	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	"go.viam.com/rdk/logging"
 )
 
 type networkState struct {
-	mu     sync.RWMutex
+	mu     deadlock.RWMutex
 	logger logging.Logger
 
 	// the wifi interface to default to when no interface is specified
