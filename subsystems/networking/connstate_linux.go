@@ -1,14 +1,14 @@
 package networking
 
 import (
+	"sync"
 	"time"
 
-	"github.com/sasha-s/go-deadlock"
 	"go.viam.com/rdk/logging"
 )
 
 type connectionState struct {
-	mu deadlock.Mutex
+	mu sync.Mutex
 
 	configured bool
 

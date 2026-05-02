@@ -14,7 +14,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/sasha-s/go-deadlock"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	"tinygo.org/x/bluetooth"
@@ -59,7 +58,7 @@ type btCharacteristics struct {
 	logger logging.Logger
 
 	// Used to store user input values written to this bluetooth service.
-	mu        deadlock.RWMutex
+	mu        sync.RWMutex
 	writables map[string]*bluetooth.Characteristic
 
 	// last value per key; skip redundant writes (each Write emits a GATT notification). Reset in initCharacteristics.

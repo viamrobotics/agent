@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sasha-s/go-deadlock"
 	"github.com/viamrobotics/agent/utils"
 	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
@@ -47,7 +46,7 @@ var (
 )
 
 type lockingNetwork struct {
-	mu deadlock.Mutex
+	mu sync.Mutex
 	network
 }
 
@@ -169,7 +168,7 @@ func WriteDeviceConfig(file string, input userInput) error {
 }
 
 type userInputData struct {
-	mu deadlock.Mutex
+	mu sync.Mutex
 
 	inputChan chan<- userInput
 
@@ -222,7 +221,7 @@ type userInput struct {
 }
 
 type health struct {
-	mu   deadlock.Mutex
+	mu   sync.Mutex
 	last time.Time
 }
 
@@ -251,7 +250,7 @@ func (h *health) IsHealthy() bool {
 }
 
 type errorList struct {
-	mu     deadlock.Mutex
+	mu     sync.Mutex
 	errors []error
 }
 
@@ -274,7 +273,7 @@ func (e *errorList) Errors() []error {
 }
 
 type banner struct {
-	mu     deadlock.Mutex
+	mu     sync.Mutex
 	banner string
 }
 

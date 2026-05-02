@@ -10,7 +10,6 @@ import (
 
 	semver "github.com/Masterminds/semver/v3"
 	errw "github.com/pkg/errors"
-	"github.com/sasha-s/go-deadlock"
 	"github.com/viamrobotics/agent/utils"
 	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	pb "go.viam.com/api/provisioning/v1"
@@ -24,12 +23,12 @@ type Subsystem struct {
 	monitorWorkers sync.WaitGroup
 
 	// blocks start/stop/update operations for the subsystem
-	externalOpMu deadlock.RWMutex
+	externalOpMu sync.RWMutex
 	running      bool
 	noNM         bool
 
 	// blocks internal ops like activate/deactivate connections and provisioning mode
-	internalOpMu deadlock.Mutex
+	internalOpMu sync.Mutex
 
 	// used to stop main/bg loops
 	cancel context.CancelFunc
@@ -49,7 +48,7 @@ type Subsystem struct {
 	bgLoopHealth   *health
 
 	// locking for config updates
-	dataMu deadlock.RWMutex
+	dataMu sync.RWMutex
 	cfg    utils.NetworkConfiguration
 	nets   utils.AdditionalNetworks
 

@@ -53,7 +53,7 @@ func TestNetworkStateLockOrder(t *testing.T) {
 }
 
 // Broad concurrency stress: exercises networkState's public surface so -race
-// surfaces unsynchronized field access and go-deadlock surfaces AB-BA cycles.
+// surfaces unsynchronized field access.
 func TestNetworkStateConcurrentAccess(t *testing.T) {
 	ns := NewNetworkState(logging.NewTestLogger(t))
 
