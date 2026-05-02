@@ -98,7 +98,7 @@ func TestNetworkStateConcurrentAccess(t *testing.T) {
 		ln.mu.Lock()
 		ln.connected = !ln.connected
 		ln.lastError = errors.New("test")
-		ln.signal = ln.signal + 1
+		ln.signal++
 		ln.mu.Unlock()
 	})
 
