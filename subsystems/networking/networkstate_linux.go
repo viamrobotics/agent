@@ -113,9 +113,9 @@ func (n *networkState) LockingNetwork(id NetKey) *lockingNetwork {
 
 // Network returns a copy-by-value of a network, which should be considered read-only, and doesn't need locking.
 func (n *networkState) Network(id NetKey) network {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.mu.RLock()
 	ln, ok := n.network[id]
+	n.mu.RUnlock()
 	if !ok {
 		return network{}
 	}
@@ -145,15 +145,13 @@ func (n *networkState) LockingNetworks() []*lockingNetwork {
 }
 
 func (n *networkState) Networks() []network {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-
-	nets := []network{}
-
-	for _, net := range n.network {
-		nets = append(nets, net.network)
+	lns := n.LockingNetworks()
+	nets := make([]network, 0, len(lns))
+	for _, ln := range lns {
+		ln.mu.Lock()
+		nets = append(nets, ln.network)
+		ln.mu.Unlock()
 	}
-
 	return nets
 }
 

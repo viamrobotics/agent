@@ -59,6 +59,19 @@ func (n *Subsystem) warnIfMultiplePrimaryNetworks() {
 	}
 }
 
+func (n *Subsystem) refreshVisibleNetworksCache() {
+	networks := n.getVisibleNetworks()
+	n.visibleNetworksMu.Lock()
+	defer n.visibleNetworksMu.Unlock()
+	n.visibleNetworksCache = networks
+}
+
+func (n *Subsystem) cachedVisibleNetworks() []NetworkInfo {
+	n.visibleNetworksMu.RLock()
+	defer n.visibleNetworksMu.RUnlock()
+	return n.visibleNetworksCache
+}
+
 func (n *Subsystem) getVisibleNetworks() []NetworkInfo {
 	var visible []NetworkInfo
 	for _, nw := range n.netState.Networks() {
@@ -84,6 +97,24 @@ func (n *Subsystem) getLastNetworkTried() NetworkInfo {
 	return lastNetwork.getInfo()
 }
 
+// nmReportsGlobalConnectivity returns true iff NM currently reports full internet
+// connectivity.
+func (n *Subsystem) nmReportsGlobalConnectivity() bool {
+	state, err := n.nm.State()
+	if err != nil {
+		return false
+	}
+	return state == gnm.NmStateConnectedGlobal
+}
+
+// hasInternet returns true if the machine is currently reachable to the internet.
+func (n *Subsystem) hasInternet() bool {
+	if n.nmReportsGlobalConnectivity() {
+		return true
+	}
+	return os.Getenv("SOCKS_PROXY") != "" && n.connState.getOnline()
+}
+
 func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 	networkStatusLogger := n.logger.Sublogger("network_status")
 	if force {
@@ -98,12 +129,11 @@ func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 		return err
 	}
 
-	var online bool
+	online := state == gnm.NmStateConnectedGlobal
 
 	//nolint:exhaustive
 	switch state {
 	case gnm.NmStateConnectedGlobal:
-		online = true
 		networkStatusLogger.Debugw("NetworkManager reports full connectivity (global).", "state", state)
 	case gnm.NmStateConnectedLocal:
 		// do nothing, but may need these two in the future
@@ -253,7 +283,7 @@ func (n *Subsystem) checkConnections() {
 }
 
 // StartProvisioning puts the wifi in hotspot mode and starts a captive portal.
-func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- userInput) error {
+func (n *Subsystem) startProvisioning(ctx context.Context) error {
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
@@ -263,22 +293,14 @@ func (n *Subsystem) startProvisioning(ctx context.Context, inputChan chan<- user
 		return ctx.Err()
 	}
 
-	n.portalData.resetInputData(inputChan)
+	n.portalData.resetInputData()
 	hotspotErr := n.startProvisioningHotspot(ctx)
 	if hotspotErr != nil {
 		n.logger.Errorw("failed to start hotspot provisioning", "err", hotspotErr)
 	}
-	bluetoothErr := n.startProvisioningBluetooth(ctx)
-	if bluetoothErr != nil {
-		n.logger.Errorw("failed to start bluetooth provisioning", "err", bluetoothErr)
-	}
 
-	// Do not return an error if at least one provisioning method succeeds.
-	n.connState.setProvisioning(hotspotErr == nil || bluetoothErr == nil)
-	if hotspotErr == nil || bluetoothErr == nil {
-		return nil
-	}
-	return errors.Join(hotspotErr, bluetoothErr)
+	n.connState.setProvisioning(hotspotErr == nil)
+	return hotspotErr
 }
 
 // startProvisioningHotspot should only be called by 'StartProvisioning' (to
@@ -310,10 +332,7 @@ func (n *Subsystem) startProvisioningHotspot(ctx context.Context) error {
 
 func (n *Subsystem) stopProvisioning() error {
 	n.errors.Clear()
-	err := errors.Join(
-		n.stopProvisioningHotspot(),
-		n.stopProvisioningBluetooth(),
-	)
+	err := n.stopProvisioningHotspot()
 	// Always flip the provisioning flag, even if cleanup returned an error.
 	// Resources are already torn down at this point; leaving the flag set
 	// makes connState inaccurate with reality and blocks the agent from
@@ -774,6 +793,7 @@ func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Warn(err)
 		}
+		n.refreshVisibleNetworksCache()
 		select {
 		case scanChan <- true:
 		case <-ctx.Done():
@@ -852,7 +872,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 	}()
 
 	scanChan := make(chan bool, 16)
-	inputChan := make(chan userInput, 10)
+	inputChan := n.inputChan
 
 	n.monitorWorkers.Add(1)
 	go n.backgroundLoop(ctx, scanChan)
@@ -923,19 +943,6 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 		)
 
 		if pMode {
-			if n.bluetoothEnabled() {
-				// Update bluetooth read-only characteristics
-				if err := n.btChar.updateStatus(isConfigured, hasConnectivity); err != nil {
-					n.logger.Warnw("could not update BT status characteristic", "err", err)
-				}
-				if err := n.btChar.updateNetworks(n.getVisibleNetworks()); err != nil {
-					n.logger.Warnw("could not update BT networks characteristic", "err", err)
-				}
-				if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
-					n.logger.Warnw("could not update BT errors characteristic", "err", err)
-				}
-			}
-
 			if !hasConnectivity && n.tryBluetoothTether(ctx) {
 				continue
 			}
@@ -963,6 +970,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				if userInputReceived {
 					// user theoretically finished their interaction, so reset the trigger timer
 					n.connState.setForceProvisioningTime(false)
+					forceProvisioning = false
 					// We could get to this point before the user receives our response (poor UX, but likely not critical)
 					// E.g. try to avoid "Not connected" web portal screen.
 					n.mainLoopHealth.Sleep(ctx, 3*time.Second)
@@ -1053,7 +1061,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				"lastSsid", n.netState.lastSSID,
 			)
 			n.netState.mu.RUnlock()
-			if err := n.startProvisioning(ctx, inputChan); err != nil {
+			if err := n.startProvisioning(ctx); err != nil {
 				n.logger.Warnw("failed to start provisioning mode", "err", err)
 			}
 		}

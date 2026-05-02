@@ -20,10 +20,11 @@ func TestWebPortalJsonParse(t *testing.T) {
 	httpSaveURL := fmt.Sprintf("http://%s/save", net.JoinHostPort(bindAddr, strconv.Itoa(bindPort)))
 
 	inputChan := make(chan userInput, 1)
+	logger := logging.NewTestLogger(t)
 	n := Subsystem{
-		portalData: &userInputData{input: &userInput{}, inputChan: inputChan, connState: &connectionState{}},
-		logger:     logging.NewTestLogger(t),
-		connState:  &connectionState{},
+		portalData: &userInputData{input: &userInput{}, inputChan: inputChan, connState: NewConnectionState(logger)},
+		logger:     logger,
+		connState:  NewConnectionState(logger),
 		netState:   &networkState{},
 		banner:     &banner{},
 		errors:     &errorList{},

@@ -48,11 +48,12 @@ func (n *Subsystem) startWeb(bindAddr string, bindPort int) error {
 	mux.HandleFunc("/", n.portalIndex)
 	mux.HandleFunc("/save", n.portalSave)
 
-	n.dataMu.Lock()
-	n.webServer = &http.Server{
+	srv := &http.Server{
 		Handler:     mux,
 		ReadTimeout: time.Second * 10,
 	}
+	n.dataMu.Lock()
+	n.webServer = srv
 	n.dataMu.Unlock()
 	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
 	//nolint: noctx
@@ -71,7 +72,7 @@ func (n *Subsystem) startWeb(bindAddr string, bindPort int) error {
 			}
 		})
 		defer n.portalData.workers.Done()
-		err := n.webServer.Serve(lis)
+		err := srv.Serve(lis)
 		if !errors.Is(err, http.ErrServerClosed) {
 			n.logger.Warn(err)
 		}
@@ -80,13 +81,18 @@ func (n *Subsystem) startWeb(bindAddr string, bindPort int) error {
 }
 
 func (n *Subsystem) stopPortal() error {
-	if n.grpcServer != nil {
-		n.grpcServer.Stop()
-		n.grpcServer = nil
-	}
+	n.dataMu.Lock()
+	grpcSrv := n.grpcServer
+	webSrv := n.webServer
+	n.grpcServer = nil
+	n.webServer = nil
+	n.dataMu.Unlock()
 
-	if n.webServer != nil {
-		return n.webServer.Close()
+	if grpcSrv != nil {
+		grpcSrv.Stop()
+	}
+	if webSrv != nil {
+		return webSrv.Close()
 	}
 	return nil
 }
