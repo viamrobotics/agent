@@ -24,7 +24,7 @@ func TestNetworkStateLockOrder(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < iters; i++ {
+		for range iters {
 			_ = ns.Network(id)
 		}
 	}()
@@ -32,7 +32,7 @@ func TestNetworkStateLockOrder(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < iters; i++ {
+		for range iters {
 			ln := ns.LockingNetwork(id)
 			ln.mu.Lock()
 			ns.SetActiveConn("wlan0", nil)
