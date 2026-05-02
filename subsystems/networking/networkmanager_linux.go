@@ -332,11 +332,13 @@ func (n *Subsystem) startProvisioningHotspot(ctx context.Context) error {
 
 func (n *Subsystem) stopProvisioning() error {
 	n.errors.Clear()
-	if err := n.stopProvisioningHotspot(); err != nil {
-		return err
-	}
+	err := n.stopProvisioningHotspot()
+	// Always flip the provisioning flag, even if cleanup returned an error.
+	// Resources are already torn down at this point; leaving the flag set
+	// makes connState inaccurate with reality and blocks the agent from
+	// re-entering or exiting provisioning correctly until the next restart.
 	n.connState.setProvisioning(false)
-	return nil
+	return err
 }
 
 func (n *Subsystem) stopProvisioningHotspot() error {
