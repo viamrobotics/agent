@@ -22,6 +22,8 @@ const (
 	unattendedUpgradesPath = "/etc/apt/apt.conf.d/50unattended-upgrades"
 )
 
+var supportedCodenames = [...]string{"bookworm", "bullseye", "trixie"}
+
 // runs inside s.mu.Lock().
 func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 	cfg := s.cfg.OSAutoUpgradeType
@@ -90,11 +92,14 @@ func checkSupportedDistro() error {
 		return err
 	}
 
-	if strings.Contains(string(data), "VERSION_CODENAME=bookworm") || strings.Contains(string(data), "VERSION_CODENAME=bullseye") {
-		return nil
+	dataStr := string(data)
+	for _, codename := range supportedCodenames {
+		if strings.Contains(dataStr, "VERSION_CODENAME="+codename) {
+			return nil
+		}
 	}
 
-	return errw.New("cannot enable automatic upgrades for unknown distro, only support for Debian bullseye and bookworm is available")
+	return fmt.Errorf("cannot enable automatic upgrades for unknown distro, only support for Debian %v is available", supportedCodenames)
 }
 
 // make sure the needed package is installed.
