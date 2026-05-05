@@ -38,6 +38,7 @@ var uninstallScript string
 var (
 	serialClient *serialcontrol.Client
 	appClient    apppb.AppServiceClient
+	logger       logging.Logger
 	deviceArch   string
 	hostName     string
 )
@@ -126,7 +127,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				OrElse("./agent-test.toml")
 			mo.TupleToResult(toml.DecodeFile(cfgPath, &cfg)).MustGet()
 
-			logger := logging.NewTestLogger(t)
+			logger = logging.NewTestLogger(t)
 			// Set to INFO to see the commands being sent to the terminal, DEBUG to
 			// see the commands + any output they produce.
 			logger.SetLevel(logging.WARN)
@@ -163,9 +164,6 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 		tsc.AfterSuite(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 			defer cancel()
-			if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
-				t.Logf("error reconnecting to wifi during cleanup: %v", err)
-			}
 			if runtime.GOOS == "darwin" {
 				if _, err := hostEnsureOnline(ctx); err != nil {
 					t.Logf("error restoring host connection to internet during cleanup: %v", err)
@@ -226,7 +224,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`viam-agent cannot reach the app`, testAgentCannotReachApp)
 
 	// Bluetooth provisioning
-	ctx.Step(`the viam-agent bluetooth device is discoverable`, testBleIsDiscoverable)
+	ctx.Step(`the viam-agent bluetooth device (is|becomes) discoverable`, testBleIsDiscoverable)
+	ctx.Step(`the host shares an insecure wifi network via bluetooth`, testBleSendInsecureConnectionInfo)
 	ctx.Step(`the host shares a secure wifi network via bluetooth`, testBleSendSecureConnectionInfo)
 	ctx.Step(`the host shares invalid wifi credentials for a valid SSID via bluetooth`, testBleSendInvalidPasswordConnectionInfo)
 	ctx.Step(`the host shares an invalid SSID via bluetooth`, testBleSendInvalidSSIDConnectionInfo)
@@ -518,6 +517,8 @@ func testClearWifiConnections(ctx context.Context) (context.Context, error) {
 	if clearRes.Error() != nil {
 		return ctx, clearRes.Error()
 	}
+	// just sleep a bit after deleting the networks to give network manager time to settle
+	time.Sleep(time.Second * 3)
 	output := serialClient.ListWifiConnections()
 	return ctx, output.Error()
 }
@@ -685,7 +686,7 @@ func sendNetworkCredentialsBle(ctx context.Context, ssid, psk string) error {
 	}
 	robotKeys := robotKeysResp.ApiKeys[0]
 
-	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+	args := []string{"run", "./cmd/provisioning-client",
 		"-b",
 		"--filter", fmt.Sprintf("viam-setup-%s", hostName),
 		"--psk", "viamsetup",
@@ -693,9 +694,12 @@ func sendNetworkCredentialsBle(ctx context.Context, ssid, psk string) error {
 		"--wifi-psk", psk,
 		"--part-id", cfg.PartID,
 		"--api-key-id", robotKeys.ApiKey.Id,
-		"--api-key-key", robotKeys.ApiKey.Key,
-	)
+		"--api-key-key", robotKeys.ApiKey.Key}
+	cmdString := strings.Join([]string{"go", strings.Join(args, " ")}, " ")
+	logger.Infow("Running command", "cmd", cmdString)
+	cmd := exec.CommandContext(ctx, "go", args...)
 	out, err := cmd.CombinedOutput()
+	logger.Debugf("Command output:", "output", out)
 	if err != nil {
 		return fmt.Errorf("BLE provisioning failed: %w\n%s", err, out)
 	}
@@ -714,15 +718,17 @@ func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
 	filter := fmt.Sprintf("viam-setup-%s", hostName)
 
 	var lastErr error
-	// don't need much in the way of retries because the client already tries for 30 seconds
+	// each try is 30 seconds so 4 tries is 120 seconds
 	for range 4 {
 		lastBleStatus = []string{}
-		cmd := exec.CommandContext(ctx, "go", "run", "./cmd/provisioning-client",
+		args := []string{"run", "./cmd/provisioning-client",
 			"-b",
 			"--status",
 			"--info",
-			"--filter", filter,
-		)
+			"--filter", filter}
+		cmdString := strings.Join([]string{"go", strings.Join(args, " ")}, " ")
+		logger.Infow("Running command", "cmd", cmdString)
+		cmd := exec.CommandContext(ctx, "go", args...)
 		out, err := cmd.CombinedOutput()
 		// the command failed to run at all, try again
 		if err != nil {
@@ -730,6 +736,7 @@ func testBleIsDiscoverable(ctx context.Context) (context.Context, error) {
 			continue
 		}
 		outString := string(out)
+		logger.Debugf("Command output:", "output", outString)
 		outStringSplit := strings.Split(outString, "\n")
 		// cache the last BLE status here so it can be used to check for errors in future steps
 		lastBleStatus = outStringSplit
@@ -768,6 +775,10 @@ func testBleSendSecureConnectionInfo(ctx context.Context) (context.Context, erro
 	return ctx, sendNetworkCredentialsBle(ctx, cfg.Wifi.SSID, cfg.Wifi.Password)
 }
 
+func testBleSendInsecureConnectionInfo(ctx context.Context) (context.Context, error) {
+	return ctx, sendNetworkCredentialsBle(ctx, cfg.Wifi.SSIDInsecure, "")
+}
+
 func testSendInvalidConnectionInfo(ctx context.Context) (context.Context, error) {
 	return ctx, sendNetworkCredentials(ctx, "thisnetwork", "doesnotexist")
 }
@@ -797,7 +808,7 @@ func bleSurfacesExpectedError(expectedErr string) error {
 			return fmt.Errorf("found error, but not expected error (%s): %s", expectedErr, line)
 		}
 	}
-	return fmt.Errorf("did not find any error (expected %s) in BLE info", expectedErr)
+	return fmt.Errorf("did not find any error (expected %s) in BLE info: %s", expectedErr, strings.Join(lastBleStatus, "\n"))
 }
 
 func installAgent(ctx context.Context) (context.Context, error) {
