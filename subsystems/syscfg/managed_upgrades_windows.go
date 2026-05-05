@@ -62,17 +62,6 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 	})
 }
 
-// stopManagedUpgrades cancels the background upgrade goroutine and waits for it to exit.
-// Must be called while s.mu is held.
-func (s *Subsystem) stopManagedUpgrades() {
-	cancel := s.upgradeCancel
-	s.upgradeCancel = nil
-	if cancel != nil {
-		cancel()
-		s.upgradeWorker.Wait()
-	}
-}
-
 // runManagedUpgrade runs a Windows Update cycle via PSWindowsUpdate.
 func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	if ctx.Err() != nil {
@@ -126,6 +115,7 @@ func runWindowsUpdate(ctx context.Context, securityOnly bool) error {
 // windowsRebootRequired checks the Windows Update registry key that signals a pending reboot.
 func windowsRebootRequired(ctx context.Context) bool {
 	const key = `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired`
+	//nolint: gosec
 	out, err := exec.CommandContext(ctx, "powershell",
 		"-NonInteractive", "-NoProfile",
 		"-Command", fmt.Sprintf(`Test-Path "%s"`, key),
