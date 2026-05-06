@@ -43,11 +43,12 @@ var uninstallScript string
 var installScript string
 
 var (
-	serialClient *serialcontrol.Client
-	appClient    apppb.AppServiceClient
-	logger       logging.Logger
-	deviceArch   string
-	hostName     string
+	serialClient        *serialcontrol.Client
+	appClient           apppb.AppServiceClient
+	logger              logging.Logger
+	deviceArch          string
+	hostName            string
+	concreteTestVersion string
 )
 
 type config struct {
@@ -113,7 +114,7 @@ func TestSerialFeatures(t *testing.T) {
 		Options: &godog.Options{
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
-			Paths:    []string{"features/serial/install.feature"},
+			Paths:    []string{"features/serial"},
 			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
@@ -201,6 +202,16 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	// scenario starts with a fresh systemd InvocationID. This ensures that
 	// journal-based checks cannot match log lines produced by a previous scenario.
 	ctx.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		if cfg.Versions.Test != "" {
+			concrete, err := resolveVersionSpec(ctx, cfg.Versions.Test)
+			concreteTestVersion = concrete
+			logger.Infof("Version under test: %s\n", concreteTestVersion)
+			if err != nil {
+				panic(fmt.Errorf("resolving install version %q: %w", cfg.Versions.Test, err))
+			}
+		} else {
+			panic(fmt.Errorf("viam_agent_test in agent-test.toml cannot be empty string"))
+		}
 		status := serialClient.GetAgentStatus()
 		if status.IsOk() && status.MustGet()["SubState"] == "running" {
 			if err := serialClient.RestartAgent().Error(); err != nil {
@@ -211,7 +222,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	})
 
 	// Agent utility steps
-	ctx.Step(`^viam-agent is installed$`, installAgent)
+	ctx.Step(fmt.Sprintf(`^viam-agent version %s is installed$`, versionGroup), installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, uninstallAgent)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
@@ -534,7 +545,7 @@ func versionStrToMatcherBase(version, oldVersion, stableVersion, testVersion str
 			if testVersion == "" {
 				panic("must set test version in config")
 			}
-			return test.ShouldEqual(actual, testVersion)
+			return test.ShouldEqual(actual, concreteTestVersion)
 		}
 	case "dev":
 		return func(actual string) string {
@@ -981,7 +992,13 @@ func bleSurfacesExpectedError(expectedErr string) error {
 	return fmt.Errorf("did not find any error (expected %s) in BLE info: %s", expectedErr, strings.Join(lastBleStatus, "\n"))
 }
 
-func installAgent(ctx context.Context) (context.Context, error) {
+// installAgentVersion runs install.sh on the device. If version is empty, the script
+// downloads the stable release; otherwise version is treated as a specifier
+// (concrete, "stable", "dev", or "pr.N"), resolved to a concrete GCS URL, and
+// injected into the script via AGENT_CUSTOM_URL.
+func installAgent(ctx context.Context, version string) (context.Context, error) {
+	version = translateToAppVersion(version)
+
 	agentStatus := serialClient.GetAgentStatus().MustGet()
 	if agentStatus["SubState"] == "running" {
 		// Avoid wasting time and network traffic if agent is already running.
@@ -995,9 +1012,11 @@ func installAgent(ctx context.Context) (context.Context, error) {
 	}
 	robotKeys := robotKeysResp.ApiKeys[0]
 	cmd := fmt.Sprintf(
-		"FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s sh",
+		"FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s",
 		robotKeys.ApiKey.Id, robotKeys.ApiKey.Key, cfg.PartID,
 	)
+	logger.Infof("Install version: %s\n", version)
+	cmd += fmt.Sprintf(" AGENT_CUSTOM_URL=%s", gcsURL("viam-agent", concreteTestVersion)) + " sh"
 	return ctx, serialClient.RunScript(installScript, cmd).Error()
 }
 
@@ -1027,6 +1046,7 @@ func testAgentRunningWithVersion(ctx context.Context, version string) (context.C
 
 func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
 	versionTest := versionStrToMatcher(version)
+	logger.Infof("Check for version %s with matcher %s\n", version, versionTest)
 	var err error
 	// Agent needs time to fetch the new config, possibly download the new
 	// version, and restart.
