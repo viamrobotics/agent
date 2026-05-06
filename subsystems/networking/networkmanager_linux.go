@@ -150,15 +150,17 @@ func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 		behindSocksProxy := os.Getenv("SOCKS_PROXY") != ""
 		// We perform a manual check when *NetworkManager reports we're offline* and:
 		// 1) force
-		// 2) not behind socks proxy and we're
-		//    - currently offline && last manual check >= 2 mins ago. either 1) we're actually offline 2) NetworkManager is wrong (uncommon)
+		// 2) not behind socks proxy and last manual check >= 2 mins ago (covers both
+		//    cached-offline "is NM wrong?" and cached-online "verify still online"; without
+		//    the latter, cached online=true is sticky because the offline-only condition
+		//    can never re-fire)
 		// 3) behind socks proxy and we're:
 		//    - currently offline && last manual check >= 15 secs ago (initial check)
 		//    - currently online && last manual check >= 2 mins ago (verify still online)
 		// otherwise, if none of these, we exit early without updating connState.
 		if force ||
 			(!behindSocksProxy &&
-				!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(nonSocksManualCheckInterval))) ||
+				time.Now().After(n.connState.getManualCheckLastTested().Add(nonSocksManualCheckInterval))) ||
 			(behindSocksProxy &&
 				!n.connState.getOnline() && time.Now().After(n.connState.getManualCheckLastTested().Add(socksManualCheckIntervalShort))) ||
 			(behindSocksProxy &&
