@@ -17,6 +17,9 @@ if [ "$OS" = "Darwin" ]; then
 	BINARY_OS_PREFIX="darwin-"
 fi
 URL="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-${BINARY_OS_PREFIX}${ARCH}"
+if [ -n "$AGENT_CUSTOM_URL" ]; then
+	URL="$AGENT_CUSTOM_URL"
+fi
 
 # Force will bypass all prompts by treating them as yes. May also be set as an environment variable when running as download.
 # sudo /bin/sh -c "FORCE=1; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"
