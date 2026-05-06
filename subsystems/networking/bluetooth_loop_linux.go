@@ -183,7 +183,7 @@ const (
 )
 
 type bleDecisionInput struct {
-	desiredRunning   bool
+	shouldRun        bool
 	currentState     bleState
 	now              time.Time
 	nextAttempt      time.Time
@@ -192,22 +192,22 @@ type bleDecisionInput struct {
 
 func decideBleAction(in bleDecisionInput) bleAction {
 	switch {
-	case in.desiredRunning && in.currentState == bleOff:
+	case in.shouldRun && in.currentState == bleOff:
 		if in.retriesExhausted || in.now.Before(in.nextAttempt) {
 			return bleActionNone
 		}
 		return bleActionStart
-	case !in.desiredRunning && in.currentState != bleOff:
+	case !in.shouldRun && in.currentState != bleOff:
 		return bleActionStop
 	default:
 		return bleActionNone
 	}
 }
 
-// reconcileBle converges BLE state toward the desired state. Called from bleLoop only.
+// reconcileBle converges BLE state toward the policy decision. Called from bleLoop only.
 func (n *Subsystem) reconcileBle(ctx context.Context) {
 	action := decideBleAction(bleDecisionInput{
-		desiredRunning:   n.shouldEnableBle(),
+		shouldRun:        n.shouldEnableBle(),
 		currentState:     n.ble.getState(),
 		now:              time.Now(),
 		nextAttempt:      n.bleNextAttempt,

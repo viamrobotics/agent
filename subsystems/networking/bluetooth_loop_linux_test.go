@@ -18,48 +18,48 @@ func TestDecideBleAction(t *testing.T) {
 		expected bleAction
 	}{
 		{
-			name:     "desired and off, no backoff gate",
-			input:    bleDecisionInput{desiredRunning: true, currentState: bleOff, now: now, nextAttempt: past},
+			name:     "should run, currently off, no backoff gate",
+			input:    bleDecisionInput{shouldRun: true, currentState: bleOff, now: now, nextAttempt: past},
 			expected: bleActionStart,
 		},
 		{
-			name:     "desired and off, zero nextAttempt",
-			input:    bleDecisionInput{desiredRunning: true, currentState: bleOff, now: now, nextAttempt: time.Time{}},
+			name:     "should run, currently off, zero nextAttempt",
+			input:    bleDecisionInput{shouldRun: true, currentState: bleOff, now: now, nextAttempt: time.Time{}},
 			expected: bleActionStart,
 		},
 		{
-			name:     "desired and off, backoff gate holds",
-			input:    bleDecisionInput{desiredRunning: true, currentState: bleOff, now: now, nextAttempt: future},
+			name:     "should run, currently off, backoff gate holds",
+			input:    bleDecisionInput{shouldRun: true, currentState: bleOff, now: now, nextAttempt: future},
 			expected: bleActionNone,
 		},
 		{
-			name:     "desired and off, retries exhausted",
-			input:    bleDecisionInput{desiredRunning: true, currentState: bleOff, now: now, nextAttempt: past, retriesExhausted: true},
+			name:     "should run, currently off, retries exhausted",
+			input:    bleDecisionInput{shouldRun: true, currentState: bleOff, now: now, nextAttempt: past, retriesExhausted: true},
 			expected: bleActionNone,
 		},
 		{
-			name:     "desired and starting",
-			input:    bleDecisionInput{desiredRunning: true, currentState: bleStarting, now: now},
+			name:     "should run, currently starting",
+			input:    bleDecisionInput{shouldRun: true, currentState: bleStarting, now: now},
 			expected: bleActionNone,
 		},
 		{
-			name:     "desired and already running",
-			input:    bleDecisionInput{desiredRunning: true, currentState: bleRunning, now: now},
+			name:     "should run, already running",
+			input:    bleDecisionInput{shouldRun: true, currentState: bleRunning, now: now},
 			expected: bleActionNone,
 		},
 		{
-			name:     "not desired and off",
-			input:    bleDecisionInput{desiredRunning: false, currentState: bleOff, now: now},
+			name:     "should not run, currently off",
+			input:    bleDecisionInput{shouldRun: false, currentState: bleOff, now: now},
 			expected: bleActionNone,
 		},
 		{
-			name:     "not desired and starting",
-			input:    bleDecisionInput{desiredRunning: false, currentState: bleStarting, now: now},
+			name:     "should not run, currently starting",
+			input:    bleDecisionInput{shouldRun: false, currentState: bleStarting, now: now},
 			expected: bleActionStop,
 		},
 		{
-			name:     "not desired and running",
-			input:    bleDecisionInput{desiredRunning: false, currentState: bleRunning, now: now},
+			name:     "should not run, currently running",
+			input:    bleDecisionInput{shouldRun: false, currentState: bleRunning, now: now},
 			expected: bleActionStop,
 		},
 	}
