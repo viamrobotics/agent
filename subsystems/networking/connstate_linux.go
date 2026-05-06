@@ -19,6 +19,8 @@ type connectionState struct {
 	connected     bool
 	lastConnected time.Time
 
+	connecting bool
+
 	provisioningMode   bool
 	provisioningChange time.Time
 
@@ -83,6 +85,26 @@ func (c *connectionState) getLastConnected() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.lastConnected
+}
+
+// setConnecting marks whether a user-input wifi connect attempt is in flight.
+// While true, BLE provisioning is suspended so a polling client cannot read
+// stale "no errors" state during NetworkManager's connect timeout window.
+func (c *connectionState) setConnecting(connecting bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connecting != connecting {
+		c.logger.Infof("Wifi connect attempt in progress: %t", connecting)
+	}
+
+	c.connecting = connecting
+}
+
+func (c *connectionState) getConnecting() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.connecting
 }
 
 func (c *connectionState) setConfigured(configured bool) {

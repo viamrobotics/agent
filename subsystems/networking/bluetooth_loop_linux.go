@@ -77,6 +77,8 @@ func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) str
 		switch {
 		case !n.bluetoothEnabled():
 			return "BLE off (bluetooth disabled in config)"
+		case n.connState.getConnecting():
+			return "BLE off (connect attempt in progress)"
 		case n.hasInternet() && n.connState.getConfigured():
 			return "BLE off (device online and configured)"
 		default:
@@ -243,10 +245,24 @@ func (n *Subsystem) reconcileBle(ctx context.Context) {
 }
 
 func (n *Subsystem) bleDesired() bool {
-	if !n.bluetoothEnabled() {
+	return shouldDesireBle(
+		n.bluetoothEnabled(),
+		n.connState.getConfigured(),
+		n.hasInternet(),
+		n.connState.getConnecting(),
+	)
+}
+
+// shouldDesireBle is the pure predicate behind bleDesired so it can be table-tested.
+// Returns true when BLE provisioning should be advertised.
+func shouldDesireBle(enabled, configured, online, connecting bool) bool {
+	if !enabled {
 		return false
 	}
-	if n.connState.getConfigured() && n.hasInternet() {
+	if connecting {
+		return false
+	}
+	if configured && online {
 		return false
 	}
 	return true

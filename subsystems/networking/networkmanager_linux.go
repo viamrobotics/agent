@@ -131,7 +131,6 @@ func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 
 	online := state == gnm.NmStateConnectedGlobal
 
-	//nolint:exhaustive
 	switch state {
 	case gnm.NmStateConnectedGlobal:
 		networkStatusLogger.Debugw("NetworkManager reports full connectivity (global).", "state", state)
@@ -508,7 +507,7 @@ func (n *Subsystem) waitForConnect(ctx context.Context, nw *lockingNetwork, devi
 		select {
 		case update := <-changeChan:
 			n.logger.Debugf("%s->%s (%s)", update.OldState, update.NewState, update.Reason)
-			//nolint:exhaustive
+
 			switch update.NewState {
 			case gnm.NmDeviceStateActivated:
 				return activeConnection, nil
@@ -839,6 +838,39 @@ func (n *Subsystem) processUserInput(userInput userInput) bool {
 	return true
 }
 
+// attemptUserConnect runs a wifi connect attempt for credentials supplied by a
+// provisioning client. While the attempt is in flight, BLE is suspended (via
+// connState.connecting → bleDesired()) so a polling client cannot read stale
+// "no errors" state during NetworkManager's connect timeout window. We wait for
+// the bleLoop reconciler to actually transition BLE to bleOff before starting
+// the connect, to close the one-tick race where BLE is still up after the state
+// flip.
+func (n *Subsystem) attemptUserConnect(ctx context.Context, ssid string) error {
+	n.connState.setConnecting(true)
+	defer n.connState.setConnecting(false)
+
+	if n.bluetoothEnabled() {
+		// bleLoop ticks every bleLoopTick (1s) and a clean stop is fast; cap the
+		// wait well above that so a slow tear-down doesn't block the connect.
+		const bleOffWait = 5 * time.Second
+		const pollInterval = 50 * time.Millisecond
+		deadline := time.Now().Add(bleOffWait)
+		for n.ble.getState() != bleOff {
+			if time.Now().After(deadline) {
+				n.logger.Warnf("timed out waiting for BLE to suspend before wifi connect; proceeding anyway")
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(pollInterval):
+			}
+		}
+	}
+
+	return n.ActivateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", ssid))
+}
+
 func (n *Subsystem) checkForceProvisioning() bool {
 	touchFile := path.Join(utils.ViamDirs.Etc, "force_provisioning_mode")
 
@@ -1013,7 +1045,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 		if !hasConnectivity {
 			var nwFound bool
 			if userInputReceived && userInputSSID != "" {
-				err := n.ActivateConnection(ctx, n.netState.GenNetKey(NetworkTypeWifi, "", userInputSSID))
+				err := n.attemptUserConnect(ctx, userInputSSID)
 				if err != nil {
 					n.logger.Warnw("Failed to connect to newly provided WiFi", "ssid", userInputSSID)
 				} else {

@@ -71,3 +71,70 @@ func TestDecideBleAction(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldDesireBle(t *testing.T) {
+	tests := []struct {
+		name       string
+		enabled    bool
+		configured bool
+		online     bool
+		connecting bool
+		expected   bool
+	}{
+		{
+			name:    "bluetooth disabled in config",
+			enabled: false,
+			// other fields irrelevant
+			expected: false,
+		},
+		{
+			name:       "connect attempt in progress suppresses BLE",
+			enabled:    true,
+			configured: false,
+			online:     false,
+			connecting: true,
+			expected:   false,
+		},
+		{
+			name:       "connect attempt overrides configured+online",
+			enabled:    true,
+			configured: true,
+			online:     true,
+			connecting: true,
+			expected:   false,
+		},
+		{
+			name:       "device online and configured, no attempt",
+			enabled:    true,
+			configured: true,
+			online:     true,
+			expected:   false,
+		},
+		{
+			name:       "configured but offline, BLE wanted",
+			enabled:    true,
+			configured: true,
+			online:     false,
+			expected:   true,
+		},
+		{
+			name:       "online but unconfigured, BLE wanted",
+			enabled:    true,
+			configured: false,
+			online:     true,
+			expected:   true,
+		},
+		{
+			name:     "default unconfigured offline state, BLE wanted",
+			enabled:  true,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldDesireBle(tt.enabled, tt.configured, tt.online, tt.connecting)
+			test.That(t, result, test.ShouldEqual, tt.expected)
+		})
+	}
+}
