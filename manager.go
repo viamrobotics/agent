@@ -202,21 +202,10 @@ func (m *Manager) GetNetAppender() logging.Appender {
 	return m.netAppender
 }
 
-// StartSubsystem may be called early in startup when no cloud connectivity is configured.
-func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
+// StartNetworking may be called early in startup when no cloud connectivity is configured.
+func (m *Manager) StartNetworking(ctx context.Context) error {
 	defer utils.Recover(m.logger, nil)
-
-	switch name {
-	case viamserver.SubsysName:
-		m.cache.MarkViamServerRunningVersion()
-		return m.viamServer.Start(ctx)
-	case networking.SubsysName:
-		return m.networking.Start(ctx)
-	case syscfg.SubsysName:
-		return m.sysConfig.Start(ctx)
-	default:
-		return errw.Errorf("unknown subsystem: %s", name)
-	}
+	return m.networking.Start(ctx)
 }
 
 // SelfUpdate is called early in startup to update the viam-agent subsystem before any other work is started.
