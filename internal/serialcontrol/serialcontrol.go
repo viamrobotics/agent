@@ -364,20 +364,6 @@ func (c *Client) RunScript(script, command string) mo.Result[[]string] {
 	return result
 }
 
-// InstallViam installs viam-agent using the process presented to the user in
-// the setup flow on app.viam.com.
-func (c *Client) InstallViam(partID, keyID, key string) mo.Result[[]string] {
-	cmd := fmt.Sprintf(
-		//nolint: lll
-		`yes | /bin/sh -c "FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s; $(curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-agent/install.sh)"`,
-		keyID, key, partID,
-	)
-	// TODO: this will log the command being run, including the API key in
-	// plaintext. This should change if we ever plan to run this anywhere other
-	// than local environments.
-	return c.runCmd(cmd)
-}
-
 // StartAgent starts the viam-agent systemd unit.
 func (c *Client) StartAgent() mo.Result[[]string] {
 	return c.runCmd("systemctl start viam-agent")

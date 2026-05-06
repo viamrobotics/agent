@@ -39,6 +39,9 @@ import (
 //go:embed uninstall.sh
 var uninstallScript string
 
+//go:embed install.sh
+var installScript string
+
 var (
 	serialClient *serialcontrol.Client
 	appClient    apppb.AppServiceClient
@@ -110,7 +113,7 @@ func TestSerialFeatures(t *testing.T) {
 		Options: &godog.Options{
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
-			Paths:    []string{"features/serial"},
+			Paths:    []string{"features/serial/install.feature"},
 			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
@@ -209,7 +212,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 
 	// Agent utility steps
 	ctx.Step(`^viam-agent is installed$`, installAgent)
-	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
+	ctx.Step(`viam-agent is (not |un)installed$`, uninstallAgent)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
 	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
@@ -570,7 +573,7 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 	return ctx, err
 }
 
-func removeViam(ctx context.Context) (context.Context, error) {
+func uninstallAgent(ctx context.Context) (context.Context, error) {
 	if err := serialClient.RunScript(uninstallScript, "FORCE=1 sh").Error(); err != nil {
 		return ctx, err
 	}
@@ -991,11 +994,11 @@ func installAgent(ctx context.Context) (context.Context, error) {
 		return ctx, err
 	}
 	robotKeys := robotKeysResp.ApiKeys[0]
-	return ctx, serialClient.InstallViam(
-		cfg.PartID,
-		robotKeys.ApiKey.Id,
-		robotKeys.ApiKey.Key,
-	).Error()
+	cmd := fmt.Sprintf(
+		"FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s sh",
+		robotKeys.ApiKey.Id, robotKeys.ApiKey.Key, cfg.PartID,
+	)
+	return ctx, serialClient.RunScript(installScript, cmd).Error()
 }
 
 func testAgentEnabled(ctx context.Context) (context.Context, error) {
