@@ -37,12 +37,20 @@ func (a aptPackageManager) runFullUpgrade(ctx context.Context) error {
 	)
 }
 
-func (a aptPackageManager) runSecurityUpgrade(ctx context.Context) error {
-	// Ensure the unattended-upgrades binary is available.
+func (a aptPackageManager) ensureUnattendedUpgrades(ctx context.Context) error {
 	if err := verifyUnattendedUpgrade(ctx); err != nil {
 		if installErr := doInstall(ctx); installErr != nil {
 			return errw.Wrap(installErr, "installing unattended-upgrades package")
 		}
+	}
+	return nil
+}
+
+func (a aptPackageManager) runSecurityUpgrade(ctx context.Context) error {
+	// Ensure the unattended-upgrades binary is available, which is used to
+	// filter available updates to just security updates.
+	if err := a.ensureUnattendedUpgrades(ctx); err != nil {
+		return err
 	}
 
 	// Generate and write origins config scoped to security repos only.

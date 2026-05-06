@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+
+	errw "github.com/pkg/errors"
 )
 
 type rpmPackageManager struct {
@@ -22,14 +24,28 @@ func (r rpmPackageManager) needsReboot(ctx context.Context) bool {
 	return false
 }
 
-func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
-	args := []string{"upgrade", "-y"}
-	if securityOnly {
-		args = append(args, "--security")
-	}
+func (r rpmPackageManager) getProgram() string {
 	program := "yum"
 	if r.useDnf {
 		program = "dnf"
 	}
-	return pkgCmd(ctx, program, args...)
+	return program
+}
+
+func (r rpmPackageManager) ensureNeedsRestarting(ctx context.Context) error {
+	if _, err := exec.LookPath("needs-restarting"); err == nil {
+		return nil
+	}
+	return pkgCmd(ctx, r.getProgram(), "install", "-y", "needs-restarting")
+}
+
+func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
+	if err := r.ensureNeedsRestarting(ctx); err != nil {
+		return errw.Wrap(err, "failed to locate or install needs-restarting")
+	}
+	args := []string{"upgrade", "-y"}
+	if securityOnly {
+		args = append(args, "--security")
+	}
+	return pkgCmd(ctx, r.getProgram(), args...)
 }
