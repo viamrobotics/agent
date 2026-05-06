@@ -24,7 +24,7 @@ import (
 
 const defaultUpgradeInterval = 24 * time.Hour
 
-func isManagedMode(mode string) bool {
+func isManaged(mode string) bool {
 	return slices.Contains([]string{utils.OSAutoUpgradeManagedAll, utils.OSAutoUpgradeManagedSecurity}, mode)
 }
 

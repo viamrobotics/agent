@@ -99,7 +99,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 
 	// For managed modes, start the background upgrade loop.
 	mode := s.cfg.OSAutoUpgradeType
-	if isManagedMode(mode) {
+	if isManaged(mode) {
 		s.startManagedUpgrades(ctx)
 	}
 

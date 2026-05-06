@@ -24,15 +24,14 @@ const (
 
 var supportedCodenames = [...]string{"bookworm", "bullseye", "trixie"}
 
+func isDisabled(mode string) bool {
+	return mode == "disable" || mode == "disabled"
+}
+
 // runs inside s.mu.Lock().
 func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 	cfg := s.cfg.OSAutoUpgradeType
 	if cfg == "" {
-		return nil
-	}
-
-	// Managed modes are handled by the background upgrade loop in managed_upgrades_linux.go.
-	if isManagedMode(cfg) {
 		return nil
 	}
 
@@ -41,7 +40,7 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 		return err
 	}
 
-	if cfg == "disable" || cfg == "disabled" {
+	if isDisabled(cfg) || isManaged(cfg) {
 		isNew, err := utils.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsDisabled))
 		if err != nil {
 			return err
