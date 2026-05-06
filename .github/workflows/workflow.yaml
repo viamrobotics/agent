@@ -83,7 +83,7 @@ jobs:
           (github.event.action == 'labeled' && github.event.label.name == 'dev-release') ||
           (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'dev-release'))
         )
-      )
+      ) || true
     needs: test
     outputs:
       pr_urls: ${{ steps.pr_urls.outputs.urls }}
@@ -118,19 +118,19 @@ jobs:
     - name: Upload binaries to GCS (Release)
       if: github.event_name == 'release'
       run: |
-        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* install.sh uninstall.sh preinstall.sh gs://packages.viam.com/apps/viam-agent/
-        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+        echo gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* install.sh uninstall.sh preinstall.sh gs://packages.viam.com/apps/viam-agent/
+        echo gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
     - name: Upload binaries to GCS (Prerelease)
       if: github.event_name != 'release' && github.event_name != 'pull_request'
       run: |
-        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
-        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+        echo gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
+        echo gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
     - name: Upload binaries to GCS (PR dev release)
       if: github.event_name == 'pull_request'
       run: |
         PR_PATH="gs://packages.viam.com/apps/viam-agent/prerelease/pr-${{ github.event.pull_request.number }}"
-        gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* "$PR_PATH/"
-        gsutil cp etc/viam-agent-*.json "$PR_PATH/"
+        echo gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* "$PR_PATH/"
+        echo gsutil cp etc/viam-agent-*.json "$PR_PATH/"
     - name: Collect PR dev release URLs
       id: pr_urls
       if: github.event_name == 'pull_request'
@@ -175,15 +175,15 @@ jobs:
       shell: bash
       run: |
         cp viam-agent-*-windows-x86_64.msi viam-agent-stable-windows-x86_64.msi
-        gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/
+        echo gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/
     - name: Upload MSI to GCS (Prerelease)
       if: github.event_name != 'release' && github.event_name != 'pull_request'
       shell: bash
-      run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/prerelease/
+      run: echo gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/prerelease/
     - name: Upload MSI to GCS (PR dev release)
       if: github.event_name == 'pull_request'
       shell: bash
-      run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi "gs://packages.viam.com/apps/viam-agent/prerelease/pr-${{ github.event.pull_request.number }}/"
+      run: echo gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi "gs://packages.viam.com/apps/viam-agent/prerelease/pr-${{ github.event.pull_request.number }}/"
 
   pr-dev-release-comment:
     name: Post PR dev release URLs
