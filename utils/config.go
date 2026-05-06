@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +18,20 @@ import (
 	pb "go.viam.com/api/app/agent/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+const (
+	OSAutoUpgradeAll             = "all"
+	OSAutoUpgradeSecurity        = "security"
+	OSAutoUpgradeManagedAll      = "managed-all"
+	OSAutoUpgradeManagedSecurity = "managed-security"
+)
+
+var validOSAutoUpgradeTypes = []string{
+	OSAutoUpgradeAll,
+	OSAutoUpgradeSecurity,
+	OSAutoUpgradeManagedAll,
+	OSAutoUpgradeManagedSecurity,
+}
 
 var (
 	DefaultConfiguration = AgentConfig{
@@ -421,13 +436,10 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		cfg.SystemConfiguration.LoggingJournaldStorage = defaultStorage
 	}
 
-	if cfg.SystemConfiguration.OSAutoUpgradeType != "" &&
-		cfg.SystemConfiguration.OSAutoUpgradeType != "security" &&
-		cfg.SystemConfiguration.OSAutoUpgradeType != "all" &&
-		cfg.SystemConfiguration.OSAutoUpgradeType != "managed-security" &&
-		cfg.SystemConfiguration.OSAutoUpgradeType != "managed-all" &&
-		cfg.SystemConfiguration.OSAutoUpgradeType != "disabled" &&
-		cfg.SystemConfiguration.OSAutoUpgradeType != "disable" {
+	if cfg.SystemConfiguration.OSAutoUpgradeType != "" && !slices.Contains(
+		slices.Concat(validOSAutoUpgradeTypes, []string{"disable", "disabled"}),
+		cfg.SystemConfiguration.OSAutoUpgradeType,
+	) {
 		errOut = errors.Join(errOut, errw.Errorf(
 			"agent.system_configuration.os_auto_upgrade_type can only be 'security', 'all', 'managed-security', or 'managed-all' (was: %s)",
 			cfg.SystemConfiguration.OSAutoUpgradeType))

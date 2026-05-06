@@ -32,7 +32,7 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 	}
 
 	// Managed modes are handled by the background upgrade loop in managed_upgrades_linux.go.
-	if cfg == managedSecurityMode || cfg == "managed-all" {
+	if isManagedMode(cfg) {
 		return nil
 	}
 

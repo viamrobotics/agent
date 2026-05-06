@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -25,8 +26,11 @@ import (
 const (
 	rebootRequiredPath     = "/var/run/reboot-required"
 	defaultUpgradeInterval = 24 * time.Hour
-	managedSecurityMode    = "managed-security"
 )
+
+func isManagedMode(mode string) bool {
+	return slices.Contains([]string{utils.OSAutoUpgradeManagedAll, utils.OSAutoUpgradeManagedSecurity}, mode)
+}
 
 // startManagedUpgrades launches the background goroutine that periodically runs upgrades.
 // Must be called while s.mu is held.
@@ -107,7 +111,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	}
 
 	s.logger.Infow("Running managed OS package update", "package_manager", pm)
-	securityOnly := mode == managedSecurityMode
+	securityOnly := mode == utils.OSAutoUpgradeManagedSecurity
 
 	switch pm {
 	case "dnf":
