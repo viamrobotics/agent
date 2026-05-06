@@ -5,12 +5,16 @@ package agent_test
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -289,13 +293,159 @@ func hostEnsureOnline(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
+// Concrete-version shapes that gcsURL recognizes:
+//   - prVersionRe:  "<base>-pr.<N>.<sha>"   (PR dev-release; lives in prerelease/pr-<N>/)
+//   - devVersionRe: "<base>-dev.<N>"        (main-branch dev build; lives in prerelease/)
+//   - anything else is treated as a stable release at the top of apps/<subsystem>/.
+var (
+	prVersionRe  = regexp.MustCompile(`^[^-]+-pr\.(\d+)\.[a-f0-9]{40}$`)
+	devVersionRe = regexp.MustCompile(`^[^-]+-dev\.\d+$`)
+)
+
 // gcsURL constructs the GCS download URL for a viam binary given its subsystem
-// name (e.g. "viam-agent", "viam-server"), version string, and device arch.
+// name (e.g. "viam-agent", "viam-server") and a concrete version string. It
+// routes PR and dev versions to the prerelease subdirectories.
 func gcsURL(subsystem, version string) string {
+	if m := prVersionRe.FindStringSubmatch(version); m != nil {
+		return fmt.Sprintf(
+			"https://storage.googleapis.com/packages.viam.com/apps/%s/prerelease/pr-%s/%s-v%s-%s",
+			subsystem, m[1], subsystem, version, deviceArch,
+		)
+	}
+	if devVersionRe.MatchString(version) {
+		return fmt.Sprintf(
+			"https://storage.googleapis.com/packages.viam.com/apps/%s/prerelease/%s-v%s-%s",
+			subsystem, subsystem, version, deviceArch,
+		)
+	}
 	return fmt.Sprintf(
 		"https://storage.googleapis.com/packages.viam.com/apps/%s/%s-v%s-%s",
 		subsystem, subsystem, version, deviceArch,
 	)
+}
+
+// resolveVersionSpec turns a TOML version specifier into a concrete version
+// string. Recognized forms:
+//   - "stable"  -> latest stable release       (e.g. "0.27.3")
+//   - "dev"     -> latest main-branch dev build (e.g. "0.27.3-dev.5")
+//   - "pr.<N>"  -> latest dev-release for PR N  (e.g. "0.27.3-pr.227.<sha>")
+//   - anything else is assumed to already be concrete and returned as-is.
+//
+// Only viam-agent specifiers are supported today; viam-server has different
+// upload paths and would need its own resolver.
+func resolveVersionSpec(ctx context.Context, spec string) (string, error) {
+	switch {
+	case spec == "stable":
+		return latestStableRelease(ctx)
+	case spec == "dev":
+		b, err := latestDevBuild(ctx)
+		if err != nil {
+			return "", err
+		}
+		return b, nil
+	case strings.HasPrefix(spec, "pr."):
+		n, err := strconv.Atoi(strings.TrimPrefix(spec, "pr."))
+		if err != nil {
+			return "", fmt.Errorf("invalid pr specifier %q: %w", spec, err)
+		}
+		base, sha, err := latestPRBuild(ctx, n)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s-pr.%d.%s", base, n, sha), nil
+	default:
+		return spec, nil
+	}
+}
+
+// gcsListItem is the trimmed shape of a GCS JSON list response entry.
+type gcsListItem struct {
+	Name        string    `json:"name"`
+	TimeCreated time.Time `json:"timeCreated"`
+}
+
+// listGCS lists viam-agent objects under prefix in the public packages bucket,
+// sorted newest-first by upload time.
+func listGCS(ctx context.Context, prefix string) ([]gcsListItem, error) {
+	listURL := "https://storage.googleapis.com/storage/v1/b/packages.viam.com/o" +
+		"?prefix=" + prefix +
+		"&fields=items(name,timeCreated)"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GCS list %q returned %s", prefix, resp.Status)
+	}
+	var body struct {
+		Items []gcsListItem `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	sort.Slice(body.Items, func(i, j int) bool {
+		return body.Items[i].TimeCreated.After(body.Items[j].TimeCreated)
+	})
+	return body.Items, nil
+}
+
+// latestStableRelease returns the most recently uploaded stable viam-agent
+// release version (bare semver, e.g. "0.27.3").
+func latestStableRelease(ctx context.Context) (string, error) {
+	items, err := listGCS(ctx, "apps/viam-agent/viam-agent-v")
+	if err != nil {
+		return "", err
+	}
+	// Stable filenames are exactly "viam-agent-v<MAJOR>.<MINOR>.<PATCH>-<arch>".
+	pat := regexp.MustCompile(`/viam-agent-v(\d+\.\d+\.\d+)-[^/]+$`)
+	for _, it := range items {
+		if m := pat.FindStringSubmatch(it.Name); m != nil {
+			return m[1], nil
+		}
+	}
+	return "", errors.New("no stable releases found")
+}
+
+// latestDevBuild returns the most recently uploaded main-branch dev build
+// version (e.g. "0.27.3-dev.5").
+func latestDevBuild(ctx context.Context) (string, error) {
+	items, err := listGCS(ctx, "apps/viam-agent/prerelease/viam-agent-v")
+	if err != nil {
+		return "", err
+	}
+	pat := regexp.MustCompile(`/viam-agent-v([^-]+-dev\.\d+)-[^/]+$`)
+	for _, it := range items {
+		if m := pat.FindStringSubmatch(it.Name); m != nil {
+			return m[1], nil
+		}
+	}
+	return "", errors.New("no dev builds found")
+}
+
+// latestPRBuild returns the base version and 40-char head SHA of the most
+// recently uploaded dev-release build for the given PR number.
+func latestPRBuild(ctx context.Context, prNum int) (base, sha string, err error) {
+	items, err := listGCS(ctx, fmt.Sprintf("apps/viam-agent/prerelease/pr-%d/", prNum))
+	if err != nil {
+		return "", "", err
+	}
+	if len(items) == 0 {
+		return "", "", fmt.Errorf("no dev-release artifacts found for PR %d", prNum)
+	}
+	pat := regexp.MustCompile(
+		fmt.Sprintf(`/viam-agent-v([^-]+)-pr\.%d\.([a-f0-9]{40})-`, prNum),
+	)
+	for _, it := range items {
+		if m := pat.FindStringSubmatch(it.Name); m != nil {
+			return m[1], m[2], nil
+		}
+	}
+	return "", "", fmt.Errorf("no parsable binary names found for PR %d", prNum)
 }
 
 // setField sets a field nested in an arbitrarily deep tree of
