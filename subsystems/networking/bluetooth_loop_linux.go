@@ -16,7 +16,7 @@ const (
 // bleLoopLogState carries cross-tick observability state inside bleLoop.
 type bleLoopLogState struct {
 	initialized        bool
-	lastDesired        bool
+	lastShouldEnable   bool
 	lastBackoffPending bool
 	lastStatusLog      time.Time
 }
@@ -62,7 +62,7 @@ func (n *Subsystem) bleLoop(ctx context.Context) {
 // bleSummary returns a one-line, self-describing description of BLE state and
 // the reason for it. Designed so the message remains useful even if a log viewer
 // strips structured fields.
-func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) string {
+func (n *Subsystem) bleSummary(state bleState, shouldEnable, backoffPending bool) string {
 	switch state {
 	case bleRunning:
 		return "BLE running"
@@ -73,7 +73,7 @@ func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) str
 	default:
 		return fmt.Sprintf("BLE in unknown state %s", state)
 	}
-	if !desired {
+	if !shouldEnable {
 		switch {
 		case !n.bluetoothEnabled():
 			return "BLE off (bluetooth disabled in config)"
@@ -82,16 +82,16 @@ func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) str
 		case n.hasInternet() && n.connState.getConfigured():
 			return "BLE off (device online and configured)"
 		default:
-			return "BLE off (not desired)"
+			return "BLE off (not needed)"
 		}
 	}
 	switch {
 	case n.bleBackoffExhausted():
-		return "BLE off (desired running but retries exhausted; if device has no bluetooth hardware, set disable_bt_provisioning)"
+		return "BLE off (should be running but retries exhausted; if device has no bluetooth hardware, set disable_bt_provisioning)"
 	case backoffPending:
-		return "BLE off (desired running, waiting on backoff)"
+		return "BLE off (should be running, waiting on backoff)"
 	default:
-		return "BLE off (desired running, will retry)"
+		return "BLE off (should be running, will retry)"
 	}
 }
 
@@ -99,38 +99,38 @@ func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) str
 // so an operator can answer "what is BLE doing and why" from logs alone.
 func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 	now := time.Now()
-	desired := n.shouldEnableBle()
+	shouldEnable := n.shouldEnableBle()
 	state := n.ble.getState()
 	backoffPending := n.bleBackoff > 0 && now.Before(n.bleNextAttempt)
-	summary := n.bleSummary(state, desired, backoffPending)
+	summary := n.bleSummary(state, shouldEnable, backoffPending)
 
 	if !s.initialized {
 		n.logger.Infow(
 			"BLE provisioning monitor initial state: "+summary,
 			"event", "ble_initial_state",
-			"desired", desired,
+			"should_enable", shouldEnable,
 			"state", state,
 			"bluetooth_enabled", n.bluetoothEnabled(),
 			"online", n.hasInternet(),
 			"configured", n.connState.getConfigured(),
 		)
 		s.initialized = true
-		s.lastDesired = desired
+		s.lastShouldEnable = shouldEnable
 		s.lastBackoffPending = backoffPending
 		s.lastStatusLog = now
 		return
 	}
 
-	if desired != s.lastDesired {
+	if shouldEnable != s.lastShouldEnable {
 		n.logger.Infow(
-			"BLE desired state changed: "+summary,
-			"event", "ble_desired_changed",
-			"desired", desired,
+			"BLE enable decision changed: "+summary,
+			"event", "ble_should_enable_changed",
+			"should_enable", shouldEnable,
 			"bluetooth_enabled", n.bluetoothEnabled(),
 			"online", n.hasInternet(),
 			"configured", n.connState.getConfigured(),
 		)
-		s.lastDesired = desired
+		s.lastShouldEnable = shouldEnable
 	}
 
 	if backoffPending && !s.lastBackoffPending {
@@ -148,7 +148,7 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 		fields := []any{
 			"event", "ble_status",
 			"state", state,
-			"desired", desired,
+			"should_enable", shouldEnable,
 			"backoff_pending", backoffPending,
 			"backoff_exhausted", n.bleBackoffExhausted(),
 		}
@@ -156,10 +156,10 @@ func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 			fields = append(fields, "next_attempt", n.bleNextAttempt)
 		}
 		switch {
-		case state == bleOff && !desired:
+		case state == bleOff && !shouldEnable:
 			// "BLE off because it isn't needed" is the steady state — keep noise low.
 			n.logger.Debugw(msg, fields...)
-		case state == bleOff && desired && n.bleBackoffExhausted():
+		case state == bleOff && shouldEnable && n.bleBackoffExhausted():
 			// BLE wanted but reconciler has given up — surface louder.
 			n.logger.Warnw(msg, fields...)
 		default:
