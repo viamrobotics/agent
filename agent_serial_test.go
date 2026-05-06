@@ -250,9 +250,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`an old viam-server binary is present on the device$`, downloadOldViamServerBinary)
 
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
-		if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
-			return ctx, err
-		}
 		if runtime.GOOS == "darwin" {
 			if _, err := hostEnsureOnline(ctx); err != nil {
 				return ctx, err
