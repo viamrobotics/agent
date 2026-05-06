@@ -9,7 +9,14 @@ import (
 	"github.com/viamrobotics/agent/utils"
 )
 
+const rebootRequiredPath = "/var/run/reboot-required"
+
 type aptPackageManager struct{}
+
+func (a aptPackageManager) needsReboot(ctx context.Context) bool {
+	_, err := os.Stat(rebootRequiredPath)
+	return err == nil
+}
 
 func (a aptPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
 	// Refresh package lists.
