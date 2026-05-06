@@ -99,7 +99,7 @@ func (n *Subsystem) bleSummary(state bleState, desired, backoffPending bool) str
 // so an operator can answer "what is BLE doing and why" from logs alone.
 func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
 	now := time.Now()
-	desired := n.bleDesired()
+	desired := n.shouldEnableBle()
 	state := n.ble.getState()
 	backoffPending := n.bleBackoff > 0 && now.Before(n.bleNextAttempt)
 	summary := n.bleSummary(state, desired, backoffPending)
@@ -207,7 +207,7 @@ func decideBleAction(in bleDecisionInput) bleAction {
 // reconcileBle converges BLE state toward the desired state. Called from bleLoop only.
 func (n *Subsystem) reconcileBle(ctx context.Context) {
 	action := decideBleAction(bleDecisionInput{
-		desiredRunning:   n.bleDesired(),
+		desiredRunning:   n.shouldEnableBle(),
 		currentState:     n.ble.getState(),
 		now:              time.Now(),
 		nextAttempt:      n.bleNextAttempt,
@@ -244,8 +244,8 @@ func (n *Subsystem) reconcileBle(ctx context.Context) {
 	}
 }
 
-func (n *Subsystem) bleDesired() bool {
-	return shouldDesireBle(
+func (n *Subsystem) shouldEnableBle() bool {
+	return shouldEnableBleFromState(
 		n.bluetoothEnabled(),
 		n.connState.getConfigured(),
 		n.hasInternet(),
@@ -253,9 +253,9 @@ func (n *Subsystem) bleDesired() bool {
 	)
 }
 
-// shouldDesireBle is the pure predicate behind bleDesired so it can be table-tested.
+// shouldEnableBleFromState is the pure predicate behind shouldEnableBle so it can be table-tested.
 // Returns true when BLE provisioning should be advertised.
-func shouldDesireBle(enabled, configured, online, connecting bool) bool {
+func shouldEnableBleFromState(enabled, configured, online, connecting bool) bool {
 	if !enabled {
 		return false
 	}

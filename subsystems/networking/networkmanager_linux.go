@@ -842,7 +842,7 @@ func (n *Subsystem) processUserInput(userInput userInput) bool {
 
 // attemptUserConnect runs a wifi connect attempt for credentials supplied by a
 // provisioning client. While the attempt is in flight, BLE is suspended (via
-// connState.connecting → bleDesired()) so a polling client cannot read stale
+// connState.connecting → shouldEnableBle()) so a polling client cannot read stale
 // "no errors" state during NetworkManager's connect timeout window. We wait for
 // the bleLoop reconciler to actually transition BLE to bleOff before starting
 // the connect, to close the one-tick race where BLE is still up after the state

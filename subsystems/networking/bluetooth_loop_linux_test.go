@@ -72,7 +72,7 @@ func TestDecideBleAction(t *testing.T) {
 	}
 }
 
-func TestShouldDesireBle(t *testing.T) {
+func TestShouldEnableBleFromState(t *testing.T) {
 	tests := []struct {
 		name       string
 		enabled    bool
@@ -133,7 +133,7 @@ func TestShouldDesireBle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := shouldDesireBle(tt.enabled, tt.configured, tt.online, tt.connecting)
+			result := shouldEnableBleFromState(tt.enabled, tt.configured, tt.online, tt.connecting)
 			test.That(t, result, test.ShouldEqual, tt.expected)
 		})
 	}
