@@ -19,7 +19,7 @@ import (
 	"slices"
 	"time"
 
-	errw "github.com/pkg/errors"
+	"github.com/samber/lo"
 	"github.com/viamrobotics/agent/utils"
 )
 
@@ -49,6 +49,9 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 
 	s.upgradeWorker.Go(func() {
 		// Run once immediately at startup.
+		if ctx.Err() != nil {
+			return
+		}
 		s.runManagedUpgrade(upgradeCtx)
 
 		ticker := time.NewTicker(interval)
@@ -83,15 +86,37 @@ func (s *Subsystem) NeedsOSReboot() bool {
 	return s.needsOSReboot
 }
 
-// detectPackageManager returns the name of the first available package manager binary.
-func detectPackageManager() (string, error) {
-	pms := []string{"apt-get", "dnf", "yum"}
+// detectPackageManager returns an implementation of [packageManager] that
+// matches the package manager binaries available on the OS.
+func detectPackageManager() (packageManager, error) {
+	type pmOption struct {
+		binary      string
+		constructor func() packageManager
+	}
+	pms := []pmOption{
+		{
+			"apt-get",
+			func() packageManager { return aptPackageManager{} },
+		},
+		{
+			"dnf",
+			func() packageManager { return rpmPackageManager{useDnf: true} },
+		},
+		{
+			"yum",
+			func() packageManager { return rpmPackageManager{useDnf: false} },
+		},
+	}
 	for _, pm := range pms {
-		if _, err := exec.LookPath(pm); err == nil {
-			return pm, nil
+		if _, err := exec.LookPath(pm.binary); err == nil {
+			return pm.constructor(), nil
 		}
 	}
-	return "", fmt.Errorf("no supported package manager found (%s)", pms)
+	return nil, fmt.Errorf(
+		"no supported package manager found (%s)",
+		lo.Map(pms, func(item pmOption, _ int) string {
+			return item.binary
+		}))
 }
 
 // runManagedUpgrade detects the package manager and installs available upgrades.
@@ -113,20 +138,10 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	s.logger.Infow("Running managed OS package update", "package_manager", pm)
 	securityOnly := mode == utils.OSAutoUpgradeManagedSecurity
 
-	switch pm {
-	case "dnf":
-		err = runDnfUpgrade(ctx, securityOnly)
-	case "yum":
-		err = runYumUpgrade(ctx, securityOnly)
-	default: // apt-get
-		err = s.runAptUpgrade(ctx, securityOnly)
-	}
-
-	if err != nil {
+	if err := pm.runUpgrade(ctx, securityOnly); err != nil {
 		s.logger.Warnw("managed OS upgrade failed", "package_manager", pm, "error", err)
 		return
 	}
-
 	s.logger.Info("OS package upgrade completed")
 
 	// Check if a reboot is required.
@@ -136,78 +151,6 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 		s.mu.Unlock()
 		s.logger.Info("OS reboot required after package updates, will reboot when maintenance window opens")
 	}
-}
-
-// runAptUpgrade handles upgrades on Debian/Ubuntu systems.
-// For security-only mode it delegates to unattended-upgrade for precise origin filtering.
-func (s *Subsystem) runAptUpgrade(ctx context.Context, securityOnly bool) error {
-	// Ensure the unattended-upgrades binary is available (used for security-filtered upgrades).
-	if err := verifyInstall(ctx); err != nil {
-		if installErr := doInstall(ctx); installErr != nil {
-			return errw.Wrap(installErr, "installing unattended-upgrades package")
-		}
-	}
-
-	// Refresh package lists.
-	if err := pkgCmd(ctx, "apt-get", "update"); err != nil {
-		return err
-	}
-
-	if securityOnly {
-		return s.runAptSecurityUpgrade(ctx)
-	}
-	return pkgCmd(ctx, "apt-get", "upgrade", "-y",
-		"-o", "Dpkg::Options::=--force-confold",
-		"-o", "Dpkg::Options::=--force-confdef",
-	)
-}
-
-// runAptSecurityUpgrade writes a security-only unattended-upgrades config and runs unattended-upgrade.
-func (s *Subsystem) runAptSecurityUpgrade(ctx context.Context) error {
-	// Generate and write origins config scoped to security repos only.
-	confContents, err := generateOrigins(ctx, true)
-	if err != nil {
-		return errw.Wrap(err, "generating security origins")
-	}
-
-	if _, err := utils.WriteFileIfNew(unattendedUpgradesPath, []byte(confContents)); err != nil {
-		return errw.Wrap(err, "writing unattended-upgrades config")
-	}
-
-	if _, err := utils.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsEnabled)); err != nil {
-		return errw.Wrap(err, "writing auto-upgrades config")
-	}
-
-	cmd := exec.CommandContext(ctx, "unattended-upgrade", "--verbose")
-	cmd.Env = append(os.Environ(),
-		"DEBIAN_FRONTEND=noninteractive",
-		"APT_LISTCHANGES_FRONTEND=none",
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return errw.Wrapf(err, "unattended-upgrade: %s", output)
-	}
-	return nil
-}
-
-// runDnfUpgrade handles upgrades on Fedora/RHEL 8+/Rocky/Alma systems.
-// The --security flag restricts upgrades to packages with a security advisory.
-func runDnfUpgrade(ctx context.Context, securityOnly bool) error {
-	args := []string{"upgrade", "-y"}
-	if securityOnly {
-		args = append(args, "--security")
-	}
-	return pkgCmd(ctx, "dnf", args...)
-}
-
-// runYumUpgrade handles upgrades on RHEL 7/CentOS 7 systems.
-// The --security flag requires the yum-plugin-security package to be installed.
-func runYumUpgrade(ctx context.Context, securityOnly bool) error {
-	args := []string{"update", "-y"}
-	if securityOnly {
-		args = append(args, "--security")
-	}
-	return pkgCmd(ctx, "yum", args...)
 }
 
 // rebootRequired checks whether the system needs a reboot after package updates.
@@ -245,4 +188,8 @@ func pkgCmd(ctx context.Context, name string, args ...string) error {
 		return fmt.Errorf("%s %v: %w\n%s", name, args, err, output)
 	}
 	return nil
+}
+
+type packageManager interface {
+	runUpgrade(ctx context.Context, securityOnly bool) error
 }

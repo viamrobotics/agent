@@ -52,7 +52,7 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 		return nil
 	}
 
-	err = verifyInstall(ctx)
+	err = verifyUnattendedUpgrade(ctx)
 	if err != nil {
 		err = doInstall(ctx)
 		if err != nil {
@@ -108,7 +108,7 @@ func checkSupportedDistro() error {
 }
 
 // make sure the needed package is installed.
-func verifyInstall(ctx context.Context) error {
+func verifyUnattendedUpgrade(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "unattended-upgrade", "-h")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
