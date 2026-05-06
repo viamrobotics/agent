@@ -54,8 +54,10 @@ type config struct {
 }
 
 type versionsCfg struct {
+	Test             string `toml:"viam_agent_test"`
 	Stable           string `toml:"viam_agent_stable"`
 	Old              string `toml:"viam_agent_old"`
+	ViamServerTest   string `toml:"viam_server_test"`
 	ViamServerStable string `toml:"viam_server_stable"`
 	ViamServerOld    string `toml:"viam_server_old"`
 }
@@ -171,11 +173,12 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 			// Just wait after reconnecting everything to make sure all the connections are back
 			time.Sleep(time.Second * 3)
-			if _, err := applyAgentVersionPin(ctx, "stable"); err != nil {
-				t.Logf("error pinning agent back to stable during cleanup: %v", err)
+			// Pin back to the version under test
+			if _, err := applyAgentVersionPin(ctx, "test"); err != nil {
+				t.Logf("error pinning agent back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerTest, err)
 			}
-			if _, err := applyViamServerVersionPin(ctx, "stable"); err != nil {
-				t.Logf("error pinning viam-server back to stable during cleanup: %v", err)
+			if _, err := applyViamServerVersionPin(ctx, "test"); err != nil {
+				t.Logf("error pinning viam-server back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerTest, err)
 			}
 			if err := serialClient.Close(); err != nil {
 				t.Logf("error closing serial client during cleanup: %v", err)
@@ -185,7 +188,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
-	const versionGroup = `(an old version|dev|stable|version [^\s]+)`
+	const versionGroup = `(an old version|dev|stable|test|version [^\s]+)`
 
 	// Restart viam-agent before each scenario (if it is running) so that every
 	// scenario starts with a fresh systemd InvocationID. This ensures that
@@ -327,9 +330,13 @@ func setField(root *structpb.Struct, value *structpb.Value, path ...string) erro
 	return nil
 }
 
-// translateVersion translates a version string into the format app expects.
+// translateVersion translates a "version string" into the format app expects.
+// A "version string" here is the string used to vaguely specify a version in the godog test
+// and is not an actual version specification like the one used in a viam robot config.
+
 // oldVersion is the concrete version string to use for the string "an old version".
-func translateVersion(version, oldVersion string) string {
+// testVersion is the concrete version string to use for the string "test".
+func translateVersion(version, oldVersion, testVersion string) string {
 	switch version {
 	case "an old version":
 		if oldVersion == "" {
@@ -338,6 +345,11 @@ func translateVersion(version, oldVersion string) string {
 		return oldVersion
 	case "stable", "dev":
 		return version
+	case "test":
+		if testVersion == "" {
+			panic("must set test version in config")
+		}
+		return testVersion
 	}
 	if strings.HasPrefix(version, "version ") {
 		return strings.SplitN(version, " ", 2)[1]
@@ -348,7 +360,7 @@ func translateVersion(version, oldVersion string) string {
 // versionStrToMatcherBase returns a matcher function for a version string.
 // oldVersion and stableVersion are the concrete version strings to compare
 // against for "an old version" and "stable" respectively.
-func versionStrToMatcherBase(version, oldVersion, stableVersion string) func(string) string {
+func versionStrToMatcherBase(version, oldVersion, stableVersion, testVersion string) func(string) string {
 	switch version {
 	case "an old version":
 		return func(actual string) string {
@@ -363,6 +375,13 @@ func versionStrToMatcherBase(version, oldVersion, stableVersion string) func(str
 				panic("must set stable version in config")
 			}
 			return test.ShouldEqual(actual, stableVersion)
+		}
+	case "test":
+		return func(actual string) string {
+			if testVersion == "" {
+				panic("must set test version in config")
+			}
+			return test.ShouldEqual(actual, testVersion)
 		}
 	case "dev":
 		return func(actual string) string {
@@ -389,6 +408,7 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 		return ctx, err
 	}
 	partCfg := partResp.Part.RobotConfig
+	logger.Infof("Pinning agent to version: %s\n", versionStr)
 	if err = setField(partCfg, structpb.NewStringValue(versionStr), path...); err != nil {
 		return ctx, err
 	}
@@ -888,11 +908,11 @@ func testAgentState(ctx context.Context, key, expectedVal string) (context.Conte
 }
 
 func translateToAppVersion(version string) string {
-	return translateVersion(version, cfg.Versions.Old)
+	return translateVersion(version, cfg.Versions.Old, cfg.Versions.Test)
 }
 
 func versionStrToMatcher(version string) func(string) string {
-	return versionStrToMatcherBase(version, cfg.Versions.Old, cfg.Versions.Stable)
+	return versionStrToMatcherBase(version, cfg.Versions.Old, cfg.Versions.Stable, cfg.Versions.Test)
 }
 
 func applyAgentVersionPin(ctx context.Context, version string) (context.Context, error) {
@@ -950,11 +970,11 @@ func testViamServerRunningWithVersion(ctx context.Context, version string) (cont
 }
 
 func translateVersionViamServer(version string) string {
-	return translateVersion(version, cfg.Versions.ViamServerOld)
+	return translateVersion(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerTest)
 }
 
 func versionStrToMatcherViamServer(version string) func(string) string {
-	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable)
+	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable, cfg.Versions.ViamServerTest)
 }
 
 func applyViamServerVersionPin(ctx context.Context, version string) (context.Context, error) {
