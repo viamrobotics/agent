@@ -131,6 +131,7 @@ func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 
 	online := state == gnm.NmStateConnectedGlobal
 
+	//nolint:exhaustive
 	switch state {
 	case gnm.NmStateConnectedGlobal:
 		networkStatusLogger.Debugw("NetworkManager reports full connectivity (global).", "state", state)
@@ -508,6 +509,7 @@ func (n *Subsystem) waitForConnect(ctx context.Context, nw *lockingNetwork, devi
 		case update := <-changeChan:
 			n.logger.Debugf("%s->%s (%s)", update.OldState, update.NewState, update.Reason)
 
+			//nolint:exhaustive
 			switch update.NewState {
 			case gnm.NmDeviceStateActivated:
 				return activeConnection, nil
