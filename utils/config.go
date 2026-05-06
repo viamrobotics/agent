@@ -154,7 +154,7 @@ func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 		return true
 	}
 
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return true
 	}
 	return as.DisableSystemConfiguration.Get()
