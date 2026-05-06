@@ -1,7 +1,7 @@
 Feature: Pinning viam-agent to a viam-server binary is rejected
 
   Background:
-    Given viam-agent is installed
+    Given viam-agent is installed at the version under test
     And viam-agent is pinned to stable
     And the viam-agent systemd unit is running with stable
 

@@ -196,7 +196,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
-	const versionGroup = `(an old version|dev|stable|test|version [^\s]+)`
+	const versionGroup = `(an old version|dev|stable|the version under test|version [^\s]+)`
 
 	// Restart viam-agent before each scenario (if it is running) so that every
 	// scenario starts with a fresh systemd InvocationID. This ensures that
@@ -222,7 +222,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	})
 
 	// Agent utility steps
-	ctx.Step(fmt.Sprintf(`^viam-agent version %s is installed$`, versionGroup), installAgent)
+	ctx.Step(fmt.Sprintf(`^viam-agent is installed at %s$`, versionGroup), installAgent)
 	ctx.Step(`viam-agent is (not |un)installed$`, uninstallAgent)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
@@ -509,7 +509,7 @@ func translateVersion(version, oldVersion, testVersion string) string {
 		return oldVersion
 	case "stable", "dev":
 		return version
-	case "test":
+	case "the version under test":
 		if testVersion == "" {
 			panic("must set test version in config")
 		}
@@ -540,7 +540,7 @@ func versionStrToMatcherBase(version, oldVersion, stableVersion, testVersion str
 			}
 			return test.ShouldEqual(actual, stableVersion)
 		}
-	case "test":
+	case "the version under test":
 		return func(actual string) string {
 			if testVersion == "" {
 				panic("must set test version in config")

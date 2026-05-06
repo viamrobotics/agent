@@ -1,6 +1,6 @@
 Feature: Upgrade viam-agent
   Background:
-    Given viam-agent is installed
+    Given viam-agent is installed at the version under test
     And the viam-agent systemd unit is running with stable
   Scenario: Pin viam agent to stable
     When viam-agent is pinned to dev

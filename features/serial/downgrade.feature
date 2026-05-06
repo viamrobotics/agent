@@ -1,6 +1,6 @@
 Feature: Downgrade viam-agent
   Background:
-    Given viam-agent is installed
+    Given viam-agent is installed at the version under test
     And the viam-agent systemd unit is running with stable
   Scenario: Pin viam agent to an old version
     When viam-agent is pinned to an old version

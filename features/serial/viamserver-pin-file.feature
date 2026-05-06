@@ -1,7 +1,7 @@
 Feature: Pin viam-server to an old version via a local file
 
   Background:
-    Given viam-agent is installed
+    Given viam-agent is installed at the version under test
     And viam-agent is pinned to stable
     And viam-server is pinned to stable
     And the viam-agent systemd unit is running with stable
