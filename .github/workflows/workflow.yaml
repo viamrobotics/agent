@@ -87,6 +87,7 @@ jobs:
     needs: test
     outputs:
       pr_urls: ${{ steps.pr_urls.outputs.urls }}
+      version: ${{ steps.version.outputs.value }}
     env:
       # Empty on non-PR events; dev-version.sh consumes these to stamp PR
       # builds as v<next>-pr.<pr-num>.<head-sha>. PR_HEAD_SHA is the branch
@@ -101,8 +102,15 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
+    - name: Compute version
+      id: version
+      run: echo "value=$(./dev-version.sh)" >> "$GITHUB_OUTPUT"
     - name: Build
       run: make all manifest
+    - uses: actions/upload-artifact@v4
+      with:
+        name: viam-agent-windows
+        path: bin/viam-agent-*-windows-x86_64
     - uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
@@ -136,6 +144,44 @@ jobs:
           done
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
+
+  msi:
+    name: Build MSI
+    runs-on: windows-2022
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: viam-agent-windows
+        path: msi
+    - name: Build MSI
+      shell: bash
+      run: |
+        mv msi/viam-agent-*-windows-x86_64 msi/viam-agent-from-installer.exe
+        dotnet tool restore
+        dotnet build msi -c Release
+        mv msi/bin/x64/Release/Package.msi "viam-agent-${{ needs.build.outputs.version }}-windows-x86_64.msi"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: viam-agent-msi
+        path: viam-agent-*-windows-x86_64.msi
+    - uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+    - uses: google-github-actions/setup-gcloud@v2
+    - name: Upload MSI to GCS (Release)
+      if: github.event_name == 'release'
+      shell: bash
+      run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/
+    - name: Upload MSI to GCS (Prerelease)
+      if: github.event_name != 'release' && github.event_name != 'pull_request'
+      shell: bash
+      run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/prerelease/
+    - name: Upload MSI to GCS (PR dev release)
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi "gs://packages.viam.com/apps/viam-agent/prerelease/pr-${{ github.event.pull_request.number }}/"
 
   pr-dev-release-comment:
     name: Post PR dev release URLs
