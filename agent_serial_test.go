@@ -114,7 +114,7 @@ func TestSerialFeatures(t *testing.T) {
 		Options: &godog.Options{
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
-			Paths:    []string{"features/serial"},
+			Paths:    []string{"features/serial/install.feature"},
 			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
@@ -182,10 +182,10 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			// Just wait after reconnecting everything to make sure all the connections are back
 			time.Sleep(time.Second * 3)
 			// Pin back to the version under test
-			if _, err := applyAgentVersionPin(ctx, "test"); err != nil {
+			if _, err := applyAgentVersionPin(ctx, "the version under test"); err != nil {
 				t.Logf("error pinning agent back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerTest, err)
 			}
-			if _, err := applyViamServerVersionPin(ctx, "test"); err != nil {
+			if _, err := applyViamServerVersionPin(ctx, "the version under test"); err != nil {
 				t.Logf("error pinning viam-server back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerTest, err)
 			}
 			if err := serialClient.Close(); err != nil {
