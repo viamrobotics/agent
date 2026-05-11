@@ -31,7 +31,7 @@ func isDisabled(mode string) bool {
 // runs inside s.mu.Lock().
 func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 	cfg := s.cfg.OSAutoUpgradeType
-	if cfg == "" {
+	if isDisabled(cfg) || !isUnattended(cfg) {
 		return nil
 	}
 
