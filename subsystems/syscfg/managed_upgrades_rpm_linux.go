@@ -36,7 +36,7 @@ func (r rpmPackageManager) ensureNeedsRestarting(ctx context.Context) error {
 	if _, err := exec.LookPath("needs-restarting"); err == nil {
 		return nil
 	}
-	return pkgCmd(ctx, r.getProgram(), "install", "-y", "needs-restarting")
+	return pkgCmd(ctx, r.getProgram(), "install", "-y", "yum-utils")
 }
 
 func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
