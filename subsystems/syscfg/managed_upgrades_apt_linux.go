@@ -13,6 +13,11 @@ const rebootRequiredPath = "/var/run/reboot-required"
 
 type aptPackageManager struct{}
 
+// String implements [packageManager].
+func (a aptPackageManager) String() string {
+	return "apt"
+}
+
 func (a aptPackageManager) needsReboot(ctx context.Context) bool {
 	_, err := os.Stat(rebootRequiredPath)
 	return err == nil

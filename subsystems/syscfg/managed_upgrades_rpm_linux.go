@@ -3,6 +3,7 @@ package syscfg
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 
 	errw "github.com/pkg/errors"
@@ -10,6 +11,15 @@ import (
 
 type rpmPackageManager struct {
 	useDnf bool
+}
+
+// String implements [packageManager].
+func (r rpmPackageManager) String() string {
+	manager := "yum"
+	if r.useDnf {
+		manager = "dnf"
+	}
+	return fmt.Sprintf("rpm(%s)", manager)
 }
 
 func (r rpmPackageManager) needsReboot(ctx context.Context) bool {

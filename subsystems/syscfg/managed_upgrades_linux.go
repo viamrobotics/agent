@@ -166,6 +166,7 @@ func pkgCmd(ctx context.Context, name string, args ...string) error {
 }
 
 type packageManager interface {
+	fmt.Stringer
 	runUpgrade(ctx context.Context, securityOnly bool) error
 	needsReboot(ctx context.Context) bool
 }
