@@ -173,7 +173,9 @@ jobs:
     - name: Upload MSI to GCS (Release)
       if: github.event_name == 'release'
       shell: bash
-      run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/
+      run: |
+        cp viam-agent-*-windows-x86_64.msi viam-agent-stable-windows-x86_64.msi
+        gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/
     - name: Upload MSI to GCS (Prerelease)
       if: github.event_name != 'release' && github.event_name != 'pull_request'
       shell: bash
