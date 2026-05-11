@@ -161,7 +161,7 @@ jobs:
         mv msi/viam-agent-*-windows-x86_64 msi/viam-agent-from-installer.exe
         dotnet tool restore
         dotnet build msi -c Release
-        mv msi/bin/x64/Release/Package.msi "viam-agent-${{ needs.build.outputs.version }}-windows-x86_64.msi"
+        mv msi/bin/x64/Release/en-US/Package.msi "viam-agent-${{ needs.build.outputs.version }}-windows-x86_64.msi"
     - uses: actions/upload-artifact@v4
       with:
         name: viam-agent-msi

@@ -285,7 +285,7 @@
                  Text="Run as virtual service account (NT SERVICE\viam-agent)" />
         <Control Id="ServiceAccountDesc" Type="Text"
                  X="35" Y="88" Width="315" Height="50" NoPrefix="yes"
-                 Text="When checked, the service runs with minimal privileges using a virtual service account. Recommended for production deployments. When unchecked, the service runs as Local System." />
+                 Text="(Advanced user option. Not recommended for production deployments.)&#10;&#10;If checked, the service runs with minimal privileges using a virtual service account. If unchecked, the service runs as Local System." />
 
         <!-- Bottom bar -->
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
