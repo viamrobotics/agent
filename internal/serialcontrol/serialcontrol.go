@@ -542,6 +542,10 @@ func (c *Client) EnsureOnline(ssid, password string) error {
 		)
 	}
 
+	// clear all wifi connections before trying to get back online
+	// some tests leave behind bad connections that will interfere with connecting
+	c.ClearWifiConnections()
+
 	var connectErr error
 	for range 5 {
 		conns := c.ListWifiConnections()

@@ -1,5 +1,6 @@
 bin/
 etc/
+.vscode/
 
 # GCP's auth action adds this in CI, dirtying the tree
 gha-creds-*.json
@@ -8,7 +9,12 @@ viam-agent-windows-installer*.exe
 
 # Config file containing secrets used for serial console tests
 agent-test.toml
+# Other config files
+agent-test.toml.*
 
 # Claude Code
 .claude/worktrees
 .claude/settings.local.json
+
+# Test reports
+report.xml
