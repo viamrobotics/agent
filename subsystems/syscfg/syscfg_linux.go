@@ -29,6 +29,7 @@ type Subsystem struct {
 	cancelFunc                          context.CancelFunc
 	noJournald                          bool
 	shouldForwardRecentSystemdAgentLogs bool
+	maintenanceAllowed                  func(context.Context) bool
 
 	// Managed OS upgrades (used when OSAutoUpgradeType is "managed-security" or "managed-all")
 	needsOSReboot bool
@@ -41,13 +42,20 @@ func New(ctx context.Context,
 	cfg utils.AgentConfig,
 	getAppenderFunc func() logging.Appender,
 	shouldForwardRecentSystemdAgentLogs bool,
+	maintenanceAllowed func(context.Context) bool,
 ) *Subsystem {
+	if maintenanceAllowed == nil {
+		maintenanceAllowed = func(ctx context.Context) bool {
+			return true
+		}
+	}
 	return &Subsystem{
 		appender:                            getAppenderFunc,
 		logger:                              logger,
 		cfg:                                 cfg.SystemConfiguration,
 		logHealth:                           utils.NewHealth(),
 		shouldForwardRecentSystemdAgentLogs: shouldForwardRecentSystemdAgentLogs,
+		maintenanceAllowed:                  maintenanceAllowed,
 	}
 }
 

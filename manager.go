@@ -129,6 +129,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cfg,
 		manager.GetNetAppender,
 		true, /* should forward recent systemd agent logs */
+		manager.viamServer.RestartAllowed,
 	)
 
 	return manager

@@ -125,6 +125,10 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 		return
 	}
 
+	if !s.maintenanceAllowed(ctx) {
+		return
+	}
+
 	s.mu.RLock()
 	mode := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()

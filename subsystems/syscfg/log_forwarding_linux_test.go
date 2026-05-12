@@ -184,9 +184,16 @@ while true; do sleep 1; done
 
 			appender := &mockAppender{}
 
-			sys := New(ctx, logger, cfg, func() logging.Appender {
-				return appender
-			}, false /* should not forward recent systemd agent logs */)
+			sys := New(
+				ctx,
+				logger,
+				cfg,
+				func() logging.Appender {
+					return appender
+				},
+				false, /* should not forward recent systemd agent logs */
+				nil,
+			)
 
 			// On start, we should see kernel forwarder start log
 			err := sys.Start(t.Context())
@@ -264,9 +271,16 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 	test.That(t, err, test.ShouldBeNil)
 	mockLogForwardingCache := &logForwardingCache{&systemdAgentLogsLastForwarded}
 	test.That(t, mockLogForwardingCache.save(), test.ShouldBeNil)
-	sys := New(t.Context(), logger, cfg, func() logging.Appender {
-		return appender
-	}, true /* should forward recent systemd agent logs */)
+	sys := New(
+		t.Context(),
+		logger,
+		cfg,
+		func() logging.Appender {
+			return appender
+		},
+		true, /* should forward recent systemd agent logs */
+		nil,
+	)
 
 	expectedLogs := []zapcore.Entry{
 		{
