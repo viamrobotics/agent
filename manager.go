@@ -41,6 +41,18 @@ const (
 	SubsystemName  = "viam-agent"
 )
 
+// viamServerSubsystem is the subset of *viamserver.Subsystem that Manager uses.
+// Defined here so tests can inject a fake.
+type viamServerSubsystem interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+	Update(ctx context.Context, cfg utils.AgentConfig) (needRestart bool)
+	RestartAllowed(ctx context.Context) bool
+	DoesNotHandleNeedsRestart() bool
+	MarkAppTriggeredRestart()
+	Uptime() *durationpb.Duration
+}
+
 // Manager is the core of the agent process, and maintains the list of subsystems, as well as cloud connection.
 type Manager struct {
 	activeBackgroundWorkers sync.WaitGroup
@@ -60,7 +72,7 @@ type Manager struct {
 	viamServerNeedsRestart bool
 	globalCancel           context.CancelFunc
 
-	viamServer *viamserver.Subsystem
+	viamServer viamServerSubsystem
 	networking *networking.Subsystem
 	sysConfig  *syscfg.Subsystem
 
@@ -280,10 +292,12 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 		if err != nil {
 			m.logger.Warn(err)
 		}
+		m.viamServerNeedsRestart = m.viamServerNeedsRestart || needRestart
 
 		needRestartConfigChange := m.viamServer.Update(ctx, m.cfg)
+		m.viamServerNeedsRestart = m.viamServerNeedsRestart || needRestartConfigChange
 
-		if needRestart || needRestartConfigChange || m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
+		if m.viamServerNeedsRestart || m.viamAgentNeedsRestart {
 			// If ctx is canceled (e.g. on macOS, launchd bootout cancels ctx before we
 			// reach this block), we know the agent is shutting down — skip RestartAllowed
 			// and stop viam-server unconditionally. Otherwise, defer to RestartAllowed.
@@ -307,7 +321,6 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 				}
 			} else {
 				m.logger.Warnf("%s has NOT allowed a restart; will NOT restart", viamserver.SubsysName)
-				m.viamServerNeedsRestart = true
 			}
 		}
 		m.cache.MarkViamServerRunningVersion()
