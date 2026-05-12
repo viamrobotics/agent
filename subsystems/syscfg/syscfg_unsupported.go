@@ -39,6 +39,6 @@ func (s *Subsystem) HealthCheck(_ context.Context) error {
 	return nil
 }
 
-func (s *Subsystem) NeedsOSReboot() bool {
+func (s *Subsystem) NeedsOSReboot(_ context.Context) bool {
 	return false
 }

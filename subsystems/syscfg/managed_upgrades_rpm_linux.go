@@ -7,9 +7,11 @@ import (
 	"os/exec"
 
 	errw "github.com/pkg/errors"
+	"go.viam.com/rdk/logging"
 )
 
 type rpmPackageManager struct {
+	logger logging.Logger
 	useDnf bool
 }
 
@@ -23,6 +25,13 @@ func (r rpmPackageManager) String() string {
 }
 
 func (r rpmPackageManager) needsReboot(ctx context.Context) bool {
+	if err := r.ensureNeedsRestarting(ctx); err != nil {
+		r.logger.Errorw(
+			"Could not verify needs-restarting installation to check for reboot status",
+			"err", err,
+		)
+		return false
+	}
 	// needs-restarting -r exits 1 when a reboot is required, 0 otherwise.
 	// Any other non-zero exit is treated as "not required".
 	cmd := exec.CommandContext(ctx, "needs-restarting", "-r")
@@ -46,7 +55,7 @@ func (r rpmPackageManager) ensureNeedsRestarting(ctx context.Context) error {
 	if _, err := exec.LookPath("needs-restarting"); err == nil {
 		return nil
 	}
-	return pkgCmd(ctx, r.getProgram(), "install", "-y", "yum-utils")
+	return pkgCmd(ctx, r.logger, r.getProgram(), "install", "-y", "yum-utils")
 }
 
 func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
@@ -57,5 +66,5 @@ func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) er
 	if securityOnly {
 		args = append(args, "--security")
 	}
-	return pkgCmd(ctx, r.getProgram(), args...)
+	return pkgCmd(ctx, r.logger, r.getProgram(), args...)
 }

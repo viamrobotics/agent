@@ -20,6 +20,7 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/viamrobotics/agent/utils"
+	"go.viam.com/rdk/logging"
 )
 
 const defaultUpgradeInterval = 24 * time.Hour
@@ -75,16 +76,45 @@ func (s *Subsystem) stopManagedUpgrades() {
 	}
 }
 
-// NeedsOSReboot returns true if a system reboot is pending due to installed package updates.
-func (s *Subsystem) NeedsOSReboot() bool {
+// NeedsOSReboot returns true if a system reboot is pending due to installed
+// package updates.
+func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.needsOSReboot
+	needReboot := s.needsOSReboot
+	autoUpgradeType := s.cfg.OSAutoUpgradeType
+	s.mu.RUnlock()
+
+	if needReboot {
+		// Cached true result, no way for this to change back to false until the
+		// reboot happens.
+		return true
+	}
+
+	if !isManaged(autoUpgradeType) {
+		// We only care about managing reboots in managed upgrade mode.
+		return false
+	}
+
+	pkgMgr, err := getPackageManager(s.logger)
+	if err != nil {
+		s.logger.Warnw("Could not detect package manager to check for OS reboot",
+			"err", err)
+		return false
+	}
+	needReboot = pkgMgr.needsReboot(ctx)
+	if needReboot {
+		// Some methods of checking for reboots like RHEL's needs-restarting take a
+		// long time to run, so we cache the first positive result.
+		s.mu.Lock()
+		s.needsOSReboot = true
+		s.mu.Unlock()
+	}
+	return needReboot
 }
 
-// detectPackageManager returns an implementation of [packageManager] that
+// getPackageManager returns an implementation of [packageManager] that
 // matches the package manager binaries available on the OS.
-func detectPackageManager() (packageManager, error) {
+func getPackageManager(logger logging.Logger) (packageManager, error) {
 	type pmOption struct {
 		binary      string
 		constructor func() packageManager
@@ -92,15 +122,15 @@ func detectPackageManager() (packageManager, error) {
 	pms := []pmOption{
 		{
 			"apt-get",
-			func() packageManager { return aptPackageManager{} },
+			func() packageManager { return aptPackageManager{logger: logger.Sublogger("apt")} },
 		},
 		{
 			"dnf",
-			func() packageManager { return rpmPackageManager{useDnf: true} },
+			func() packageManager { return rpmPackageManager{logger: logger.Sublogger("dnf"), useDnf: true} },
 		},
 		{
 			"yum",
-			func() packageManager { return rpmPackageManager{useDnf: false} },
+			func() packageManager { return rpmPackageManager{logger: logger.Sublogger("yum"), useDnf: false} },
 		},
 	}
 	for _, pm := range pms {
@@ -129,7 +159,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	mode := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	pm, err := detectPackageManager()
+	pm, err := getPackageManager(s.logger)
 	if err != nil {
 		s.logger.Warnw("skipping managed OS upgrade", "error", err)
 		return
@@ -155,9 +185,10 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 
 // pkgCmd runs a package manager command, setting DEBIAN_FRONTEND=noninteractive
 // to suppress interactive prompts on apt-based systems (ignored elsewhere).
-func pkgCmd(ctx context.Context, name string, args ...string) error {
+func pkgCmd(ctx context.Context, logger logging.Logger, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	logger.Debugw("Executing package management command", "cmd", cmd.String())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %v: %w\n%s", name, args, err, output)

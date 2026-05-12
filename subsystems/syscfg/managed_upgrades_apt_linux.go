@@ -7,11 +7,14 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	"go.viam.com/rdk/logging"
 )
 
 const rebootRequiredPath = "/var/run/reboot-required"
 
-type aptPackageManager struct{}
+type aptPackageManager struct {
+	logger logging.Logger
+}
 
 // String implements [packageManager].
 func (a aptPackageManager) String() string {
@@ -25,7 +28,7 @@ func (a aptPackageManager) needsReboot(ctx context.Context) bool {
 
 func (a aptPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
 	// Refresh package lists.
-	if err := pkgCmd(ctx, "apt-get", "update"); err != nil {
+	if err := pkgCmd(ctx, a.logger, "apt-get", "update"); err != nil {
 		return err
 	}
 
@@ -41,7 +44,7 @@ func (a aptPackageManager) runUpgrade(ctx context.Context, securityOnly bool) er
 }
 
 func (a aptPackageManager) runFullUpgrade(ctx context.Context) error {
-	return pkgCmd(ctx, "apt-get", "upgrade", "-y",
+	return pkgCmd(ctx, a.logger, "apt-get", "upgrade", "-y",
 		"-o", "Dpkg::Options::=--force-confold",
 		"-o", "Dpkg::Options::=--force-confdef",
 	)
@@ -52,10 +55,11 @@ func (a aptPackageManager) ensureUnattendedUpgrades(ctx context.Context) error {
 		if installErr := doInstall(ctx); installErr != nil {
 			return errw.Wrap(installErr, "installing unattended-upgrades package")
 		}
+		// The package enables a systemd timer on first install. Disable it to be
+		// safe.
+		return setTimer(ctx, false)
 	}
-	// The package enables a systemd timer on first install. Disable it to be
-	// safe.
-	return setTimer(ctx, false)
+	return nil
 }
 
 func (a aptPackageManager) runSecurityUpgrade(ctx context.Context) error {

@@ -580,8 +580,8 @@ func (m *Manager) CloseAll() {
 	}
 }
 
-// StartBackgroundChecks kicks off go routines that loop on a timerr to check for updates,
-// health checks, and restarts.
+// StartBackgroundChecks kicks off go routines that loop on a timer to check
+// for updates, health checks, and restarts.
 func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -669,14 +669,18 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	}()
 
 	m.activeBackgroundWorkers.Go(func() {
-		ticker := time.NewTicker(osRebootCheckInterval)
-		defer ticker.Stop()
+		timer := time.NewTimer(osRebootCheckInterval)
+		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case <-timer.C:
 				m.CheckIfOSNeedsReboot(ctx)
+				// Some methods of checking for reboots take a long time, so wait for
+				// the interval between each invocation rather than using a ticker that
+				// continues to run while the check is taking place.
+				timer.Reset(osRebootCheckInterval)
 			}
 		}
 	})
@@ -889,7 +893,7 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 	syscfgDisabled := m.cfg.AdvancedSettings.GetDisableSystemConfiguration()
 	m.cfgMu.RUnlock()
 
-	if syscfgDisabled || !m.sysConfig.NeedsOSReboot() {
+	if syscfgDisabled || !m.sysConfig.NeedsOSReboot(ctx) {
 		return
 	}
 
