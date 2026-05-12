@@ -12,7 +12,14 @@ import (
 // Subsystem is an empty struct with noop methods for unsupported OSes.
 type Subsystem struct{}
 
-func New(_ context.Context, _ logging.Logger, _ utils.AgentConfig, _ func() logging.Appender, _ bool) *Subsystem {
+func New(
+	_ context.Context,
+	_ logging.Logger,
+	_ utils.AgentConfig,
+	_ func() logging.Appender,
+	_ bool,
+	_ func(context.Context) bool,
+) *Subsystem {
 	return &Subsystem{}
 }
 

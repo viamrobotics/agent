@@ -97,7 +97,8 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		healthyLog = true
 	}
 
-	// set unattended upgrades (no-op for managed-* modes)
+	// set unattended upgrades. If changing to a managed mode this will disable
+	// unattended upgrades.
 	err = s.EnforceUpgrades(ctx)
 	if err != nil {
 		s.logger.Warn(errw.Wrap(err, "configuring unattended upgrades"))

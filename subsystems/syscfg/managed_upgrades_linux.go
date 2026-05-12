@@ -28,10 +28,6 @@ func isManaged(mode string) bool {
 	return slices.Contains([]string{utils.OSAutoUpgradeManagedAll, utils.OSAutoUpgradeManagedSecurity}, mode)
 }
 
-func isUnattended(mode string) bool {
-	return slices.Contains([]string{utils.OSAutoUpgradeAll, utils.OSAutoUpgradeSecurity}, mode)
-}
-
 // startManagedUpgrades launches the background goroutine that periodically runs upgrades.
 // Must be called while s.mu is held.
 func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
