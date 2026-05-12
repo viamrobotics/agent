@@ -69,10 +69,6 @@ func (a aptPackageManager) runSecurityUpgrade(ctx context.Context) error {
 		return errw.Wrap(err, "writing unattended-upgrades config")
 	}
 
-	if _, err := utils.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsEnabled)); err != nil {
-		return errw.Wrap(err, "writing auto-upgrades config")
-	}
-
 	cmd := exec.CommandContext(ctx, "unattended-upgrade", "--verbose")
 	cmd.Env = append(os.Environ(),
 		"DEBIAN_FRONTEND=noninteractive",
