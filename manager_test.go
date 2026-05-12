@@ -296,6 +296,11 @@ func TestLoadAppConfig(t *testing.T) {
 // in SubsystemUpdates: the outer trigger (needRestart/configChange/agent/server
 // flags), the RestartAllowed gate, Stop outcome handling, and the
 // viamAgentNeedsRestart → Exit escape.
+//
+// Note on the viamServerNeedsRestart invariant: the flag tracks viam-server
+// signals only (binary update or config change). Agent-only triggers
+// (viamAgentNeedsRestart) never set it, even when Stop fails or RestartAllowed
+// denies — those rows expect the flag to stay false.
 func TestSubsystemUpdatesViamServerRestart(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
