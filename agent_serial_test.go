@@ -114,7 +114,7 @@ func TestSerialFeatures(t *testing.T) {
 		Options: &godog.Options{
 			// Options at time of writing: cucumber, events, junit, pretty, progress
 			Format:   "pretty",
-			Paths:    []string{"features/serial/install.feature"},
+			Paths:    []string{"features/serial"},
 			Tags:     serialTestTags(),
 			TestingT: t,
 			Strict:   true,
@@ -541,11 +541,20 @@ func versionStrToMatcherBase(version, oldVersion, stableVersion, testVersion str
 			return test.ShouldEqual(actual, stableVersion)
 		}
 	case "the version under test":
-		return func(actual string) string {
-			if testVersion == "" {
-				panic("must set test version in config")
+		if strings.HasPrefix(concreteTestVersion, "file://") {
+			return func(actual string) string {
+				if testVersion == "" {
+					panic("must set test version in config")
+				}
+				return test.ShouldEqual(actual, "custom")
 			}
-			return test.ShouldEqual(actual, concreteTestVersion)
+		} else {
+			return func(actual string) string {
+				if testVersion == "" {
+					panic("must set test version in config")
+				}
+				return test.ShouldEqual(actual, concreteTestVersion)
+			}
 		}
 	case "dev":
 		return func(actual string) string {
@@ -997,13 +1006,18 @@ func bleSurfacesExpectedError(expectedErr string) error {
 // (concrete, "stable", "dev", or "pr.N"), resolved to a concrete GCS URL, and
 // injected into the script via AGENT_CUSTOM_URL.
 func installAgent(ctx context.Context, version string) (context.Context, error) {
-	version = translateToAppVersion(version)
-
 	agentStatus := serialClient.GetAgentStatus().MustGet()
+	// Avoid wasting time and network traffic if agent is already running at the desired version
+
+	// First check, if agent is running, and running on the correct version
 	if agentStatus["SubState"] == "running" {
-		// Avoid wasting time and network traffic if agent is already running.
-		return ctx, nil
+		_, err := testAgentRunningWithVersion(ctx, version)
+		if err == nil {
+			return ctx, nil
+		}
 	}
+
+	// Then install
 	robotKeysResp, err := appClient.GetRobotAPIKeys(ctx, &apppb.GetRobotAPIKeysRequest{
 		RobotId: cfg.RobotID,
 	})
@@ -1015,9 +1029,24 @@ func installAgent(ctx context.Context, version string) (context.Context, error) 
 		"FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s",
 		robotKeys.ApiKey.Id, robotKeys.ApiKey.Key, cfg.PartID,
 	)
-	logger.Infof("Install version: %s\n", version)
-	cmd += fmt.Sprintf(" AGENT_CUSTOM_URL=%s", gcsURL("viam-agent", concreteTestVersion)) + " sh"
-	return ctx, serialClient.RunScript(installScript, cmd).Error()
+	logger.Infof("Install version: %s\n", concreteTestVersion)
+	// Don't use the concrete test version if it's a file pin, because gcsURL can't handle file pins
+	if !strings.HasPrefix(concreteTestVersion, "file://") {
+		cmd += fmt.Sprintf(" AGENT_CUSTOM_URL=%s", gcsURL("viam-agent", concreteTestVersion))
+	}
+	cmd += " sh"
+	err = serialClient.RunScript(installScript, cmd).Error()
+
+	// After install, if the version under test is a file pin, pin to the file
+	// assuming the binary is present on the device
+
+	// problem: binaries print their version as "custom Git Revision: sha"
+	if strings.HasPrefix(concreteTestVersion, "file://") {
+		logger.Infof("Version under test is a file pin: %s", concreteTestVersion)
+		ctx, err := applyVersionPin(ctx, concreteTestVersion, "agent", "version_control", "agent")
+		return ctx, err
+	}
+	return ctx, err
 }
 
 func testAgentEnabled(ctx context.Context) (context.Context, error) {
