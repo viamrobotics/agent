@@ -45,6 +45,13 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 	}
 
 	if isDisabled(cfg) || isManaged(cfg) {
+		err := setTimer(ctx, false)
+		if err != nil {
+			// Might just be that the package isn't installed yet so systemd reported
+			// an error trying to disable a timer that doesn't exist. Log the error
+			// just in case but continue.
+			s.logger.Warnw("Error disabling unattended upgrades systemd timer", "err", err)
+		}
 		isNew, err := utils.WriteFileIfNew(autoUpgradesPath, []byte(autoUpgradesContentsDisabled))
 		if err != nil {
 			return err
@@ -87,7 +94,7 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 		}
 	}
 
-	err = enableTimer(ctx)
+	err = setTimer(ctx, true)
 	if err != nil {
 		s.logger.Error(err)
 	}
@@ -124,9 +131,12 @@ func verifyUnattendedUpgrade(ctx context.Context) error {
 	return nil
 }
 
-func enableTimer(ctx context.Context) error {
-	// enable here
-	cmd := exec.CommandContext(ctx, "systemctl", "enable", "apt-daily-upgrade.timer")
+func setTimer(ctx context.Context, enabled bool) error {
+	verb := "disable"
+	if enabled {
+		verb = "enable"
+	}
+	cmd := exec.CommandContext(ctx, "systemctl", verb, "apt-daily-upgrade.timer")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errw.Wrapf(err, "executing 'systemctl enable apt-daily-upgrade.timer' %s", output)

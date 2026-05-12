@@ -29,6 +29,11 @@ func (a aptPackageManager) runUpgrade(ctx context.Context, securityOnly bool) er
 		return err
 	}
 
+	// unattended-upgrades handles creating /var/run/reboot-required.
+	if err := a.ensureUnattendedUpgrades(ctx); err != nil {
+		return err
+	}
+
 	if securityOnly {
 		return a.runSecurityUpgrade(ctx)
 	}
@@ -48,7 +53,9 @@ func (a aptPackageManager) ensureUnattendedUpgrades(ctx context.Context) error {
 			return errw.Wrap(installErr, "installing unattended-upgrades package")
 		}
 	}
-	return nil
+	// The package enables a systemd timer on first install. Disable it to be
+	// safe.
+	return setTimer(ctx, false)
 }
 
 func (a aptPackageManager) runSecurityUpgrade(ctx context.Context) error {
