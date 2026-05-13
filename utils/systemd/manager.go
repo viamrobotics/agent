@@ -117,10 +117,7 @@ func (s *SystemdManager) getServiceFilePath(ctx context.Context, serviceFile str
 	// Check if the new, preferred path is present in the systemd search path and
 	// therefore a migration may need to be performed.
 	searchPaths, err := s.SystemdSearchPaths(ctx)
-	if err != nil {
-		return "", false, err
-	}
-	if !slices.Contains(searchPaths, s.dirs.serviceFileDir) {
+	if err != nil || !slices.Contains(searchPaths, s.dirs.serviceFileDir) {
 		s.logger.Warnf(
 			"Systemd does not have %s in its unit search path, installing directly to %s",
 			s.dirs.serviceFileDir,
