@@ -122,7 +122,7 @@ func (s *SystemdManager) getServiceFilePath(ctx context.Context, serviceFile str
 			"Could not determine systemd unit search paths (%v); installing service file directly to %s",
 			err, s.dirs.fallbackFileDir,
 		)
-		return oldFilePath, false, nil //nolint:nilerr
+		return oldFilePath, false, nil
 	}
 	if !slices.Contains(searchPaths, s.dirs.serviceFileDir) {
 		s.logger.Warnf(
