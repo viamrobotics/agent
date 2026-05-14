@@ -35,7 +35,7 @@ func (n *Subsystem) networkScan(ctx context.Context) error {
 	}
 
 	if state != gnm.NmDeviceStateDisconnected && state != gnm.NmDeviceStateActivated {
-		n.logger.Debugf("wifi device state: %s, reason: %s, skipping scan", state, reason)
+		n.logger.Debugw("skipping scan", "state", state, "reason", reason)
 		return nil
 	}
 
@@ -219,7 +219,7 @@ func (n *Subsystem) updateKnownConnections(ctx context.Context) error {
 		}
 
 		if id.Type() != NetworkTypeBluetooth && id.Type() != NetworkTypeWired && id.SSID() == "" {
-			n.logger.Warnf("wifi network (%s) with no ssid detected, skipping: %v", id.Type(), settings)
+			n.logger.Warnw("wifi network with no ssid detected, skipping", "type", id.Type(), "settings", settings)
 			continue
 		}
 

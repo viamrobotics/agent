@@ -242,7 +242,7 @@ func (s *Subsystem) startLogForwarding() error {
 				if !s.logHealth.Sleep(ctx, time.Second) {
 					return
 				}
-				s.logger.Warnf("unexpected error output from journalctl: %s", stderr.String())
+				s.logger.Warnw("unexpected error output from journalctl", "stderr", stderr.String())
 			}
 
 			if decoder.More() {

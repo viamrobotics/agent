@@ -27,7 +27,7 @@ func runPlatformProvisioning(_ context.Context, _ utils.AgentConfig, _ *agent.Ma
 }
 
 func waitOnline(logger logging.Logger, _ context.Context) {
-	logger.Debugf("WaitOnline not available on %s yet", runtime.GOOS)
+	logger.Debugw("WaitOnline not available on this OS yet", "os", runtime.GOOS)
 }
 
 func ignoredSignal(_ os.Signal) bool {

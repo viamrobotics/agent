@@ -111,15 +111,15 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		binPath += ".exe"
 	}
 	if pathMissing(binPath) {
-		s.logger.Warnf("viam-server binary missing at %s, not starting", binPath)
+		s.logger.Warnw("viam-server binary missing, not starting", "bin_path", binPath)
 		// todo: nested func so unlock is deferable
 		s.mu.Unlock()
 		return nil
 	}
 	if s.shouldRun {
-		s.logger.Warnf("Restarting %s after unexpected exit", SubsysName)
+		s.logger.Warnw("Restarting after unexpected exit", "subsystem", SubsysName)
 	} else {
-		s.logger.Infof("Starting %s", SubsysName)
+		s.logger.Infow("Starting", "subsystem", SubsysName)
 		s.shouldRun = true
 	}
 
@@ -185,7 +185,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		defer s.mu.Unlock()
 		s.running = false
 		s.startTime = time.Time{} // zero = not running
-		s.logger.Infof("%s exited", SubsysName)
+		s.logger.Infow("exited", "subsystem", SubsysName)
 		// Only log errors from Wait() or the exit code of the process state if subsystem
 		// exited unexpectedly (was not stopped by agent and is therefore still marked as
 		// shouldRun).
@@ -196,10 +196,10 @@ func (s *Subsystem) Start(ctx context.Context) error {
 			if s.cmd.ProcessState != nil {
 				s.lastExit = s.cmd.ProcessState.ExitCode()
 				if s.lastExit != 0 {
-					s.logger.Errorf("non-zero exit code: %d", s.lastExit)
+					s.logger.Errorw("non-zero exit code", "exit_code", s.lastExit)
 				}
 			}
-			s.logger.Infof("%s exited unexpectedly and will be restarted shortly", SubsysName)
+			s.logger.Infow("exited unexpectedly and will be restarted shortly", "subsystem", SubsysName)
 		}
 		close(s.exitChan)
 	}()
@@ -208,8 +208,8 @@ func (s *Subsystem) Start(ctx context.Context) error {
 	case matches := <-c:
 		s.checkURL = matches[1]
 		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "127.0.0.1", 1)
-		s.logger.Infof("%s started", SubsysName)
-		s.logger.Infof("%s found serving at the following URLs: %s %s", SubsysName, s.checkURL, s.checkURLAlt)
+		s.logger.Infow("started", "subsystem", SubsysName)
+		s.logger.Infow("found serving at the following URLs", "subsystem", SubsysName, "check_url", s.checkURL, "check_url_alt", s.checkURLAlt)
 
 		// Once the subsystem has successfully started, fetch restart status and cache
 		// relevant properties. These values are calculated once at startup and cached,
@@ -227,8 +227,8 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		s.mu.Unlock()
 
 		if !s.doesNotHandleNeedsRestart {
-			s.logger.Warnf("%s may already handle checking needs restart functionality; will not handle in agent",
-				SubsysName)
+			s.logger.Warnw("may already handle checking needs restart functionality; will not handle in agent",
+				"subsystem", SubsysName)
 		}
 		return nil
 	case <-ctx.Done():
@@ -270,7 +270,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	s.logger.Infof("Stopping %s", SubsysName)
+	s.logger.Infow("Stopping", "subsystem", SubsysName)
 
 	// For app-triggered restarts, use the Shutdown RPC to allow viam-server to dump
 	// stack traces and gracefully shut down modules. For other shutdowns (binary updates,
@@ -290,17 +290,17 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 	}
 
 	if s.waitForExit(ctx, stopTermTimeout) {
-		s.logger.Infof("%s successfully stopped", SubsysName)
+		s.logger.Infow("successfully stopped", "subsystem", SubsysName)
 		return nil
 	}
 
-	s.logger.Warnf("%s refused to exit, killing", SubsysName)
+	s.logger.Warnw("refused to exit, killing", "subsystem", SubsysName)
 	if err := utils.KillTree(ctx, s.cmd.Process.Pid); err != nil {
 		s.logger.Warn(err)
 	}
 
 	if s.waitForExit(ctx, stopKillTimeout) {
-		s.logger.Infof("%s successfully killed", SubsysName)
+		s.logger.Infow("successfully killed", "subsystem", SubsysName)
 		return nil
 	}
 
@@ -314,7 +314,7 @@ func (s *Subsystem) tryShutdownRPC(ctx context.Context, dialAddr string) error {
 		return errw.New("no module server TCP address available")
 	}
 
-	s.logger.Debugf("Attempting Shutdown RPC to module server at %s", dialAddr)
+	s.logger.Debugw("Attempting Shutdown RPC to module server", "dial_addr", dialAddr)
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

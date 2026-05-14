@@ -161,12 +161,12 @@ func InitPaths(logger logging.Logger) error {
 
 		// check owner is current user
 		if err := checkPathOwner(uid, info); err != nil {
-			logger.Debugf("dir not owned by current user uid %s. fixing", p)
+			logger.Debugw("dir not owned by current user uid, fixing", "path", p)
 			// note: checkPathOwner is a no-op on Windows, so this check is redundant for now.
 			if runtime.GOOS != "windows" && !IsRunningLocally {
 				err = os.Chown(p, uid, -1)
 				if err != nil {
-					logger.Warnf("could not chown directory %v to current user uid %v. err %v; continuing", p, uid, err)
+					logger.Warnw("could not chown directory to current user uid; continuing", "path", p, "uid", uid, "err", err)
 				}
 			}
 		}
@@ -176,9 +176,9 @@ func InitPaths(logger logging.Logger) error {
 			// RSDK-13310: A previous version of viam-agent created the partials directory with
 			// 0o750 instead of the expected 0o755 permissions. If we get a permissions error
 			// here, log a debug message and attempt to correct the permissions.
-			logger.Debugf("%s should have permission set to %#o, but has permissions %#o; correcting", p, expectedPerms, info.Mode().Perm())
+			logger.Debugw("permission mismatch; correcting", "path", p, "expected_perms", fmt.Sprintf("%#o", expectedPerms), "actual_perms", fmt.Sprintf("%#o", info.Mode().Perm()))
 			if err := os.Chmod(p, expectedPerms); err != nil {
-				logger.Warnf("Could not correct permissions of %s", p)
+				logger.Warnw("Could not correct permissions", "path", p)
 			}
 		}
 	}
@@ -239,7 +239,7 @@ func TryResetAgent(logger logging.Logger) error {
 	filesToRemove := make([]string, 0, 10)
 	dirsToRemove := make([]string, 0, 10)
 
-	logger.Infof("removing all files in %v besides %v", viamDirsPathAbs, slices.Collect(maps.Keys(whitelistAbsPaths)))
+	logger.Infow("removing all files in viam dir besides whitelist", "viam_dir", viamDirsPathAbs, "whitelist", slices.Collect(maps.Keys(whitelistAbsPaths)))
 	err = filepath.WalkDir(viamDirsPathAbs, func(pathAbs string, d fs.DirEntry, err error) error {
 		if err != nil {
 			logger.Infow("skipping directory", "path", pathAbs, "err", err)
@@ -325,18 +325,18 @@ func TryResetAgent(logger logging.Logger) error {
 func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) time.Time {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		logger.Infof("%v", err)
+		logger.Infow("parsing URL for Last-Modified check", "err", err)
 		return time.Time{}
 	}
 	client := socksClient(parsedURL.String(), logger)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, parsedURL.String(), nil)
 	if err != nil {
-		logger.Infof("%v", err)
+		logger.Infow("building HEAD request for Last-Modified check", "err", err)
 		return time.Time{}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Infof("%v", err)
+		logger.Infow("sending HEAD request for Last-Modified check", "err", err)
 		return time.Time{}
 	}
 	defer func() {
@@ -367,7 +367,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		logger.Debugw("rewrote GCP media link to range-friendly", "orig", rawURL, "rewritten", parsedURL.String())
 	}
 
-	logger.Infof("Starting download of %s", rawURL)
+	logger.Infow("Starting download", "url", rawURL)
 	parsedPath := parsedURL.Path
 
 	// don't want to accidentally overwrite anything in the cache directory by accident
@@ -774,7 +774,7 @@ func Recover(logger logging.Logger, inner func(r any)) {
 	r := recover()
 	if r != nil {
 		logger.Error("encountered a panic, attempting to recover")
-		logger.Errorf("panic: %s\n%s", r, debug.Stack())
+		logger.Errorw("panic", "value", r, "stack", string(debug.Stack()))
 		if inner != nil {
 			inner(r)
 		}

@@ -42,7 +42,7 @@ func (b *pairingAgent) TrustDevice(bdaddr string) {
 	defer b.mu.Unlock()
 	trusted, ok := b.trusted[bdaddr]
 	if !ok || !trusted {
-		b.logger.Infof("Adding %s to the list of trusted bluetooth devices for pairing/tethering", bdaddr)
+		b.logger.Infow("Adding to the list of trusted bluetooth devices for pairing/tethering", "bdaddr", bdaddr)
 		b.trusted[bdaddr] = true
 	}
 }
@@ -84,13 +84,13 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 	}
 	alias := ret.Value().(string)
 
-	b.logger.Infof("Bluetooth pairing request from: %s (%s)", bdaddr, alias)
+	b.logger.Infow("Bluetooth pairing request", "bdaddr", bdaddr, "alias", alias)
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	trusted, ok := b.trusted[bdaddr]
 	if !(ok && trusted) && !b.trustAll && !b.pairable {
-		b.logger.Errorf("Bluetooth device pairing rejected for %s (%s), device address must be added via provisioning first.", bdaddr, alias)
+		b.logger.Errorw("Bluetooth device pairing rejected, device address must be added via provisioning first", "bdaddr", bdaddr, "alias", alias)
 		return errPairingRejected
 	}
 
@@ -102,7 +102,7 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 	if err != nil {
 		b.logger.Error(errw.Wrapf(err, "adding/updating tethering config for %s (%s)", bdaddr, alias))
 	} else {
-		b.logger.Infof("Added network manager profile for tethering with %s (%s)", bdaddr, alias)
+		b.logger.Infow("Added network manager profile for tethering", "bdaddr", bdaddr, "alias", alias)
 	}
 
 	if err := remoteDev.SetProperty("org.bluez.Device1.Trusted", true); err != nil {
@@ -120,12 +120,12 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 		defer func() {
 			switch {
 			case b.networking.connState.getOnline():
-				b.logger.Infof("Bluetooth tethering fully online.")
+				b.logger.Info("Bluetooth tethering fully online.")
 			case paired:
-				b.logger.Warnf("Failed to fully connect to the internet via tethering. Will keep trying. " +
+				b.logger.Warn("Failed to fully connect to the internet via tethering. Will keep trying. " +
 					"Please retry pairing if not online in five minutes.")
 			default:
-				b.logger.Warnf("Failed to complete bluetooth pairing. Please retry the pairing process.")
+				b.logger.Warn("Failed to complete bluetooth pairing. Please retry the pairing process.")
 			}
 		}()
 
@@ -149,8 +149,8 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 		// not consider pairing as "failed"
 		call := remoteDev.CallWithContext(ctx, "org.bluez.Device1.ConnectProfile", 0, "deadbeef-cafe-0000-0000-cafedeadbeef")
 		if call.Err.Error() != "br-connection-profile-unavailable" {
-			b.logger.Warnf("temporarily connecting bluetooth device %s (%s) resulted in unexpected error: %s",
-				bdaddr, alias, call.Err.Error())
+			b.logger.Warnw("temporarily connecting bluetooth device resulted in unexpected error",
+				"bdaddr", bdaddr, "alias", alias, "err", call.Err.Error())
 		}
 
 		// every bluetooth device is new, so have to scan after a new pairing
@@ -159,7 +159,7 @@ func (b *pairingAgent) RequestAuthorization(devicePath dbus.ObjectPath) *dbus.Er
 			b.logger.Warn(err)
 		}
 		b.networking.dataMu.Unlock()
-		b.logger.Infof("Bluetooth tethering (setup phase) complete, may take up to 60 seconds to get online.")
+		b.logger.Info("Bluetooth tethering (setup phase) complete, may take up to 60 seconds to get online.")
 
 		for b.networking.mainLoopHealth.Sleep(ctx, time.Second) {
 			if err := b.networking.checkOnline(ctx, true); err != nil {
@@ -253,7 +253,7 @@ func (n *Subsystem) disablePairing() error {
 	obj := conn.Object(BluezDBusService, "/org/bluez")
 	call = obj.Call("org.bluez.AgentManager1.UnregisterAgent", 0, dbus.ObjectPath(BluezAgentPath))
 	if err := call.Err; err != nil {
-		n.logger.Warnf("failed to unregister a bluez agent: %v", err)
+		n.logger.Warnw("failed to unregister a bluez agent", "err", err)
 	}
 
 	n.logger.Debug("setting bluetooth to NOT discoverable")

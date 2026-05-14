@@ -48,7 +48,7 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 	}
 
 	if newFile {
-		l.logger.Infof("Wrote new launchd plist file to %s", serviceFilePath)
+		l.logger.Infow("Wrote new launchd plist file", "path", serviceFilePath)
 	}
 	// We only need to "bootout" an existing service if agent is already installed and the file has been updated.
 	if installed && newFile {
@@ -62,7 +62,7 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 		// process is still running after 240s (4m), will send SIGKILL. We'll wait up to 4
 		// minutes here.
 
-		l.logger.Infof("Booting out old %s launchd service", serviceName)
+		l.logger.Infow("Booting out old launchd service", "service", serviceName)
 		if err := l.Bootout(ctx, serviceName); err != nil {
 			// Booting out may return an error if the system was never bootstrapped in the
 			// first place or was manually removed by user. Log and continue here in that
@@ -80,7 +80,7 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 			case <-time.After(time.Second):
 				timesChecked++
 				if timesChecked%10 == 0 {
-					l.logger.Debugf("Waited %d seconds for existing service to stop and be removed", timesChecked)
+					l.logger.Debugw("Waited for existing service to stop and be removed", "seconds", timesChecked)
 				}
 			case <-t.C:
 				return "", false, errors.Errorf("bootout failed to stop and remove existing service after %s",
@@ -89,7 +89,7 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 				return "", false, errors.WithMessage(ctx.Err(), "bootout failed to stop and remove existing service")
 			}
 		}
-		l.logger.Infof("Old %s launchd service booted out", serviceName)
+		l.logger.Infow("Old launchd service booted out", "service", serviceName)
 		needsBootstrap = true
 	}
 
@@ -101,11 +101,11 @@ func (l *LaunchdManager) InstallService(ctx context.Context, serviceName string,
 		if err := l.Bootstrap(ctx, serviceFilePath); err != nil {
 			return "", false, err
 		}
-		l.logger.Infof("New %s launchd service bootstrapped", serviceName)
+		l.logger.Infow("New launchd service bootstrapped", "service", serviceName)
 		if err = l.Kickstart(ctx, serviceName, false); err != nil {
 			return "", false, err
 		}
-		l.logger.Infof("%s launchd service started", serviceName)
+		l.logger.Infow("launchd service started", "service", serviceName)
 	}
 
 	return serviceFilePath, !installed, nil

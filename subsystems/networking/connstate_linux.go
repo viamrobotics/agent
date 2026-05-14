@@ -38,7 +38,7 @@ func (c *connectionState) setOnline(online bool) {
 	defer c.mu.Unlock()
 
 	if c.online != online {
-		c.logger.Infof("Online: %t", online)
+		c.logger.Infow("Online", "online", online)
 	}
 
 	c.online = online
@@ -64,7 +64,7 @@ func (c *connectionState) setConnected(connected bool) {
 	defer c.mu.Unlock()
 
 	if c.connected != connected {
-		c.logger.Infof("Wifi Connected: %t", connected)
+		c.logger.Infow("Wifi Connected", "connected", connected)
 	}
 
 	c.connected = connected
@@ -90,7 +90,7 @@ func (c *connectionState) setConfigured(configured bool) {
 	defer c.mu.Unlock()
 
 	if c.configured != configured {
-		c.logger.Infof("Machine credentials present: %t", configured)
+		c.logger.Infow("Machine credentials present", "configured", configured)
 	}
 
 	c.configured = configured

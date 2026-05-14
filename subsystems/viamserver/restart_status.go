@@ -130,7 +130,7 @@ func (s *Subsystem) fetchRestartStatus(ctx context.Context) (*RestartStatusRespo
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.logger.Debugf("Starting restart_status check for %s using %s", SubsysName, url)
+			s.logger.Debugw("Starting restart_status check", "subsystem", SubsysName, "url", url)
 
 			restartURL := url + restartURLSuffix
 

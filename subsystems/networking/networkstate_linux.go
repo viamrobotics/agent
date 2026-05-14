@@ -105,7 +105,7 @@ func (n *networkState) LockingNetwork(id NetKey) *lockingNetwork {
 			},
 		}
 		n.network[id] = net
-		n.logger.Debugf("found new network %s (%s)", id, net.netType)
+		n.logger.Debugw("found new network", "id", id, "type", net.netType)
 	}
 
 	return net
@@ -249,7 +249,7 @@ func (n *networkState) EthDevice(iface string) gnm.DeviceWired {
 
 	dev, ok := n.ethDevice[iface]
 	if !ok {
-		n.logger.Warnf("cannot find eth device for %s", iface)
+		n.logger.Warnw("cannot find eth device", "interface", iface)
 		return nil
 	}
 
@@ -269,7 +269,7 @@ func (n *networkState) WifiDevice(iface string) gnm.DeviceWireless {
 
 	dev, ok := n.wifiDevice[iface]
 	if !ok {
-		n.logger.Warnf("cannot find wifi device for %s", iface)
+		n.logger.Warnw("cannot find wifi device", "interface", iface)
 		return nil
 	}
 
@@ -289,7 +289,7 @@ func (n *networkState) BTDevice(iface string) gnm.Device {
 
 	dev, ok := n.btDevice[iface]
 	if !ok {
-		n.logger.Warnf("cannot find bluetooth device for %s", iface)
+		n.logger.Warnw("cannot find bluetooth device", "interface", iface)
 		return nil
 	}
 
@@ -356,10 +356,10 @@ func (n *networkState) GenNetKey(netType, ifName, ssid string) NetKey {
 	case NetworkTypeBluetooth:
 		return NetKey{NetworkTypeBluetooth, ifName, NetworkTypeBluetooth}
 	default:
-		n.logger.Warnf("encountered unknown network type: %s, interface: %s, ssid: %s", netType, ifName, ssid)
+		n.logger.Warnw("encountered unknown network type", "type", netType, "interface", ifName, "ssid", ssid)
 		_, file, no, ok := runtime.Caller(1)
 		if ok {
-			n.logger.Warnf("called from %s#%d", file, no)
+			n.logger.Warnw("called from", "file", file, "line", no)
 		}
 		return NetKeyUnknown
 	}
@@ -381,5 +381,5 @@ func (n *networkState) RemoveDevice(ifName string) {
 	delete(n.lastSSID, ifName)
 	delete(n.primarySSID, ifName)
 
-	n.logger.Debugf("removed device %s from network state", ifName)
+	n.logger.Debugw("removed device from network state", "interface", ifName)
 }

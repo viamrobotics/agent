@@ -123,7 +123,7 @@ func (n *Subsystem) portalIndex(resp http.ResponseWriter, req *http.Request) {
 
 	if utils.IsRunningLocally {
 		templatesDir := filepath.Join(utils.ViamDirs.Tmp, "templates")
-		n.logger.Warnf("running locally, using templates from %s", templatesDir)
+		n.logger.Warnw("running locally, using templates", "dir", templatesDir)
 		newT, err := template.ParseGlob(templatesDir + "/*.html")
 		if err == nil {
 			t = newT
@@ -194,7 +194,7 @@ func (n *Subsystem) portalSave(resp http.ResponseWriter, req *http.Request) {
 	if ssid != "" {
 		n.portalData.input.SSID = ssid
 		n.portalData.input.PSK = psk
-		n.logger.Debugf("saving credentials for %s", n.portalData.input.SSID)
+		n.logger.Debugw("saving credentials", "ssid", n.portalData.input.SSID)
 		n.banner.Set(n.banner.Get() + "Added credentials for SSID: " + n.portalData.input.SSID)
 	}
 

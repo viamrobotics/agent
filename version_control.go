@@ -288,7 +288,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	}
 
 	// this is a new version
-	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
+	c.logger.Infow("new version found", "version", verData.Version, "binary", binary)
 
 	if !goodBytes || lastModifiedChanged {
 		if lastModifiedChanged {
@@ -389,7 +389,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	verData.Installed = time.Now()
 
 	// if we made it here we performed an update and need to restart
-	c.logger.Infof("%s updated from %s to %s", binary, data.PreviousVersion, data.CurrentVersion)
+	c.logger.Infow("binary updated", "binary", binary, "from", data.PreviousVersion, "to", data.CurrentVersion)
 	needRestart = true
 
 	// record the cache
@@ -484,10 +484,10 @@ func (c *VersionCache) CleanCache(ctx context.Context) {
 				return
 			}
 			if slices.Contains(protectedFiles, f.Name()) {
-				c.cacheCleanupLogger.Debugf("cache cleanup skipping: %s", f.Name())
+				c.cacheCleanupLogger.Debugw("cache cleanup skipping", "file", f.Name())
 				continue
 			}
-			c.cacheCleanupLogger.Infof("cache cleanup removing: %s", f.Name())
+			c.cacheCleanupLogger.Infow("cache cleanup removing", "file", f.Name())
 			if err := os.Remove(filepath.Join(dir, f.Name())); err != nil {
 				c.cacheCleanupLogger.Error(errw.Wrapf(err, "removing file %s", f.Name()))
 			}

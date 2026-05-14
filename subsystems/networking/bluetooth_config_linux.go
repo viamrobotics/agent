@@ -25,7 +25,7 @@ func (n *Subsystem) checkBluetoothdVersion(ctx context.Context) error {
 	matches := regexp.MustCompile(`Version\s+([0-9]+\.[0-9]+)`).FindSubmatch(output)
 
 	if len(matches) != 2 {
-		n.logger.Warnf("cannot parse output (%s) returned from 'bluetoothctl version'", output)
+		n.logger.Warnw("cannot parse output returned from 'bluetoothctl version'", "output", output)
 		return nil
 	}
 
@@ -36,7 +36,7 @@ func (n *Subsystem) checkBluetoothdVersion(ctx context.Context) error {
 	}
 
 	if !sv.GreaterThanEqual(semver.MustParse("5.50")) {
-		n.logger.Warnf("bluetooth version %s is less than 5.50, functionality may be limited", string(matches[1]))
+		n.logger.Warnw("bluetooth version is less than 5.50, functionality may be limited", "version", string(matches[1]))
 	}
 	return nil
 }
@@ -142,7 +142,7 @@ func (n *Subsystem) ensureBluetoothConfiguration(ctx context.Context) error {
 	}
 
 	if isNew {
-		n.logger.Infof("Updated bluetooth configuration %s", BluezConfigPath)
+		n.logger.Infow("Updated bluetooth configuration", "path", BluezConfigPath)
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*15)
 		defer cancel()
 		cmd := exec.CommandContext(timeoutCtx, "systemctl", "restart", "bluetooth")

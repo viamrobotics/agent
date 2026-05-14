@@ -161,10 +161,9 @@ func commonMain() {
 	}
 
 	if runtime.GOOS != "windows" && !strings.HasPrefix(os.Args[0], utils.ViamDirs.Viam) {
-		globalLogger.Warnf("note: viam-agent is intended to be run as a system service and installed in %s.", utils.ViamDirs.Viam)
-		globalLogger.Warnf("\tFor production use, please install with '%s --install' and "+
-			"then start the service with 'systemctl start viam-agent'", os.Args[0])
-		globalLogger.Warnf("\tSee --help for a full list of options.")
+		globalLogger.Warnw("note: viam-agent is intended to be run as a system service", "expected_dir", utils.ViamDirs.Viam)
+		globalLogger.Warnw("for production use, install with '--install' and then start the service with 'systemctl start viam-agent'", "binary", os.Args[0])
+		globalLogger.Warn("\tSee --help for a full list of options.")
 		utils.IsRunningLocally = true
 	}
 
@@ -174,7 +173,7 @@ func commonMain() {
 	}
 
 	if utils.IsRunningLocally {
-		globalLogger.Infof("Starting local viam-agent. viam dir: %s", utils.ViamDirs.Viam)
+		globalLogger.Infow("Starting local viam-agent", "viam_dir", utils.ViamDirs.Viam)
 	}
 
 	// set up folder structure
@@ -195,12 +194,12 @@ func commonMain() {
 	utils.DefaultsFilePath, err = filepath.Abs(opts.DefaultsConfig)
 	// exit if unable to convert DefaultsConfig to absolute path (doesn't validate)
 	exitIfError(err, false)
-	globalLogger.Infof("manufacturer defaults file path: %s", utils.DefaultsFilePath)
+	globalLogger.Infow("manufacturer defaults file path", "path", utils.DefaultsFilePath)
 
 	utils.AppConfigFilePath, err = filepath.Abs(opts.Config)
 	// exit if unable to convert Config to absolute path (doesn't validate)
 	exitIfError(err, false)
-	globalLogger.Infof("machine credentials file path: %s", utils.AppConfigFilePath)
+	globalLogger.Infow("machine credentials file path", "path", utils.AppConfigFilePath)
 
 	cfg, err := utils.LoadConfigFromCache()
 	if err != nil {
@@ -225,13 +224,13 @@ func commonMain() {
 	// valid viam.json from this point forward
 	netAppender, err := manager.CreateNetAppender()
 	if err != nil {
-		globalLogger.Warnf("error creating NetAppender: %s", err)
+		globalLogger.Warnw("error creating NetAppender", "error", err)
 	} else {
 		registry.AddAppenderToAll(netAppender)
 	}
 
 	// wait until now when we (potentially) have a network logger to record this
-	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
+	globalLogger.Infow("Viam Agent Version", "version", utils.GetVersion(), "git_revision", utils.GetRevision())
 
 	if cfg.AdvancedSettings.WaitForUpdateCheck.Get() {
 		// wait to be online
@@ -356,11 +355,11 @@ func getLock() (lockfile.Lockfile, error) {
 				globalLogger.Error(errors.Wrap(err, "cannot get info on lockfile owner"))
 				staleFile = true
 			} else if !strings.Contains(runPath, agent.SubsystemName) {
-				globalLogger.Warnf("lockfile owner isn't %s", agent.SubsystemName)
+				globalLogger.Warnw("lockfile owner mismatch", "expected_owner", agent.SubsystemName)
 				staleFile = true
 			}
 			if staleFile {
-				globalLogger.Warnf("deleting lockfile %s", pidFile)
+				globalLogger.Warnw("deleting lockfile", "pidfile", pidFile)
 				if err := os.RemoveAll(string(pidFile)); err != nil {
 					return "", errors.Wrap(err, "removing lockfile")
 				}

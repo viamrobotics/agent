@@ -67,7 +67,7 @@ func (s *SystemdManager) InstallService(ctx context.Context, serviceName string,
 		newInstall = err != nil
 	}
 
-	s.logger.Infof("writing systemd service file to %s", serviceFilePath)
+	s.logger.Infow("writing systemd service file", "path", serviceFilePath)
 
 	newFile, err := utils.WriteFileIfNew(serviceFilePath, serviceFileContents)
 	if err != nil {
@@ -121,10 +121,10 @@ func (s *SystemdManager) getServiceFilePath(ctx context.Context, serviceFile str
 		return "", false, err
 	}
 	if !slices.Contains(searchPaths, s.dirs.serviceFileDir) {
-		s.logger.Warnf(
-			"Systemd does not have %s in its unit search path, installing directly to %s",
-			s.dirs.serviceFileDir,
-			s.dirs.fallbackFileDir,
+		s.logger.Warnw(
+			"Systemd does not have the preferred dir in its unit search path, installing to fallback dir instead",
+			"preferred_dir", s.dirs.serviceFileDir,
+			"fallback_dir", s.dirs.fallbackFileDir,
 		)
 		return oldFilePath, false, nil
 	}

@@ -113,7 +113,7 @@ func (n *Subsystem) initDevices() error {
 			if n.cfg.HotspotInterface == "" || ifName == n.cfg.HotspotInterface {
 				n.cfg.HotspotInterface = ifName
 				n.netState.SetHotspotInterface(ifName)
-				n.logger.Infof("Using %s for hotspot/provisioning, will actively manage wifi only on this device.", ifName)
+				n.logger.Infow("Using interface for hotspot/provisioning, will actively manage wifi only on this device.", "interface", ifName)
 			}
 		case gnm.NmDeviceTypeBt:
 			ifName, err := device.GetPropertyInterface()

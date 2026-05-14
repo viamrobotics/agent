@@ -117,7 +117,7 @@ func (n *Subsystem) getNM() (gnm.NetworkManager, error) {
 		return nil, ErrNM
 	}
 
-	n.logger.Infof("Found NetworkManager version: %s", ver)
+	n.logger.Infow("Found NetworkManager version", "version", ver)
 
 	sv, err := semver.NewVersion(ver)
 	if err != nil {
@@ -197,9 +197,9 @@ func (n *Subsystem) init(ctx context.Context) error {
 		n.logger.Info("Wifi internet checking enabled. Will try all connections for global internet connectivity.")
 	} else {
 		primarySSID := n.netState.PrimarySSID(n.Config().HotspotInterface)
-		n.logger.Infof("Internet checks disabled. Will directly connect to primary network: %s", primarySSID)
+		n.logger.Infow("Internet checks disabled. Will directly connect to primary network", "ssid", primarySSID)
 		if primarySSID == "" {
-			n.logger.Warnf("cannot find primary SSID for %s", n.Config().HotspotInterface)
+			n.logger.Warnw("cannot find primary SSID", "interface", n.Config().HotspotInterface)
 		}
 	}
 
@@ -237,7 +237,7 @@ func (n *Subsystem) Start(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	n.logger.Infof("Starting networking subsystem")
+	n.logger.Info("Starting networking subsystem")
 
 	if n.nm == nil || n.settings == nil {
 		if err := n.init(ctx); err != nil {
@@ -290,7 +290,7 @@ func (n *Subsystem) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	n.logger.Infof("Stopping networking subsystem")
+	n.logger.Info("Stopping networking subsystem")
 	if n.cancel != nil {
 		n.cancel()
 	}
@@ -330,7 +330,7 @@ func (n *Subsystem) Update(ctx context.Context, cfg utils.AgentConfig) (needRest
 	}
 
 	needRestart = true
-	n.logger.Debugf("Updated config differs from previous. Previous: %#v New: %#v", n.Config(), cfg)
+	n.logger.Debugw("Updated config differs from previous", "previous", n.Config(), "new", cfg)
 
 	n.dataMu.Lock()
 	defer n.dataMu.Unlock()
@@ -456,7 +456,7 @@ func (n *Subsystem) writeWifiPowerSave(ctx context.Context) error {
 	}
 
 	if isNew {
-		n.logger.Infof("Updated %s to: %q", wifiPowerSaveFilepath, contents)
+		n.logger.Infow("Updated wifi powersave config", "path", wifiPowerSaveFilepath, "contents", contents)
 		// Reload NetworkManager to apply changes
 		if err := n.nm.Reload(0); err != nil {
 			return errw.Wrap(err, "reloading NetworkManager after wifi-powersave.conf update")

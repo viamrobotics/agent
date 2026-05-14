@@ -109,7 +109,7 @@ func Connect(logger logging.Logger, serialPortPath string) mo.Result[*Client] {
 // Get a shell on a serial terminal regardless of the initial state of the terminal.
 // Essentially a no-op if the terminal is already logged in.
 func (c *Client) Login(user, pass string) error {
-	c.logger.Debugf("Logging into shell...")
+	c.logger.Debug("Logging into shell...")
 
 	if err := c.port.SetReadTimeout(time.Second); err != nil {
 		return fmt.Errorf("setting read timeout: %w", err)
@@ -173,7 +173,7 @@ func (c *Client) waitFor(timeout time.Duration, targets ...string) mo.Result[str
 		n, err := c.port.Read(buf)
 		if n > 0 {
 			accumulated = append(accumulated, buf[:n]...)
-			c.logger.Debugf("serial read: %q", string(buf[:n]))
+			c.logger.Debugw("serial read", "data", string(buf[:n]))
 			acc := string(accumulated)
 			for _, t := range targets {
 				if strings.Contains(acc, t) {
@@ -410,7 +410,7 @@ func (c *Client) GetAgentStatus() mo.Result[map[string]string] {
 	return mo.Ok(it.FilterSeqToMap(
 		slices.Values(cmdRes.MustGet()),
 		func(item string) (string, string, bool) {
-			c.logger.Debugf("systemctl show output: %s", item)
+			c.logger.Debugw("systemctl show output", "line", item)
 			kv := strings.SplitN(item, "=", 2)
 			if len(kv) != 2 {
 				// Probably just a blank line, ignore.

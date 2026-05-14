@@ -135,7 +135,7 @@ func (m *Manager) LoadAppConfig() error {
 	m.connMu.Lock()
 	defer m.connMu.Unlock()
 
-	m.logger.Debugf("loading config: %s", utils.AppConfigFilePath)
+	m.logger.Debugw("loading config", "path", utils.AppConfigFilePath)
 
 	b, err := os.ReadFile(utils.AppConfigFilePath)
 	if err != nil {
@@ -291,9 +291,9 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 				stopCtx, cancel := context.WithTimeout(context.Background(), stopAllTimeout)
 				defer cancel()
 				if ctx.Err() != nil {
-					m.logger.Infof("agent shutting down; stopping %s before exit", viamserver.SubsysName)
+					m.logger.Infow("agent shutting down; stopping subsystem before exit", "subsystem", viamserver.SubsysName)
 				} else {
-					m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
+					m.logger.Infow("subsystem has allowed a restart; will restart", "subsystem", viamserver.SubsysName)
 				}
 
 				if err := m.viamServer.Stop(stopCtx); err != nil {
@@ -306,7 +306,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 					return
 				}
 			} else {
-				m.logger.Warnf("%s has NOT allowed a restart; will NOT restart", viamserver.SubsysName)
+				m.logger.Warnw("subsystem has NOT allowed a restart; will NOT restart", "subsystem", viamserver.SubsysName)
 				m.viamServerNeedsRestart = true
 			}
 		}
@@ -445,7 +445,7 @@ func (m *Manager) startAndHealthCheck(ctx context.Context, subsysName string, st
 			m.logger.Warn(errw.Wrapf(err, "restarting %s subsystem", subsysName))
 		}
 	} else {
-		m.logger.Debugf("Subsystem healthcheck succeeded for %s", subsysName)
+		m.logger.Debugw("Subsystem healthcheck succeeded", "subsystem", subsysName)
 	}
 }
 
@@ -508,17 +508,17 @@ func (m *Manager) CloseAll() {
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
 		} else {
-			m.logger.Infof("Subsystem %s shut down successfully", viamserver.SubsysName)
+			m.logger.Infow("Subsystem shut down successfully", "subsystem", viamserver.SubsysName)
 		}
 		if err := m.sysConfig.Stop(ctx); err != nil {
 			m.logger.Warn(err)
 		} else {
-			m.logger.Infof("Subsystem %s shut down successfully", syscfg.SubsysName)
+			m.logger.Infow("Subsystem shut down successfully", "subsystem", syscfg.SubsysName)
 		}
 		if err := m.networking.Stop(ctx); err != nil {
 			m.logger.Warn(err)
 		} else {
-			m.logger.Infof("Subsystem %s shut down successfully", networking.SubsysName)
+			m.logger.Infow("Subsystem shut down successfully", "subsystem", networking.SubsysName)
 		}
 
 		m.activeBackgroundWorkers.Wait()

@@ -67,7 +67,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		return nil
 	}
 
-	s.logger.Infof("Starting syscfg subsystem")
+	s.logger.Info("Starting syscfg subsystem")
 
 	s.started = true
 	var healthyLog, healthyUpgrades bool
@@ -111,7 +111,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
-		s.logger.Infof("Stopping syscfg subsystem")
+		s.logger.Info("Stopping syscfg subsystem")
 	}
 	s.started = false
 

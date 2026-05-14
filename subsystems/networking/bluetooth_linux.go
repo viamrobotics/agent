@@ -70,14 +70,14 @@ func (n *Subsystem) startProvisioningBluetooth(ctx context.Context) error {
 // stop stops advertising a bluetooth service which (when enabled) accepts WiFi and Viam cloud config credentials.
 func (n *Subsystem) stopProvisioningBluetooth() error {
 	if n.btAdv == nil {
-		n.logger.Warnf("bluetooth already stopped")
+		n.logger.Warn("bluetooth already stopped")
 		return nil
 	}
 	// 'not started' is unexported but comes from here
 	// https://github.com/tinygo-org/bluetooth/blob/5c615298c3e4400150c44da3636f3d3b10967e3c/gap_linux.go#L48
 	if err := n.btAdv.Stop(); err != nil {
 		if err.Error() == "bluetooth: advertisement is not started" {
-			n.logger.Warnf("ignoring %q from Stop()", err)
+			n.logger.Warnw("ignoring error from Stop()", "err", err)
 		} else {
 			return fmt.Errorf("failed to stop BT advertising: %w", err)
 		}
@@ -133,7 +133,7 @@ func (n *Subsystem) initializeBluetoothService(
 	}
 
 	n.btAdv = adv
-	n.logger.Debugf("Bluetooth service UUID: %s.", serviceUUID.String())
+	n.logger.Debugw("Bluetooth service UUID", "uuid", serviceUUID.String())
 	return nil
 }
 

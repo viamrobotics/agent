@@ -130,7 +130,7 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 	// Generate predictable (v5) UUID from common namespace+cName
 	cUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(cName)))
 
-	b.logger.Debugf("%s can be written to BT characteristic: %s", cName, cUUID.String())
+	b.logger.Debugw("characteristic can be written to BT", "name", cName, "uuid", cUUID.String())
 	return bluetooth.CharacteristicConfig{
 		UUID:  cUUID,
 		Flags: bluetooth.CharacteristicWritePermission | bluetooth.CharacteristicWriteWithoutResponsePermission,
@@ -141,11 +141,11 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 			if err != nil {
 				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
 			}
-			b.logger.Debugf("Received %s: %s (cipher/plain sizes: %d/%d)", cName, plaintext, len(value), len(plaintext))
+			b.logger.Debugw("Received characteristic value", "name", cName, "plaintext", plaintext, "cipher_size", len(value), "plain_size", len(plaintext))
 			if cName == unlockPairingKey {
 				trustBool, err := strconv.ParseBool(plaintext)
 				if err != nil {
-					b.logger.Warnf("invalid value received for pairing trust, expected boolean (0, 1, true, false), got: %s", plaintext)
+					b.logger.Warnw("invalid value received for pairing trust, expected boolean (0, 1, true, false)", "value", plaintext)
 					return
 				}
 				b.trustFunc(trustBool)
@@ -161,7 +161,7 @@ func (b *btCharacteristics) initReadOnlyCharacteristic(cName string) bluetooth.C
 	// Generate predictable (v5) UUID from common namespace+cName
 	cUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(cName)))
 
-	b.logger.Debugf("%s can be read from BT characteristic: %s", cName, cUUID.String())
+	b.logger.Debugw("characteristic can be read from BT", "name", cName, "uuid", cUUID.String())
 	return bluetooth.CharacteristicConfig{
 		Handle: &bluetooth.Characteristic{},
 		UUID:   cUUID,

@@ -48,11 +48,11 @@ func ignoredSignal(sig os.Signal) bool {
 // tries to run provisioning, returns false if failed + main function should exit.
 func runPlatformProvisioning(ctx context.Context, cfg utils.AgentConfig, manager *agent.Manager, err error) bool {
 	// It may be some time before we provision, so go ahead and log this here too, so it's displayed sooner
-	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
+	globalLogger.Infow("Viam Agent Version", "version", utils.GetVersion(), "git_revision", utils.GetRevision())
 
 	if cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
-		globalLogger.Errorf("Cannot read %s and network configuration is disabled. Please correct and restart viam-agent.",
-			utils.AppConfigFilePath)
+		globalLogger.Errorw("cannot read machine credentials file and network configuration is disabled; please correct and restart viam-agent",
+			"path", utils.AppConfigFilePath)
 		return false
 	}
 
@@ -71,7 +71,7 @@ func runPlatformProvisioning(ctx context.Context, cfg utils.AgentConfig, manager
 
 	// We manually start the provisioning service to allow the user to update it and wait.
 	// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
-	globalLogger.Infof("machine credentials file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
+	globalLogger.Infow("machine credentials file missing or corrupt, entering provisioning mode", "path", utils.AppConfigFilePath)
 
 	if err := manager.StartSubsystem(ctx, networking.SubsysName); err != nil {
 		globalLogger.Error(errors.Wrapf(err, "could not start networking subsystem, "+

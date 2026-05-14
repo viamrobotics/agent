@@ -39,7 +39,7 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		if err := restartJournald(ctx); err != nil {
 			return err
 		}
-		s.logger.Infof("Logging config disabled. Removing customized %s", journaldConfPath)
+		s.logger.Infow("Logging config disabled. Removing customized journald config", "path", journaldConfPath)
 		return nil
 	}
 
@@ -89,7 +89,7 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 
 	if isNew {
 		if s.cfg.LoggingJournaldStorage == "persistent" {
-			s.logger.Infof("Begin updating journald config... (this may take a while to complete " +
+			s.logger.Info("Begin updating journald config... (this may take a while to complete " +
 				"if a large volume of existing logs must be migrated from memory to disk)")
 		}
 		if err := restartJournald(ctx); err != nil {
@@ -98,8 +98,11 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		if err := flushJournald(ctx); err != nil {
 			return err
 		}
-		s.logger.Infof("Updated %s, setting SystemMaxUse=%s, RuntimeMaxUse=%s, Storage=%s",
-			journaldConfPath, persistSize, tempSize, s.cfg.LoggingJournaldStorage)
+		s.logger.Infow("Updated journald config",
+			"path", journaldConfPath,
+			"system_max_use", persistSize,
+			"runtime_max_use", tempSize,
+			"storage", s.cfg.LoggingJournaldStorage)
 	}
 	return nil
 }

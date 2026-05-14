@@ -51,10 +51,10 @@ func (n *Subsystem) warnIfMultiplePrimaryNetworks() {
 		}
 	}
 	if len(primaryCandidates) > 1 {
-		n.logger.Warnf(
-			"Multiple networks %s tied for highest priority (%d), selection will be arbitrary. Consider using Roaming Mode.",
-			primaryCandidates,
-			highestPriority,
+		n.logger.Warnw(
+			"Multiple networks tied for highest priority, selection will be arbitrary. Consider using Roaming Mode.",
+			"networks", primaryCandidates,
+			"priority", highestPriority,
 		)
 	}
 }
@@ -141,8 +141,8 @@ func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 				networkStatusLogger.Info(errw.Wrap(errManualCheck, "testing connectivity via file download"))
 			}
 			if online {
-				networkStatusLogger.Infof(
-					"test file download successful. overriding NetworkManager's reported offline (current state: %v) and marking Agent as online.", state)
+				networkStatusLogger.Infow(
+					"test file download successful. overriding NetworkManager's reported offline and marking Agent as online.", "state", state)
 			}
 		} else {
 			// if it's not time for a new test, we want to avoid mistakenly recording "offline"
@@ -176,10 +176,10 @@ func (n *Subsystem) checkConnections() {
 		activeConnection, err := dev.GetPropertyActiveConnection()
 		if err != nil {
 			if isObjectNotExistError(err) {
-				n.logger.Warnf("device %s no longer exists, removing from network state: %v", ifName, err)
+				n.logger.Warnw("device no longer exists, removing from network state", "interface", ifName, "err", err)
 				n.netState.RemoveDevice(ifName)
 			} else {
-				n.logger.Warnf("failed to get active connection for device %s: %v", ifName, err)
+				n.logger.Warnw("failed to get active connection for device", "interface", ifName, "err", err)
 			}
 			continue
 		}
@@ -192,10 +192,10 @@ func (n *Subsystem) checkConnections() {
 		connection, err := activeConnection.GetPropertyConnection()
 		if err != nil {
 			if isObjectNotExistError(err) {
-				n.logger.Warnf("device %s no longer exists, removing from network state: %v", ifName, err)
+				n.logger.Warnw("device no longer exists, removing from network state", "interface", ifName, "err", err)
 				n.netState.RemoveDevice(ifName)
 			} else {
-				n.logger.Warnf("failed to get connection property for device %s: %v", ifName, err)
+				n.logger.Warnw("failed to get connection property for device", "interface", ifName, "err", err)
 			}
 			continue
 		}
@@ -203,17 +203,17 @@ func (n *Subsystem) checkConnections() {
 		settings, err := connection.GetSettings()
 		if err != nil {
 			if isObjectNotExistError(err) {
-				n.logger.Warnf("device %s no longer exists, removing from network state: %v", ifName, err)
+				n.logger.Warnw("device no longer exists, removing from network state", "interface", ifName, "err", err)
 				n.netState.RemoveDevice(ifName)
 			} else {
-				n.logger.Warnf("failed to get connection settings for device %s: %v", ifName, err)
+				n.logger.Warnw("failed to get connection settings for device", "interface", ifName, "err", err)
 			}
 			continue
 		}
 
 		id := n.getNetKeyFromSettings(settings)
 		if id == NetKeyUnknown {
-			n.logger.Warnf("unknown network, interface: %s, settings: %+v", ifName, settings)
+			n.logger.Warnw("unknown network", "interface", ifName, "settings", settings)
 			continue
 		}
 		nw := n.netState.LockingNetwork(id)
@@ -412,7 +412,7 @@ func (n *Subsystem) activateConnection(ctx context.Context, id NetKey) error {
 	nw.lastError = nil
 	n.netState.SetActiveConn(id.Interface(), activeConnection)
 
-	n.logger.Infof("Successfully activated connection: %s", id)
+	n.logger.Infow("Successfully activated connection", "id", id)
 
 	if nw.netType != NetworkTypeHotspot {
 		n.netState.SetActiveSSID(id.Interface(), id.SSID())
@@ -446,14 +446,14 @@ func (n *Subsystem) deactivateConnection(id NetKey) error {
 	nw.mu.Lock()
 	defer nw.mu.Unlock()
 
-	n.logger.Infof("Deactivating connection: %s", id)
+	n.logger.Infow("Deactivating connection", "id", id)
 
 	if err := n.nm.DeactivateConnection(activeConn); err != nil {
 		nw.lastError = err
 		return errw.Wrapf(err, "deactivating connection: %s", id)
 	}
 
-	n.logger.Infof("Successfully deactivated connection: %s", id)
+	n.logger.Infow("Successfully deactivated connection", "id", id)
 
 	// TODO figure out what it means to be "disconnected" with bluetooth or multiple adapters
 	if id.Interface() == n.Config().HotspotInterface {
@@ -488,7 +488,7 @@ func (n *Subsystem) waitForConnect(ctx context.Context, nw *lockingNetwork, devi
 	for {
 		select {
 		case update := <-changeChan:
-			n.logger.Debugf("%s->%s (%s)", update.OldState, update.NewState, update.Reason)
+			n.logger.Debugw("device state change", "old_state", update.OldState, "new_state", update.NewState, "reason", update.Reason)
 			//nolint:exhaustive
 			switch update.NewState {
 			case gnm.NmDeviceStateActivated:
@@ -565,7 +565,7 @@ func (n *Subsystem) addOrUpdateConnection(cfg utils.NetworkDefinition) (bool, er
 		n.netState.SetPrimarySSID(n.Config().HotspotInterface, cfg.SSID)
 	}
 
-	n.logger.Infof("Adding/updating settings for network %s", id)
+	n.logger.Infow("Adding/updating settings for network", "id", id)
 
 	var oldSettings gnm.ConnectionSettings
 	nw.mu.Lock()
@@ -617,7 +617,7 @@ func (n *Subsystem) lowerMaxNetPriorities(skip NetKey) {
 			settings, err := nw.conn.GetSettings()
 			if err != nil {
 				nw.conn = nil
-				n.logger.Warnf("error (%s) encountered when getting settings for %s", err, nw.ssid)
+				n.logger.Warnw("error encountered when getting settings", "err", err, "ssid", nw.ssid)
 				nw.mu.Unlock()
 				continue
 			}
@@ -629,11 +629,11 @@ func (n *Subsystem) lowerMaxNetPriorities(skip NetKey) {
 				delete(settings["ipv6"], "addresses")
 				delete(settings["ipv6"], "routes")
 
-				n.logger.Debugf("Lowering priority of %s to 998", netKey)
+				n.logger.Debugw("Lowering priority to 998", "net_key", netKey)
 
 				if err := nw.conn.Update(settings); err != nil {
 					nw.conn = nil
-					n.logger.Warnf("error (%s) encountered when updating settings for %s", err, netKey)
+					n.logger.Warnw("error encountered when updating settings", "err", err, "net_key", netKey)
 				}
 			}
 			nw.priority = getPriorityFromSettings(settings)
@@ -705,7 +705,7 @@ func (n *Subsystem) tryCandidates(ctx context.Context) bool {
 			return true
 		}
 
-		n.logger.Warnf("SSID %s connected, but does not provide internet access.", ssid)
+		n.logger.Warnw("SSID connected, but does not provide internet access.", "ssid", ssid)
 	}
 	return false
 }
@@ -797,7 +797,7 @@ func (n *Subsystem) processUserInput(userInput userInput) bool {
 	}
 
 	if userInput.SSID != "" {
-		n.logger.Infof("Wifi settings received for %s", userInput.SSID)
+		n.logger.Infow("Wifi settings received", "ssid", userInput.SSID)
 		priority := int32(999)
 		if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
 			priority = 100
@@ -884,7 +884,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				// ticks after every completed scan/update cycle (minimum of scanLoopDelay), see backgroundLoop()
 			case <-time.After((scanLoopDelay + scanTimeout) * 2):
 				// safety fallback if something hangs
-				n.logger.Warnf("wifi scan has not completed for %s", (scanLoopDelay+scanTimeout)*2)
+				n.logger.Warnw("wifi scan has not completed", "duration", (scanLoopDelay+scanTimeout)*2)
 			}
 		}
 
@@ -1118,7 +1118,7 @@ func (n *Subsystem) CheckInternetManual(ctx context.Context, behindSocksProxy bo
 
 	online := bytes.Contains(data, []byte(manualCheckTestContents))
 
-	n.logger.Debugf("manual connection test to %s result: %t", manualCheckURL, online)
+	n.logger.Debugw("manual connection test result", "url", manualCheckURL, "online", online)
 
 	return online, nil
 }
