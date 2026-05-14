@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
@@ -33,6 +34,8 @@ const (
 	minimalDeviceAgentConfigCheckInterval = time.Second * 5
 	// The minimal (and default) interval for checking whether agent needs to be restarted.
 	minimalNeedsRestartCheckInterval = time.Second * 1
+	// How often to check whether an OS reboot is pending and the maintenance window is open.
+	osRebootCheckInterval = time.Minute
 
 	defaultNetworkTimeout = time.Second * 15
 	// stopAllTimeout must be lower than systemd subsystems/viamagent/viam-agent.service timeout of 4mins
@@ -126,6 +129,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 		cfg,
 		manager.GetNetAppender,
 		true, /* should forward recent systemd agent logs */
+		manager.viamServer.RestartAllowed,
 	)
 
 	return manager
@@ -199,21 +203,10 @@ func (m *Manager) GetNetAppender() logging.Appender {
 	return m.netAppender
 }
 
-// StartSubsystem may be called early in startup when no cloud connectivity is configured.
-func (m *Manager) StartSubsystem(ctx context.Context, name string) error {
+// StartNetworking may be called early in startup when no cloud connectivity is configured.
+func (m *Manager) StartNetworking(ctx context.Context) error {
 	defer utils.Recover(m.logger, nil)
-
-	switch name {
-	case viamserver.SubsysName:
-		m.cache.MarkViamServerRunningVersion()
-		return m.viamServer.Start(ctx)
-	case networking.SubsysName:
-		return m.networking.Start(ctx)
-	case syscfg.SubsysName:
-		return m.sysConfig.Start(ctx)
-	default:
-		return errw.Errorf("unknown subsystem: %s", name)
-	}
+	return m.networking.Start(ctx)
 }
 
 // SelfUpdate is called early in startup to update the viam-agent subsystem before any other work is started.
@@ -587,8 +580,8 @@ func (m *Manager) CloseAll() {
 	}
 }
 
-// StartBackgroundChecks kicks off go routines that loop on a timerr to check for updates,
-// health checks, and restarts.
+// StartBackgroundChecks kicks off go routines that loop on a timer to check
+// for updates, health checks, and restarts.
 func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -674,6 +667,23 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 			}
 		}
 	}()
+
+	m.activeBackgroundWorkers.Go(func() {
+		timer := time.NewTimer(osRebootCheckInterval)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				m.CheckIfOSNeedsReboot(ctx)
+				// Some methods of checking for reboots take a long time, so wait for
+				// the interval between each invocation rather than using a ticker that
+				// continues to run while the check is taking place.
+				timer.Reset(osRebootCheckInterval)
+			}
+		}
+	})
 }
 
 // dial establishes a connection to the cloud for grpc communication.
@@ -868,6 +878,39 @@ func (m *Manager) findPreexistingViamServerProcesses(ctx context.Context) []util
 		all = append(all, children...)
 	}
 	return all
+}
+
+// CheckIfOSNeedsReboot checks whether an OS reboot is pending (due to managed package updates)
+// and, if so, whether viam-server's maintenance window is open. When both are true it issues
+// a system reboot and exits the agent so systemd can manage the shutdown sequence.
+func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
+	defer utils.Recover(m.logger, nil)
+	if ctx.Err() != nil {
+		return
+	}
+
+	m.cfgMu.RLock()
+	syscfgDisabled := m.cfg.AdvancedSettings.GetDisableSystemConfiguration()
+	m.cfgMu.RUnlock()
+
+	if syscfgDisabled || !m.sysConfig.NeedsOSReboot(ctx) {
+		return
+	}
+
+	if !m.viamServer.RestartAllowed(ctx) {
+		m.logger.Info("OS reboot pending, waiting for maintenance window to open")
+		return
+	}
+
+	m.logger.Info("OS reboot required for package updates; maintenance window is open, initiating reboot")
+
+	rebootCmd := exec.CommandContext(ctx, "systemctl", "reboot")
+	if output, err := rebootCmd.CombinedOutput(); err != nil {
+		m.logger.Errorw("failed to initiate system reboot", "error", err, "output", string(output))
+		return
+	}
+
+	m.Exit("system reboot initiated for OS package updates")
 }
 
 func (m *Manager) Exit(reason string) {

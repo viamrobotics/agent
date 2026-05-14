@@ -29,6 +29,12 @@ type Subsystem struct {
 	cancelFunc                          context.CancelFunc
 	noJournald                          bool
 	shouldForwardRecentSystemdAgentLogs bool
+	maintenanceAllowed                  func(context.Context) bool
+
+	// Managed OS upgrades (used when OSAutoUpgradeType is "managed-security" or "managed-all")
+	needsOSReboot bool
+	upgradeCancel context.CancelFunc
+	upgradeWorker sync.WaitGroup
 }
 
 func New(ctx context.Context,
@@ -36,13 +42,20 @@ func New(ctx context.Context,
 	cfg utils.AgentConfig,
 	getAppenderFunc func() logging.Appender,
 	shouldForwardRecentSystemdAgentLogs bool,
+	maintenanceAllowed func(context.Context) bool,
 ) *Subsystem {
+	if maintenanceAllowed == nil {
+		maintenanceAllowed = func(ctx context.Context) bool {
+			return true
+		}
+	}
 	return &Subsystem{
 		appender:                            getAppenderFunc,
 		logger:                              logger,
 		cfg:                                 cfg.SystemConfiguration,
 		logHealth:                           utils.NewHealth(),
 		shouldForwardRecentSystemdAgentLogs: shouldForwardRecentSystemdAgentLogs,
+		maintenanceAllowed:                  maintenanceAllowed,
 	}
 }
 
@@ -84,12 +97,19 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		healthyLog = true
 	}
 
-	// set unattended upgrades
+	// set unattended upgrades. If changing to a managed mode this will disable
+	// unattended upgrades.
 	err = s.EnforceUpgrades(ctx)
 	if err != nil {
 		s.logger.Warn(errw.Wrap(err, "configuring unattended upgrades"))
 	} else {
 		healthyUpgrades = true
+	}
+
+	// For managed modes, start the background upgrade loop.
+	mode := s.cfg.OSAutoUpgradeType
+	if isManaged(mode) {
+		s.startManagedUpgrades(ctx)
 	}
 
 	// forward recent systemd agent logs if enabled and possible
@@ -114,7 +134,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 		s.logger.Infof("Stopping syscfg subsystem")
 	}
 	s.started = false
-
+	s.stopManagedUpgrades()
 	return errw.Wrap(s.stopLogForwarding(), "stopping kernel log forwarding")
 }
 

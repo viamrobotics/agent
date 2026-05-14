@@ -1,6 +1,6 @@
 module github.com/viamrobotics/agent
 
-go 1.25.1
+go 1.26
 
 // This must be a replace because a bunch of our deps also use it + `go mod tidy` fails from the conflict
 // if you switch it out in the require block.

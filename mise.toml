@@ -1,5 +1,6 @@
 [tools]
-golangci-lint = "2.8.0"
+go = "1.26"
+golangci-lint = "2.9.0"
 shfmt = "3.12.0"
 
 [tasks.fmt-sh]
