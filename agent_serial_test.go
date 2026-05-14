@@ -1055,10 +1055,16 @@ func installAgent(ctx context.Context, version string) (context.Context, error) 
 		"FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s",
 		robotKeys.ApiKey.Id, robotKeys.ApiKey.Key, cfg.PartID,
 	)
-	logger.Infof("Install version: %s\n", concreteTestVersion)
+
+	concrete, err := resolveVersionSpec(ctx, version)
+	if err != nil {
+		return ctx, err
+	}
+
+	logger.Infof("Install version: %s\n", concrete)
 	// Don't use the concrete test version if it's a file pin, because gcsURL can't handle file pins
-	if !strings.HasPrefix(concreteTestVersion, "file://") {
-		cmd += fmt.Sprintf(" AGENT_CUSTOM_URL=%s", gcsURL("viam-agent", concreteTestVersion))
+	if !strings.HasPrefix(concrete, "file://") {
+		cmd += fmt.Sprintf(" AGENT_CUSTOM_URL=%s", gcsURL("viam-agent", concrete))
 	}
 	cmd += " sh"
 	err = serialClient.RunScript(installScript, cmd).Error()
@@ -1067,9 +1073,9 @@ func installAgent(ctx context.Context, version string) (context.Context, error) 
 	// assuming the binary is present on the device
 
 	// problem: binaries print their version as "custom Git Revision: sha"
-	if strings.HasPrefix(concreteTestVersion, "file://") {
-		logger.Infof("Version under test is a file pin: %s", concreteTestVersion)
-		ctx, err := applyVersionPin(ctx, concreteTestVersion, "agent", "version_control", "agent")
+	if strings.HasPrefix(concrete, "file://") {
+		logger.Infof("Version under test is a file pin: %s", concrete)
+		ctx, err := applyVersionPin(ctx, concrete, "agent", "version_control", "agent")
 		return ctx, err
 	}
 	return ctx, err
@@ -1142,7 +1148,17 @@ func testAgentState(ctx context.Context, key, expectedVal string) (context.Conte
 }
 
 func translateToAppVersion(version string) string {
-	return translateVersion(version, cfg.Versions.Old, cfg.Versions.Test)
+	appVersion := translateVersion(version, cfg.Versions.Old, cfg.Versions.Test)
+
+	// for now, special handling for "the version under test":
+	// the only way to translate all the different version specs into something the app can
+	// understand is by pinning directly to the corresponding URL
+
+	// so intercept and return that instead (this is done here so "viam-agent" can be passed)
+	if version == "the version under test" {
+		appVersion = gcsURL("viam-agent", concreteTestVersion)
+	}
+	return appVersion
 }
 
 func versionStrToMatcher(version string) func(string) string {
