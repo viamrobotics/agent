@@ -2,8 +2,8 @@
 Feature: bluetooth provisioning
   Background:
     Given viam-agent is installed at the version under test
+    And the viam-agent systemd unit is running with the version under test
     And the viam-agent systemd unit is enabled
-    And the viam-agent systemd unit is running with version under test
     And there are no available wifi networks
     And viam-agent cannot reach the app
   Scenario: The agent enters automatic provisioning mode when expected
@@ -13,6 +13,7 @@ Feature: bluetooth provisioning
     When viam-agent is in forced provisioning mode
     And the viam-agent bluetooth device is discoverable with the expected characteristics
     And the host shares an insecure wifi network via bluetooth
+    Then viam-agent can reach the app
   Scenario: The agent can join an unknown secure network when one is provided during bluetooth provisioning
     When viam-agent is in forced provisioning mode
     And the viam-agent bluetooth device is discoverable with the expected characteristics

@@ -2,8 +2,8 @@
 Feature: wifi provisioning
   Background:
     Given viam-agent is installed at the version under test
-    And the viam-agent systemd unit is enabled
     And the viam-agent systemd unit is running with version under test
+    And the viam-agent systemd unit is enabled
     And there are no available wifi networks
     And viam-agent cannot reach the app
   Scenario: The agent enters automatic provisioning mode when expected
