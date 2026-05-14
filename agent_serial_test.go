@@ -184,7 +184,7 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			time.Sleep(time.Second * 3)
 			// Pin back to the version under test
 			if _, err := applyAgentVersionPin(ctx, "the version under test"); err != nil {
-				t.Logf("error pinning agent back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerTest, err)
+				t.Logf("error pinning agent back to \"%s\" during cleanup: %v", cfg.Versions.Test, err)
 			}
 			if _, err := applyViamServerVersionPin(ctx, "the version under test"); err != nil {
 				t.Logf("error pinning viam-server back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerTest, err)
@@ -525,7 +525,7 @@ func setField(root *structpb.Struct, value *structpb.Value, path ...string) erro
 // and is not an actual version specification like the one used in a viam robot config.
 
 // oldVersion is the concrete version string to use for the string "an old version".
-// testVersion is the concrete version string to use for the string "test".
+// testVersion is the concrete version string to use for the string "the version under test".
 func translateVersion(version, oldVersion, testVersion string) string {
 	switch version {
 	case "an old version":
@@ -1037,7 +1037,7 @@ func installAgent(ctx context.Context, version string) (context.Context, error) 
 
 	// First check, if agent is running, and running on the correct version
 	if agentStatus["SubState"] == "running" {
-		_, err := testAgentRunningWithVersion(ctx, version)
+		_, err := testSystemdAgentStartVersion(ctx, version, false)
 		if err == nil {
 			return ctx, nil
 		}
@@ -1092,14 +1092,14 @@ func testAgentNotFound(ctx context.Context) (context.Context, error) {
 }
 
 func testAgentRunningWithVersion(ctx context.Context, version string) (context.Context, error) {
-	ctx, err := testSystemdAgentStartVersion(ctx, version)
+	ctx, err := testSystemdAgentStartVersion(ctx, version, true)
 	if err != nil {
 		return ctx, err
 	}
 	return testAgentState(ctx, "SubState", "running")
 }
 
-func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
+func testSystemdAgentStartVersion(ctx context.Context, version string, wait bool) (context.Context, error) {
 	versionTest := versionStrToMatcher(version)
 	logger.Infof("Check for version %s with matcher %s\n", version, versionTest)
 	var err error
@@ -1115,9 +1115,14 @@ func testSystemdAgentStartVersion(ctx context.Context, version string) (context.
 			err = lastAgentVer.Error()
 			continue
 		}
-		// if we got a version, but it's not what's expected, don't keep waiting
+		// if we got a version, but it's not what's expected, keep trying if "wait" is set
 		if check := versionTest(lastAgentVer.MustGet()); check != "" {
-			return ctx, errors.New(check)
+			if wait {
+				err = errors.New(check)
+				continue
+			} else {
+				return ctx, errors.New(check)
+			}
 		}
 		return ctx, nil
 	}
