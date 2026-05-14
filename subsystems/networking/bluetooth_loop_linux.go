@@ -1,0 +1,304 @@
+package networking
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/viamrobotics/agent/utils"
+)
+
+const (
+	bleLoopTick        = time.Second
+	bleStatusHeartbeat = time.Minute
+)
+
+// bleLoopLogState carries cross-tick observability state inside bleLoop.
+type bleLoopLogState struct {
+	initialized        bool
+	lastShouldEnable   bool
+	lastBackoffPending bool
+	lastStatusLog      time.Time
+}
+
+// bleLoop owns BLE lifecycle and characteristic updates. Single writer of all BLE state.
+func (n *Subsystem) bleLoop(ctx context.Context) {
+	defer utils.Recover(n.logger, nil)
+	defer n.monitorWorkers.Done()
+	defer func() {
+		done := make(chan error, 1)
+		go func() { done <- n.stopProvisioningBluetooth() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				n.logger.Warnf("BLE failed to stop on shutdown: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			n.logger.Warn("BLE stop on shutdown timed out after 10s; bluez may be unresponsive")
+		}
+	}()
+
+	tick := time.NewTicker(bleLoopTick)
+	defer tick.Stop()
+
+	n.logger.Info("BLE provisioning monitor started")
+	defer n.logger.Info("BLE provisioning monitor stopped")
+
+	var logState bleLoopLogState
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			n.reconcileBle(ctx)
+			n.logBleObservability(&logState)
+			if n.ble.getState() == bleRunning {
+				n.pushBleCharacteristics()
+			}
+		}
+	}
+}
+
+// bleSummary returns a one-line, self-describing description of BLE state and
+// the reason for it. Designed so the message remains useful even if a log viewer
+// strips structured fields.
+func (n *Subsystem) bleSummary(state bleState, shouldEnable, backoffPending bool) string {
+	switch state {
+	case bleRunning:
+		return "BLE running"
+	case bleStarting:
+		return "BLE starting"
+	case bleOff:
+		// fall through
+	default:
+		return fmt.Sprintf("BLE in unknown state %s", state)
+	}
+	if !shouldEnable {
+		switch {
+		case !n.bluetoothEnabled():
+			return "BLE off (bluetooth disabled in config)"
+		case n.connState.getConnecting():
+			return "BLE off (connect attempt in progress)"
+		case n.hasInternet() && n.connState.getConfigured():
+			return "BLE off (device online and configured)"
+		default:
+			return "BLE off (not needed)"
+		}
+	}
+	switch {
+	case n.bleBackoffExhausted():
+		return "BLE off (should be running but retries exhausted; if device has no bluetooth hardware, set disable_bt_provisioning)"
+	case backoffPending:
+		return "BLE off (should be running, waiting on backoff)"
+	default:
+		return "BLE off (should be running, will retry)"
+	}
+}
+
+// logBleObservability emits BLE state transitions and a periodic status heartbeat
+// so an operator can answer "what is BLE doing and why" from logs alone.
+func (n *Subsystem) logBleObservability(s *bleLoopLogState) {
+	now := time.Now()
+	shouldEnable := n.shouldEnableBle()
+	state := n.ble.getState()
+	backoffPending := n.bleBackoff > 0 && now.Before(n.bleNextAttempt)
+	summary := n.bleSummary(state, shouldEnable, backoffPending)
+
+	if !s.initialized {
+		n.logger.Infow(
+			"BLE provisioning monitor initial state: "+summary,
+			"event", "ble_initial_state",
+			"should_enable", shouldEnable,
+			"state", state,
+			"bluetooth_enabled", n.bluetoothEnabled(),
+			"online", n.hasInternet(),
+			"configured", n.connState.getConfigured(),
+		)
+		s.initialized = true
+		s.lastShouldEnable = shouldEnable
+		s.lastBackoffPending = backoffPending
+		s.lastStatusLog = now
+		return
+	}
+
+	if shouldEnable != s.lastShouldEnable {
+		n.logger.Infow(
+			"BLE enable decision changed: "+summary,
+			"event", "ble_should_enable_changed",
+			"should_enable", shouldEnable,
+			"bluetooth_enabled", n.bluetoothEnabled(),
+			"online", n.hasInternet(),
+			"configured", n.connState.getConfigured(),
+		)
+		s.lastShouldEnable = shouldEnable
+	}
+
+	if backoffPending && !s.lastBackoffPending {
+		n.logger.Infow(
+			fmt.Sprintf("BLE start backed off, retrying in %s", n.bleBackoff),
+			"event", "ble_backoff_pending",
+			"backoff", n.bleBackoff,
+			"next_attempt", n.bleNextAttempt,
+		)
+	}
+	s.lastBackoffPending = backoffPending
+
+	if now.Sub(s.lastStatusLog) >= bleStatusHeartbeat {
+		msg := "BLE status: " + summary
+		fields := []any{
+			"event", "ble_status",
+			"state", state,
+			"should_enable", shouldEnable,
+			"backoff_pending", backoffPending,
+			"backoff_exhausted", n.bleBackoffExhausted(),
+		}
+		if !n.bleNextAttempt.IsZero() {
+			fields = append(fields, "next_attempt", n.bleNextAttempt)
+		}
+		switch {
+		case state == bleOff && !shouldEnable:
+			// "BLE off because it isn't needed" is the steady state — keep noise low.
+			n.logger.Debugw(msg, fields...)
+		case state == bleOff && shouldEnable && n.bleBackoffExhausted():
+			// BLE wanted but reconciler has given up — surface louder.
+			n.logger.Warnw(msg, fields...)
+		default:
+			n.logger.Infow(msg, fields...)
+		}
+		s.lastStatusLog = now
+	}
+}
+
+const (
+	bleBackoffInitial = 5 * time.Second
+	bleBackoffCap     = 20 * time.Minute
+)
+
+type bleAction int
+
+const (
+	bleActionNone bleAction = iota
+	bleActionStart
+	bleActionStop
+)
+
+type bleDecisionInput struct {
+	shouldRun        bool
+	currentState     bleState
+	now              time.Time
+	nextAttempt      time.Time
+	retriesExhausted bool
+}
+
+func decideBleAction(in bleDecisionInput) bleAction {
+	switch {
+	case in.shouldRun && in.currentState == bleOff:
+		if in.retriesExhausted || in.now.Before(in.nextAttempt) {
+			return bleActionNone
+		}
+		return bleActionStart
+	case !in.shouldRun && in.currentState != bleOff:
+		return bleActionStop
+	default:
+		return bleActionNone
+	}
+}
+
+// reconcileBle converges BLE state toward the policy decision. Called from bleLoop only.
+func (n *Subsystem) reconcileBle(ctx context.Context) {
+	action := decideBleAction(bleDecisionInput{
+		shouldRun:        n.shouldEnableBle(),
+		currentState:     n.ble.getState(),
+		now:              time.Now(),
+		nextAttempt:      n.bleNextAttempt,
+		retriesExhausted: n.bleBackoffExhausted(),
+	})
+	switch action {
+	case bleActionNone:
+	case bleActionStart:
+		startTime := time.Now()
+		if err := n.startProvisioningBluetooth(ctx); err != nil {
+			n.bleBackoffBump()
+			n.logger.Warnf(
+				"BLE start failed, next attempt at %s (in %s): %v",
+				n.bleNextAttempt.Format(time.RFC3339), n.bleBackoff, err,
+			)
+			if n.bleBackoffExhausted() {
+				n.logger.Warn("BLE startup keeps failing and retries are exhausted. " +
+					"If this device has no bluetooth hardware, set disable_bt_provisioning to avoid these retries.")
+			}
+			return
+		}
+		n.bleBackoffReset()
+		n.pushBleCharacteristics()
+		elapsed := time.Since(startTime)
+		n.logger.Infof("BLE provisioning started in %s", elapsed.Round(time.Millisecond))
+	case bleActionStop:
+		startTime := time.Now()
+		if err := n.stopProvisioningBluetooth(); err != nil {
+			n.logger.Warnf("BLE stop failed: %v", err)
+			return
+		}
+		elapsed := time.Since(startTime)
+		n.logger.Infof("BLE provisioning stopped in %s", elapsed.Round(time.Millisecond))
+	}
+}
+
+func (n *Subsystem) shouldEnableBle() bool {
+	return shouldEnableBleFromState(
+		n.bluetoothEnabled(),
+		n.connState.getConfigured(),
+		n.hasInternet(),
+		n.connState.getConnecting(),
+	)
+}
+
+// shouldEnableBleFromState is the pure predicate behind shouldEnableBle so it can be table-tested.
+// Returns true when BLE provisioning should be advertised.
+func shouldEnableBleFromState(enabled, configured, online, connecting bool) bool {
+	if !enabled {
+		return false
+	}
+	if connecting {
+		return false
+	}
+	if configured && online {
+		return false
+	}
+	return true
+}
+
+func (n *Subsystem) bleBackoffBump() {
+	if n.bleBackoff == 0 {
+		n.bleBackoff = bleBackoffInitial
+	} else {
+		n.bleBackoff *= 2
+		if n.bleBackoff > bleBackoffCap {
+			n.bleBackoff = bleBackoffCap
+		}
+	}
+	n.bleNextAttempt = time.Now().Add(n.bleBackoff)
+}
+
+func (n *Subsystem) bleBackoffReset() {
+	n.bleBackoff = 0
+	n.bleNextAttempt = time.Time{}
+}
+
+// bleBackoffExhausted reports whether the backoff has reached its cap; reconciler stops retrying.
+func (n *Subsystem) bleBackoffExhausted() bool {
+	return n.bleBackoff >= bleBackoffCap
+}
+
+// pushBleCharacteristics writes fresh state into BLE characteristics.
+func (n *Subsystem) pushBleCharacteristics() {
+	if err := n.btChar.updateStatus(n.connState.getConfigured(), n.hasInternet()); err != nil {
+		n.logger.Warnf("failed to refresh BLE status characteristic: %v", err)
+	}
+	if err := n.btChar.updateNetworks(n.cachedVisibleNetworks()); err != nil {
+		n.logger.Warnf("failed to refresh BLE networks characteristic: %v", err)
+	}
+	if err := n.btChar.updateErrors(n.errListAsStrings()); err != nil {
+		n.logger.Warnf("failed to refresh BLE errors characteristic: %v", err)
+	}
+}
