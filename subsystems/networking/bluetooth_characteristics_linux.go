@@ -141,7 +141,7 @@ func (b *btCharacteristics) initWriteOnlyCharacteristic(ctx context.Context, cNa
 			if err != nil {
 				b.logger.Error(fmt.Errorf("could not decrypt incoming value for %s: %w", cName, err))
 			}
-			b.logger.Debugw("Received characteristic value", "name", cName, "plaintext", plaintext, "cipher_size", len(value), "plain_size", len(plaintext))
+			b.logger.Debugw("Received characteristic value", "name", cName, "plaintext", plaintext, "cipherSize", len(value), "plainSize", len(plaintext))
 			if cName == unlockPairingKey {
 				trustBool, err := strconv.ParseBool(plaintext)
 				if err != nil {

@@ -111,7 +111,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		binPath += ".exe"
 	}
 	if pathMissing(binPath) {
-		s.logger.Warnw("viam-server binary missing, not starting", "bin_path", binPath)
+		s.logger.Warnw("viam-server binary missing, not starting", "binPath", binPath)
 		// todo: nested func so unlock is deferable
 		s.mu.Unlock()
 		return nil
@@ -196,7 +196,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 			if s.cmd.ProcessState != nil {
 				s.lastExit = s.cmd.ProcessState.ExitCode()
 				if s.lastExit != 0 {
-					s.logger.Errorw("non-zero exit code", "exit_code", s.lastExit)
+					s.logger.Errorw("non-zero exit code", "exitCode", s.lastExit)
 				}
 			}
 			s.logger.Infow("exited unexpectedly and will be restarted shortly", "subsystem", SubsysName)
@@ -209,7 +209,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		s.checkURL = matches[1]
 		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "127.0.0.1", 1)
 		s.logger.Infow("started", "subsystem", SubsysName)
-		s.logger.Infow("found serving at the following URLs", "subsystem", SubsysName, "check_url", s.checkURL, "check_url_alt", s.checkURLAlt)
+		s.logger.Infow("found serving at the following URLs", "subsystem", SubsysName, "checkURL", s.checkURL, "checkURLAlt", s.checkURLAlt)
 
 		// Once the subsystem has successfully started, fetch restart status and cache
 		// relevant properties. These values are calculated once at startup and cached,
@@ -314,7 +314,7 @@ func (s *Subsystem) tryShutdownRPC(ctx context.Context, dialAddr string) error {
 		return errw.New("no module server TCP address available")
 	}
 
-	s.logger.Debugw("Attempting Shutdown RPC to module server", "dial_addr", dialAddr)
+	s.logger.Debugw("Attempting Shutdown RPC to module server", "dialAddr", dialAddr)
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

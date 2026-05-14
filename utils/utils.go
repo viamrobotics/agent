@@ -176,7 +176,7 @@ func InitPaths(logger logging.Logger) error {
 			// RSDK-13310: A previous version of viam-agent created the partials directory with
 			// 0o750 instead of the expected 0o755 permissions. If we get a permissions error
 			// here, log a debug message and attempt to correct the permissions.
-			logger.Debugw("permission mismatch; correcting", "path", p, "expected_perms", fmt.Sprintf("%#o", expectedPerms), "actual_perms", fmt.Sprintf("%#o", info.Mode().Perm()))
+			logger.Debugw("permission mismatch; correcting", "path", p, "expectedPerms", fmt.Sprintf("%#o", expectedPerms), "actualPerms", fmt.Sprintf("%#o", info.Mode().Perm()))
 			if err := os.Chmod(p, expectedPerms); err != nil {
 				logger.Warnw("Could not correct permissions", "path", p)
 			}
@@ -239,7 +239,7 @@ func TryResetAgent(logger logging.Logger) error {
 	filesToRemove := make([]string, 0, 10)
 	dirsToRemove := make([]string, 0, 10)
 
-	logger.Infow("removing all files in viam dir besides whitelist", "viam_dir", viamDirsPathAbs, "whitelist", slices.Collect(maps.Keys(whitelistAbsPaths)))
+	logger.Infow("removing all files in viam dir besides whitelist", "viamDir", viamDirsPathAbs, "whitelist", slices.Collect(maps.Keys(whitelistAbsPaths)))
 	err = filepath.WalkDir(viamDirsPathAbs, func(pathAbs string, d fs.DirEntry, err error) error {
 		if err != nil {
 			logger.Infow("skipping directory", "path", pathAbs, "err", err)
@@ -346,7 +346,7 @@ func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) 
 		if lastModified := resp.Header.Get("Last-Modified"); lastModified != "" {
 			parsed, err := http.ParseTime(lastModified)
 			if err != nil {
-				logger.Infow("read Last-Modified but failed to parse. ignoring", "err", err, "Last-Modified", lastModified)
+				logger.Infow("read Last-Modified but failed to parse. ignoring", "err", err, "lastModified", lastModified)
 				return time.Time{}
 			}
 			return parsed
@@ -416,7 +416,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 				return "", errw.Wrap(err, "reading stored ETag")
 			}
 			if remoteETag == "" || storedETag != remoteETag {
-				logger.Warnw("ETag mismatch, deleting old file", "dest", partialDest, "stored_etag", storedETag, "remote_etag", remoteETag)
+				logger.Warnw("ETag mismatch, deleting old file", "dest", partialDest, "storedETag", storedETag, "remoteETag", remoteETag)
 				if err := os.Remove(partialDest); err != nil && !errors.Is(err, fs.ErrNotExist) {
 					return "", errw.Wrap(err, "failed to remove stale partial")
 				}

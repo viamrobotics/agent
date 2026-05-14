@@ -100,8 +100,8 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		}
 		s.logger.Infow("Updated journald config",
 			"path", journaldConfPath,
-			"system_max_use", persistSize,
-			"runtime_max_use", tempSize,
+			"systemMaxUse", persistSize,
+			"runtimeMaxUse", tempSize,
 			"storage", s.cfg.LoggingJournaldStorage)
 	}
 	return nil

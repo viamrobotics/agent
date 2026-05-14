@@ -58,7 +58,7 @@ func Install(ctx context.Context, logger logging.Logger, sManager systemManager)
 	}
 
 	if !isExpected {
-		logger.Infow("installing self and adding symlink", "cache_path", expectedCachePath, "bin_path", expectedBinPath)
+		logger.Infow("installing self and adding symlink", "cachePath", expectedCachePath, "binPath", expectedBinPath)
 		err := utils.AtomicCopy(expectedCachePath, curPath)
 		if err != nil {
 			return errw.Wrap(err, "installing self into cache directory")

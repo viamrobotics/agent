@@ -582,7 +582,7 @@ func (m *Manager) CloseAll() {
 				shutdownComplete = true
 			}
 			m.logger.Warnw("Waiting for clean shutdown",
-				"time_elapsed", time.Since(shutdownStarted).String())
+				"timeElapsed", time.Since(shutdownStarted).String())
 		}
 	}
 }

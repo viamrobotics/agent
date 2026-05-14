@@ -161,7 +161,7 @@ func commonMain() {
 	}
 
 	if runtime.GOOS != "windows" && !strings.HasPrefix(os.Args[0], utils.ViamDirs.Viam) {
-		globalLogger.Warnw("note: viam-agent is intended to be run as a system service", "expected_dir", utils.ViamDirs.Viam)
+		globalLogger.Warnw("note: viam-agent is intended to be run as a system service", "expectedDir", utils.ViamDirs.Viam)
 		globalLogger.Warnw("for production use, install with '--install' and then start the service with 'systemctl start viam-agent'", "binary", os.Args[0])
 		globalLogger.Warn("\tSee --help for a full list of options.")
 		utils.IsRunningLocally = true
@@ -173,7 +173,7 @@ func commonMain() {
 	}
 
 	if utils.IsRunningLocally {
-		globalLogger.Infow("Starting local viam-agent", "viam_dir", utils.ViamDirs.Viam)
+		globalLogger.Infow("Starting local viam-agent", "viamDir", utils.ViamDirs.Viam)
 	}
 
 	// set up folder structure
@@ -230,7 +230,7 @@ func commonMain() {
 	}
 
 	// wait until now when we (potentially) have a network logger to record this
-	globalLogger.Infow("Viam Agent Version", "version", utils.GetVersion(), "git_revision", utils.GetRevision())
+	globalLogger.Infow("Viam Agent Version", "version", utils.GetVersion(), "gitRevision", utils.GetRevision())
 
 	if cfg.AdvancedSettings.WaitForUpdateCheck.Get() {
 		// wait to be online
@@ -355,7 +355,7 @@ func getLock() (lockfile.Lockfile, error) {
 				globalLogger.Error(errors.Wrap(err, "cannot get info on lockfile owner"))
 				staleFile = true
 			} else if !strings.Contains(runPath, agent.SubsystemName) {
-				globalLogger.Warnw("lockfile owner mismatch", "expected_owner", agent.SubsystemName)
+				globalLogger.Warnw("lockfile owner mismatch", "expectedOwner", agent.SubsystemName)
 				staleFile = true
 			}
 			if staleFile {

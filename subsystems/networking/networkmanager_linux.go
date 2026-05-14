@@ -147,7 +147,7 @@ func (n *Subsystem) checkOnline(ctx context.Context, force bool) error {
 		} else {
 			// if it's not time for a new test, we want to avoid mistakenly recording "offline"
 			networkStatusLogger.Infow("NetworkManager reports not online. Not performing manual check.",
-				"last_manual_check", n.connState.getManualCheckLastTested().String(), "state", state)
+				"lastManualCheck", n.connState.getManualCheckLastTested().String(), "state", state)
 			return nil
 		}
 	}
@@ -488,7 +488,7 @@ func (n *Subsystem) waitForConnect(ctx context.Context, nw *lockingNetwork, devi
 	for {
 		select {
 		case update := <-changeChan:
-			n.logger.Debugw("device state change", "old_state", update.OldState, "new_state", update.NewState, "reason", update.Reason)
+			n.logger.Debugw("device state change", "oldState", update.OldState, "newState", update.NewState, "reason", update.Reason)
 			//nolint:exhaustive
 			switch update.NewState {
 			case gnm.NmDeviceStateActivated:
@@ -629,11 +629,11 @@ func (n *Subsystem) lowerMaxNetPriorities(skip NetKey) {
 				delete(settings["ipv6"], "addresses")
 				delete(settings["ipv6"], "routes")
 
-				n.logger.Debugw("Lowering priority to 998", "net_key", netKey)
+				n.logger.Debugw("Lowering priority to 998", "netKey", netKey)
 
 				if err := nw.conn.Update(settings); err != nil {
 					nw.conn = nil
-					n.logger.Warnw("error encountered when updating settings", "err", err, "net_key", netKey)
+					n.logger.Warnw("error encountered when updating settings", "err", err, "netKey", netKey)
 				}
 			}
 			nw.priority = getPriorityFromSettings(settings)

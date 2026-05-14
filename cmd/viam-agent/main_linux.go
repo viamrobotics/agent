@@ -48,7 +48,7 @@ func ignoredSignal(sig os.Signal) bool {
 // tries to run provisioning, returns false if failed + main function should exit.
 func runPlatformProvisioning(ctx context.Context, cfg utils.AgentConfig, manager *agent.Manager, err error) bool {
 	// It may be some time before we provision, so go ahead and log this here too, so it's displayed sooner
-	globalLogger.Infow("Viam Agent Version", "version", utils.GetVersion(), "git_revision", utils.GetRevision())
+	globalLogger.Infow("Viam Agent Version", "version", utils.GetVersion(), "gitRevision", utils.GetRevision())
 
 	if cfg.AdvancedSettings.GetDisableNetworkConfiguration() {
 		globalLogger.Errorw("cannot read machine credentials file and network configuration is disabled; please correct and restart viam-agent",

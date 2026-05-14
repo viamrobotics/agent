@@ -123,8 +123,8 @@ func (s *SystemdManager) getServiceFilePath(ctx context.Context, serviceFile str
 	if !slices.Contains(searchPaths, s.dirs.serviceFileDir) {
 		s.logger.Warnw(
 			"Systemd does not have the preferred dir in its unit search path, installing to fallback dir instead",
-			"preferred_dir", s.dirs.serviceFileDir,
-			"fallback_dir", s.dirs.fallbackFileDir,
+			"preferredDir", s.dirs.serviceFileDir,
+			"fallbackDir", s.dirs.fallbackFileDir,
 		)
 		return oldFilePath, false, nil
 	}
