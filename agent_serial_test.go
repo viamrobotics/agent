@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -218,6 +219,31 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 				return ctx, err
 			}
 		}
+
+		centerPrint := func(msg string, width int) {
+			padLenTotal := width - len(msg)
+			padLeft := padLenTotal / 2
+			padRight := padLenTotal - padLeft
+
+			fmt.Printf("%s%s%s\n", strings.Repeat(" ", padLeft), msg, strings.Repeat(" ", padRight))
+		}
+
+		testMsgs := []string{
+			fmt.Sprintf("Testing Agent Version: %s (%s)", cfg.Versions.Test, concreteTestVersion),
+			fmt.Sprintf("Stable Agent Version: %s", cfg.Versions.Stable),
+			fmt.Sprintf("Testing Server Version: %s", cfg.Versions.ViamServerTest),
+			fmt.Sprintf("Stable Server Version: %s", cfg.Versions.ViamServerStable),
+		}
+		consoleWidth := len(slices.MaxFunc(testMsgs, func(a, b string) int { return len(a) - len(b) })) + 8
+		fmt.Println(strings.Repeat("=", consoleWidth))
+		fmt.Println(strings.Repeat("=", consoleWidth))
+		centerPrint(testMsgs[0], consoleWidth)
+		fmt.Println()
+		for _, m := range testMsgs[1:] {
+			centerPrint(m, consoleWidth)
+		}
+		fmt.Println(strings.Repeat("=", consoleWidth))
+		fmt.Println(strings.Repeat("=", consoleWidth))
 		return ctx, nil
 	})
 
@@ -1084,13 +1110,14 @@ func testSystemdAgentStartVersion(ctx context.Context, version string) (context.
 			time.Sleep(time.Second * 2)
 		}
 		lastAgentVer := serialClient.GetAgentLastStartVersion()
+		// if we failed to get a version, keep trying
 		if lastAgentVer.IsError() {
 			err = lastAgentVer.Error()
 			continue
 		}
+		// if we got a version, but it's not what's expected, don't keep waiting
 		if check := versionTest(lastAgentVer.MustGet()); check != "" {
-			err = errors.New(check)
-			continue
+			return ctx, errors.New(check)
 		}
 		return ctx, nil
 	}
