@@ -1056,7 +1056,8 @@ func installAgent(ctx context.Context, version string) (context.Context, error) 
 		robotKeys.ApiKey.Id, robotKeys.ApiKey.Key, cfg.PartID,
 	)
 
-	concrete, err := resolveVersionSpec(ctx, version)
+	appVersion := translateVersion(version, cfg.Versions.Old, cfg.Versions.Test)
+	concrete, err := resolveVersionSpec(ctx, appVersion)
 	if err != nil {
 		return ctx, err
 	}
