@@ -54,7 +54,7 @@ uninstall_old_service() {
 fetch_config() {
 	if [ "$VIAM_API_KEY_ID" != "" ] && [ "$VIAM_API_KEY" != "" ] && [ "$VIAM_PART_ID" != "" ]; then
 
-		if [ -f /etc/viam.json ] && ! [ -z $FORCE ]; then
+		if [ -f /etc/viam.json ] && [ -z "$FORCE" ]; then
 			echo
 			echo "/etc/viam.json already exists."
 			echo
