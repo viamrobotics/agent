@@ -12,8 +12,16 @@ part_id = "<part id>"
 # serial_pass = "<login password for the serial shell>"
 
 [versions]
-viam_agent_stable =  "<current stable viam-agent version string e.g. 0.25.0>"
-viam_agent_old = "<old viam-agent version string e.g. 0.24.2>"
+# viam_agent_test can be any of the following. the corresponding binary will be installed from GCS
+
+# - a github PR number (the PR needs the "dev-release" label): e.g. "pr.226"
+# - the tip of main: "dev"
+# - current stable release: "stable"
+# - a release version: e.g. "0.27.3"
+# - a custom binary (stable is installed from GCS, then the binary is pinned): "file://your/path/to/agent"
+viam_agent_test =  "<version string for viam-agent version under test>"
+viam_agent_stable =  "<current stable viam-agent version string e.g. 0.27.3>"
+viam_agent_old = "<old viam-agent version string e.g. 0.26.0>"
 viam_server_stable = "<current stable viam-server version string e.g. 0.115.0>"
 viam_server_old = "<old viam-server version string e.g. 0.114.0>"
 

@@ -5,12 +5,17 @@ package agent_test
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -35,12 +40,16 @@ import (
 //go:embed uninstall.sh
 var uninstallScript string
 
+//go:embed install.sh
+var installScript string
+
 var (
-	serialClient *serialcontrol.Client
-	appClient    apppb.AppServiceClient
-	logger       logging.Logger
-	deviceArch   string
-	hostName     string
+	serialClient        *serialcontrol.Client
+	appClient           apppb.AppServiceClient
+	logger              logging.Logger
+	deviceArch          string
+	hostName            string
+	concreteTestVersion string
 )
 
 type config struct {
@@ -54,6 +63,7 @@ type config struct {
 }
 
 type versionsCfg struct {
+	Test             string `toml:"viam_agent_test"`
 	Stable           string `toml:"viam_agent_stable"`
 	Old              string `toml:"viam_agent_old"`
 	ViamServerStable string `toml:"viam_server_stable"`
@@ -171,11 +181,12 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			}
 			// Just wait after reconnecting everything to make sure all the connections are back
 			time.Sleep(time.Second * 3)
-			if _, err := applyAgentVersionPin(ctx, "stable"); err != nil {
-				t.Logf("error pinning agent back to stable during cleanup: %v", err)
+			// Pin back to the version under test
+			if _, err := applyAgentVersionPin(ctx, "the version under test"); err != nil {
+				t.Logf("error pinning agent back to \"%s\" during cleanup: %v", cfg.Versions.Test, err)
 			}
 			if _, err := applyViamServerVersionPin(ctx, "stable"); err != nil {
-				t.Logf("error pinning viam-server back to stable during cleanup: %v", err)
+				t.Logf("error pinning viam-server back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerStable, err)
 			}
 			if err := serialClient.Close(); err != nil {
 				t.Logf("error closing serial client during cleanup: %v", err)
@@ -185,24 +196,62 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
-	const versionGroup = `(an old version|dev|stable|version [^\s]+)`
+	const versionGroup = `(an old version|dev|stable|the version under test|version [^\s]+)`
 
 	// Restart viam-agent before each scenario (if it is running) so that every
 	// scenario starts with a fresh systemd InvocationID. This ensures that
 	// journal-based checks cannot match log lines produced by a previous scenario.
 	ctx.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		if cfg.Versions.Test != "" {
+			concrete, err := resolveVersionSpec(ctx, cfg.Versions.Test)
+			concreteTestVersion = concrete
+			logger.Infof("Version under test: %s\n", concreteTestVersion)
+			if err != nil {
+				panic(fmt.Errorf("resolving install version %q: %w", cfg.Versions.Test, err))
+			}
+		} else {
+			panic(fmt.Errorf("viam_agent_test in agent-test.toml cannot be empty string"))
+		}
 		status := serialClient.GetAgentStatus()
 		if status.IsOk() && status.MustGet()["SubState"] == "running" {
 			if err := serialClient.RestartAgent().Error(); err != nil {
 				return ctx, err
 			}
 		}
+
+		if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+			return ctx, err
+		}
+
+		centerPrint := func(msg string, width int) {
+			padLenTotal := width - len(msg)
+			padLeft := padLenTotal / 2
+			padRight := padLenTotal - padLeft
+
+			fmt.Printf("%s%s%s\n", strings.Repeat(" ", padLeft), msg, strings.Repeat(" ", padRight))
+		}
+
+		testMsgs := []string{
+			fmt.Sprintf("Testing Agent Version: %s (%s)", cfg.Versions.Test, concreteTestVersion),
+			fmt.Sprintf("Stable Agent Version: %s", cfg.Versions.Stable),
+			fmt.Sprintf("Stable Server Version: %s", cfg.Versions.ViamServerStable),
+		}
+		consoleWidth := len(slices.MaxFunc(testMsgs, func(a, b string) int { return len(a) - len(b) })) + 8
+		fmt.Println(strings.Repeat("=", consoleWidth))
+		fmt.Println(strings.Repeat("=", consoleWidth))
+		centerPrint(testMsgs[0], consoleWidth)
+		fmt.Println()
+		for _, m := range testMsgs[1:] {
+			centerPrint(m, consoleWidth)
+		}
+		fmt.Println(strings.Repeat("=", consoleWidth))
+		fmt.Println(strings.Repeat("=", consoleWidth))
 		return ctx, nil
 	})
 
 	// Agent utility steps
-	ctx.Step(`^viam-agent is installed$`, installAgent)
-	ctx.Step(`viam-agent is (not |un)installed$`, removeViam)
+	ctx.Step(fmt.Sprintf(`^viam-agent is installed at %s$`, versionGroup), installAgent)
+	ctx.Step(`viam-agent is (not |un)installed$`, uninstallAgent)
 	ctx.Step(`the viam-agent systemd unit is enabled`, testAgentEnabled)
 	ctx.Step(`the viam-agent systemd unit is running$`, testAgentRunning)
 	ctx.Step(`the viam-agent systemd unit is dead$`, testAgentDead)
@@ -286,13 +335,159 @@ func hostEnsureOnline(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
+// Concrete-version shapes that gcsURL recognizes:
+//   - prVersionRe:  "<base>-pr.<N>.<sha>"   (PR dev-release; lives in prerelease/pr-<N>/)
+//   - devVersionRe: "<base>-dev.<N>"        (main-branch dev build; lives in prerelease/)
+//   - anything else is treated as a stable release at the top of apps/<subsystem>/.
+var (
+	prVersionRe  = regexp.MustCompile(`^[^-]+-pr\.(\d+)\.[a-f0-9]{40}$`)
+	devVersionRe = regexp.MustCompile(`^[^-]+-dev\.\d+$`)
+)
+
 // gcsURL constructs the GCS download URL for a viam binary given its subsystem
-// name (e.g. "viam-agent", "viam-server"), version string, and device arch.
+// name (e.g. "viam-agent", "viam-server") and a concrete version string. It
+// routes PR and dev versions to the prerelease subdirectories.
 func gcsURL(subsystem, version string) string {
+	if m := prVersionRe.FindStringSubmatch(version); m != nil {
+		return fmt.Sprintf(
+			"https://storage.googleapis.com/packages.viam.com/apps/%s/prerelease/pr-%s/%s-v%s-%s",
+			subsystem, m[1], subsystem, version, deviceArch,
+		)
+	}
+	if devVersionRe.MatchString(version) {
+		return fmt.Sprintf(
+			"https://storage.googleapis.com/packages.viam.com/apps/%s/prerelease/%s-v%s-%s",
+			subsystem, subsystem, version, deviceArch,
+		)
+	}
 	return fmt.Sprintf(
 		"https://storage.googleapis.com/packages.viam.com/apps/%s/%s-v%s-%s",
 		subsystem, subsystem, version, deviceArch,
 	)
+}
+
+// resolveVersionSpec turns a TOML version specifier into a concrete version
+// string. Recognized forms:
+//   - "stable"  -> latest stable release       (e.g. "0.27.3")
+//   - "dev"     -> latest main-branch dev build (e.g. "0.27.3-dev.5")
+//   - "pr.<N>"  -> latest dev-release for PR N  (e.g. "0.27.3-pr.227.<sha>")
+//   - anything else is assumed to already be concrete and returned as-is.
+//
+// Only viam-agent specifiers are supported today; viam-server has different
+// upload paths and would need its own resolver.
+func resolveVersionSpec(ctx context.Context, spec string) (string, error) {
+	switch {
+	case spec == "stable":
+		return latestStableRelease(ctx)
+	case spec == "dev":
+		b, err := latestDevBuild(ctx)
+		if err != nil {
+			return "", err
+		}
+		return b, nil
+	case strings.HasPrefix(spec, "pr."):
+		n, err := strconv.Atoi(strings.TrimPrefix(spec, "pr."))
+		if err != nil {
+			return "", fmt.Errorf("invalid pr specifier %q: %w", spec, err)
+		}
+		base, sha, err := latestPRBuild(ctx, n)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s-pr.%d.%s", base, n, sha), nil
+	default:
+		return spec, nil
+	}
+}
+
+// gcsListItem is the trimmed shape of a GCS JSON list response entry.
+type gcsListItem struct {
+	Name        string    `json:"name"`
+	TimeCreated time.Time `json:"timeCreated"`
+}
+
+// listGCS lists viam-agent objects under prefix in the public packages bucket,
+// sorted newest-first by upload time.
+func listGCS(ctx context.Context, prefix string) ([]gcsListItem, error) {
+	listURL := "https://storage.googleapis.com/storage/v1/b/packages.viam.com/o" +
+		"?prefix=" + prefix +
+		"&fields=items(name,timeCreated)"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GCS list %q returned %s", prefix, resp.Status)
+	}
+	var body struct {
+		Items []gcsListItem `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	sort.Slice(body.Items, func(i, j int) bool {
+		return body.Items[i].TimeCreated.After(body.Items[j].TimeCreated)
+	})
+	return body.Items, nil
+}
+
+// latestStableRelease returns the most recently uploaded stable viam-agent
+// release version (bare semver, e.g. "0.27.3").
+func latestStableRelease(ctx context.Context) (string, error) {
+	items, err := listGCS(ctx, "apps/viam-agent/viam-agent-v")
+	if err != nil {
+		return "", err
+	}
+	// Stable filenames are exactly "viam-agent-v<MAJOR>.<MINOR>.<PATCH>-<arch>".
+	pat := regexp.MustCompile(`/viam-agent-v(\d+\.\d+\.\d+)-[^/]+$`)
+	for _, it := range items {
+		if m := pat.FindStringSubmatch(it.Name); m != nil {
+			return m[1], nil
+		}
+	}
+	return "", errors.New("no stable releases found")
+}
+
+// latestDevBuild returns the most recently uploaded main-branch dev build
+// version (e.g. "0.27.3-dev.5").
+func latestDevBuild(ctx context.Context) (string, error) {
+	items, err := listGCS(ctx, "apps/viam-agent/prerelease/viam-agent-v")
+	if err != nil {
+		return "", err
+	}
+	pat := regexp.MustCompile(`/viam-agent-v([^-]+-dev\.\d+)-[^/]+$`)
+	for _, it := range items {
+		if m := pat.FindStringSubmatch(it.Name); m != nil {
+			return m[1], nil
+		}
+	}
+	return "", errors.New("no dev builds found")
+}
+
+// latestPRBuild returns the base version and 40-char head SHA of the most
+// recently uploaded dev-release build for the given PR number.
+func latestPRBuild(ctx context.Context, prNum int) (base, sha string, err error) {
+	items, err := listGCS(ctx, fmt.Sprintf("apps/viam-agent/prerelease/pr-%d/", prNum))
+	if err != nil {
+		return "", "", err
+	}
+	if len(items) == 0 {
+		return "", "", fmt.Errorf("no dev-release artifacts found for PR %d", prNum)
+	}
+	pat := regexp.MustCompile(
+		fmt.Sprintf(`/viam-agent-v([^-]+)-pr\.%d\.([a-f0-9]{40})-`, prNum),
+	)
+	for _, it := range items {
+		if m := pat.FindStringSubmatch(it.Name); m != nil {
+			return m[1], m[2], nil
+		}
+	}
+	return "", "", fmt.Errorf("no parsable binary names found for PR %d", prNum)
 }
 
 // setField sets a field nested in an arbitrarily deep tree of
@@ -327,9 +522,13 @@ func setField(root *structpb.Struct, value *structpb.Value, path ...string) erro
 	return nil
 }
 
-// translateVersion translates a version string into the format app expects.
+// translateVersion translates a "version string" into the format app expects.
+// A "version string" here is the string used to vaguely specify a version in the godog test
+// and is not an actual version specification like the one used in a viam robot config.
+
 // oldVersion is the concrete version string to use for the string "an old version".
-func translateVersion(version, oldVersion string) string {
+// testVersion is the concrete version string to use for the string "the version under test".
+func translateVersion(version, oldVersion, testVersion string) string {
 	switch version {
 	case "an old version":
 		if oldVersion == "" {
@@ -338,6 +537,11 @@ func translateVersion(version, oldVersion string) string {
 		return oldVersion
 	case "stable", "dev":
 		return version
+	case "the version under test":
+		if testVersion == "" {
+			panic("must set test version in config")
+		}
+		return testVersion
 	}
 	if strings.HasPrefix(version, "version ") {
 		return strings.SplitN(version, " ", 2)[1]
@@ -348,7 +552,7 @@ func translateVersion(version, oldVersion string) string {
 // versionStrToMatcherBase returns a matcher function for a version string.
 // oldVersion and stableVersion are the concrete version strings to compare
 // against for "an old version" and "stable" respectively.
-func versionStrToMatcherBase(version, oldVersion, stableVersion string) func(string) string {
+func versionStrToMatcherBase(version, oldVersion, stableVersion, testVersion string) func(string) string {
 	switch version {
 	case "an old version":
 		return func(actual string) string {
@@ -363,6 +567,22 @@ func versionStrToMatcherBase(version, oldVersion, stableVersion string) func(str
 				panic("must set stable version in config")
 			}
 			return test.ShouldEqual(actual, stableVersion)
+		}
+	case "the version under test":
+		if strings.HasPrefix(concreteTestVersion, "file://") {
+			return func(actual string) string {
+				if testVersion == "" {
+					panic("must set test version in config")
+				}
+				return test.ShouldEqual(actual, "custom")
+			}
+		} else {
+			return func(actual string) string {
+				if testVersion == "" {
+					panic("must set test version in config")
+				}
+				return test.ShouldEqual(actual, concreteTestVersion)
+			}
 		}
 	case "dev":
 		return func(actual string) string {
@@ -389,6 +609,7 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 		return ctx, err
 	}
 	partCfg := partResp.Part.RobotConfig
+	logger.Infof("Pinning agent to version: %s\n", versionStr)
 	if err = setField(partCfg, structpb.NewStringValue(versionStr), path...); err != nil {
 		return ctx, err
 	}
@@ -400,7 +621,7 @@ func applyVersionPin(ctx context.Context, versionStr string, path ...string) (co
 	return ctx, err
 }
 
-func removeViam(ctx context.Context) (context.Context, error) {
+func uninstallAgent(ctx context.Context) (context.Context, error) {
 	if err := serialClient.RunScript(uninstallScript, "FORCE=1 sh").Error(); err != nil {
 		return ctx, err
 	}
@@ -808,12 +1029,23 @@ func bleSurfacesExpectedError(expectedErr string) error {
 	return fmt.Errorf("did not find any error (expected %s) in BLE info: %s", expectedErr, strings.Join(lastBleStatus, "\n"))
 }
 
-func installAgent(ctx context.Context) (context.Context, error) {
+// installAgentVersion runs install.sh on the device. If version is empty, the script
+// downloads the stable release; otherwise version is treated as a specifier
+// (concrete, "stable", "dev", or "pr.N"), resolved to a concrete GCS URL, and
+// injected into the script via AGENT_CUSTOM_URL.
+func installAgent(ctx context.Context, version string) (context.Context, error) {
 	agentStatus := serialClient.GetAgentStatus().MustGet()
+	// Avoid wasting time and network traffic if agent is already running at the desired version
+
+	// First check, if agent is running, and running on the correct version
 	if agentStatus["SubState"] == "running" {
-		// Avoid wasting time and network traffic if agent is already running.
-		return ctx, nil
+		_, err := testSystemdAgentStartVersion(ctx, version, false)
+		if err == nil {
+			return ctx, nil
+		}
 	}
+
+	// Then install
 	robotKeysResp, err := appClient.GetRobotAPIKeys(ctx, &apppb.GetRobotAPIKeysRequest{
 		RobotId: cfg.RobotID,
 	})
@@ -821,11 +1053,35 @@ func installAgent(ctx context.Context) (context.Context, error) {
 		return ctx, err
 	}
 	robotKeys := robotKeysResp.ApiKeys[0]
-	return ctx, serialClient.InstallViam(
-		cfg.PartID,
-		robotKeys.ApiKey.Id,
-		robotKeys.ApiKey.Key,
-	).Error()
+	cmd := fmt.Sprintf(
+		"FORCE=1 VIAM_API_KEY_ID=%s VIAM_API_KEY=%s VIAM_PART_ID=%s",
+		robotKeys.ApiKey.Id, robotKeys.ApiKey.Key, cfg.PartID,
+	)
+
+	appVersion := translateVersion(version, cfg.Versions.Old, cfg.Versions.Test)
+	concrete, err := resolveVersionSpec(ctx, appVersion)
+	if err != nil {
+		return ctx, err
+	}
+
+	logger.Infof("Install version: %s\n", concrete)
+	// Don't use the concrete test version if it's a file pin, because gcsURL can't handle file pins
+	if !strings.HasPrefix(concrete, "file://") {
+		cmd += fmt.Sprintf(" AGENT_CUSTOM_URL=%s", gcsURL("viam-agent", concrete))
+	}
+	cmd += " sh"
+	err = serialClient.RunScript(installScript, cmd).Error()
+
+	// After install, if the version under test is a file pin, pin to the file
+	// assuming the binary is present on the device
+
+	// problem: binaries print their version as "custom Git Revision: sha"
+	if strings.HasPrefix(concrete, "file://") {
+		logger.Infof("Version under test is a file pin: %s", concrete)
+		ctx, err := applyVersionPin(ctx, concrete, "agent", "version_control", "agent")
+		return ctx, err
+	}
+	return ctx, err
 }
 
 func testAgentEnabled(ctx context.Context) (context.Context, error) {
@@ -845,15 +1101,16 @@ func testAgentNotFound(ctx context.Context) (context.Context, error) {
 }
 
 func testAgentRunningWithVersion(ctx context.Context, version string) (context.Context, error) {
-	ctx, err := testSystemdAgentStartVersion(ctx, version)
+	ctx, err := testSystemdAgentStartVersion(ctx, version, true)
 	if err != nil {
 		return ctx, err
 	}
 	return testAgentState(ctx, "SubState", "running")
 }
 
-func testSystemdAgentStartVersion(ctx context.Context, version string) (context.Context, error) {
+func testSystemdAgentStartVersion(ctx context.Context, version string, wait bool) (context.Context, error) {
 	versionTest := versionStrToMatcher(version)
+	logger.Infof("Check for version %s with matcher %s\n", version, versionTest)
 	var err error
 	// Agent needs time to fetch the new config, possibly download the new
 	// version, and restart.
@@ -862,13 +1119,19 @@ func testSystemdAgentStartVersion(ctx context.Context, version string) (context.
 			time.Sleep(time.Second * 2)
 		}
 		lastAgentVer := serialClient.GetAgentLastStartVersion()
+		// if we failed to get a version, keep trying
 		if lastAgentVer.IsError() {
 			err = lastAgentVer.Error()
 			continue
 		}
+		// if we got a version, but it's not what's expected, keep trying if "wait" is set
 		if check := versionTest(lastAgentVer.MustGet()); check != "" {
-			err = errors.New(check)
-			continue
+			if wait {
+				err = errors.New(check)
+				continue
+			} else {
+				return ctx, errors.New(check)
+			}
 		}
 		return ctx, nil
 	}
@@ -888,11 +1151,21 @@ func testAgentState(ctx context.Context, key, expectedVal string) (context.Conte
 }
 
 func translateToAppVersion(version string) string {
-	return translateVersion(version, cfg.Versions.Old)
+	appVersion := translateVersion(version, cfg.Versions.Old, cfg.Versions.Test)
+
+	// for now, special handling for "the version under test":
+	// the only way to translate all the different version specs into something the app can
+	// understand is by pinning directly to the corresponding URL
+
+	// so intercept and return that instead (this is done here so "viam-agent" can be passed)
+	if version == "the version under test" {
+		appVersion = gcsURL("viam-agent", concreteTestVersion)
+	}
+	return appVersion
 }
 
 func versionStrToMatcher(version string) func(string) string {
-	return versionStrToMatcherBase(version, cfg.Versions.Old, cfg.Versions.Stable)
+	return versionStrToMatcherBase(version, cfg.Versions.Old, cfg.Versions.Stable, cfg.Versions.Test)
 }
 
 func applyAgentVersionPin(ctx context.Context, version string) (context.Context, error) {
@@ -950,11 +1223,11 @@ func testViamServerRunningWithVersion(ctx context.Context, version string) (cont
 }
 
 func translateVersionViamServer(version string) string {
-	return translateVersion(version, cfg.Versions.ViamServerOld)
+	return translateVersion(version, cfg.Versions.ViamServerOld, "")
 }
 
 func versionStrToMatcherViamServer(version string) func(string) string {
-	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable)
+	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable, "")
 }
 
 func applyViamServerVersionPin(ctx context.Context, version string) (context.Context, error) {
