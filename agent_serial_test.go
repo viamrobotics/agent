@@ -219,6 +219,10 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 			}
 		}
 
+		if err := serialClient.EnsureOnline(cfg.Wifi.SSID, cfg.Wifi.Password); err != nil {
+			return ctx, err
+		}
+
 		centerPrint := func(msg string, width int) {
 			padLenTotal := width - len(msg)
 			padLeft := padLenTotal / 2
