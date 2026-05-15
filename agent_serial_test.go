@@ -66,7 +66,6 @@ type versionsCfg struct {
 	Test             string `toml:"viam_agent_test"`
 	Stable           string `toml:"viam_agent_stable"`
 	Old              string `toml:"viam_agent_old"`
-	ViamServerTest   string `toml:"viam_server_test"`
 	ViamServerStable string `toml:"viam_server_stable"`
 	ViamServerOld    string `toml:"viam_server_old"`
 }
@@ -186,8 +185,8 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			if _, err := applyAgentVersionPin(ctx, "the version under test"); err != nil {
 				t.Logf("error pinning agent back to \"%s\" during cleanup: %v", cfg.Versions.Test, err)
 			}
-			if _, err := applyViamServerVersionPin(ctx, "the version under test"); err != nil {
-				t.Logf("error pinning viam-server back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerTest, err)
+			if _, err := applyViamServerVersionPin(ctx, "stable"); err != nil {
+				t.Logf("error pinning viam-server back to \"%s\" during cleanup: %v", cfg.Versions.ViamServerStable, err)
 			}
 			if err := serialClient.Close(); err != nil {
 				t.Logf("error closing serial client during cleanup: %v", err)
@@ -231,7 +230,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		testMsgs := []string{
 			fmt.Sprintf("Testing Agent Version: %s (%s)", cfg.Versions.Test, concreteTestVersion),
 			fmt.Sprintf("Stable Agent Version: %s", cfg.Versions.Stable),
-			fmt.Sprintf("Testing Server Version: %s", cfg.Versions.ViamServerTest),
 			fmt.Sprintf("Stable Server Version: %s", cfg.Versions.ViamServerStable),
 		}
 		consoleWidth := len(slices.MaxFunc(testMsgs, func(a, b string) int { return len(a) - len(b) })) + 8
@@ -1221,11 +1219,11 @@ func testViamServerRunningWithVersion(ctx context.Context, version string) (cont
 }
 
 func translateVersionViamServer(version string) string {
-	return translateVersion(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerTest)
+	return translateVersion(version, cfg.Versions.ViamServerOld, "")
 }
 
 func versionStrToMatcherViamServer(version string) func(string) string {
-	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable, cfg.Versions.ViamServerTest)
+	return versionStrToMatcherBase(version, cfg.Versions.ViamServerOld, cfg.Versions.ViamServerStable, "")
 }
 
 func applyViamServerVersionPin(ctx context.Context, version string) (context.Context, error) {
