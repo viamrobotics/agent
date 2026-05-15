@@ -19,7 +19,6 @@
     <MediaTemplate EmbedCab="yes" />
 
     <!-- These can be overridden in CLI with: `installer.msi SERVICEACCOUNT=1` -->
-    <Property Id="AGENTDOWNLOADURL" Value="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/viam-agent-stable-windows-x86_64" />
     <Property Id="SERVICEACCOUNT" Secure="yes" />
     <!-- if you change default rootdir, also change the conditional on SetViamHomeEnv -->
     <Property Id="ROOTDIR" Value="C:\opt\viam" />
@@ -38,7 +37,10 @@
 
     <ComponentGroup Id="AgentCache" Directory="CACHEDIR">
       <Component Id="CacheDir" Guid="01A2E465-CBC5-4807-BE48-F7791C3B7EF7">
-        <CreateFolder />
+        <File Id="AgentCacheExe"
+              Source="viam-agent-from-installer.exe"
+              Name="viam-agent-from-installer.exe"
+              KeyPath="yes" />
       </Component>
     </ComponentGroup>
 
@@ -48,18 +50,6 @@
       - Wix4UtilCA_X64 / WixQuietExec run with the SYSTEM privilege of the elevated msi process, rather than the default of running custom actions in an MSI sandbox
       - see https://docs.firegiant.com/wix/tools/wixext/quietexec/#quiet-running-as-deferred-custom-actions
     -->
-
-    <SetProperty Id="DownloadAgent"
-                 Before="DownloadAgent"
-                 Sequence="execute"
-                 Value="&quot;[System64Folder]curl.exe&quot; -L --fail --retry 3 -o &quot;[CACHEDIR]viam-agent-from-installer.exe&quot; &quot;[AGENTDOWNLOADURL]&quot;" />
-
-    <CustomAction Id="DownloadAgent"
-                  Execute="deferred"
-                  Impersonate="no"
-                  Return="check"
-                  BinaryRef="Wix4UtilCA_X64"
-                  DllEntry="WixQuietExec64" />
 
     <SetProperty Id="CreateSymlink"
                  Before="CreateSymlink"
@@ -178,8 +168,6 @@
                   DllEntry="WixQuietExec64" />
 
     <InstallExecuteSequence>
-      <Custom Action="DownloadAgent" After="CreateFolders"
-              Condition="NOT REMOVE" />
       <Custom Action="CreateSymlink" After="InstallFiles"
               Condition="NOT REMOVE" />
       <Custom Action="ConfigureServiceFailureFlag" After="InstallServices"
@@ -297,7 +285,7 @@
                  Text="Run as virtual service account (NT SERVICE\viam-agent)" />
         <Control Id="ServiceAccountDesc" Type="Text"
                  X="35" Y="88" Width="315" Height="50" NoPrefix="yes"
-                 Text="When checked, the service runs with minimal privileges using a virtual service account. Recommended for production deployments. When unchecked, the service runs as Local System." />
+                 Text="(Advanced user option. Not recommended for production deployments.)&#10;&#10;If checked, the service runs with minimal privileges using a virtual service account. If unchecked, the service runs as Local System." />
 
         <!-- Bottom bar -->
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
@@ -325,7 +313,6 @@
                Value="ServiceAccountDlg" Order="10" Condition="1" />
 
       <!-- messages shown above the progress bar for each step -->
-      <ProgressText Action="DownloadAgent" Message="Downloading Viam Agent binary..." />
       <ProgressText Action="CreateSymlink" Message="Creating viam-agent symlink..." />
       <ProgressText Action="ConfigureServiceFailure" Message="Configuring service failure recovery..." />
       <ProgressText Action="ConfigureServiceFailureFlag" Message="Enabling service failure-on-crash flag..." />
