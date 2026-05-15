@@ -118,7 +118,12 @@ func (s *SystemdManager) getServiceFilePath(ctx context.Context, serviceFile str
 	// therefore a migration may need to be performed.
 	searchPaths, err := s.SystemdSearchPaths(ctx)
 	if err != nil {
-		return "", false, err
+		s.logger.Warnw(
+			"Could not determine systemd unit search paths; installing to fallback path",
+			"err", err,
+			"installPath", oldFilePath,
+		)
+		return oldFilePath, false, nil
 	}
 	if !slices.Contains(searchPaths, s.dirs.serviceFileDir) {
 		s.logger.Warnf(
