@@ -10,7 +10,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/agent"
-	"github.com/viamrobotics/agent/subsystems/networking"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
@@ -73,7 +72,7 @@ func runPlatformProvisioning(ctx context.Context, cfg utils.AgentConfig, manager
 	// The user may be updating it soon, so better to loop quietly than to exit and let systemd keep restarting infinitely.
 	globalLogger.Infof("machine credentials file %s missing or corrupt, entering provisioning mode", utils.AppConfigFilePath)
 
-	if err := manager.StartSubsystem(ctx, networking.SubsysName); err != nil {
+	if err := manager.StartNetworking(ctx); err != nil {
 		globalLogger.Error(errors.Wrapf(err, "could not start networking subsystem, "+
 			"please manually update /etc/viam.json and connect to internet"))
 		return false
