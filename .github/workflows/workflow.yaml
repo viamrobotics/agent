@@ -85,6 +85,12 @@ jobs:
         )
       )
     needs: test
+    # id-token: write enables Workload Identity Federation for the Windows binary
+    # signing step. contents: read is required by checkout since adding any
+    # permissions block drops the defaults.
+    permissions:
+      contents: 'read'
+      id-token: 'write'
     outputs:
       pr_urls: ${{ steps.pr_urls.outputs.urls }}
     env:
@@ -101,8 +107,48 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
+
+    # Build all binaries first, then sign the Windows ones, then generate the
+    # subsystem manifest so its SHA256 reflects the SIGNED binary. Signing after
+    # manifest generation would leave the manifest pointing at the unsigned hash.
     - name: Build
-      run: make all manifest
+      run: make all
+
+    - id: 'gcp-signing-auth'
+      uses: 'google-github-actions/auth@v2'
+      with:
+        token_format: 'access_token'
+        project_id: 'engineering-tools-310515'
+        workload_identity_provider: 'projects/385154741571/locations/global/workloadIdentityPools/ev-signing-id/providers/github-repos-viam-and-labs'
+        service_account: 'ev-code-signing@engineering-tools-310515.iam.gserviceaccount.com'
+
+    - id: 'gcp-signing-secrets'
+      uses: 'google-github-actions/get-secretmanager-secrets@v2'
+      with:
+        secrets: |-
+          public_key:projects/385154741571/secrets/ev-code-signing-public-key
+
+    - name: Sign Windows binaries
+      run: |
+        curl -L -o jsign.jar https://github.com/ebourg/jsign/releases/download/7.1/jsign-7.1.jar
+        echo "${{ steps.gcp-signing-secrets.outputs.public_key }}" > cert.pem
+        # Loop signs the versioned binary and (on releases) the viam-agent-stable-windows-x86_64 copy.
+        for f in bin/viam-agent-*-windows-x86_64; do
+          java -jar jsign.jar \
+            --name "Viam Agent" \
+            --storetype GOOGLECLOUD \
+            --keystore "projects/engineering-tools-310515/locations/global/keyRings/release_signing_key" \
+            --storepass "${{ steps.gcp-signing-auth.outputs.access_token }}" \
+            --alias "ev-code-signing-key/cryptoKeyVersions/2" \
+            --certfile cert.pem \
+            --tsaurl http://timestamp.digicert.com \
+            "$f"
+        done
+        rm cert.pem jsign.jar
+
+    - name: Generate manifest
+      run: make manifest
+
     - uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
