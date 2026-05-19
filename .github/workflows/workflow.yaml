@@ -134,7 +134,6 @@ jobs:
             --tsaurl http://timestamp.digicert.com \
             "$f"
         done
-        rm cert.pem jsign.jar
     - name: Generate manifest
       run: make manifest
     - uses: google-github-actions/auth@v2
