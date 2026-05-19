@@ -85,9 +85,6 @@ jobs:
         )
       )
     needs: test
-    # id-token: write enables Workload Identity Federation for the Windows binary
-    # signing step. contents: read is required by checkout since adding any
-    # permissions block drops the defaults.
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -108,9 +105,6 @@ jobs:
       with:
         go-version-file: go.mod
 
-    # Build all binaries first, then sign the Windows ones, then generate the
-    # subsystem manifest so its SHA256 reflects the SIGNED binary. Signing after
-    # manifest generation would leave the manifest pointing at the unsigned hash.
     - name: Build
       run: make all
 
