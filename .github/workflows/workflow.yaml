@@ -104,10 +104,8 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
-
     - name: Build
       run: make all
-
     - id: 'gcp-signing-auth'
       uses: 'google-github-actions/auth@v2'
       with:
@@ -115,13 +113,11 @@ jobs:
         project_id: 'engineering-tools-310515'
         workload_identity_provider: 'projects/385154741571/locations/global/workloadIdentityPools/ev-signing-id/providers/github-repos-viam-and-labs'
         service_account: 'ev-code-signing@engineering-tools-310515.iam.gserviceaccount.com'
-
     - id: 'gcp-signing-secrets'
       uses: 'google-github-actions/get-secretmanager-secrets@v2'
       with:
         secrets: |-
           public_key:projects/385154741571/secrets/ev-code-signing-public-key
-
     - name: Sign Windows binaries
       run: |
         curl -L -o jsign.jar https://github.com/ebourg/jsign/releases/download/7.1/jsign-7.1.jar
@@ -139,10 +135,8 @@ jobs:
             "$f"
         done
         rm cert.pem jsign.jar
-
     - name: Generate manifest
       run: make manifest
-
     - uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
