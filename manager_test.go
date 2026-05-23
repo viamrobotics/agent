@@ -404,3 +404,57 @@ func TestSubsystemUpdatesViamServerRestart(t *testing.T) {
 		})
 	}
 }
+
+// TestSubsystemUpdatesMarksRunningVersion verifies that SubsystemUpdates calls
+// MarkViamServerRunningVersion iff the restart block successfully stopped
+// viam-server. Mark snapshots the installed CurrentVersion into runningVersion;
+// it is called before the new viam-server is started, so it reflects the
+// decision to run a version, not confirmation of a healthy start.
+func TestSubsystemUpdatesMarksRunningVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		updateReturns bool
+		stopErr       error
+		wantMark      bool
+	}{
+		{name: "no restart triggered; no mark", wantMark: false},
+		{name: "restart succeeds; marks running", updateReturns: true, wantMark: true},
+		{name: "restart stop fails; no mark", updateReturns: true, stopErr: errors.New("stop failed"), wantMark: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			utils.MockAndCreateViamDirs(t)
+			logger := logging.NewTestLogger(t)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			cfg := utils.DefaultConfiguration
+			fake := &fakeViamServer{
+				updateFn: func(context.Context, utils.AgentConfig) bool { return tc.updateReturns },
+				stopFn:   func(context.Context) error { return tc.stopErr },
+			}
+			m := &Manager{
+				logger:         logger,
+				cfg:            cfg,
+				globalCancel:   cancel,
+				viamServer:     fake,
+				networking:     networking.New(ctx, logger, cfg),
+				cache:          NewVersionCache(logger),
+				agentStartTime: time.Now(),
+			}
+			m.sysConfig = syscfg.New(ctx, logger, cfg, m.GetNetAppender, false, nil)
+
+			// Seed CurrentVersion so we can detect whether Mark copied it.
+			m.cache.ViamServer.CurrentVersion = "0.70.0"
+			test.That(t, m.cache.ViamServerRunningVersion(), test.ShouldEqual, "")
+
+			m.SubsystemUpdates(ctx)
+
+			want := ""
+			if tc.wantMark {
+				want = "0.70.0"
+			}
+			test.That(t, m.cache.ViamServerRunningVersion(), test.ShouldEqual, want)
+		})
+	}
+}
