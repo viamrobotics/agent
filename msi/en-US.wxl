@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization Culture="en-US" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="InstallDirDlgFolderLabel" Value="Install [ProductName] to:&#10;&#10;Warning: changing the default install location is not recommended." />
+</WixLocalization>
