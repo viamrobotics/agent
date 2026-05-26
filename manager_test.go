@@ -393,7 +393,7 @@ func TestSubsystemUpdatesViamServerRestart(t *testing.T) {
 				agentStartTime:        time.Now(),
 				viamAgentNeedsRestart: tc.initialAgentFlag,
 			}
-			m.sysConfig = syscfg.New(ctx, logger, cfg, m.GetNetAppender, false)
+			m.sysConfig = syscfg.New(ctx, logger, cfg, m.GetNetAppender, false, fake.RestartAllowed)
 
 			m.SubsystemUpdates(ctx)
 
