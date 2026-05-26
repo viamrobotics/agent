@@ -6,6 +6,7 @@ etc/
 gha-creds-*.json
 viam-agent-windows-installer*.exe
 *.pem
+jsign.jar
 
 # Config file containing secrets used for serial console tests
 agent-test.toml
