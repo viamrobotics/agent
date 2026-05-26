@@ -85,6 +85,9 @@ jobs:
         )
       )
     needs: test
+    permissions:
+      contents: 'read'
+      id-token: 'write'
     outputs:
       pr_urls: ${{ steps.pr_urls.outputs.urls }}
     env:
@@ -102,7 +105,37 @@ jobs:
       with:
         go-version-file: go.mod
     - name: Build
-      run: make all manifest
+      run: make all
+    - id: 'gcp-signing-auth'
+      uses: 'google-github-actions/auth@v3'
+      with:
+        token_format: 'access_token'
+        project_id: 'engineering-tools-310515'
+        workload_identity_provider: 'projects/385154741571/locations/global/workloadIdentityPools/ev-signing-id/providers/github-repos-viam-and-labs'
+        service_account: 'ev-code-signing@engineering-tools-310515.iam.gserviceaccount.com'
+    - id: 'gcp-signing-secrets'
+      uses: 'google-github-actions/get-secretmanager-secrets@v3'
+      with:
+        secrets: |-
+          public_key:projects/385154741571/secrets/ev-code-signing-public-key
+    - name: Sign Windows binaries
+      run: |
+        curl -L -o jsign.jar https://github.com/ebourg/jsign/releases/download/7.1/jsign-7.1.jar
+        echo "${{ steps.gcp-signing-secrets.outputs.public_key }}" > cert.pem
+        # Loop signs the versioned binary and (on releases) the viam-agent-stable-windows-x86_64 copy.
+        for f in bin/viam-agent-*-windows-x86_64; do
+          java -jar jsign.jar \
+            --name "Viam Agent" \
+            --storetype GOOGLECLOUD \
+            --keystore "projects/engineering-tools-310515/locations/global/keyRings/release_signing_key" \
+            --storepass "${{ steps.gcp-signing-auth.outputs.access_token }}" \
+            --alias "ev-code-signing-key/cryptoKeyVersions/2" \
+            --certfile cert.pem \
+            --tsaurl http://timestamp.digicert.com \
+            "$f"
+        done
+    - name: Generate manifest
+      run: make manifest
     - uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}

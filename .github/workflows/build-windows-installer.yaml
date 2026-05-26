@@ -75,7 +75,7 @@ jobs:
             --storetype GOOGLECLOUD `
             --keystore "projects/engineering-tools-310515/locations/global/keyRings/release_signing_key" `
             --storepass "${{ steps.gcp-auth.outputs.access_token }}" `
-            --alias "ev-code-signing-key/cryptoKeyVersions/1" `
+            --alias "ev-code-signing-key/cryptoKeyVersions/2" `
             --certfile cert.pem viam-agent-installer.exe
           rm cert.pem
 
