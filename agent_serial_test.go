@@ -170,6 +170,20 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 				// Setup failed, panic
 				panic(err)
 			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+			defer cancel()
+			// now that everything is set up, log the test conditions
+			if cfg.Versions.Test != "" {
+				concrete, err := resolveVersionSpec(ctx, cfg.Versions.Test)
+				concreteTestVersion = concrete
+				if err != nil {
+					panic(fmt.Errorf("resolving install version %q: %w", cfg.Versions.Test, err))
+				}
+				logger.Infof("Version under test: %s\n", concreteTestVersion)
+			} else {
+				panic(fmt.Errorf("viam_agent_test in agent-test.toml cannot be empty string"))
+			}
 		})
 		tsc.AfterSuite(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
@@ -202,16 +216,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	// scenario starts with a fresh systemd InvocationID. This ensures that
 	// journal-based checks cannot match log lines produced by a previous scenario.
 	ctx.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
-		if cfg.Versions.Test != "" {
-			concrete, err := resolveVersionSpec(ctx, cfg.Versions.Test)
-			concreteTestVersion = concrete
-			logger.Infof("Version under test: %s\n", concreteTestVersion)
-			if err != nil {
-				panic(fmt.Errorf("resolving install version %q: %w", cfg.Versions.Test, err))
-			}
-		} else {
-			panic(fmt.Errorf("viam_agent_test in agent-test.toml cannot be empty string"))
-		}
 		status := serialClient.GetAgentStatus()
 		if status.IsOk() && status.MustGet()["SubState"] == "running" {
 			if err := serialClient.RestartAgent().Error(); err != nil {
@@ -1071,6 +1075,9 @@ func installAgent(ctx context.Context, version string) (context.Context, error) 
 	}
 	cmd += " sh"
 	err = serialClient.RunScript(installScript, cmd).Error()
+	if err != nil {
+		return ctx, err
+	}
 
 	// After install, if the version under test is a file pin, pin to the file
 	// assuming the binary is present on the device
@@ -1110,7 +1117,6 @@ func testAgentRunningWithVersion(ctx context.Context, version string) (context.C
 
 func testSystemdAgentStartVersion(ctx context.Context, version string, wait bool) (context.Context, error) {
 	versionTest := versionStrToMatcher(version)
-	logger.Infof("Check for version %s with matcher %s\n", version, versionTest)
 	var err error
 	// Agent needs time to fetch the new config, possibly download the new
 	// version, and restart.
