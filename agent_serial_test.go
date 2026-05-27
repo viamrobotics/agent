@@ -184,6 +184,30 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			} else {
 				panic(fmt.Errorf("viam_agent_test in agent-test.toml cannot be empty string"))
 			}
+
+			centerPrint := func(msg string, width int) {
+				padLenTotal := width - len(msg)
+				padLeft := padLenTotal / 2
+				padRight := padLenTotal - padLeft
+
+				fmt.Printf("%s%s%s\n", strings.Repeat(" ", padLeft), msg, strings.Repeat(" ", padRight))
+			}
+
+			testMsgs := []string{
+				fmt.Sprintf("Testing Agent Version: %s (%s)", cfg.Versions.Test, concreteTestVersion),
+				fmt.Sprintf("Stable Agent Version: %s", cfg.Versions.Stable),
+				fmt.Sprintf("Stable Server Version: %s", cfg.Versions.ViamServerStable),
+			}
+			consoleWidth := len(slices.MaxFunc(testMsgs, func(a, b string) int { return len(a) - len(b) })) + 8
+			fmt.Println(strings.Repeat("=", consoleWidth))
+			fmt.Println(strings.Repeat("=", consoleWidth))
+			centerPrint(testMsgs[0], consoleWidth)
+			fmt.Println()
+			for _, m := range testMsgs[1:] {
+				centerPrint(m, consoleWidth)
+			}
+			fmt.Println(strings.Repeat("=", consoleWidth))
+			fmt.Println(strings.Repeat("=", consoleWidth))
 		})
 		tsc.AfterSuite(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
@@ -227,29 +251,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 			return ctx, err
 		}
 
-		centerPrint := func(msg string, width int) {
-			padLenTotal := width - len(msg)
-			padLeft := padLenTotal / 2
-			padRight := padLenTotal - padLeft
-
-			fmt.Printf("%s%s%s\n", strings.Repeat(" ", padLeft), msg, strings.Repeat(" ", padRight))
-		}
-
-		testMsgs := []string{
-			fmt.Sprintf("Testing Agent Version: %s (%s)", cfg.Versions.Test, concreteTestVersion),
-			fmt.Sprintf("Stable Agent Version: %s", cfg.Versions.Stable),
-			fmt.Sprintf("Stable Server Version: %s", cfg.Versions.ViamServerStable),
-		}
-		consoleWidth := len(slices.MaxFunc(testMsgs, func(a, b string) int { return len(a) - len(b) })) + 8
-		fmt.Println(strings.Repeat("=", consoleWidth))
-		fmt.Println(strings.Repeat("=", consoleWidth))
-		centerPrint(testMsgs[0], consoleWidth)
-		fmt.Println()
-		for _, m := range testMsgs[1:] {
-			centerPrint(m, consoleWidth)
-		}
-		fmt.Println(strings.Repeat("=", consoleWidth))
-		fmt.Println(strings.Repeat("=", consoleWidth))
 		return ctx, nil
 	})
 
@@ -287,7 +288,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 
 	// Agent upgrade/downgrade steps (version/URL/file)
 	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit is running with %s$`, versionGroup), testAgentRunningWithVersion)
-	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit started with %s`, versionGroup), testSystemdAgentStartVersion)
+	ctx.Step(fmt.Sprintf(`the viam-agent systemd unit started with %s`, versionGroup), waitForSystemdAgentVersion)
 	ctx.Step(fmt.Sprintf(`viam-agent is pinned to %s`, versionGroup), applyAgentVersionPin)
 	ctx.Step(`viam-agent is pinned to a url$`, applyAgentURLPin)
 	ctx.Step(`viam-agent is pinned to a file$`, applyAgentFilePin)
@@ -1043,7 +1044,7 @@ func installAgent(ctx context.Context, version string) (context.Context, error) 
 
 	// First check, if agent is running, and running on the correct version
 	if agentStatus["SubState"] == "running" {
-		_, err := testSystemdAgentStartVersion(ctx, version, false)
+		_, err := checkSystemdAgentVersion(ctx, version)
 		if err == nil {
 			return ctx, nil
 		}
@@ -1108,15 +1109,27 @@ func testAgentNotFound(ctx context.Context) (context.Context, error) {
 }
 
 func testAgentRunningWithVersion(ctx context.Context, version string) (context.Context, error) {
-	ctx, err := testSystemdAgentStartVersion(ctx, version, true)
+	ctx, err := waitForSystemdAgentVersion(ctx, version)
 	if err != nil {
 		return ctx, err
 	}
 	return testAgentState(ctx, "SubState", "running")
 }
 
-func testSystemdAgentStartVersion(ctx context.Context, version string, wait bool) (context.Context, error) {
+// returns nil err on match, err otherwise
+func checkSystemdAgentVersion(ctx context.Context, version string) (context.Context, error) {
 	versionTest := versionStrToMatcher(version)
+	lastAgentVer := serialClient.GetAgentLastStartVersion()
+	if lastAgentVer.IsError() {
+		return ctx, lastAgentVer.Error()
+	}
+	if check := versionTest(lastAgentVer.MustGet()); check != "" {
+		return ctx, errors.New(check)
+	}
+	return ctx, nil
+}
+
+func waitForSystemdAgentVersion(ctx context.Context, version string) (context.Context, error) {
 	var err error
 	// Agent needs time to fetch the new config, possibly download the new
 	// version, and restart.
@@ -1124,20 +1137,9 @@ func testSystemdAgentStartVersion(ctx context.Context, version string, wait bool
 		if i > 0 {
 			time.Sleep(time.Second * 2)
 		}
-		lastAgentVer := serialClient.GetAgentLastStartVersion()
-		// if we failed to get a version, keep trying
-		if lastAgentVer.IsError() {
-			err = lastAgentVer.Error()
+		// if we didn't get the expected version, try again
+		if _, err = checkSystemdAgentVersion(ctx, version); err != nil {
 			continue
-		}
-		// if we got a version, but it's not what's expected, keep trying if "wait" is set
-		if check := versionTest(lastAgentVer.MustGet()); check != "" {
-			if wait {
-				err = errors.New(check)
-				continue
-			} else {
-				return ctx, errors.New(check)
-			}
 		}
 		return ctx, nil
 	}
