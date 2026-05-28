@@ -307,6 +307,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 					m.logger.Warn(err)
 				} else {
 					m.viamServerNeedsRestart = false
+					m.cache.MarkViamServerRunningVersion()
 				}
 				if m.viamAgentNeedsRestart {
 					m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
@@ -316,7 +317,6 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 				m.logger.Warnf("%s has NOT allowed a restart; will NOT restart", viamserver.SubsysName)
 			}
 		}
-		m.cache.MarkViamServerRunningVersion()
 		if err := m.viamServer.Start(ctx); err != nil {
 			m.logger.Warn(err)
 		}
