@@ -161,6 +161,8 @@ jobs:
     permissions:
       contents: 'read'
       id-token: 'write'
+    outputs:
+      pr_url: ${{ steps.pr_url.outputs.url }}
     steps:
     - uses: actions/checkout@v4
     - uses: actions/download-artifact@v4
@@ -200,12 +202,21 @@ jobs:
       if: github.event_name == 'pull_request'
       shell: bash
       run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi "gs://packages.viam.com/apps/viam-agent/prerelease/pr-${{ github.event.pull_request.number }}/"
+    - name: Collect MSI PR dev release URL
+      id: pr_url
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        BASE="https://storage.googleapis.com/packages.viam.com/apps/viam-agent/prerelease/pr-${{ github.event.pull_request.number }}"
+        for f in viam-agent-*-windows-x86_64.msi; do
+          echo "url=- [\`$f\`](${BASE}/$f)" >> "$GITHUB_OUTPUT"
+        done
 
   pr-dev-release-comment:
     name: Post PR dev release URLs
     runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'pull_request'
+    needs: [build, msi]
+    if: always() && github.event_name == 'pull_request'
     permissions:
       pull-requests: write
     steps:
@@ -219,6 +230,7 @@ jobs:
 
           Built from `${{ github.event.pull_request.head.sha }}`.
 
-          ${{ needs.build.outputs.pr_urls }}
+          ${{ needs.build.result == 'success' && needs.build.outputs.pr_urls || '- Binary build failed — check workflow logs' }}
+          ${{ needs.msi.result == 'success' && needs.msi.outputs.pr_url || '- MSI build failed — check workflow logs' }}
 
           Remove the `dev-release` label to stop further dev release builds.
