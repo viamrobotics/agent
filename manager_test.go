@@ -406,20 +406,23 @@ func TestSubsystemUpdatesViamServerRestart(t *testing.T) {
 }
 
 // TestSubsystemUpdatesMarksRunningVersion verifies that SubsystemUpdates calls
-// MarkViamServerRunningVersion iff the restart block successfully stopped
-// viam-server. Mark snapshots the installed CurrentVersion into runningVersion;
-// it is called before the new viam-server is started, so it reflects the
-// decision to run a version, not confirmation of a healthy start.
+// MarkViamServerRunningVersion whenever it is about to Start viam-server at
+// the installed CurrentVersion — i.e., when no restart is pending at the
+// point of Start. Mark reflects the decision to run a version, not
+// confirmation of a healthy start; it is skipped only when the old version
+// is still running (Stop failed or restart was disallowed).
 func TestSubsystemUpdatesMarksRunningVersion(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		updateReturns bool
-		stopErr       error
-		wantMark      bool
+		name              string
+		updateReturns     bool
+		stopErr           error
+		restartNotAllowed bool
+		wantMark          bool
 	}{
-		{name: "no restart triggered; no mark", wantMark: false},
+		{name: "no restart triggered; marks running", wantMark: true},
 		{name: "restart succeeds; marks running", updateReturns: true, wantMark: true},
 		{name: "restart stop fails; no mark", updateReturns: true, stopErr: errors.New("stop failed"), wantMark: false},
+		{name: "restart not allowed; no mark", updateReturns: true, restartNotAllowed: true, wantMark: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			utils.MockAndCreateViamDirs(t)
@@ -430,8 +433,9 @@ func TestSubsystemUpdatesMarksRunningVersion(t *testing.T) {
 
 			cfg := utils.DefaultConfiguration
 			fake := &fakeViamServer{
-				updateFn: func(context.Context, utils.AgentConfig) bool { return tc.updateReturns },
-				stopFn:   func(context.Context) error { return tc.stopErr },
+				updateFn:         func(context.Context, utils.AgentConfig) bool { return tc.updateReturns },
+				stopFn:           func(context.Context) error { return tc.stopErr },
+				restartAllowedFn: func(context.Context) bool { return !tc.restartNotAllowed },
 			}
 			m := &Manager{
 				logger:         logger,
