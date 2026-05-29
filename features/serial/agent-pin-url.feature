@@ -1,9 +1,8 @@
 Feature: Pin viam-agent to an old version via a URL
 
   Background:
-    Given viam-agent is installed
-    And viam-agent is pinned to stable
-    And the viam-agent systemd unit is running with stable
+    Given viam-agent is installed at the version under test
+    And the viam-agent systemd unit is running with the version under test
 
   Scenario: Pin viam-agent to an old version via a URL
     When viam-agent is pinned to a url
