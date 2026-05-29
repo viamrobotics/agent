@@ -1,0 +1,37 @@
+name: 'Sign Windows artifacts'
+description: 'Sign one or more Windows artifacts (.exe/.msi) with the Viam EV code-signing key in GCP KMS.'
+inputs:
+  files:
+    description: 'Glob pattern matching the files to sign (relative to the workspace).'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - id: 'auth'
+      uses: 'google-github-actions/auth@v3'
+      with:
+        token_format: 'access_token'
+        project_id: 'engineering-tools-310515'
+        workload_identity_provider: 'projects/385154741571/locations/global/workloadIdentityPools/ev-signing-id/providers/github-repos-viam-and-labs'
+        service_account: 'ev-code-signing@engineering-tools-310515.iam.gserviceaccount.com'
+    - id: 'secrets'
+      uses: 'google-github-actions/get-secretmanager-secrets@v3'
+      with:
+        secrets: |-
+          public_key:projects/385154741571/secrets/ev-code-signing-public-key
+    - name: Sign with jsign
+      shell: bash
+      run: |
+        curl -L -o jsign.jar https://github.com/ebourg/jsign/releases/download/7.1/jsign-7.1.jar
+        echo "${{ steps.secrets.outputs.public_key }}" > cert.pem
+        for f in ${{ inputs.files }}; do
+          java -jar jsign.jar \
+            --name "Viam Agent" \
+            --storetype GOOGLECLOUD \
+            --keystore "projects/engineering-tools-310515/locations/global/keyRings/release_signing_key" \
+            --storepass "${{ steps.auth.outputs.access_token }}" \
+            --alias "ev-code-signing-key/cryptoKeyVersions/2" \
+            --certfile cert.pem \
+            --tsaurl http://timestamp.digicert.com \
+            "$f"
+        done
