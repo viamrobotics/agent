@@ -172,7 +172,7 @@ jobs:
     - name: Build MSI
       shell: bash
       run: |
-        mv msi/viam-agent-*-windows-x86_64 msi/viam-agent-from-installer.exe
+        mv msi/viam-agent-${{ needs.build.outputs.version }}-windows-x86_64 msi/viam-agent-from-installer.exe
         dotnet tool restore
         dotnet build msi -c Release
         mv msi/bin/x64/Release/en-US/Package.msi "viam-agent-${{ needs.build.outputs.version }}-windows-x86_64.msi"
