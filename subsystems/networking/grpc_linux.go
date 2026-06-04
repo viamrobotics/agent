@@ -21,10 +21,11 @@ func (n *Subsystem) startGRPC(bindAddr string, bindPort int) error {
 		return errw.Wrapf(err, "listening on: %s", bind)
 	}
 
+	srv := grpc.NewServer(grpc.WaitForHandlers(true))
 	n.dataMu.Lock()
-	n.grpcServer = grpc.NewServer(grpc.WaitForHandlers(true))
+	n.grpcServer = srv
 	n.dataMu.Unlock()
-	pb.RegisterProvisioningServiceServer(n.grpcServer, n)
+	pb.RegisterProvisioningServiceServer(srv, n)
 
 	n.portalData.workers.Add(1)
 	go func() {
@@ -36,7 +37,7 @@ func (n *Subsystem) startGRPC(bindAddr string, bindPort int) error {
 			}
 		})
 		defer n.portalData.workers.Done()
-		if err := n.grpcServer.Serve(lis); err != nil {
+		if err := srv.Serve(lis); err != nil {
 			n.logger.Warn(err)
 		}
 	}()

@@ -189,12 +189,13 @@ func (u *userInputData) sendInput(ctx context.Context) {
 	case u.inputChan <- *u.input:
 		u.connState.resetLastInteraction()
 		u.input = &userInput{}
+		u.connState.logger.Info("Provisioning credentials handed off to networking main loop")
 	case <-ctx.Done():
 		u.connState.logger.Warn("user input not received by main loop after 60 seconds")
 	}
 }
 
-func (u *userInputData) resetInputData(inputChan chan<- userInput) {
+func (u *userInputData) resetInputData() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.cancel != nil {
@@ -202,8 +203,6 @@ func (u *userInputData) resetInputData(inputChan chan<- userInput) {
 	}
 	u.workers.Wait()
 	u.cancel = nil
-	u.input = &userInput{}
-	u.inputChan = inputChan
 }
 
 type userInput struct {
