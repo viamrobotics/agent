@@ -21,15 +21,29 @@ type Subsystem struct {
 	healthy bool
 
 	// Managed OS upgrades (used when OSAutoUpgradeType is "managed-security" or "managed-all")
-	needsOSReboot bool
-	upgradeCancel context.CancelFunc
-	upgradeWorker sync.WaitGroup
+	needsOSReboot      bool
+	upgradeCancel      context.CancelFunc
+	upgradeWorker      sync.WaitGroup
+	maintenanceAllowed func(context.Context) bool
 }
 
-func New(_ context.Context, logger logging.Logger, cfg utils.AgentConfig, _ func() logging.Appender, _ bool) *Subsystem {
+func New(
+	_ context.Context,
+	logger logging.Logger,
+	cfg utils.AgentConfig,
+	_ func() logging.Appender,
+	_ bool,
+	maintenanceAllowed func(context.Context) bool,
+) *Subsystem {
+	if maintenanceAllowed == nil {
+		maintenanceAllowed = func(ctx context.Context) bool {
+			return true
+		}
+	}
 	return &Subsystem{
-		logger: logger,
-		cfg:    cfg.SystemConfiguration,
+		logger:             logger,
+		cfg:                cfg.SystemConfiguration,
+		maintenanceAllowed: maintenanceAllowed,
 	}
 }
 

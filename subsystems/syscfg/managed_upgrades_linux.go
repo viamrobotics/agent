@@ -6,16 +6,15 @@ package syscfg
 // and coordinate reboots with viam-server's maintenance window.
 //
 // Supported package managers (tried in preference order):
-//   - dnf  – Fedora, RHEL 8+, Rocky Linux, AlmaLinux, etc.
-//   - apt-get – Debian, Ubuntu, Raspberry Pi OS, etc.
-//   - yum  – RHEL 7, CentOS 7
+//   - dnf  - Fedora, RHEL 8+, Rocky Linux, AlmaLinux, etc.
+//   - apt-get - Debian, Ubuntu, Raspberry Pi OS, etc.
+//   - yum  - RHEL 7, CentOS 7
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
 	"time"
 
 	"github.com/samber/lo"
@@ -24,10 +23,6 @@ import (
 )
 
 const defaultUpgradeInterval = 24 * time.Hour
-
-func isManaged(mode string) bool {
-	return slices.Contains([]string{utils.OSAutoUpgradeManagedAll, utils.OSAutoUpgradeManagedSecurity}, mode)
-}
 
 // startManagedUpgrades launches the background goroutine that periodically runs upgrades.
 // Must be called while s.mu is held.

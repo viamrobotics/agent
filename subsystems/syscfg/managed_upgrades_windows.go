@@ -24,10 +24,32 @@ const (
 )
 
 // NeedsOSReboot returns true if a system reboot is pending due to installed package updates.
-func (s *Subsystem) NeedsOSReboot() bool {
+func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.needsOSReboot
+	needReboot := s.needsOSReboot
+	autoUpgradeType := s.cfg.OSAutoUpgradeType
+	s.mu.RUnlock()
+
+	if needReboot {
+		// Cached true result, no way for this to change back to false until the
+		// reboot happens.
+		return true
+	}
+
+	if !isManaged(autoUpgradeType) {
+		// We only care about managing reboots in managed upgrade mode.
+		return false
+	}
+
+	needsReboot := windowsRebootRequired(ctx)
+	if needReboot {
+		// Cache the first positive result.
+		s.mu.Lock()
+		s.needsOSReboot = true
+		s.mu.Unlock()
+	}
+
+	return needsReboot
 }
 
 // startManagedUpgrades launches the background goroutine that periodically runs Windows Update.
@@ -65,6 +87,10 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 // runManagedUpgrade runs a Windows Update cycle via PSWindowsUpdate.
 func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	if ctx.Err() != nil {
+		return
+	}
+
+	if !s.maintenanceAllowed(ctx) {
 		return
 	}
 
