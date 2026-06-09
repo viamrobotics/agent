@@ -245,7 +245,30 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	prevLastModified := verData.LastModified
 	var lastModified time.Time
 	var lastModifiedChanged bool
-	if isCustomURL && !isFileURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFrequency {
+	switch {
+	case isCustomURL && isFileURL:
+		// file:// has no HTTP Last-Modified header, so use the source file's mtime as the change signal.
+		// This lets an in-place rebuild (same URL) be picked up without renaming the binary or editing config.
+		srcPath, err := utils.LocalSourcePath(verData.URL)
+		if err != nil {
+			data.brokenTarget = true
+			return needRestart, errw.Wrap(err, "parsing file:// source")
+		}
+		if stat, statErr := os.Stat(srcPath); statErr != nil {
+			// source temporarily missing (e.g. an unmounted build dir); keep running the current copy.
+			c.logger.Warnw("file:// source unavailable; keeping current binary", "path", srcPath, "error", statErr)
+		} else {
+			if err := utils.ValidateLocalBinarySource(srcPath); err != nil {
+				data.brokenTarget = true
+				return needRestart, err
+			}
+			lastModified = stat.ModTime()
+			lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
+			if lastModified.After(verData.LastModified) {
+				verData.LastModified = lastModified
+			}
+		}
+	case isCustomURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFrequency:
 		lastModified = utils.GetLastModified(ctx, verData.URL, c.logger)
 		// don't mark changed if we're just storing lastModified for the first time
 		lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
@@ -299,8 +322,14 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
 				"url", verData.URL)
 		}
-		// download and record the sha of the download itself
-		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+		// download and record the sha of the download itself. When re-pulling the same target version
+		// (e.g. a changed file:// source), replace the existing cache file in place so we don't accumulate
+		// ".duplicate-NNN" copies and so the symlink keeps pointing at a stable filename.
+		if verData.UnpackedPath != "" {
+			verData.DlPath, err = utils.DownloadFileToPath(ctx, verData.URL, verData.UnpackedPath, c.logger)
+		} else {
+			verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+		}
 		if err != nil {
 			if isCustomURL {
 				data.brokenTarget = true

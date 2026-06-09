@@ -420,6 +420,98 @@ func TestDownloadFile(t *testing.T) {
 	})
 }
 
+func TestDownloadFileToPath(t *testing.T) {
+	MockAndCreateViamDirs(t)
+	logger := logging.NewTestLogger(t)
+
+	t.Run("replaces in place without creating a duplicate", func(t *testing.T) {
+		srcDir := t.TempDir()
+		srcFile := filepath.Join(srcDir, "viam-server-debug")
+		test.That(t, os.WriteFile(srcFile, []byte("v1"), 0o644), test.ShouldBeNil)
+		fileURL := "file://" + srcFile
+
+		// initial install allocates the clean slot
+		knownPath, err := DownloadFile(t.Context(), fileURL, logger)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, strings.HasSuffix(knownPath, ".duplicate-001"), test.ShouldBeFalse)
+
+		// rebuild the source, then re-pull to the known path
+		test.That(t, os.WriteFile(srcFile, []byte("v2"), 0o644), test.ShouldBeNil)
+		gotPath, err := DownloadFileToPath(t.Context(), fileURL, knownPath, logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		// same path, updated bytes, and no .duplicate-NNN sibling was created
+		test.That(t, gotPath, test.ShouldEqual, knownPath)
+		content, err := os.ReadFile(knownPath)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, string(content), test.ShouldEqual, "v2")
+		_, err = os.Stat(knownPath + ".duplicate-001")
+		test.That(t, os.IsNotExist(err), test.ShouldBeTrue)
+	})
+}
+
+func TestPublishToCacheWindows(t *testing.T) {
+	MockAndCreateViamDirs(t)
+
+	dest := filepath.Join(ViamDirs.Cache, "viam-server-debug.exe")
+	test.That(t, os.WriteFile(dest, []byte("v1"), 0o644), test.ShouldBeNil)
+
+	publish := func(content string) {
+		staging := dest + ".new"
+		test.That(t, os.WriteFile(staging, []byte(content), 0o644), test.ShouldBeNil)
+		test.That(t, publishToCacheForOS(staging, dest, "windows"), test.ShouldBeNil)
+	}
+
+	// first swap: existing binary is moved aside to .old, stable name gets the new bytes
+	publish("v2")
+	content, err := os.ReadFile(dest)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, string(content), test.ShouldEqual, "v2")
+	old, err := os.ReadFile(dest + ".old")
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, string(old), test.ShouldEqual, "v1")
+	// stable name, never a .duplicate-NNN sibling
+	_, err = os.Stat(dest + ".duplicate-001")
+	test.That(t, os.IsNotExist(err), test.ShouldBeTrue)
+
+	// second swap: the prior .old is cleared and replaced, so leftovers stay bounded to one
+	publish("v3")
+	content, err = os.ReadFile(dest)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, string(content), test.ShouldEqual, "v3")
+	old, err = os.ReadFile(dest + ".old")
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, string(old), test.ShouldEqual, "v2")
+}
+
+func TestValidateLocalBinarySource(t *testing.T) {
+	MockAndCreateViamDirs(t)
+
+	t.Run("accepts a source outside the managed tree", func(t *testing.T) {
+		src := filepath.Join(t.TempDir(), "viam-server-debug")
+		test.That(t, os.WriteFile(src, []byte("bin"), 0o644), test.ShouldBeNil)
+		test.That(t, ValidateLocalBinarySource(src), test.ShouldBeNil)
+	})
+
+	t.Run("rejects a source inside the cache dir", func(t *testing.T) {
+		src := filepath.Join(ViamDirs.Cache, "viam-server-debug")
+		test.That(t, os.WriteFile(src, []byte("bin"), 0o644), test.ShouldBeNil)
+		err := ValidateLocalBinarySource(src)
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "agent-managed dir")
+	})
+
+	t.Run("rejects a symlink that resolves into the cache dir", func(t *testing.T) {
+		target := filepath.Join(ViamDirs.Cache, "viam-server-real")
+		test.That(t, os.WriteFile(target, []byte("bin"), 0o644), test.ShouldBeNil)
+		link := filepath.Join(ViamDirs.Bin, "viam-server")
+		test.That(t, ForceSymlink(target, link), test.ShouldBeNil)
+		err := ValidateLocalBinarySource(link)
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "agent-managed dir")
+	})
+}
+
 // If either of the tests on ViamDirsData become outdated be sure there is at
 // least some test remaining on the ViamDirsData.Values method. As long as it
 // uses reflection it could break at runtime if we accidentally add a
