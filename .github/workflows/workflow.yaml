@@ -33,6 +33,12 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
+    # Mise and actions/setup-go break the build when mise pulls an old go
+    # toolchain from the cache and setup-go installs the latests stable.
+    # Manually unset GOROOT here so the latests version installed through
+    # setup-go works.
+    - name: Clear mise GOROOT
+      run: "echo 'GOROOT=' >> $GITHUB_ENV"
     - name: Lint
       run: |
         make lint
