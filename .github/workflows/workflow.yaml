@@ -18,6 +18,8 @@ jobs:
   test:
     name: Lint, Test, Build
     runs-on: ubuntu-latest
+    env:
+      MISE_GO_SET_GOROOT: false
     # Skip rerun on unrelated label changes; still run when dev-release is
     # added so the build job has a fresh test pass before uploading artifacts.
     if: |
