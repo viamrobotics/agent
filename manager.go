@@ -29,6 +29,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
+// Random Benji comment.
+
 const (
 	// The minimal (and default) interval for checking for config updates via DeviceAgentConfig.
 	minimalDeviceAgentConfigCheckInterval = time.Second * 5
