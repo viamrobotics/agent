@@ -218,6 +218,9 @@ jobs:
     name: Post PR dev release URLs
     runs-on: ubuntu-latest
     needs: [build, msi]
+    # Fork PRs receive a read-only GITHUB_TOKEN regardless of declared permissions,
+    # so skip this job for forks (the build job is also skipped for forks, so
+    # there are no artifacts to comment about anyway).
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       pull-requests: write
