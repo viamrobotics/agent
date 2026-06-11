@@ -220,8 +220,10 @@ jobs:
     needs: [build, msi]
     # Fork PRs receive a read-only GITHUB_TOKEN regardless of declared permissions,
     # so skip this job for forks (the build job is also skipped for forks, so
-    # there are no artifacts to comment about anyway).
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # there are no artifacts to comment about anyway). Also skip when the build
+    # job was skipped entirely (e.g. no dev-release label), as there is nothing
+    # to comment about.
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.build.result != 'skipped'
     permissions:
       pull-requests: write
     steps:
