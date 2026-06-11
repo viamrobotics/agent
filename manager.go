@@ -204,7 +204,12 @@ func (m *Manager) CreateNetAppender() (*logging.NetAppender, error) {
 		m.logger.Warn("m.netAppender already exists, replacing")
 	}
 	var err error
-	m.netAppender, err = logging.NewNetAppender(m.cloudConfig, nil, true, m.logger)
+	m.netAppender, err = logging.NewNetAppender(
+		m.cloudConfig,
+		nil,
+		true,
+		m.logger.Sublogger("NetAppender"),
+	)
 	return m.netAppender, err
 }
 
