@@ -23,9 +23,11 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	apppb "go.viam.com/api/app/v1"
+	"go.viam.com/rdk/grpc"
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -488,6 +490,11 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 
 	robotServiceClient := apppb.NewRobotServiceClient(m.conn)
 	req := &apppb.NeedsRestartRequest{Id: m.cloudConfig.ID}
+	if cs, ok := m.conn.(grpc.ConnectivityState); ok {
+		if cs.GetState() == connectivity.TransientFailure {
+			return minimalNeedsRestartCheckInterval, false
+		}
+	}
 	res, err := robotServiceClient.NeedsRestart(timeoutCtx, req)
 	if err != nil {
 		m.logger.Warn(errw.Wrapf(err, "checking if restart needed"))
@@ -773,6 +780,12 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		VersionInfo:      m.getVersions(),
 		AgentUptime:      durationpb.New(time.Since(m.agentStartTime)),
 		ViamServerUptime: m.viamServer.Uptime(),
+	}
+
+	if cs, ok := m.conn.(grpc.ConnectivityState); ok {
+		if cs.GetState() == connectivity.TransientFailure {
+			return minimalDeviceAgentConfigCheckInterval, errors.New("connection state is TRANSIENT_FAILURE. skipping check")
+		}
 	}
 	resp, err := agentDeviceServiceClient.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
