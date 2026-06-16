@@ -29,7 +29,7 @@ require (
 	go.bug.st/serial v1.6.4
 	go.uber.org/zap v1.27.0
 	go.viam.com/api v0.1.555
-	go.viam.com/rdk v0.130.0
+	go.viam.com/rdk v0.131.0
 	go.viam.com/test v1.2.4
 	go.viam.com/utils v0.6.1
 	golang.org/x/sys v0.42.0
@@ -41,6 +41,7 @@ require (
 require (
 	cloud.google.com/go v0.121.2 // indirect
 	cloud.google.com/go/storage v1.53.0 // indirect
+	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
