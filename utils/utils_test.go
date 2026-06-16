@@ -168,6 +168,25 @@ func TestGetLastModified(t *testing.T) {
 	wg.Wait()
 }
 
+func TestGetLastModifiedFileURL(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+	ctx := t.Context()
+
+	// a present file:// source reports its mtime
+	srcDir := t.TempDir()
+	srcFile := filepath.Join(srcDir, "viam-server-debug")
+	test.That(t, os.WriteFile(srcFile, []byte("v1"), 0o644), test.ShouldBeNil)
+	stat, err := os.Stat(srcFile)
+	test.That(t, err, test.ShouldBeNil)
+
+	lm := GetLastModified(ctx, "file://"+srcFile, logger)
+	test.That(t, lm.Equal(stat.ModTime()), test.ShouldBeTrue)
+
+	// a missing file:// source reports the zero time ("no detectable change") rather than erroring
+	lm = GetLastModified(ctx, "file://"+filepath.Join(srcDir, "does-not-exist"), logger)
+	test.That(t, lm.IsZero(), test.ShouldBeTrue)
+}
+
 func TestDownloadFile(t *testing.T) {
 	MockAndCreateViamDirs(t)
 	logger := logging.NewTestLogger(t)

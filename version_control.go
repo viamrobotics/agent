@@ -245,38 +245,37 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	prevLastModified := verData.LastModified
 	var lastModified time.Time
 	var lastModifiedChanged bool
-	switch {
-	case isCustomURL && isFileURL:
-		// file:// has no HTTP Last-Modified header, so use the source file's mtime as the change signal.
-		// This lets an in-place rebuild (same URL) be picked up without renaming the binary or editing config.
-		srcPath, err := utils.LocalSourcePath(verData.URL)
-		if err != nil {
-			data.brokenTarget = true
-			return needRestart, errw.Wrap(err, "parsing file:// source")
-		}
-		if stat, statErr := os.Stat(srcPath); statErr != nil {
-			// source temporarily missing (e.g. an unmounted build dir); keep running the current copy.
-			c.logger.Warnw("file:// source unavailable; keeping current binary", "path", srcPath, "error", statErr)
-		} else {
-			if err := utils.ValidateLocalBinarySource(srcPath); err != nil {
-				data.brokenTarget = true
-				return needRestart, err
-			}
-			lastModified = stat.ModTime()
-			lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
-			if lastModified.After(verData.LastModified) {
-				verData.LastModified = lastModified
-			}
-		}
-	case isCustomURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFrequency:
+	// file:// has no HTTP Last-Modified header; GetLastModified returns the source file's mtime instead, so
+	// an in-place rebuild flows through the same change-detection path as a remote re-publish. A local stat
+	// is cheap, so there's no point throttling it — pick rebuilds up on the very next reconcile.
+	lastModifiedCheckFreq := lastModifiedCheckFrequency
+	if isFileURL {
+		lastModifiedCheckFreq = 0
+	}
+	if isCustomURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFreq {
 		lastModified = utils.GetLastModified(ctx, verData.URL, c.logger)
 		// don't mark changed if we're just storing lastModified for the first time
 		lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
-		// don't allow LastModified to move backwards (mostly likely in case server is misconfigured)
-		if lastModified.After(verData.LastModified) {
+		// For http we advance the stored timestamp eagerly (a HEAD is costly to repeat). For file:// we defer
+		// the advance until the change is confirmed/applied below, so a failed re-pull is retried next cycle
+		// instead of being suppressed by an already-advanced timestamp.
+		if !isFileURL && lastModified.After(verData.LastModified) {
 			verData.LastModified = lastModified
 		}
 		verData.LastModifiedCheck = time.Now()
+	}
+
+	// mtime is a cheap but weak trigger: rebuilds that preserve mtime won't trip it, and tools like `cp -p`
+	// or restore-from-cache can bump mtime without changing bytes. So for file:// confirm the content
+	// actually differs (vs the SHA we recorded for the cached copy) before paying for a re-pull + restart.
+	if isFileURL && lastModifiedChanged {
+		if srcPath, err := utils.LocalSourcePath(verData.URL); err == nil {
+			if srcSum, sumErr := utils.GetFileSum(srcPath); sumErr == nil && bytes.Equal(srcSum, verData.UnpackedSHA) {
+				c.logger.Debugw("file:// mtime changed but content is identical; skipping re-pull", "path", srcPath)
+				lastModifiedChanged = false
+				verData.LastModified = lastModified // record the new mtime so we stop re-hashing until it bumps again
+			}
+		}
 	}
 
 	if data.TargetVersion == data.CurrentVersion {
@@ -386,6 +385,13 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				verData.UnpackedPath,
 				base64.StdEncoding.EncodeToString(verData.UnpackedSHA),
 			)
+		}
+
+		// Now that the re-pull succeeded, record the source mtime we acted on. Deferring the advance to here
+		// (rather than in the change-detection block above) means a failed download leaves the stored mtime
+		// unchanged, so the next reconcile retries instead of treating the change as already handled.
+		if isFileURL && !lastModified.IsZero() {
+			verData.LastModified = lastModified
 		}
 	}
 
