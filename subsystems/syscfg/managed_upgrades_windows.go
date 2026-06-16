@@ -121,7 +121,8 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 func runWindowsUpdate(ctx context.Context, securityOnly bool) error {
 	// Ensure PSWindowsUpdate is available; Install-Module is a no-op if already present.
 	ensureModule := `if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) { ` +
-		`Install-Module -Name PSWindowsUpdate -Force -Scope AllUsers }`
+		`Install-PackageProvider -Name NuGet -Force; ` +
+		`Install-Module -Name PSWindowsUpdate -Confirm:$False -Force -Scope AllUsers }`
 	if err := runPowerShell(ctx, ensureModule); err != nil {
 		return errw.Wrap(err, "ensuring PSWindowsUpdate module")
 	}

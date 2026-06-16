@@ -921,7 +921,7 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 
 	var rebootCmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		rebootCmd = exec.CommandContext(ctx, "shutdown", "/r", "/t", "0")
+		rebootCmd = exec.CommandContext(ctx, "shutdown", "/r", "/t", "0", "/f")
 	} else {
 		rebootCmd = exec.CommandContext(ctx, "systemctl", "reboot")
 	}
