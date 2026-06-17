@@ -156,7 +156,7 @@ func windowsRebootRequired(ctx context.Context) bool {
 // runPowerShell executes a PowerShell command, returning a wrapped error with output on failure.
 func runPowerShell(ctx context.Context, script string) error {
 	cmd := exec.CommandContext(ctx, "powershell",
-		"-NonInteractive", "-NoProfile",
+		"-NonInteractive", "-NoProfile", "-ExecutionPolicy", "RemoteSigned",
 		"-Command", script,
 	)
 	output, err := cmd.CombinedOutput()
