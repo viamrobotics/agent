@@ -126,7 +126,7 @@ func commonMain(runningAsService bool) {
 		utils.CLIEnableNetworkingSubsystem = true
 	}
 
-	needsRootToContinue := opts.Install || opts.EnableSyscfgSubsystem || opts.EnableNetworkingSubsystem
+	needsRootToContinue := opts.Install || utils.CLIEnableSyscfgSubsystem || utils.CLIEnableNetworkingSubsystem
 
 	curUser, err := user.Current()
 	// exit if we're unable to retrieve current user (likely transient / bad system state)

@@ -98,7 +98,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	mode := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	s.logger.Info("Running managed Windows Update check")
+	s.logger.Info("Running managed Windows Update")
 
 	if err := runWindowsUpdate(ctx, mode == managedSecurityMode); err != nil {
 		s.logger.Warnw("Windows Update failed", "error", err)
