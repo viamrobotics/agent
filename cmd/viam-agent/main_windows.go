@@ -48,7 +48,7 @@ func main() {
 	} else if !inService {
 		globalLogger.Info("no service detected -- running as normal process")
 		utils.IsRunningLocally = true
-		commonMain()
+		commonMain(false)
 		return
 	}
 
@@ -79,7 +79,7 @@ func main() {
 		}
 	}()
 
-	commonMain()
+	commonMain(true)
 
 	if _, err := zapChildren(context.Background()); err != nil {
 		goutils.UncheckedError(elog.Error(1, fmt.Sprintf("error killing subtree %s", err)))

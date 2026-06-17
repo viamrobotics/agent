@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	commonMain()
+	commonMain(false)
 }
 
 func waitOnline(_ logging.Logger, timeoutCtx context.Context) {

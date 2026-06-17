@@ -53,7 +53,7 @@ type agentOpts struct {
 }
 
 //nolint:gocognit
-func commonMain() {
+func commonMain(runningAsService bool) {
 	// enable debug logging in case it is needed before args are parsed successfully.
 	if os.Getenv("VIAM_AGENT_DEBUG") != "" {
 		globalLogger.SetLevel(logging.DEBUG)
@@ -118,7 +118,7 @@ func commonMain() {
 		utils.CLIWaitForUpdateCheck = true
 	}
 
-	if opts.EnableSyscfgSubsystem {
+	if opts.EnableSyscfgSubsystem || runningAsService {
 		utils.CLIEnableSyscfgSubsystem = true
 	}
 

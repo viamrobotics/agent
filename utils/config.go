@@ -81,7 +81,7 @@ var (
 	DefaultsFilePath             = "/etc/viam-defaults.json"
 	CLIDebug                     = false
 	CLIWaitForUpdateCheck        = false
-	CLIEnableSyscfgSubsystem     = runtime.GOOS == "windows" // TODO: figure out a better upgrade path for Windows
+	CLIEnableSyscfgSubsystem     = false
 	CLIEnableNetworkingSubsystem = false
 )
 
