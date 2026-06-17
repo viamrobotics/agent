@@ -62,6 +62,45 @@ func (f *fakeViamServer) DoesNotHandleNeedsRestart() bool { return true }
 func (f *fakeViamServer) MarkAppTriggeredRestart()        {}
 func (f *fakeViamServer) Uptime() *durationpb.Duration    { return nil }
 
+func TestApplyLogDeduplication(t *testing.T) {
+	newManager := func(t *testing.T) (*Manager, *logging.Registry) {
+		t.Helper()
+		logger, registry := logging.NewLoggerWithRegistry("test")
+		logger.AddAppender(logging.NewTestAppender(t))
+		return &Manager{logger: logger, registry: registry}, registry
+	}
+
+	t.Run("enabled by default", func(t *testing.T) {
+		m, registry := newManager(t)
+		// Registry starts with deduplication disabled.
+		test.That(t, registry.DeduplicateLogs.Load(), test.ShouldBeFalse)
+
+		// Default config does not disable deduplication, so it should be enabled.
+		m.applyLogDeduplication(utils.DefaultConfig())
+		test.That(t, registry.DeduplicateLogs.Load(), test.ShouldBeTrue)
+	})
+
+	t.Run("disabled when configured", func(t *testing.T) {
+		m, registry := newManager(t)
+
+		cfg := utils.DefaultConfig()
+		cfg.AdvancedSettings.DisableLogDeduplication = 1
+		m.applyLogDeduplication(cfg)
+		test.That(t, registry.DeduplicateLogs.Load(), test.ShouldBeFalse)
+
+		// Re-enabling via a subsequent config update flips it back on.
+		cfg.AdvancedSettings.DisableLogDeduplication = -1
+		m.applyLogDeduplication(cfg)
+		test.That(t, registry.DeduplicateLogs.Load(), test.ShouldBeTrue)
+	})
+
+	t.Run("nil registry is a no-op", func(t *testing.T) {
+		m := &Manager{logger: logging.NewTestLogger(t)}
+		// Should not panic.
+		m.applyLogDeduplication(utils.DefaultConfig())
+	})
+}
+
 func TestLoadAppConfig(t *testing.T) {
 	// Helper to create a minimal manager for testing
 	createTestManager := func(t *testing.T) *Manager {

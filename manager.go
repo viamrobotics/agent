@@ -65,6 +65,7 @@ type Manager struct {
 	cloudConfig *logging.CloudConfig
 
 	logger      logging.Logger
+	registry    *logging.Registry
 	netAppender *logging.NetAppender
 
 	cfgMu sync.RWMutex
@@ -87,9 +88,16 @@ type Manager struct {
 }
 
 // NewManager returns a new Manager.
-func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig, globalCancel context.CancelFunc) *Manager {
+func NewManager(
+	ctx context.Context,
+	logger logging.Logger,
+	registry *logging.Registry,
+	cfg utils.AgentConfig,
+	globalCancel context.CancelFunc,
+) *Manager {
 	manager := &Manager{
 		logger:       logger,
+		registry:     registry,
 		cfg:          cfg,
 		globalCancel: globalCancel,
 
@@ -135,6 +143,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 	}
 
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
+	manager.applyLogDeduplication(cfg)
 	manager.sysConfig = syscfg.New(
 		ctx,
 		logger,
@@ -395,6 +404,29 @@ func (m *Manager) setDebug(debug bool) {
 		m.logger.SetLevel(logging.DEBUG)
 	} else {
 		m.logger.SetLevel(logging.INFO)
+	}
+}
+
+// applyLogDeduplication enables or disables noisy-log deduplication on the logger
+// registry based on the agent config, mirroring how the rdk does it. Deduplication is
+// enabled by default and only disabled when disable_log_deduplication is set.
+//
+// Note that the config value is a "disable" while the registry value is an "enable".
+// This is by design to make configuration easier for users and predicates easier for
+// developers respectively. Due to this, the conditional below to check for a diff looks
+// odd (== instead of !=).
+func (m *Manager) applyLogDeduplication(cfg utils.AgentConfig) {
+	if m.registry == nil {
+		return
+	}
+	disable := cfg.AdvancedSettings.GetDisableLogDeduplication()
+	if disable == m.registry.DeduplicateLogs.Load() {
+		state := "enabled"
+		if disable {
+			state = "disabled"
+		}
+		m.registry.DeduplicateLogs.Store(!disable)
+		m.logger.Infof("Noisy log deduplication is now %s", state)
 	}
 }
 
@@ -803,6 +835,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 
 	cfg := utils.ApplyCLIArgs(cfgFromCloud)
 	m.setDebug(cfg.AdvancedSettings.Debug.Get())
+	m.applyLogDeduplication(cfg)
 
 	m.cfgMu.Lock()
 	defer m.cfgMu.Unlock()

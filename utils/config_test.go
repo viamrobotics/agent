@@ -87,3 +87,21 @@ func TestConvertJson(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)
 }
+
+func TestDisableLogDeduplication(t *testing.T) {
+	// Default (unset) means deduplication is not disabled.
+	cfg := DefaultConfig()
+	test.That(t, cfg.AdvancedSettings.GetDisableLogDeduplication(), test.ShouldBeFalse)
+
+	// Explicitly set to true disables deduplication.
+	enabled := &AgentConfig{}
+	err := json.Unmarshal([]byte(`{"advanced_settings": {"disable_log_deduplication": true}}`), enabled)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, enabled.AdvancedSettings.GetDisableLogDeduplication(), test.ShouldBeTrue)
+
+	// Explicitly set to false leaves deduplication enabled.
+	disabled := &AgentConfig{}
+	err = json.Unmarshal([]byte(`{"advanced_settings": {"disable_log_deduplication": false}}`), disabled)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, disabled.AdvancedSettings.GetDisableLogDeduplication(), test.ShouldBeFalse)
+}

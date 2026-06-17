@@ -210,7 +210,7 @@ func commonMain() {
 	cfg = utils.ApplyCLIArgs(cfg)
 
 	// main manager structure
-	manager := agent.NewManager(ctx, globalLogger, cfg, globalCancel)
+	manager := agent.NewManager(ctx, globalLogger, registry, cfg, globalCancel)
 
 	err = manager.LoadAppConfig()
 	//nolint:nestif
