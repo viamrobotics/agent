@@ -46,7 +46,7 @@ type agentOpts struct {
 	Debug                     bool   `description:"Enable debug logging (agent only)"                                                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
 	ViamDir                   string `description:"Use a custom path for agent directories"                                                      long:"viam-dir"`
 	EnableSyscfgSubsystem     *bool  `description:"Enable system configuration management subsystem"                                             long:"enable-syscfg"`
-	EnableNetworkingSubsystem bool   `description:"Enable networking management subsystem"                                                       long:"enable-networking"`
+	EnableNetworkingSubsystem *bool  `description:"Enable networking management subsystem"                                                       long:"enable-networking"`
 	UpdateFirst               bool   `description:"Update versions before starting"                                                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
 	DevMode                   bool   `description:"Nothing (deprecated and will be removed in a future release)"                                 long:"dev-mode"`
 	Help                      bool   `description:"Show this help message"                                                                       long:"help"                                      short:"h"`
@@ -132,7 +132,10 @@ func commonMain(runningAsService bool) {
 		utils.CLIEnableSyscfgSubsystem = true
 	}
 
-	if opts.EnableNetworkingSubsystem {
+	// Similar to above, prefer the more specific `enable-networking` flag if it
+	// is set, otherwise use `as-service`
+	enableNetworkingSubsystemFlag := mo.PointerToOption(opts.EnableNetworkingSubsystem)
+	if enableNetworkingSubsystemFlag.OrEmpty() || (enableNetworkingSubsystemFlag.IsAbsent() && asServiceFlag.OrEmpty()) {
 		utils.CLIEnableNetworkingSubsystem = true
 	}
 
