@@ -40,18 +40,18 @@ var (
 
 //nolint:lll
 type agentOpts struct {
-	Config                    string `default:"/etc/viam.json"                                                   description:"Path to machine credentials file"   long:"config"   short:"c"`
-	DefaultsConfig            string `default:"/etc/viam-defaults.json"                                          description:"Path to manufacturer defaults file" long:"defaults"`
-	Install                   bool   `description:"Install systemd service"                                      long:"install"`
-	Debug                     bool   `description:"Enable debug logging (agent only)"                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
-	ViamDir                   string `description:"Use a custom path for agent directories"                      long:"viam-dir"`
-	EnableSyscfgSubsystem     *bool  `description:"Enable system configuration management subsystem"             long:"enable-syscfg"`
-	EnableNetworkingSubsystem bool   `description:"Enable networking management subsystem"                       long:"enable-networking"`
-	UpdateFirst               bool   `description:"Update versions before starting"                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
-	DevMode                   bool   `description:"Nothing (deprecated and will be removed in a future release)" long:"dev-mode"`
-	Help                      bool   `description:"Show this help message"                                       long:"help"                                      short:"h"`
-	Version                   bool   `description:"Show version"                                                 long:"version"                                   short:"v"`
-	AsService                 *bool  `description:"Indicate viam-agent is running as a process. Implies --enable-syscfg and --enable-networking"                  long:"as-service"`
+	Config                    string `default:"/etc/viam.json"                                                                                   description:"Path to machine credentials file"   long:"config"   short:"c"`
+	DefaultsConfig            string `default:"/etc/viam-defaults.json"                                                                          description:"Path to manufacturer defaults file" long:"defaults"`
+	Install                   bool   `description:"Install systemd service"                                                                      long:"install"`
+	Debug                     bool   `description:"Enable debug logging (agent only)"                                                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
+	ViamDir                   string `description:"Use a custom path for agent directories"                                                      long:"viam-dir"`
+	EnableSyscfgSubsystem     *bool  `description:"Enable system configuration management subsystem"                                             long:"enable-syscfg"`
+	EnableNetworkingSubsystem bool   `description:"Enable networking management subsystem"                                                       long:"enable-networking"`
+	UpdateFirst               bool   `description:"Update versions before starting"                                                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
+	DevMode                   bool   `description:"Nothing (deprecated and will be removed in a future release)"                                 long:"dev-mode"`
+	Help                      bool   `description:"Show this help message"                                                                       long:"help"                                      short:"h"`
+	Version                   bool   `description:"Show version"                                                                                 long:"version"                                   short:"v"`
+	AsService                 *bool  `description:"Indicate viam-agent is running as a process. Implies --enable-syscfg and --enable-networking" long:"as-service"`
 }
 
 //nolint:gocognit
@@ -126,7 +126,9 @@ func commonMain(runningAsService bool) {
 	// 3. `runningAsService` function argument is true. Used on Windows machines.
 	asServiceFlag := mo.PointerToOption(opts.AsService)
 	enableSyscfgSubsystemFlag := mo.PointerToOption(opts.EnableSyscfgSubsystem)
-	if enableSyscfgSubsystemFlag.OrEmpty() || (enableSyscfgSubsystemFlag.IsAbsent() && asServiceFlag.OrEmpty()) || (enableSyscfgSubsystemFlag.IsAbsent() && asServiceFlag.IsAbsent() && runningAsService) {
+	if enableSyscfgSubsystemFlag.OrEmpty() ||
+		(enableSyscfgSubsystemFlag.IsAbsent() && asServiceFlag.OrEmpty()) ||
+		(enableSyscfgSubsystemFlag.IsAbsent() && asServiceFlag.IsAbsent() && runningAsService) {
 		utils.CLIEnableSyscfgSubsystem = true
 	}
 
