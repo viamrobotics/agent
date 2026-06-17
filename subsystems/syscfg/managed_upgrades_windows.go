@@ -41,7 +41,7 @@ func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 		return false
 	}
 
-	needsReboot := windowsRebootRequired(ctx)
+	needReboot = windowsRebootRequired(ctx)
 	if needReboot {
 		// Cache the first positive result.
 		s.mu.Lock()
@@ -49,7 +49,7 @@ func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 		s.mu.Unlock()
 	}
 
-	return needsReboot
+	return needReboot
 }
 
 // startManagedUpgrades launches the background goroutine that periodically runs Windows Update.
