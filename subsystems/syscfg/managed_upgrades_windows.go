@@ -16,6 +16,7 @@ import (
 	"time"
 
 	errw "github.com/pkg/errors"
+	"github.com/viamrobotics/agent/utils"
 )
 
 // NeedsOSReboot returns true if a system reboot is pending due to installed package updates.
@@ -92,7 +93,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 
 	s.logger.Info("Running managed Windows Update")
 
-	if err := runWindowsUpdate(ctx, mode == managedSecurityMode); err != nil {
+	if err := runWindowsUpdate(ctx, mode == utils.OSAutoUpgradeManagedSecurity); err != nil {
 		s.logger.Warnw("Windows Update failed", "error", err)
 		return
 	}

@@ -67,7 +67,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 	s.healthy = true
 
 	mode := s.cfg.OSAutoUpgradeType
-	if mode == managedSecurityMode || mode == "managed-all" {
+	if isManaged(mode) {
 		s.startManagedUpgrades(ctx)
 	}
 	return nil
