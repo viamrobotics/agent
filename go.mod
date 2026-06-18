@@ -7,9 +7,6 @@ go 1.26
 // We fork this bc the stock version doubles agent binary from 25mb -> 50mb.
 replace github.com/hashicorp/go-getter => github.com/viam-labs/go-getter v0.0.0-20251022162721-98d73b852c8a
 
-// TODO: replace before merging. this is goutils v0.6.3
-replace go.viam.com/utils v0.4.3 => ../goutils-jj
-
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/Masterminds/semver/v3 v3.3.1
@@ -34,7 +31,7 @@ require (
 	go.viam.com/api v0.1.524
 	go.viam.com/rdk v0.109.0
 	go.viam.com/test v1.2.4
-	go.viam.com/utils v0.4.3
+	go.viam.com/utils v0.6.4
 	golang.org/x/sys v0.42.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
