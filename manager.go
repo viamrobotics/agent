@@ -27,6 +27,7 @@ import (
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/grpchelpers"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -488,13 +489,11 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 		return minimalNeedsRestartCheckInterval, false
 	}
 
+	if maybeOffline(m.conn) {
+		return minimalNeedsRestartCheckInterval, false
+	}
 	robotServiceClient := apppb.NewRobotServiceClient(m.conn)
 	req := &apppb.NeedsRestartRequest{Id: m.cloudConfig.ID}
-	if cs, ok := grpchelpers.ConnConnectivityState(m.conn); ok {
-		if cs == connectivity.TransientFailure || cs == connectivity.Connecting {
-			return minimalNeedsRestartCheckInterval, false
-		}
-	}
 	res, err := robotServiceClient.NeedsRestart(timeoutCtx, req)
 	if err != nil {
 		m.logger.Warn(errw.Wrapf(err, "checking if restart needed"))
@@ -758,6 +757,16 @@ func (m *Manager) dial(ctx context.Context) error {
 	return nil
 }
 
+// maybeOffline is used to test whether the provided client connection may be offline or not immediately ready to use.
+func maybeOffline(conn grpc.ClientConnInterface) bool {
+	if cs, ok := grpchelpers.ConnConnectivityState(conn); ok {
+		if cs == connectivity.TransientFailure || cs == connectivity.Connecting {
+			return true
+		}
+	}
+	return false
+}
+
 // GetConfig retrieves the configuration from the cloud.
 func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	if m.cloudConfig == nil {
@@ -782,10 +791,8 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		ViamServerUptime: m.viamServer.Uptime(),
 	}
 
-	if cs, ok := grpchelpers.ConnConnectivityState(m.conn); ok {
-		if cs == connectivity.TransientFailure || cs == connectivity.Connecting {
-			return minimalDeviceAgentConfigCheckInterval, errors.New("connection state is TRANSIENT_FAILURE. skipping config fetch")
-		}
+	if maybeOffline(m.conn) {
+		return minimalDeviceAgentConfigCheckInterval, errors.New("connection state is TRANSIENT_FAILURE. skipping config fetch")
 	}
 	resp, err := agentDeviceServiceClient.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
