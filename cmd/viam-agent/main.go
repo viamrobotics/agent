@@ -40,20 +40,26 @@ var (
 
 //nolint:lll
 type agentOpts struct {
-	Config                    string `default:"/etc/viam.json"                                                                                   description:"Path to machine credentials file"   long:"config"   short:"c"`
-	DefaultsConfig            string `default:"/etc/viam-defaults.json"                                                                          description:"Path to manufacturer defaults file" long:"defaults"`
-	Install                   bool   `description:"Install systemd service"                                                                      long:"install"`
-	Debug                     bool   `description:"Enable debug logging (agent only)"                                                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
-	ViamDir                   string `description:"Use a custom path for agent directories"                                                      long:"viam-dir"`
-	EnableSyscfgSubsystem     *bool  `description:"Enable system configuration management subsystem"                                             long:"enable-syscfg"`
-	EnableNetworkingSubsystem *bool  `description:"Enable networking management subsystem"                                                       long:"enable-networking"`
-	UpdateFirst               bool   `description:"Update versions before starting"                                                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
-	DevMode                   bool   `description:"Nothing (deprecated and will be removed in a future release)"                                 long:"dev-mode"`
-	Help                      bool   `description:"Show this help message"                                                                       long:"help"                                      short:"h"`
-	Version                   bool   `description:"Show version"                                                                                 long:"version"                                   short:"v"`
-	AsService                 *bool  `description:"Indicate viam-agent is running as a process. Implies --enable-syscfg and --enable-networking" long:"as-service"`
+	Config                    string `default:"/etc/viam.json"                                                   description:"Path to machine credentials file"   long:"config"   short:"c"`
+	DefaultsConfig            string `default:"/etc/viam-defaults.json"                                          description:"Path to manufacturer defaults file" long:"defaults"`
+	Install                   bool   `description:"Install systemd service"                                      long:"install"`
+	Debug                     bool   `description:"Enable debug logging (agent only)"                            env:"VIAM_AGENT_DEBUG"                           long:"debug"    short:"d"`
+	ViamDir                   string `description:"Use a custom path for agent directories"                      long:"viam-dir"`
+	EnableSyscfgSubsystem     *bool  `description:"Enable system configuration management subsystem"             long:"enable-syscfg"`
+	EnableNetworkingSubsystem *bool  `description:"Enable networking management subsystem"                       long:"enable-networking"`
+	UpdateFirst               bool   `description:"Update versions before starting"                              env:"VIAM_AGENT_WAIT_FOR_UPDATE"                 long:"wait"     short:"w"`
+	DevMode                   bool   `description:"Nothing (deprecated and will be removed in a future release)" long:"dev-mode"`
+	Help                      bool   `description:"Show this help message"                                       long:"help"                                      short:"h"`
+	Version                   bool   `description:"Show version"                                                 long:"version"                                   short:"v"`
 }
 
+// commonMain is the common entrypoint for agent across all supported platforms.
+//
+// `runningAsService` indicates that agent is running as a system service and
+// should change default behaviors. At time of writing it is only ever true
+// when running as a Windows service. Systemd units on Linux use command line
+// flags to achieve equivalent default behavior.
+//
 //nolint:gocognit
 func commonMain(runningAsService bool) {
 	// enable debug logging in case it is needed before args are parsed successfully.
@@ -122,20 +128,20 @@ func commonMain(runningAsService bool) {
 
 	// Cases are as follows:
 	// 1. `--enable-syscfg` passed on command line. Used by developers specifically testing the syscfg subsystem.
-	// 2. `--as-service` flag passed on command line. Used by systemd unit.
-	// 3. `runningAsService` function argument is true. Used on Windows machines.
-	asServiceFlag := mo.PointerToOption(opts.AsService)
+	// 2. `runningAsService` function argument is true. Used on Windows machines.
 	enableSyscfgSubsystemFlag := mo.PointerToOption(opts.EnableSyscfgSubsystem)
-	if enableSyscfgSubsystemFlag.OrEmpty() ||
-		(enableSyscfgSubsystemFlag.IsAbsent() && asServiceFlag.OrEmpty()) ||
-		(enableSyscfgSubsystemFlag.IsAbsent() && asServiceFlag.IsAbsent() && runningAsService) {
+	if enableSyscfgSubsystemFlag.OrEmpty() || (enableSyscfgSubsystemFlag.IsAbsent() && runningAsService) {
 		utils.CLIEnableSyscfgSubsystem = true
 	}
 
 	// Similar to above, prefer the more specific `enable-networking` flag if it
-	// is set, otherwise use `as-service`
+	// is set, otherwise use `as-service`. At time of writing this should never
+	// happen because `runningAsService` is only set on Windows we don't support
+	// networking on Windows, but the code is structured this way for consistency
+	// in case other platforms pass the argument on we add Windows networking
+	// support in the future.
 	enableNetworkingSubsystemFlag := mo.PointerToOption(opts.EnableNetworkingSubsystem)
-	if enableNetworkingSubsystemFlag.OrEmpty() || (enableNetworkingSubsystemFlag.IsAbsent() && asServiceFlag.OrEmpty()) {
+	if enableNetworkingSubsystemFlag.OrEmpty() || (enableNetworkingSubsystemFlag.IsAbsent() && runningAsService) {
 		utils.CLIEnableNetworkingSubsystem = true
 	}
 
