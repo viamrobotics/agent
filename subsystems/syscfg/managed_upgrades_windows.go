@@ -20,6 +20,7 @@ import (
 
 const (
 	defaultUpgradeInterval = 24 * time.Hour
+	minimumUpgradeInterval = time.Hour
 	managedSecurityMode    = "managed-security"
 )
 
@@ -60,8 +61,12 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 	}
 
 	interval := time.Duration(float64(time.Hour) * s.cfg.OSManagedUpgradeIntervalHours)
-	if interval < time.Hour {
-		interval = defaultUpgradeInterval
+	if interval < minimumUpgradeInterval {
+		s.logger.Warnw("Configured upgrade check interval too low, using minimum",
+			"configured_interval", interval,
+			"minimum_interval", minimumUpgradeInterval,
+		)
+		interval = minimumUpgradeInterval
 	}
 
 	upgradeCtx, cancel := context.WithCancel(ctx)
