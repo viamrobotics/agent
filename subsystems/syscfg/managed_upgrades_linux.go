@@ -22,8 +22,6 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
-const defaultUpgradeInterval = 24 * time.Hour
-
 // startManagedUpgrades launches the background goroutine that periodically runs upgrades.
 // Must be called while s.mu is held.
 func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
@@ -31,10 +29,7 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 		return // already running
 	}
 
-	interval := time.Duration(float64(time.Hour) * s.cfg.OSManagedUpgradeIntervalHours)
-	if interval < time.Hour {
-		interval = defaultUpgradeInterval
-	}
+	interval := clampUpgradeInterval(s.logger, s.cfg.OSManagedUpgradeIntervalHours)
 
 	upgradeCtx, cancel := context.WithCancel(ctx)
 	s.upgradeCancel = cancel

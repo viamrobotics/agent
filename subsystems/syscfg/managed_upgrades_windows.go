@@ -18,12 +18,6 @@ import (
 	errw "github.com/pkg/errors"
 )
 
-const (
-	defaultUpgradeInterval = 24 * time.Hour
-	minimumUpgradeInterval = time.Hour
-	managedSecurityMode    = "managed-security"
-)
-
 // NeedsOSReboot returns true if a system reboot is pending due to installed package updates.
 func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 	s.mu.RLock()
@@ -60,14 +54,7 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 		return // already running
 	}
 
-	interval := time.Duration(float64(time.Hour) * s.cfg.OSManagedUpgradeIntervalHours)
-	if interval < minimumUpgradeInterval {
-		s.logger.Warnw("Configured upgrade check interval too low, using minimum",
-			"configured_interval", interval,
-			"minimum_interval", minimumUpgradeInterval,
-		)
-		interval = minimumUpgradeInterval
-	}
+	interval := clampUpgradeInterval(s.logger, s.cfg.OSManagedUpgradeIntervalHours)
 
 	upgradeCtx, cancel := context.WithCancel(ctx)
 	s.upgradeCancel = cancel
