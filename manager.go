@@ -784,7 +784,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 
 	if cs, ok := grpchelpers.ConnConnectivityState(m.conn); ok {
 		if cs == connectivity.TransientFailure || cs == connectivity.Connecting {
-			return minimalDeviceAgentConfigCheckInterval, errors.New("connection state is TRANSIENT_FAILURE. skipping check")
+			return minimalDeviceAgentConfigCheckInterval, errors.New("connection state is TRANSIENT_FAILURE. skipping config fetch")
 		}
 	}
 	resp, err := agentDeviceServiceClient.DeviceAgentConfig(timeoutCtx, req)
