@@ -11,6 +11,11 @@ RestartSec=5
 User=root
 TimeoutSec=240
 ExecStart=/opt/viam/bin/viam-agent --config /etc/viam.json --enable-syscfg --enable-networking
+# Observability only (does not affect the service): logs, on every exit, whether
+# this exit would have triggered "detached mode" under the proposed bad-binary
+# safeguard, plus the systemd exit reason. Leading "-" so a probe failure can never
+# affect viam-agent. See agent-exit-probe.sh.
+ExecStopPost=-/bin/sh /opt/viam/etc/agent-exit-probe.sh
 KillMode=mixed
 FinalKillSignal=SIGKILL
 

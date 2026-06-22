@@ -100,6 +100,16 @@ func Install(ctx context.Context, logger logging.Logger, sManager systemManager)
 		}
 	}
 
+	// On platforms whose service uses it (currently Linux only), install the
+	// ExecStopPost= exit probe script. It is invoked via "/bin/sh <path>", so it does
+	// not need an executable bit. Path must match the one in viam-agent.service.
+	if len(exitProbeScriptContents) > 0 {
+		scriptPath := filepath.Join(utils.ViamDirs.Etc, exitProbeScriptName)
+		if _, err := utils.WriteFileIfNew(scriptPath, exitProbeScriptContents); err != nil {
+			return errw.Wrap(err, "installing agent exit probe script")
+		}
+	}
+
 	_, err = os.Stat("/etc/viam.json")
 	if err != nil {
 		if errw.Is(err, fs.ErrNotExist) {
