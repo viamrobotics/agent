@@ -41,6 +41,7 @@ var (
 			DisableViamServer:             Tribool(0),
 			DisableNetworkConfiguration:   Tribool(0),
 			DisableSystemConfiguration:    Tribool(0),
+			DisableLogDeduplication:       Tribool(0),
 			ViamServerStartTimeoutMinutes: Timeout(time.Minute * 10),
 			ViamServerExtraEnvVars:        nil,
 		},
@@ -147,6 +148,7 @@ type AdvancedSettings struct {
 	DisableViamServer             Tribool           `json:"disable_viam_server,omitempty"`
 	DisableNetworkConfiguration   Tribool           `json:"disable_network_configuration,omitempty"`
 	DisableSystemConfiguration    Tribool           `json:"disable_system_configuration,omitempty"`
+	DisableLogDeduplication       Tribool           `json:"disable_log_deduplication,omitempty"`
 	ViamServerStartTimeoutMinutes Timeout           `json:"viam_server_start_timeout_minutes,omitempty"`
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
@@ -178,6 +180,11 @@ func (as AdvancedSettings) GetDisableSystemConfiguration() bool {
 // GetDisableViamServer is a wrapper which checks agent's advanced settings DisableViamServer field.
 func (as AdvancedSettings) GetDisableViamServer() bool {
 	return as.DisableViamServer.Get()
+}
+
+// GetDisableLogDeduplication is a wrapper which checks agent's advanced settings DisableLogDeduplication field.
+func (as AdvancedSettings) GetDisableLogDeduplication() bool {
+	return as.DisableLogDeduplication.Get()
 }
 
 type SystemConfiguration struct {
