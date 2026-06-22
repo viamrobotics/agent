@@ -24,7 +24,7 @@ Restart=always
 RestartSec=5
 User=root
 TimeoutSec=240
-ExecStart=/opt/viam/bin/viam-agent --config /etc/viam.json --as-service
+ExecStart=/opt/viam/bin/viam-agent --config /etc/viam.json --enable-syscfg --enable-networking
 KillMode=mixed
 FinalKillSignal=SIGKILL
 
