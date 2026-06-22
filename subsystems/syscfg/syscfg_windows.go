@@ -75,19 +75,12 @@ func (s *Subsystem) Start(ctx context.Context) error {
 
 func (s *Subsystem) Stop(_ context.Context) error {
 	s.mu.Lock()
-	wasStarted := s.started
+	defer s.mu.Unlock()
+	if s.started {
+		s.logger.Infof("Stopping syscfg subsystem")
+	}
 	s.started = false
-	cancel := s.upgradeCancel
-	s.upgradeCancel = nil
-	s.mu.Unlock()
-
-	if wasStarted {
-		s.logger.Info("Stopping syscfg subsystem")
-	}
-	if cancel != nil {
-		cancel()
-		s.upgradeWorker.Wait()
-	}
+	s.stopManagedUpgrades()
 	return nil
 }
 

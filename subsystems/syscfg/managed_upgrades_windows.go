@@ -62,6 +62,9 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 
 	s.upgradeWorker.Go(func() {
 		// Run once immediately at startup.
+		if ctx.Err() != nil {
+			return
+		}
 		s.runManagedUpgrade(upgradeCtx)
 
 		ticker := time.NewTicker(interval)
@@ -105,6 +108,18 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 		s.needsOSReboot = true
 		s.mu.Unlock()
 		s.logger.Info("OS reboot required after Windows updates, will reboot when maintenance window opens")
+	}
+}
+
+// stopManagedUpgrades cancels the background upgrade goroutine and waits for it to exit.
+// Must be called while s.mu is held.
+func (s *Subsystem) stopManagedUpgrades() {
+	cancel := s.upgradeCancel
+	s.upgradeCancel = nil
+
+	if cancel != nil {
+		cancel()
+		s.upgradeWorker.Wait()
 	}
 }
 
