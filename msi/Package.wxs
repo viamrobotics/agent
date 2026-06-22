@@ -14,6 +14,22 @@
 
     <Launch Condition="Privileged" Message="This installer requires administrator privileges." />
 
+    <!-- Detect whether the machine config exists at C:\etc\viam.json. The agent service hangs
+         (retrying forever) when this file is missing, so we fail loudly up front instead.
+         AppSearch runs before LaunchConditions in both the UI and execute sequences. The path
+         is the default CONFIGDIR value; DirectorySearch requires a literal path so it can't read
+         the [CONFIGDIR] property. -->
+    <Property Id="VIAMJSONPRESENT">
+      <DirectorySearch Id="ConfigDirSearch" Path="C:\etc">
+        <FileSearch Id="ViamJsonSearch" Name="viam.json" />
+      </DirectorySearch>
+    </Property>
+
+    <!-- Installed/REMOVE guard so uninstalls, repairs, and upgrades of a configured machine
+         don't re-check for the file. -->
+    <Launch Condition="VIAMJSONPRESENT OR Installed OR REMOVE"
+            Message="Viam Agent requires a machine config at C:\etc\viam.json, but none was found. Download your machine's viam.json from app.viam.com, place it at C:\etc\viam.json, then run this installer again." />
+
     <MajorUpgrade DowngradeErrorMessage="A newer version of Viam Agent is already installed." />
 
     <MediaTemplate EmbedCab="yes" />
