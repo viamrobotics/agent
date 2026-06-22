@@ -134,12 +134,11 @@ func commonMain(runningAsService bool) {
 		utils.CLIEnableSyscfgSubsystem = true
 	}
 
-	// Similar to above, prefer the more specific `enable-networking` flag if it
-	// is set, otherwise use `as-service`. At time of writing this should never
-	// happen because `runningAsService` is only set on Windows we don't support
-	// networking on Windows, but the code is structured this way for consistency
-	// in case other platforms pass the argument on we add Windows networking
-	// support in the future.
+	// Same as above, but for `--enable-networking`. At time of writing this
+	// should never happen because `runningAsService` is only set on Windows and
+	// we don't support networking on Windows, but the code is structured this
+	// way for consistency in case other platforms pass the argument or we add
+	// Windows networking support in the future.
 	enableNetworkingSubsystemFlag := mo.PointerToOption(opts.EnableNetworkingSubsystem)
 	if enableNetworkingSubsystemFlag.OrEmpty() || (enableNetworkingSubsystemFlag.IsAbsent() && runningAsService) {
 		utils.CLIEnableNetworkingSubsystem = true
