@@ -414,18 +414,19 @@ func (m *Manager) setDebug(debug bool) {
 // Note that the config value is a "disable" while the registry value is an "enable".
 // This is by design to make configuration easier for users and predicates easier for
 // developers respectively. Due to this, the conditional below to check for a diff looks
-// odd (== instead of !=).
+// odd.
 func (m *Manager) applyLogDeduplication(cfg utils.AgentConfig) {
 	if m.registry == nil {
 		return
 	}
-	disable := cfg.AdvancedSettings.GetDisableLogDeduplication()
-	if disable == m.registry.DeduplicateLogs.Load() {
+	shouldDisable := cfg.AdvancedSettings.GetDisableLogDeduplication() // unset tribool returns false here
+	isDisabled := !m.registry.DeduplicateLogs.Load()
+	if shouldDisable != isDisabled {
 		state := "enabled"
-		if disable {
+		if shouldDisable {
 			state = "disabled"
 		}
-		m.registry.DeduplicateLogs.Store(!disable)
+		m.registry.DeduplicateLogs.Store(!shouldDisable)
 		m.logger.Infof("Noisy log deduplication is now %s", state)
 	}
 }
