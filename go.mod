@@ -31,8 +31,8 @@ require (
 	go.viam.com/api v0.1.524
 	go.viam.com/rdk v0.109.0
 	go.viam.com/test v1.2.4
-	go.viam.com/utils v0.4.3
-	golang.org/x/sys v0.39.0
+	go.viam.com/utils v0.6.4
+	golang.org/x/sys v0.42.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
 	tinygo.org/x/bluetooth v0.15.0
