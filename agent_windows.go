@@ -11,9 +11,16 @@ import (
 
 const (
 	serviceName = "viam-agent"
+
+	// exitProbeScriptName is unused on Windows; the exit probe is a Linux/systemd
+	// ExecStopPost= helper.
+	exitProbeScriptName = ""
 )
 
 var serviceFileContents []byte
+
+// exitProbeScriptContents is nil on Windows; the exit probe is Linux/systemd only.
+var exitProbeScriptContents []byte
 
 // InstallNewVersion is a no-op on Windows as there is no system service update mechanism.
 func InstallNewVersion(_ context.Context, _ logging.Logger) (bool, error) {
