@@ -978,7 +978,12 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 
 	m.logger.Info("OS reboot required for package updates; maintenance window is open, initiating reboot")
 
-	rebootCmd := exec.CommandContext(ctx, "systemctl", "reboot")
+	var rebootCmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		rebootCmd = exec.CommandContext(ctx, "shutdown", "/r", "/t", "0", "/f")
+	} else {
+		rebootCmd = exec.CommandContext(ctx, "systemctl", "reboot")
+	}
 	if output, err := rebootCmd.CombinedOutput(); err != nil {
 		m.logger.Errorw("failed to initiate system reboot", "error", err, "output", string(output))
 		return
