@@ -14,21 +14,24 @@
 
     <Launch Condition="Privileged" Message="This installer requires administrator privileges." />
 
-    <!-- Detect whether the machine config exists at C:\etc\viam.json. The agent service hangs
-         (retrying forever) when this file is missing, so we fail loudly up front instead.
-         AppSearch runs before LaunchConditions in both the UI and execute sequences. The path
-         is the default CONFIGDIR value; DirectorySearch requires a literal path so it can't read
-         the [CONFIGDIR] property. -->
+    <!-- Detect whether the machine config exists at [CONFIGDIR]\viam.json (default C:\etc\viam.json).
+         The agent service hangs (retrying forever) when this file is missing, so we fail loudly
+         instead. AppSearch runs early in both the UI and execute sequences -- before the first
+         dialog -- so VIAMJSONPRESENT is populated by the time the user clicks Next. AnyPath search
+         paths expand [PROPERTY] references, so this honors a CONFIGDIR override passed on the
+         msiexec command line (e.g. CONFIGDIR=D:\viamconfig). -->
     <Property Id="VIAMJSONPRESENT">
-      <DirectorySearch Id="ConfigDirSearch" Path="C:\etc">
+      <DirectorySearch Id="ConfigDirSearch" Path="[CONFIGDIR]">
         <FileSearch Id="ViamJsonSearch" Name="viam.json" />
       </DirectorySearch>
     </Property>
 
-    <!-- Installed/REMOVE guard so uninstalls, repairs, and upgrades of a configured machine
-         don't re-check for the file. -->
-    <Launch Condition="VIAMJSONPRESENT OR Installed OR REMOVE"
-            Message="Viam Agent requires a machine config at C:\etc\viam.json, but none was found. Download your machine's viam.json from app.viam.com, place it at C:\etc\viam.json, then run this installer again." />
+    <!-- Type 19 (Error) custom action: shows the message and aborts. Fired from the Welcome
+         dialog's Next button (see UI section) for fast GUI feedback, and scheduled in
+         InstallExecuteSequence to also cover silent (/qn) installs. The error text is formatted,
+         so [CONFIGDIR] resolves to the real path. -->
+    <CustomAction Id="ViamJsonMissingError"
+                  Error="Viam Agent requires a machine config at [CONFIGDIR]\viam.json, but none was found. Download your machine's viam.json from app.viam.com, place it at [CONFIGDIR]\viam.json, then run this installer again." />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of Viam Agent is already installed." />
 
@@ -184,6 +187,12 @@
                   DllEntry="WixQuietExec64" />
 
     <InstallExecuteSequence>
+      <!-- Fail loudly on missing config for silent (/qn) installs; GUI installs catch this
+           earlier at the Welcome dialog's Next button. Skipped on uninstall, repair, and
+           upgrades of an already-configured machine. AppSearch (which sets VIAMJSONPRESENT)
+           runs well before InstallInitialize. -->
+      <Custom Action="ViamJsonMissingError" Before="InstallInitialize"
+              Condition="NOT VIAMJSONPRESENT AND NOT Installed AND NOT REMOVE" />
       <Custom Action="CreateSymlink" After="InstallFiles"
               Condition="NOT REMOVE" />
       <Custom Action="ConfigureServiceFailureFlag" After="InstallServices"
@@ -315,6 +324,11 @@
         </Control>
       </Dialog>
 
+      <!-- Check for the machine config the moment the user clicks Next on the Welcome page.
+           When [CONFIGDIR]\viam.json is absent, ViamJsonMissingError shows its message and aborts,
+           so the NewDialog below never runs. -->
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="DoAction"
+               Value="ViamJsonMissingError" Order="5" Condition="NOT VIAMJSONPRESENT" />
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog"
                Value="InstallDirDlg" Order="10" Condition="1" />
       <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog"
