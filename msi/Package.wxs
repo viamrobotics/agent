@@ -16,8 +16,8 @@
 
     <!-- Detect whether the machine config exists at [CONFIGDIR]\viam.json (default C:\etc\viam.json).
          The agent service hangs (retrying forever) when this file is missing, so we fail loudly
-         instead. AppSearch runs early in both the UI and execute sequences -- before the first
-         dialog -- so VIAMJSONPRESENT is populated by the time the user clicks Next. AnyPath search
+         instead. AppSearch runs early in both the UI and execute sequences (before the first
+         dialog), so VIAMJSONPRESENT is populated by the time the user clicks Next. AnyPath search
          paths expand [PROPERTY] references, so this honors a CONFIGDIR override passed on the
          msiexec command line (e.g. CONFIGDIR=D:\viamconfig). -->
     <Property Id="VIAMJSONPRESENT">
