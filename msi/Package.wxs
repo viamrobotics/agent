@@ -14,27 +14,20 @@
 
     <Launch Condition="Privileged" Message="This installer requires administrator privileges." />
 
-    <!-- Detect whether the machine config exists at [CONFIGDIR]\viam.json (default C:\etc\viam.json).
-         The agent service will not start until this file is present, so when it is missing we warn
-         the user (GUI installs) but still let them continue. AppSearch runs early in both the UI and
-         execute sequences (before the first dialog), so VIAMJSONPRESENT is populated by the time the
-         user clicks Next. AnyPath search paths expand [PROPERTY] references, so this honors a
-         CONFIGDIR override passed on the msiexec command line (e.g. CONFIGDIR=D:\viamconfig). -->
+    <!-- Sets VIAMJSONPRESENT if [CONFIGDIR]\viam.json exists. AppSearch runs before the first
+         dialog. The search path expands [CONFIGDIR], so a CONFIGDIR= override is honored. -->
     <Property Id="VIAMJSONPRESENT">
       <DirectorySearch Id="ConfigDirSearch" Path="[CONFIGDIR]">
         <FileSearch Id="ViamJsonSearch" Name="viam.json" />
       </DirectorySearch>
     </Property>
 
-    <!-- Escape hatch for silent installs: pass FORCEINSTALL=1 on the msiexec command line to skip
-         the missing-config hard-fail (see ViamJsonMissingError in InstallExecuteSequence). Secure so
-         it survives into the elevated/execute context. -->
+    <!-- Pass FORCEINSTALL=1 to skip the missing-config hard-fail. Secure so it reaches the
+         execute sequence. -->
     <Property Id="FORCEINSTALL" Secure="yes" />
 
-    <!-- Type 19 (Error) custom action: shows the message and aborts. Scheduled in
-         InstallExecuteSequence to hard-fail silent (/qn) installs that have no viam.json. GUI
-         installs never reach it because they set VIAMJSONACK at the Welcome warning dialog. The
-         error text is formatted, so [CONFIGDIR] resolves to the real path. -->
+    <!-- Aborts the install with this message. Fired from InstallExecuteSequence for silent installs;
+         text is formatted, so [CONFIGDIR] resolves. -->
     <CustomAction Id="ViamJsonMissingError"
                   Error="Viam Agent requires a machine config at [CONFIGDIR]\viam.json, but none was found. Download your machine's viam.json from app.viam.com and place it at [CONFIGDIR]\viam.json, then run this installer again. To install anyway (the service will not start until the config is present), re-run with FORCEINSTALL=1." />
 
@@ -192,11 +185,8 @@
                   DllEntry="WixQuietExec64" />
 
     <InstallExecuteSequence>
-      <!-- Hard-fail when [CONFIGDIR]\viam.json is missing. This catches silent (/qn) installs, which
-           fail by default unless FORCEINSTALL=1 is passed. GUI installs reach this too, but only when
-           the user clicked through the Welcome warning dialog (which sets VIAMJSONACK), so the
-           condition excludes them. Skipped on uninstall, repair, and upgrades. AppSearch (which sets
-           VIAMJSONPRESENT) runs well before InstallInitialize. -->
+      <!-- Hard-fail silent installs missing viam.json, unless FORCEINSTALL=1. GUI installs set
+           VIAMJSONACK at the warning page, so they're excluded. -->
       <Custom Action="ViamJsonMissingError" Before="InstallInitialize"
               Condition="NOT VIAMJSONPRESENT AND NOT VIAMJSONACK AND NOT FORCEINSTALL AND NOT Installed AND NOT REMOVE" />
       <Custom Action="CreateSymlink" After="InstallFiles"
@@ -330,36 +320,52 @@
         </Control>
       </Dialog>
 
-      <!-- Warning shown when [CONFIGDIR]\viam.json is missing. Spawned modally from the Welcome
-           dialog's Next button. "Continue" sets VIAMJSONACK=1 so navigation proceeds; "Go Back"
-           (the default) just returns, leaving the user on the Welcome page. The text is formatted,
-           so [CONFIGDIR] resolves to the real path. -->
-      <Dialog Id="ViamJsonWarnDlg" Width="320" Height="160" Title="Machine config not found">
-        <Control Id="WarnText" Type="Text" X="20" Y="15" Width="280" Height="105" NoPrefix="yes"
-                 Text="No machine config was found at [CONFIGDIR]\viam.json.&#10;&#10;Viam Agent will be installed, but the service will not start until you download your machine's viam.json from app.viam.com and place it at [CONFIGDIR]\viam.json.&#10;&#10;Continue with installation anyway?" />
-        <Control Id="BottomLine" Type="Line" X="0" Y="130" Width="320" Height="0" />
-        <Control Id="Continue" Type="PushButton" X="130" Y="139" Width="80" Height="17"
-                 Text="Continue">
-          <Publish Property="VIAMJSONACK" Value="1" Order="1" Condition="1" />
-          <Publish Event="EndDialog" Value="Return" Order="2" Condition="1" />
+      <!-- Warning page shown between Welcome and InstallDir only when viam.json is missing (see
+           navigation below). Next sets VIAMJSONACK=1, which advances and exempts GUI installs from
+           the hard-fail. -->
+      <Dialog Id="ViamJsonWarnDlg" Width="370" Height="270"
+              Title="!(loc.InstallDirDlg_Title)">
+        <!-- Banner area (matches WixUI standard layout) -->
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="280" Height="15"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Machine config not found" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="320" Height="15"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="No viam.json was found at the expected location." />
+
+        <!-- Body -->
+        <Control Id="WarnText" Type="Text" X="20" Y="60" Width="330" Height="120" NoPrefix="yes"
+                 Text="No machine config was found at [CONFIGDIR]\viam.json.&#10;&#10;You can continue, but the Viam Agent service will not start until you download your machine's viam.json from app.viam.com and place it at [CONFIGDIR]\viam.json.&#10;&#10;Click Next to install anyway, or Back to cancel and add the config first." />
+
+        <!-- Bottom bar -->
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="WelcomeDlg" Condition="1" />
         </Control>
-        <Control Id="GoBack" Type="PushButton" X="214" Y="139" Width="80" Height="17"
-                 Default="yes" Cancel="yes" Text="Go Back">
-          <Publish Event="EndDialog" Value="Return" Condition="1" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Text="!(loc.WixUINext)">
+          <Publish Property="VIAMJSONACK" Value="1" Order="1" Condition="1" />
+          <Publish Event="NewDialog" Value="InstallDirDlg" Order="2" Condition="1" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
-      <!-- Check for the machine config the moment the user clicks Next on the Welcome page.
-           When [CONFIGDIR]\viam.json is absent and the warning has not yet been acknowledged,
-           spawn ViamJsonWarnDlg. Its "Continue" button sets VIAMJSONACK=1; "Go Back" leaves it
-           unset. The NewDialog (Order 10) then only advances when the config is present or the
-           warning has been acknowledged, so "Go Back" keeps the user on the Welcome page. -->
-      <Publish Dialog="WelcomeDlg" Control="Next" Event="SpawnDialog"
-               Value="ViamJsonWarnDlg" Order="5" Condition="NOT VIAMJSONPRESENT AND NOT VIAMJSONACK" />
+      <!-- Route through the warning page only when viam.json is missing; InstallDir's Back mirrors it. -->
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog"
-               Value="InstallDirDlg" Order="10" Condition="VIAMJSONPRESENT OR VIAMJSONACK" />
+               Value="ViamJsonWarnDlg" Order="5" Condition="NOT VIAMJSONPRESENT" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog"
+               Value="InstallDirDlg" Order="10" Condition="VIAMJSONPRESENT" />
       <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog"
-               Value="WelcomeDlg" Order="10" Condition="1" />
+               Value="ViamJsonWarnDlg" Order="5" Condition="NOT VIAMJSONPRESENT" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog"
+               Value="WelcomeDlg" Order="10" Condition="VIAMJSONPRESENT" />
       <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog"
                Value="ServiceAccountDlg" Order="10" Condition="1" />
       <Publish Dialog="ServiceAccountDlg" Control="Back" Event="NewDialog"
