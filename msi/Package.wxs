@@ -26,6 +26,18 @@
       </DirectorySearch>
     </Property>
 
+    <!-- Escape hatch for silent installs: pass FORCEINSTALL=1 on the msiexec command line to skip
+         the missing-config hard-fail (see ViamJsonMissingError in InstallExecuteSequence). Secure so
+         it survives into the elevated/execute context. -->
+    <Property Id="FORCEINSTALL" Secure="yes" />
+
+    <!-- Type 19 (Error) custom action: shows the message and aborts. Scheduled in
+         InstallExecuteSequence to hard-fail silent (/qn) installs that have no viam.json. GUI
+         installs never reach it because they set VIAMJSONACK at the Welcome warning dialog. The
+         error text is formatted, so [CONFIGDIR] resolves to the real path. -->
+    <CustomAction Id="ViamJsonMissingError"
+                  Error="Viam Agent requires a machine config at [CONFIGDIR]\viam.json, but none was found. Download your machine's viam.json from app.viam.com and place it at [CONFIGDIR]\viam.json, then run this installer again. To install anyway (the service will not start until the config is present), re-run with FORCEINSTALL=1." />
+
     <MajorUpgrade DowngradeErrorMessage="A newer version of Viam Agent is already installed." />
 
     <MediaTemplate EmbedCab="yes" />
@@ -180,9 +192,13 @@
                   DllEntry="WixQuietExec64" />
 
     <InstallExecuteSequence>
-      <!-- A missing [CONFIGDIR]\viam.json does not block installation. GUI installs warn at the
-           Welcome dialog (see UI section); silent (/qn) installs proceed without warning (there is
-           no one to prompt), and the absent config is recorded in the MSI log via VIAMJSONPRESENT. -->
+      <!-- Hard-fail when [CONFIGDIR]\viam.json is missing. This catches silent (/qn) installs, which
+           fail by default unless FORCEINSTALL=1 is passed. GUI installs reach this too, but only when
+           the user clicked through the Welcome warning dialog (which sets VIAMJSONACK), so the
+           condition excludes them. Skipped on uninstall, repair, and upgrades. AppSearch (which sets
+           VIAMJSONPRESENT) runs well before InstallInitialize. -->
+      <Custom Action="ViamJsonMissingError" Before="InstallInitialize"
+              Condition="NOT VIAMJSONPRESENT AND NOT VIAMJSONACK AND NOT FORCEINSTALL AND NOT Installed AND NOT REMOVE" />
       <Custom Action="CreateSymlink" After="InstallFiles"
               Condition="NOT REMOVE" />
       <Custom Action="ConfigureServiceFailureFlag" After="InstallServices"
