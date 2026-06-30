@@ -118,12 +118,18 @@ func (s *Subsystem) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 
 	sinceArg := cache.SystemdAgentLogsLastForwarded.Format("2006-01-02 15:04:05" /* systemd time format */)
 	// `journalctl -u viam-agent -t systemd -S [sinceArg] -o json` gets logs from the
-	// viam-agent systemd service (-u viam-agent), from systemd itself (-t systemd), as JSON
-	// (-o JSON), and from only the last time systemd agent logs were forwarded (-S
-	// [sinceArg]).
+	// viam-agent systemd service (-u viam-agent), from systemd itself and any shell scripts
+	// like the exit probe (-t systemd -t sh), as JSON (-o JSON), and from only the last
+	// time systemd agent logs were forwarded (-S [sinceArg]).
 	//nolint:gosec
-	out, err := exec.CommandContext(ctx, "journalctl", "-u", "viam-agent", "-t", "systemd", "-o", "json", "-S", sinceArg).
-		CombinedOutput()
+	out, err := exec.CommandContext(
+		ctx,
+		"journalctl",
+		"-u", "viam-agent",
+		"-t", "systemd", "-t", "sh",
+		"-o", "json",
+		"-S", sinceArg,
+	).CombinedOutput()
 	if err != nil {
 		return errw.Wrap(err, "running journalctl to forward recent systemd agent logs")
 	}
