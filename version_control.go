@@ -245,15 +245,37 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	prevLastModified := verData.LastModified
 	var lastModified time.Time
 	var lastModifiedChanged bool
-	if isCustomURL && !isFileURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFrequency {
+	// file:// has no HTTP Last-Modified header; GetLastModified returns the source file's mtime instead, so
+	// an in-place rebuild flows through the same change-detection path as a remote re-publish. A local stat
+	// is cheap, so there's no point throttling it — pick rebuilds up on the very next reconcile.
+	lastModifiedCheckFreq := lastModifiedCheckFrequency
+	if isFileURL {
+		lastModifiedCheckFreq = 0
+	}
+	if isCustomURL && time.Since(verData.LastModifiedCheck) > lastModifiedCheckFreq {
 		lastModified = utils.GetLastModified(ctx, verData.URL, c.logger)
 		// don't mark changed if we're just storing lastModified for the first time
 		lastModifiedChanged = !verData.LastModified.IsZero() && lastModified.After(verData.LastModified)
-		// don't allow LastModified to move backwards (mostly likely in case server is misconfigured)
-		if lastModified.After(verData.LastModified) {
+		// For http we advance the stored timestamp eagerly (a HEAD is costly to repeat). For file:// we defer
+		// the advance until the change is confirmed/applied below, so a failed re-pull is retried next cycle
+		// instead of being suppressed by an already-advanced timestamp.
+		if !isFileURL && lastModified.After(verData.LastModified) {
 			verData.LastModified = lastModified
 		}
 		verData.LastModifiedCheck = time.Now()
+	}
+
+	// mtime is a cheap but weak trigger: rebuilds that preserve mtime won't trip it, and tools like `cp -p`
+	// or restore-from-cache can bump mtime without changing bytes. So for file:// confirm the content
+	// actually differs (vs the SHA we recorded for the cached copy) before paying for a re-pull + restart.
+	if isFileURL && lastModifiedChanged {
+		if srcPath, err := utils.LocalSourcePath(verData.URL); err == nil {
+			if srcSum, sumErr := utils.GetFileSum(srcPath); sumErr == nil && bytes.Equal(srcSum, verData.UnpackedSHA) {
+				c.logger.Debugw("file:// mtime changed but content is identical; skipping re-pull", "path", srcPath)
+				lastModifiedChanged = false
+				verData.LastModified = lastModified // record the new mtime so we stop re-hashing until it bumps again
+			}
+		}
 	}
 
 	if data.TargetVersion == data.CurrentVersion {
@@ -299,8 +321,14 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
 				"url", verData.URL)
 		}
-		// download and record the sha of the download itself
-		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+		// download and record the sha of the download itself. When re-pulling the same target version
+		// (e.g. a changed file:// source), replace the existing cache file in place so we don't accumulate
+		// ".duplicate-NNN" copies and so the symlink keeps pointing at a stable filename.
+		if verData.UnpackedPath != "" {
+			verData.DlPath, err = utils.DownloadFileToPath(ctx, verData.URL, verData.UnpackedPath, c.logger)
+		} else {
+			verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+		}
 		if err != nil {
 			if isCustomURL {
 				data.brokenTarget = true
@@ -367,6 +395,13 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 				verData.UnpackedPath,
 				base64.StdEncoding.EncodeToString(verData.UnpackedSHA),
 			)
+		}
+
+		// Now that the re-pull succeeded, record the source mtime we acted on. Deferring the advance to here
+		// (rather than in the change-detection block above) means a failed download leaves the stored mtime
+		// unchanged, so the next reconcile retries instead of treating the change as already handled.
+		if isFileURL && !lastModified.IsZero() {
+			verData.LastModified = lastModified
 		}
 	}
 

@@ -82,6 +82,43 @@ func TestUpdateBinary(t *testing.T) {
 			testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
 		})
 
+		t.Run("custom-file-mtime-bump-same-content-no-restart", func(t *testing.T) {
+			// A customURL+file:// rebuild that bumps mtime but produces identical bytes (e.g. `cp -p`,
+			// restore-from-cache) must NOT trigger a re-pull + restart: the source-hash gate confirms the
+			// content actually changed before acting. A real content change still restarts.
+			td := t.TempDir()
+			src := filepath.Join(td, "source-binary-mtime")
+			elf := []byte{0x7f, 'E', 'L', 'F', 'v', '1'}
+			test.That(t, os.WriteFile(src, elf, 0o755), test.ShouldBeNil)
+
+			viM := vi
+			viM.URL = "file://" + src
+			viM.Version = "customURL+" + viM.URL
+			viM.UnpackedSHA = nil // let the install compute and record the source sha
+			vc.ViamServer.Versions[viM.Version] = &viM
+			vc.ViamServer.TargetVersion = viM.Version
+
+			// install
+			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, needsRestart, test.ShouldBeTrue)
+
+			// bump only the mtime, keep the bytes identical -> no restart
+			future := time.Now().Add(time.Hour)
+			test.That(t, os.Chtimes(src, future, future), test.ShouldBeNil)
+			needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, needsRestart, test.ShouldBeFalse)
+
+			// now actually change the bytes -> restart
+			evenLater := future.Add(time.Hour)
+			test.That(t, os.WriteFile(src, []byte{0x7f, 'E', 'L', 'F', 'v', '2'}, 0o755), test.ShouldBeNil)
+			test.That(t, os.Chtimes(src, evenLater, evenLater), test.ShouldBeNil)
+			needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, needsRestart, test.ShouldBeTrue)
+		})
+
 		t.Run("checksum-wrong-at-top-should-redownload", func(t *testing.T) {
 			// case where checksum is wrong at the top of UpdateBinary
 			// (I think we get here by having a binary not tracked in cache)

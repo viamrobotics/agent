@@ -320,13 +320,26 @@ func TryResetAgent(logger logging.Logger) error {
 	return nil
 }
 
-// GetLastModified retrieves the 'Last-Modified' header from a url via a HEAD request.
-// If there is any issue (e.g. not present, retreiving, parsing), it will return a default time.Time{}.
+// GetLastModified retrieves a change signal for a URL. For http/s it reads the 'Last-Modified' header
+// via a HEAD request; for file:// it uses the source file's mtime, so an in-place rebuild is picked up
+// without renaming the binary or editing config. If there is any issue (header absent, request/parse
+// failure, or a missing/unreadable file:// source) it returns a default time.Time{}, which callers
+// treat as "no detectable change" and keep running the current binary.
 func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) time.Time {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		logger.Infof("%v", err)
 		return time.Time{}
+	}
+	if parsedURL.Scheme == "file" {
+		srcPath := fileURLToPath(parsedURL)
+		stat, err := os.Stat(srcPath)
+		if err != nil {
+			// e.g. an unmounted build dir; keep running the current copy rather than churning.
+			logger.Infow("file:// source unavailable; treating as unchanged", "path", srcPath, "err", err)
+			return time.Time{}
+		}
+		return stat.ModTime()
 	}
 	client := socksClient(parsedURL.String(), logger)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, parsedURL.String(), nil)
@@ -358,6 +371,17 @@ func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) 
 // DownloadFile downloads or copies a file into the cache directory and returns a path to the file.
 // If this is an http/s URL, you must check the checksum of the result; the partial logic does not check etags.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
+	return downloadFile(ctx, rawURL, "", logger)
+}
+
+// DownloadFileToPath behaves like DownloadFile but atomically replaces an existing known cache path
+// instead of allocating a fresh ".duplicate-NNN" slot. Use it when re-pulling the same target version
+// (e.g. a changed file:// source) so the cache filename and the symlink that points at it stay stable.
+func DownloadFileToPath(ctx context.Context, rawURL, knownPath string, logger logging.Logger) (string, error) {
+	return downloadFile(ctx, rawURL, knownPath, logger)
+}
+
+func downloadFile(ctx context.Context, rawURL, knownPath string, logger logging.Logger) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return "", err
@@ -370,22 +394,28 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	logger.Infof("Starting download of %s", rawURL)
 	parsedPath := parsedURL.Path
 
-	// don't want to accidentally overwrite anything in the cache directory by accident
-	// old agent versions used a different cache format, so it's possible we could be re-downloading ourself
+	// When re-pulling a known cache path, publish onto it (stable filename) so we don't accumulate
+	// ".duplicate-NNN" copies — see publishToCache for the per-platform swap. Otherwise allocate a fresh,
+	// non-colliding slot: old agent versions used a different cache format, so a blind write could clobber a
+	// binary we're re-downloading over ourself.
 	var outPath string
-	for n := range 100 {
-		var suffix string
-		if n > 0 {
-			suffix = fmt.Sprintf(".duplicate-%03d", n)
-		}
-		outPath = filepath.Join(ViamDirs.Cache, path.Base(parsedPath)+suffix)
-		if runtime.GOOS == "windows" && !strings.HasSuffix(outPath, ".exe") {
-			outPath += ".exe"
-		}
+	if knownPath != "" {
+		outPath = knownPath
+	} else {
+		for n := range 100 {
+			var suffix string
+			if n > 0 {
+				suffix = fmt.Sprintf(".duplicate-%03d", n)
+			}
+			outPath = filepath.Join(ViamDirs.Cache, path.Base(parsedPath)+suffix)
+			if runtime.GOOS == "windows" && !strings.HasSuffix(outPath, ".exe") {
+				outPath += ".exe"
+			}
 
-		_, err = os.Stat(outPath)
-		if errors.Is(err, fs.ErrNotExist) {
-			break
+			_, err = os.Stat(outPath)
+			if errors.Is(err, fs.ErrNotExist) {
+				break
+			}
 		}
 	}
 
@@ -393,10 +423,25 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	getterClient := &getter.Client{Ctx: ctx}
 	switch parsedURL.Scheme {
 	case "file":
+		// Reject sources that alias the agent's own managed tree (cache/tmp/symlink) — see
+		// ValidateLocalBinarySource. This is the chokepoint every file:// copy passes through.
+		if err := ValidateLocalBinarySource(fileURLToPath(parsedURL)); err != nil {
+			return "", err
+		}
 		g := getter.FileGetter{Copy: true}
 		g.SetClient(getterClient)
-		if err := g.GetFile(outPath, parsedURL); err != nil {
+		// Always copy to a sibling staging file, then publish onto outPath (see publishToCache). This keeps
+		// the cache filename (and the symlink target) stable across re-pulls and makes the swap atomic +
+		// fsync'd whether or not outPath already existed.
+		staging := outPath + ".new"
+		if err := os.Remove(staging); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", errw.Wrapf(err, "clearing stale staging file %s", staging)
+		}
+		if err := g.GetFile(staging, parsedURL); err != nil {
 			return "", errw.Wrap(err, "copying file")
+		}
+		if err := publishToCache(staging, outPath); err != nil {
+			return "", err
 		}
 	case "http", "https":
 		// note: we shrink the hash to avoid system path length limits
@@ -442,7 +487,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 
 		logger.Debugw("moving successful download to outPath", "partialDest", partialDest)
-		if err := os.Rename(partialDest, outPath); err != nil {
+		if err := publishToCache(partialDest, outPath); err != nil {
 			return "", errw.Wrap(err, "moving successful download to outPath")
 		}
 		if err := os.RemoveAll(filepath.Dir(partialDest)); err != nil {
@@ -462,6 +507,90 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	}
 
 	return outPath, nil
+}
+
+// publishToCache atomically moves a fully-written staging file onto destPath, keeping the cache filename
+// (and therefore the symlink target) stable so re-pulls don't accumulate ".duplicate-NNN" copies.
+//
+// On POSIX, rename over destPath is atomic even while viam-server executes the old bytes — the running
+// process keeps the old inode and the manager restarts it afterward. On Windows a running .exe can't be
+// overwritten, but it CAN be renamed, so we move the existing binary aside to ".old" first, then publish.
+// The ".old" leftover is cleared on the next publish (once the restarted process releases it) and by cache
+// cleanup as a backstop. If the swap fails mid-way we restore ".old" so the symlink never dangles.
+func publishToCache(stagingPath, destPath string) error {
+	return publishToCacheForOS(stagingPath, destPath, runtime.GOOS)
+}
+
+func publishToCacheForOS(stagingPath, destPath, goos string) error {
+	if goos == "windows" {
+		if _, err := os.Stat(destPath); err == nil {
+			old := destPath + ".old"
+			if rmErr := os.Remove(old); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+				return errw.Wrapf(rmErr, "removing stale %s", old)
+			}
+			if err := os.Rename(destPath, old); err != nil {
+				return errw.Wrapf(err, "moving running binary %s aside", destPath)
+			}
+			if err := os.Rename(stagingPath, destPath); err != nil {
+				return errors.Join(errw.Wrapf(err, "publishing %s", destPath), os.Rename(old, destPath))
+			}
+			return SyncFS(destPath)
+		}
+	}
+	if err := os.Rename(stagingPath, destPath); err != nil {
+		return err
+	}
+	return SyncFS(destPath)
+}
+
+// LocalSourcePath returns the filesystem path that a file:// URL points at.
+func LocalSourcePath(fileURL string) (string, error) {
+	parsed, err := url.Parse(fileURL)
+	if err != nil {
+		return "", err
+	}
+	return fileURLToPath(parsed), nil
+}
+
+// fileURLToPath converts a parsed file:// URL into a local filesystem path. On Windows, url.Parse
+// yields paths like "/C:/dir/bin.exe" (leading slash, forward slashes); strip and convert those so
+// os.Stat and friends see a real path rather than the URL form.
+func fileURLToPath(parsed *url.URL) string {
+	p := parsed.Path
+	if runtime.GOOS == "windows" {
+		p = strings.TrimPrefix(p, "/")
+		p = filepath.FromSlash(p)
+	}
+	return p
+}
+
+// ValidateLocalBinarySource rejects a file:// custom-binary source that resolves inside the agent-managed
+// cache/tmp dirs (or is the managed symlink, which resolves into the cache). Such a source aliases the
+// agent's own derived state: every re-pull rewrites it, bumping its mtime and triggering another re-pull
+// forever. The source must live outside the managed tree (e.g. /opt/viam-custom or a home dir).
+func ValidateLocalBinarySource(srcPath string) error {
+	real, err := filepath.EvalSymlinks(srcPath)
+	if err != nil {
+		return errw.Wrapf(err, "resolving file:// source %q", srcPath)
+	}
+	for _, managed := range []string{ViamDirs.Cache, ViamDirs.Tmp} {
+		// resolve the managed dir too: the cache path itself may contain symlinks (e.g. macOS /var ->
+		// /private/var), which would otherwise defeat the containment check.
+		if resolved, rErr := filepath.EvalSymlinks(managed); rErr == nil {
+			managed = resolved
+		}
+		rel, err := filepath.Rel(managed, real)
+		if err != nil {
+			continue
+		}
+		if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			return errw.Errorf(
+				"file:// source %q resolves to %q inside agent-managed dir %q; "+
+					"place the binary outside %q (e.g. /opt/viam-custom or a home dir)",
+				srcPath, real, managed, ViamDirs.Viam)
+		}
+	}
+	return nil
 }
 
 // Return an http client which can use SOCKS proxy from environment as gRPC proxy dialer.
