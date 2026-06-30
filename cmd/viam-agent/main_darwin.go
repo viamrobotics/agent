@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	commonMain()
+	commonMain(false)
 }
 
 func waitOnline(logger logging.Logger, _ context.Context) {

@@ -25,7 +25,10 @@ import (
 	apppb "go.viam.com/api/app/v1"
 	"go.viam.com/rdk/logging"
 	goutils "go.viam.com/utils"
+	"go.viam.com/utils/grpchelpers"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -65,6 +68,7 @@ type Manager struct {
 	cloudConfig *logging.CloudConfig
 
 	logger      logging.Logger
+	registry    *logging.Registry
 	netAppender *logging.NetAppender
 
 	cfgMu sync.RWMutex
@@ -87,9 +91,16 @@ type Manager struct {
 }
 
 // NewManager returns a new Manager.
-func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig, globalCancel context.CancelFunc) *Manager {
+func NewManager(
+	ctx context.Context,
+	logger logging.Logger,
+	registry *logging.Registry,
+	cfg utils.AgentConfig,
+	globalCancel context.CancelFunc,
+) *Manager {
 	manager := &Manager{
 		logger:       logger,
+		registry:     registry,
 		cfg:          cfg,
 		globalCancel: globalCancel,
 
@@ -135,6 +146,7 @@ func NewManager(ctx context.Context, logger logging.Logger, cfg utils.AgentConfi
 	}
 
 	manager.setDebug(cfg.AdvancedSettings.Debug.Get())
+	manager.applyLogDeduplication(cfg)
 	manager.sysConfig = syscfg.New(
 		ctx,
 		logger,
@@ -398,6 +410,30 @@ func (m *Manager) setDebug(debug bool) {
 	}
 }
 
+// applyLogDeduplication enables or disables noisy-log deduplication on the logger
+// registry based on the agent config, mirroring how the rdk does it. Deduplication is
+// enabled by default and only disabled when disable_log_deduplication is set.
+//
+// Note that the config value is a "disable" while the registry value is an "enable".
+// This is by design to make configuration easier for users and predicates easier for
+// developers respectively. Due to this, the conditional below to check for a diff looks
+// odd.
+func (m *Manager) applyLogDeduplication(cfg utils.AgentConfig) {
+	if m.registry == nil {
+		return
+	}
+	shouldDisable := cfg.AdvancedSettings.GetDisableLogDeduplication() // unset tribool returns false here
+	isDisabled := !m.registry.DeduplicateLogs.Load()
+	if shouldDisable != isDisabled {
+		state := "enabled"
+		if shouldDisable {
+			state = "disabled"
+		}
+		m.registry.DeduplicateLogs.Store(!shouldDisable)
+		m.logger.Infof("Noisy log deduplication is now %s", state)
+	}
+}
+
 // SubsystemHealthChecks makes sure all subsystems are responding, and restarts them if not.
 func (m *Manager) SubsystemHealthChecks(ctx context.Context) {
 	defer utils.Recover(m.logger, nil)
@@ -486,6 +522,9 @@ func (m *Manager) CheckIfNeedsRestart(ctx context.Context) (time.Duration, bool)
 		return minimalNeedsRestartCheckInterval, false
 	}
 
+	if maybeOffline(m.conn) {
+		return minimalNeedsRestartCheckInterval, false
+	}
 	robotServiceClient := apppb.NewRobotServiceClient(m.conn)
 	req := &apppb.NeedsRestartRequest{Id: m.cloudConfig.ID}
 	res, err := robotServiceClient.NeedsRestart(timeoutCtx, req)
@@ -751,6 +790,16 @@ func (m *Manager) dial(ctx context.Context) error {
 	return nil
 }
 
+// maybeOffline is used to test whether the provided client connection may be offline or not immediately ready to use.
+func maybeOffline(conn grpc.ClientConnInterface) bool {
+	if cs, ok := grpchelpers.ConnConnectivityState(conn); ok {
+		if cs == connectivity.TransientFailure || cs == connectivity.Connecting {
+			return true
+		}
+	}
+	return false
+}
+
 // GetConfig retrieves the configuration from the cloud.
 func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	if m.cloudConfig == nil {
@@ -773,6 +822,10 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		VersionInfo:      m.getVersions(),
 		AgentUptime:      durationpb.New(time.Since(m.agentStartTime)),
 		ViamServerUptime: m.viamServer.Uptime(),
+	}
+
+	if maybeOffline(m.conn) {
+		return minimalDeviceAgentConfigCheckInterval, errors.New("connection state is TRANSIENT_FAILURE. skipping config fetch")
 	}
 	resp, err := agentDeviceServiceClient.DeviceAgentConfig(timeoutCtx, req)
 	if err != nil {
@@ -803,6 +856,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 
 	cfg := utils.ApplyCLIArgs(cfgFromCloud)
 	m.setDebug(cfg.AdvancedSettings.Debug.Get())
+	m.applyLogDeduplication(cfg)
 
 	m.cfgMu.Lock()
 	defer m.cfgMu.Unlock()
@@ -924,7 +978,12 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 
 	m.logger.Info("OS reboot required for package updates; maintenance window is open, initiating reboot")
 
-	rebootCmd := exec.CommandContext(ctx, "systemctl", "reboot")
+	var rebootCmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		rebootCmd = exec.CommandContext(ctx, "shutdown", "/r", "/t", "0", "/f")
+	} else {
+		rebootCmd = exec.CommandContext(ctx, "systemctl", "reboot")
+	}
 	if output, err := rebootCmd.CombinedOutput(); err != nil {
 		m.logger.Errorw("failed to initiate system reboot", "error", err, "output", string(output))
 		return

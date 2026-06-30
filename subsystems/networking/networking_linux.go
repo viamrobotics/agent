@@ -76,6 +76,10 @@ type Subsystem struct {
 }
 
 func New(ctx context.Context, logger logging.Logger, cfg utils.AgentConfig) *Subsystem {
+	// Route all networking logs through a "networking" sublogger (e.g. "viam-agent.networking")
+	// so that app can treat them as diagnostic rather than user-facing. See diagnosticLoggerNames
+	// in the app repo.
+	logger = logger.Sublogger("networking")
 	subsys := &Subsystem{
 		cfg:    cfg.NetworkConfiguration,
 		nets:   cfg.AdditionalNetworks,

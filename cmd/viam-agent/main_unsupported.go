@@ -19,7 +19,7 @@ func main() {
 	os.Exit(1)
 	// Call commonMain to avoid tripping a bunch of lints for unused code.
 	// Execution will never actually get here.
-	commonMain()
+	commonMain(false)
 }
 
 func runPlatformProvisioning(_ context.Context, _ utils.AgentConfig, _ *agent.Manager, _ error) bool {

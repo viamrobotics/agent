@@ -6,28 +6,21 @@ package syscfg
 // and coordinate reboots with viam-server's maintenance window.
 //
 // Supported package managers (tried in preference order):
-//   - dnf  – Fedora, RHEL 8+, Rocky Linux, AlmaLinux, etc.
-//   - apt-get – Debian, Ubuntu, Raspberry Pi OS, etc.
-//   - yum  – RHEL 7, CentOS 7
+//   - dnf  - Fedora, RHEL 8+, Rocky Linux, AlmaLinux, etc.
+//   - apt-get - Debian, Ubuntu, Raspberry Pi OS, etc.
+//   - yum  - RHEL 7, CentOS 7
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
 	"time"
 
 	"github.com/samber/lo"
 	"github.com/viamrobotics/agent/utils"
 	"go.viam.com/rdk/logging"
 )
-
-const defaultUpgradeInterval = 24 * time.Hour
-
-func isManaged(mode string) bool {
-	return slices.Contains([]string{utils.OSAutoUpgradeManagedAll, utils.OSAutoUpgradeManagedSecurity}, mode)
-}
 
 // startManagedUpgrades launches the background goroutine that periodically runs upgrades.
 // Must be called while s.mu is held.
@@ -36,10 +29,7 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 		return // already running
 	}
 
-	interval := time.Duration(float64(time.Hour) * s.cfg.OSManagedUpgradeIntervalHours)
-	if interval < time.Hour {
-		interval = defaultUpgradeInterval
-	}
+	interval := clampUpgradeInterval(s.logger, s.cfg.OSManagedUpgradeIntervalHours)
 
 	upgradeCtx, cancel := context.WithCancel(ctx)
 	s.upgradeCancel = cancel
