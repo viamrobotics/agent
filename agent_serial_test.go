@@ -108,6 +108,17 @@ var cfg config
 var lastBleStatus []string
 
 func TestSerialFeatures(t *testing.T) {
+	// Load the config before building the suite so serialTestTags can gate
+	// scenarios on config values
+	cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_SERIAL_CFG")).
+		OrElse("./agent-test.toml")
+	mo.TupleToResult(toml.DecodeFile(cfgPath, &cfg)).MustGet()
+
+	// Validate the config before attempting to do anything
+	if err := validateTestConfig(cfg); err != nil {
+		panic(fmt.Errorf("invalid config: %w", err))
+	}
+
 	suite := godog.TestSuite{
 		TestSuiteInitializer: InitializeSuite(t),
 		ScenarioInitializer:  InitializeScenario,
@@ -130,22 +141,10 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 	return func(tsc *godog.TestSuiteContext) {
 		t.Helper()
 		tsc.BeforeSuite(func() {
-			// Load config file + store it in global variable. This contains secrets
-			// like the app API key as well as parameters that could change between
-			// setups like the path to the serial device. Panic on any error.
-			cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_SERIAL_CFG")).
-				OrElse("./agent-test.toml")
-			mo.TupleToResult(toml.DecodeFile(cfgPath, &cfg)).MustGet()
-
 			logger = logging.NewTestLogger(t)
 			// Set to INFO to see the commands being sent to the terminal, DEBUG to
 			// see the commands + any output they produce.
 			logger.SetLevel(logging.WARN)
-
-			// Validate the config before attempting to do anything
-			if err := validateTestConfig(cfg); err != nil {
-				panic(fmt.Errorf("login failed: %w", err))
-			}
 
 			// Log in
 			serialClient = serialcontrol.Connect(
@@ -330,14 +329,8 @@ func validateTestConfig(cfg config) error {
 	if strings.Contains(checkStr, "<") || strings.Contains(checkStr, ">") {
 		return errors.New("invalid config: some fields contain placeholder characters. Please fill out all fields in agent-test.toml")
 	}
-	if cfg.Versions.Test != "" {
+	if cfg.Versions.Test == "" {
 		return errors.New("viam_agent_test in agent-test.toml cannot be empty string")
-	}
-	if cfg.Versions.Old == "" {
-		return errors.New("must set viam_agent_old in config")
-	}
-	if cfg.Versions.ViamServerOld == "" {
-		return errors.New("must set viam_server_old in config")
 	}
 	if cfg.Versions.Old == "" {
 		return errors.New("must set viam_agent_old in config")
@@ -1298,16 +1291,19 @@ func (t *tomlOption[T]) UnmarshalTOML(val any) error {
 
 var _ toml.Unmarshaler = &tomlOption[string]{}
 
-// serialTestTags returns the godog tag expression for serial tests. On
-// non-darwin hosts, scenarios tagged @darwin (e.g. wifi provisioning) are
-// excluded because they depend on macOS-specific tooling (networksetup).
+// serialTestTags returns tags to gate tests from inputs like the config
+// and the host platform
 func serialTestTags() string {
-	tags := os.Getenv("GODOG_TAGS")
-	if runtime.GOOS != "darwin" {
-		if tags != "" {
-			tags += " && "
-		}
-		tags += "~@darwin"
+	var clauses []string
+	if t := os.Getenv("GODOG_TAGS"); t != "" {
+		clauses = append(clauses, t)
 	}
-	return tags
+	if runtime.GOOS != "darwin" {
+		clauses = append(clauses, "~@darwin")
+	}
+	// exclude insecure wifi tests when no insecure SSID is provided
+	if cfg.Wifi.SSIDInsecure == "" {
+		clauses = append(clauses, "~@wifi-insecure")
+	}
+	return strings.Join(clauses, " && ")
 }

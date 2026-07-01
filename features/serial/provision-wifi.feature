@@ -9,6 +9,7 @@ Feature: wifi provisioning
   Scenario: The agent enters automatic provisioning mode when expected
     When the provisioning hotspot is not up
     Then the provisioning hotspot comes up within 120 seconds
+  @wifi-insecure
   Scenario: The agent can join an unknown insecure network when one is provided during wifi hotspot provisioning
     When viam-agent is in forced provisioning mode
     And the provisioning hotspot comes up

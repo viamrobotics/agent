@@ -9,6 +9,7 @@ Feature: bluetooth provisioning
   Scenario: The agent enters automatic provisioning mode when expected
     When the provisioning hotspot is not up
     Then the viam-agent bluetooth device becomes discoverable with the expected characteristics within 120 seconds
+  @wifi-insecure
   Scenario: The agent can join an unknown insecure network when one is provided during bluetooth provisioning
     When viam-agent is in forced provisioning mode
     And the viam-agent bluetooth device is discoverable with the expected characteristics
