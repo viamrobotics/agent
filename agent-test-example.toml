@@ -6,10 +6,10 @@ api_key = "<app location api key with owner role>"
 robot_id = "<robot id>"
 part_id = "<part id>"
 
-# [serial]
-# serial_path = "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
-# serial_user = "<login username for the serial shell>"
-# serial_pass = "<login password for the serial shell>"
+[serial]
+serial_path = "<path to serial device, on Linux usually starts with /dev/ttyUSB>"
+serial_user = "<login username for the serial shell>"
+serial_pass = "<login password for the serial shell>"
 
 [versions]
 # viam_agent_test can be any of the following. the corresponding binary will be installed from GCS
@@ -25,8 +25,9 @@ viam_agent_old = "<old viam-agent version string e.g. 0.26.0>"
 viam_server_stable = "<current stable viam-server version string e.g. 0.115.0>"
 viam_server_old = "<old viam-server version string e.g. 0.114.0>"
 
-# [wifi]
-# ssid = "<wifi ssid>"
-# password = "<wifi password>"
+[wifi]
+ssid = "<wifi ssid>"
+password = "<wifi password>"
 
-# ssid_insecure = "<insecure wifi ssid>"
+# leave this blank or commented to skip the insecure wifi tests
+ssid_insecure = "<insecure wifi ssid>"
