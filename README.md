@@ -52,6 +52,8 @@ Some end-to-end workflows can be tested by connecting to a Raspberry Pi with a s
 
 Once these dependencies are satisfied you can execute the serial tests with `mise r test-e2e-serial`.
 
+The tests should not require any user input while they are running, aside from maybe accepting a macOS dialog requesting permission to control the network adapter. This test will cause your Mac to connect to the wifi hotspot hosted by the Pi. The captive portal will appear and disappear on its own - you do not need to interact with it.
+
 [mise]: https://mise.jdx.dev/
 [install-mise]: https://mise.jdx.dev/installing-mise.html
 [picocom]: https://github.com/npat-efault/picocom

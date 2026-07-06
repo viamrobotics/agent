@@ -108,6 +108,17 @@ var cfg config
 var lastBleStatus []string
 
 func TestSerialFeatures(t *testing.T) {
+	// Load the config before building the suite so serialTestTags can gate
+	// scenarios on config values
+	cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_SERIAL_CFG")).
+		OrElse("./agent-test.toml")
+	mo.TupleToResult(toml.DecodeFile(cfgPath, &cfg)).MustGet()
+
+	// Validate the config before attempting to do anything
+	if err := validateTestConfig(cfg); err != nil {
+		panic(fmt.Errorf("invalid config: %w", err))
+	}
+
 	suite := godog.TestSuite{
 		TestSuiteInitializer: InitializeSuite(t),
 		ScenarioInitializer:  InitializeScenario,
@@ -130,23 +141,16 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 	return func(tsc *godog.TestSuiteContext) {
 		t.Helper()
 		tsc.BeforeSuite(func() {
-			// Load config file + store it in global variable. This contains secrets
-			// like the app API key as well as parameters that could change between
-			// setups like the path to the serial device. Panic on any error.
-			cfgPath := mo.TupleToOption(os.LookupEnv("AGENT_SERIAL_CFG")).
-				OrElse("./agent-test.toml")
-			mo.TupleToResult(toml.DecodeFile(cfgPath, &cfg)).MustGet()
-
 			logger = logging.NewTestLogger(t)
 			// Set to INFO to see the commands being sent to the terminal, DEBUG to
 			// see the commands + any output they produce.
 			logger.SetLevel(logging.WARN)
+
+			// Log in
 			serialClient = serialcontrol.Connect(
 				logger,
 				cfg.Serial.Path.OrElse("/dev/ttyUSB0"),
 			).MustGet()
-
-			// Log in
 			if err := serialClient.Login(cfg.Serial.User, cfg.Serial.Pass); err != nil {
 				serialClient.Close()
 				panic(fmt.Errorf("login failed: %w", err))
@@ -174,16 +178,12 @@ func InitializeSuite(t *testing.T) func(*godog.TestSuiteContext) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 			defer cancel()
 			// now that everything is set up, log the test conditions
-			if cfg.Versions.Test != "" {
-				concrete, err := resolveVersionSpec(ctx, cfg.Versions.Test)
-				concreteTestVersion = concrete
-				if err != nil {
-					panic(fmt.Errorf("resolving install version %q: %w", cfg.Versions.Test, err))
-				}
-				logger.Infof("Version under test: %s\n", concreteTestVersion)
-			} else {
-				panic(fmt.Errorf("viam_agent_test in agent-test.toml cannot be empty string"))
+			concrete, err := resolveVersionSpec(ctx, cfg.Versions.Test)
+			concreteTestVersion = concrete
+			if err != nil {
+				panic(fmt.Errorf("resolving install version %q: %w", cfg.Versions.Test, err))
 			}
+			logger.Infof("Version under test: %s\n", concreteTestVersion)
 
 			centerPrint := func(msg string, width int) {
 				padLenTotal := width - len(msg)
@@ -311,6 +311,38 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		}
 		return ctx, nil
 	})
+}
+
+func validateTestConfig(cfg config) error {
+	// check for < or > in fields that could never contain them,
+	// that's a good indicator that default values were kept
+	// don't check any user-provided fields like passwords since we don't want
+	// any false positives
+	checkStr := cfg.APIKey +
+		cfg.APIKeyID +
+		cfg.Versions.Old +
+		cfg.Versions.Stable +
+		cfg.Versions.Test +
+		cfg.Versions.ViamServerOld +
+		cfg.Versions.ViamServerStable
+
+	if strings.Contains(checkStr, "<") || strings.Contains(checkStr, ">") {
+		return errors.New("invalid config: some fields contain placeholder characters. Please fill out all fields in agent-test.toml")
+	}
+	if cfg.Versions.Test == "" {
+		return errors.New("must set viam_agent_test in agent-test.toml")
+	}
+	if cfg.Versions.Old == "" {
+		return errors.New("must set viam_agent_old in agent-test.toml")
+	}
+	if cfg.Versions.ViamServerOld == "" {
+		return errors.New("must set viam_server_old in agent-test.toml")
+	}
+	if cfg.Wifi.SSID == "" || cfg.Wifi.Password == "" {
+		return errors.New("wifi.ssid and wifi.password must be set in agent-test.toml")
+	}
+
+	return nil
 }
 
 func dialApp(ctx context.Context, logger logging.Logger, address string, keyID, key string) mo.Result[apppb.AppServiceClient] {
@@ -1181,9 +1213,6 @@ func applyAgentVersionPin(ctx context.Context, version string) (context.Context,
 }
 
 func applyAgentURLPin(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.Old == "" {
-		return ctx, errors.New("must set viam_agent_old in config")
-	}
 	return applyVersionPin(ctx, gcsURL("viam-agent", cfg.Versions.Old), "agent", "version_control", "agent")
 }
 
@@ -1192,9 +1221,6 @@ func applyAgentFilePin(ctx context.Context) (context.Context, error) {
 }
 
 func applyAgentViamServerBinaryPin(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.ViamServerOld == "" {
-		return ctx, errors.New("must set viam_server_old in config")
-	}
 	return applyVersionPin(ctx, gcsURL("viam-server", cfg.Versions.ViamServerOld), "agent", "version_control", "agent")
 }
 
@@ -1203,9 +1229,6 @@ func testAgentRejectedInvalidBinary(ctx context.Context) (context.Context, error
 }
 
 func downloadOldAgentBinary(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.Old == "" {
-		return ctx, errors.New("must set viam_agent_old in config")
-	}
 	return ctx, serialClient.DownloadToDevice(gcsURL("viam-agent", cfg.Versions.Old), "/tmp/viam-agent-old").Error()
 }
 
@@ -1243,9 +1266,6 @@ func applyViamServerVersionPin(ctx context.Context, version string) (context.Con
 }
 
 func applyViamServerURLPin(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.ViamServerOld == "" {
-		return ctx, errors.New("must set viam_server_old in config")
-	}
 	return applyVersionPin(ctx, gcsURL("viam-server", cfg.Versions.ViamServerOld), "agent", "version_control", "viam-server")
 }
 
@@ -1254,9 +1274,6 @@ func applyViamServerFilePin(ctx context.Context) (context.Context, error) {
 }
 
 func downloadOldViamServerBinary(ctx context.Context) (context.Context, error) {
-	if cfg.Versions.ViamServerOld == "" {
-		return ctx, errors.New("must set viam_server_old in config")
-	}
 	return ctx, serialClient.DownloadToDevice(gcsURL("viam-server", cfg.Versions.ViamServerOld), "/tmp/viam-server-old").Error()
 }
 
@@ -1277,16 +1294,19 @@ func (t *tomlOption[T]) UnmarshalTOML(val any) error {
 
 var _ toml.Unmarshaler = &tomlOption[string]{}
 
-// serialTestTags returns the godog tag expression for serial tests. On
-// non-darwin hosts, scenarios tagged @darwin (e.g. wifi provisioning) are
-// excluded because they depend on macOS-specific tooling (networksetup).
+// serialTestTags returns tags to gate tests from inputs like the config
+// and the host platform
 func serialTestTags() string {
-	tags := os.Getenv("GODOG_TAGS")
-	if runtime.GOOS != "darwin" {
-		if tags != "" {
-			tags += " && "
-		}
-		tags += "~@darwin"
+	var clauses []string
+	if t := os.Getenv("GODOG_TAGS"); t != "" {
+		clauses = append(clauses, t)
 	}
-	return tags
+	if runtime.GOOS != "darwin" {
+		clauses = append(clauses, "~@darwin")
+	}
+	// exclude insecure wifi tests when no insecure SSID is provided
+	if cfg.Wifi.SSIDInsecure == "" {
+		clauses = append(clauses, "~@wifi-insecure")
+	}
+	return strings.Join(clauses, " && ")
 }
