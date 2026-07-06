@@ -68,7 +68,7 @@ func (n *Subsystem) startWeb(bindAddr string, bindPort int) error {
 			n.logger.Warnw("stopping provisioning, panic in web goroutine",
 				"panic", panickedWith)
 			if err := n.stopProvisioning(); err != nil {
-				n.logger.Warnw("failed to stop provisioning", "err", err)
+				n.logger.Warnw("failed to stop provisioning", "err", err.Error())
 			}
 		})
 		defer n.portalData.workers.Done()

@@ -426,7 +426,7 @@ func (n *Subsystem) processAdditionalnetworks(ctx context.Context) {
 	for _, network := range n.Nets() {
 		_, err := n.addOrUpdateConnection(network)
 		if err != nil {
-			n.logger.Warnw("error adding network", "err", err, "ssid", network.SSID)
+			n.logger.Warnw("error adding network", "err", err.Error(), "ssid", network.SSID)
 			continue
 		}
 		if network.Interface != "" {

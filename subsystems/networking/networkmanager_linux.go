@@ -298,7 +298,7 @@ func (n *Subsystem) startProvisioning(ctx context.Context) error {
 	n.portalData.resetInputData()
 	hotspotErr := n.startProvisioningHotspot(ctx)
 	if hotspotErr != nil {
-		n.logger.Errorw("failed to start hotspot provisioning", "err", hotspotErr)
+		n.logger.Errorw("failed to start hotspot provisioning", "err", hotspotErr.Error())
 	}
 
 	n.connState.setProvisioning(hotspotErr == nil)
@@ -1029,7 +1029,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 				)
 				n.netState.mu.RUnlock()
 				if err := n.stopProvisioning(); err != nil {
-					n.logger.Warnw("failed to stop provisioning", "err", err)
+					n.logger.Warnw("failed to stop provisioning", "err", err.Error())
 				} else {
 					pMode = n.connState.getProvisioning()
 					pModeChange = n.connState.getProvisioningChange()
@@ -1098,7 +1098,7 @@ func (n *Subsystem) mainLoop(ctx context.Context) {
 			)
 			n.netState.mu.RUnlock()
 			if err := n.startProvisioning(ctx); err != nil {
-				n.logger.Warnw("failed to start provisioning mode", "err", err)
+				n.logger.Warnw("failed to start provisioning mode", "err", err.Error())
 			}
 		}
 	}
@@ -1113,7 +1113,7 @@ func (n *Subsystem) doReboot(ctx context.Context) bool {
 	cmd := exec.CommandContext(ctx, "systemctl", "reboot")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		n.logger.Warnw("Error running systemctl reboot", "output", output, "err", err)
+		n.logger.Warnw("Error running systemctl reboot", "output", output, "err", err.Error())
 	}
 	const rebootWaitDuration = time.Minute * 5
 	if !n.mainLoopHealth.Sleep(ctx, rebootWaitDuration) {
