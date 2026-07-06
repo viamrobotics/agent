@@ -169,7 +169,7 @@ func (n *Subsystem) initializeBluetoothService(
 	ctx context.Context, deviceName string, characteristics []bluetooth.CharacteristicConfig,
 ) error {
 	if err := rfkillUnblock(ctx); err != nil {
-		n.logger.Warnw("Failed to unblock bluetooth with rfkill; bluetooth initialization will continue but may fail", "err", err)
+		n.logger.Warnw("Failed to unblock bluetooth with rfkill; bluetooth initialization will continue but may fail", "err", err.Error())
 	}
 
 	serviceUUID := bluetooth.NewUUID(uuid.NewSHA1(uuid.MustParse(uuidNamespace), []byte(serviceNameKey)))
