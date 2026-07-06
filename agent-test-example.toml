@@ -25,9 +25,12 @@ viam_agent_old = "<old viam-agent version string e.g. 0.26.0>"
 viam_server_stable = "<current stable viam-server version string e.g. 0.115.0>"
 viam_server_old = "<old viam-server version string e.g. 0.114.0>"
 
+# Provide credentials for a network that the Pi can connect to
+# This network will be used for all tests, including the wifi provisioning tests
 [wifi]
 ssid = "<wifi ssid>"
 password = "<wifi password>"
 
-# leave this blank or commented to skip the insecure wifi tests
-ssid_insecure = "<insecure wifi ssid>"
+# Leave this blank or commented to skip the insecure wifi tests
+# (useful if there is no insecure network available)
+# ssid_insecure = "<insecure wifi ssid>"

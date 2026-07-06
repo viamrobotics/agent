@@ -330,13 +330,16 @@ func validateTestConfig(cfg config) error {
 		return errors.New("invalid config: some fields contain placeholder characters. Please fill out all fields in agent-test.toml")
 	}
 	if cfg.Versions.Test == "" {
-		return errors.New("viam_agent_test in agent-test.toml cannot be empty string")
+		return errors.New("must set viam_agent_test in agent-test.toml")
 	}
 	if cfg.Versions.Old == "" {
-		return errors.New("must set viam_agent_old in config")
+		return errors.New("must set viam_agent_old in agent-test.toml")
 	}
 	if cfg.Versions.ViamServerOld == "" {
-		return errors.New("must set viam_server_old in config")
+		return errors.New("must set viam_server_old in agent-test.toml")
+	}
+	if cfg.Wifi.SSID == "" || cfg.Wifi.Password == "" {
+		return errors.New("wifi.ssid and wifi.password must be set in agent-test.toml")
 	}
 
 	return nil
