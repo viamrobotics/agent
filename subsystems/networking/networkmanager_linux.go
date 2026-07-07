@@ -325,8 +325,7 @@ func (n *Subsystem) startProvisioningHotspot(ctx context.Context) error {
 			n.logger.Error("Hotspot IP configuration failed. This is commonly caused by another " +
 				"DNS/DHCP service (such as a system dnsmasq) holding port 53, which prevents " +
 				"NetworkManager's shared-mode dnsmasq from starting. Check with 'ss -lunp | grep :53' " +
-				"and disable the conflicting service (e.g. 'systemctl disable --now dnsmasq'), or " +
-				"verify nothing else is using the 10.42.0.0/24 subnet.")
+				"and disable the conflicting service, or verify nothing else is using the 10.42.0.0/24 subnet.")
 		}
 		return errw.Wrap(err, "starting provisioning mode hotspot")
 	}
