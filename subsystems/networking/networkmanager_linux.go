@@ -321,6 +321,13 @@ func (n *Subsystem) startProvisioningHotspot(ctx context.Context) error {
 		return err
 	}
 	if err := n.activateConnection(ctx, n.netState.GenNetKey(NetworkTypeHotspot, "", n.Config().HotspotSSID)); err != nil {
+		if errors.Is(err, ErrIPConfigUnavailable) {
+			n.logger.Error("Hotspot IP configuration failed. This is commonly caused by another " +
+				"DNS/DHCP service (such as a system dnsmasq) holding port 53, which prevents " +
+				"NetworkManager's shared-mode dnsmasq from starting. Check with 'ss -lunp | grep :53' " +
+				"and disable the conflicting service (e.g. 'systemctl disable --now dnsmasq'), or " +
+				"verify nothing else is using the 10.42.0.0/24 subnet.")
+		}
 		return errw.Wrap(err, "starting provisioning mode hotspot")
 	}
 
@@ -524,6 +531,9 @@ func (n *Subsystem) waitForConnect(ctx context.Context, nw *lockingNetwork, devi
 					)
 				}
 				// custom error if it's some other reason for failure
+				if update.Reason == gnm.NmDeviceStateReasonIpConfigUnavailable {
+					return activeConnection, errw.Wrapf(ErrIPConfigUnavailable, "connection failed: %s", update.Reason)
+				}
 				return activeConnection, errw.Errorf("connection failed: %s", update.Reason)
 			default:
 			}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	errw "github.com/pkg/errors"
@@ -59,6 +60,11 @@ func (n *Subsystem) startWeb(bindAddr string, bindPort int) error {
 	//nolint: noctx
 	lis, err := net.Listen("tcp", bind)
 	if err != nil {
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return errw.Wrapf(err, "cannot bind %s: another service is already using this port. "+
+				"Stop it or scope its listen address away from %s (find it with: ss -ltnp | grep :%d)",
+				bind, bindAddr, bindPort)
+		}
 		return errw.Wrapf(err, "listening on: %s", bind)
 	}
 
