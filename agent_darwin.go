@@ -16,10 +16,17 @@ import (
 
 const (
 	serviceName = "com.viam.agent"
+
+	// exitProbeScriptName is unused on MacOS; the exit probe is a Linux/systemd
+	// ExecStopPost= helper.
+	exitProbeScriptName = ""
 )
 
 //go:embed com.viam.agent.plist
 var serviceFileContents []byte
+
+// exitProbeScriptContents is nil on MacOS; the exit probe is Linux/systemd only.
+var exitProbeScriptContents []byte
 
 // InstallNewVersion runs the newly downloaded binary's Install() for installation of launchd service files and the like.
 func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error) {

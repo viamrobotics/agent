@@ -14,10 +14,19 @@ import (
 
 const (
 	serviceName = "viam-agent"
+
+	// exitProbeScriptName is the ExecStopPost= helper for viam-agent.service. It is
+	// observability only -- it logs whether each exit would have triggered detached
+	// mode under the proposed bad-binary safeguard. The path must match the one
+	// referenced in viam-agent.service.
+	exitProbeScriptName = "agent-exit-probe.sh"
 )
 
 //go:embed viam-agent.service
 var serviceFileContents []byte
+
+//go:embed agent-exit-probe.sh
+var exitProbeScriptContents []byte
 
 // InstallNewVersion runs the newly downloaded binary's Install() for installation of systemd files and the like.
 func InstallNewVersion(ctx context.Context, logger logging.Logger) (bool, error) {
