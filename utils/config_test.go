@@ -7,6 +7,12 @@ import (
 	"go.viam.com/test"
 )
 
+func TestDefaultConfig(t *testing.T) {
+	// Make sure the default config doesn't fail validation
+	_, err := validateConfig(DefaultConfig())
+	test.That(t, err, test.ShouldBeNil)
+}
+
 // basic test for the config structure names.
 func TestConvertJson(t *testing.T) {
 	jsonBytes := `
