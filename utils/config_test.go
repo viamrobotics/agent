@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"go.viam.com/test"
 )
@@ -92,6 +93,31 @@ func TestConvertJson(t *testing.T) {
 
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)
+}
+
+func TestValidateConfig(t *testing.T) {
+	minimumValidConfig := func() AgentConfig {
+		return AgentConfig{
+			AdvancedSettings: AdvancedSettings{
+				ViamServerStartTimeoutMinutes: Timeout(time.Minute),
+			},
+			NetworkConfiguration: NetworkConfiguration{
+				Manufacturer:                        "test",
+				Model:                               "foo",
+				HotspotPrefix:                       "bar",
+				HotspotPassword:                     "foobarbaz",
+				OfflineBeforeStartingHotspotMinutes: Timeout(time.Minute),
+				UserIdleMinutes:                     Timeout(time.Minute),
+				RetryConnectionTimeoutMinutes:       Timeout(time.Minute),
+			},
+		}
+	}
+	t.Run("auto update default is applied", func(t *testing.T) {
+		cfg, err := validateConfig(minimumValidConfig())
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, cfg.SystemConfiguration.OSAutoUpgradeType, test.ShouldEqual, DefaultConfig().SystemConfiguration.OSAutoUpgradeType)
+		test.That(t, cfg.SystemConfiguration.OSManagedUpgradeIntervalHours, test.ShouldEqual, DefaultConfig().SystemConfiguration.OSManagedUpgradeIntervalHours)
+	})
 }
 
 func TestDisableLogDeduplication(t *testing.T) {
