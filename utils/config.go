@@ -503,26 +503,17 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		cfg.NetworkConfiguration.HotspotSSID = cfg.NetworkConfiguration.HotspotSSID[:32]
 	}
 
-	var haveBadTimeout bool
 	minTimeout := Timeout(time.Minute)
-	if cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes < minTimeout {
-		//nolint:lll
-		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
-		haveBadTimeout = true
-	}
-
-	if cfg.NetworkConfiguration.UserIdleMinutes < minTimeout {
-		cfg.NetworkConfiguration.UserIdleMinutes = DefaultConfiguration.NetworkConfiguration.UserIdleMinutes
-		haveBadTimeout = true
-	}
-
-	if cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes < minTimeout {
-		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes = DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
-		haveBadTimeout = true
-	}
-
-	if haveBadTimeout {
-		errOut = errors.Join(errOut, errw.New("timeout values cannot be less than 1 minute"))
+	for k, v := range map[string]*Timeout{
+		"offline_before_starting_hotspot_minutes": &cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes,
+		"user_idle_minutes":                       &cfg.NetworkConfiguration.UserIdleMinutes,
+		"retry_connection_timeout_minutes":        &cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes,
+	} {
+		if *v < minTimeout {
+			//nolint:lll
+			*v = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
+			errOut = errors.Join(errOut, errors.New(k+": timeout value cannot be less than 1 minute"))
+		}
 	}
 
 	if cfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes != 0 &&
