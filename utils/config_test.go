@@ -116,7 +116,12 @@ func TestValidateConfig(t *testing.T) {
 		cfg, err := validateConfig(minimumValidConfig())
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, cfg.SystemConfiguration.OSAutoUpgradeType, test.ShouldEqual, DefaultConfig().SystemConfiguration.OSAutoUpgradeType)
-		test.That(t, cfg.SystemConfiguration.OSManagedUpgradeIntervalHours, test.ShouldEqual, DefaultConfig().SystemConfiguration.OSManagedUpgradeIntervalHours)
+		test.That(
+			t,
+			cfg.SystemConfiguration.OSManagedUpgradeIntervalHours,
+			test.ShouldEqual,
+			DefaultConfig().SystemConfiguration.OSManagedUpgradeIntervalHours,
+		)
 	})
 }
 

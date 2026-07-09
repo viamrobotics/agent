@@ -510,7 +510,6 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		"retry_connection_timeout_minutes":        &cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes,
 	} {
 		if *v < minTimeout {
-			//nolint:lll
 			*v = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
 			errOut = errors.Join(errOut, errors.New(k+": timeout value cannot be less than 1 minute"))
 		}
