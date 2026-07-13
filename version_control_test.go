@@ -366,6 +366,115 @@ func TestUpdateBinary(t *testing.T) {
 	})
 }
 
+func TestUpdateBinaryAdoptRunningBinary(t *testing.T) {
+	utils.MockAndCreateViamDirs(t)
+	logger := logging.NewTestLogger(t)
+
+	// A fake "currently running binary" with known contents. Resolve the temp dir since
+	// adoption resolves symlinks (on darwin /var is a symlink to /private/var).
+	td, err := filepath.EvalSymlinks(t.TempDir())
+	test.That(t, err, test.ShouldBeNil)
+	fakeExe := filepath.Join(td, "viam-agent-from-installer.exe")
+	err = os.WriteFile(fakeExe, []byte("fake agent binary contents"), 0o755)
+	test.That(t, err, test.ShouldBeNil)
+	exeSHA, err := utils.GetFileSum(fakeExe)
+	test.That(t, err, test.ShouldBeNil)
+
+	oldOsExecutable := osExecutable
+	osExecutable = func() (string, error) { return fakeExe, nil }
+	t.Cleanup(func() { osExecutable = oldOsExecutable })
+
+	t.Run("fresh-install-adopts", func(t *testing.T) {
+		vi := &VersionInfo{
+			Version: "0.99.0",
+			// any attempted download would fail
+			URL:         "file:///nonexistent/viam-agent-v0.99.0",
+			UnpackedSHA: exeSHA,
+			SymlinkPath: filepath.Join(utils.ViamDirs.Bin, "viam-agent"),
+		}
+		vc := VersionCache{
+			logger:             logger,
+			cacheCleanupLogger: logger,
+			ViamAgent: &Versions{
+				TargetVersion: vi.Version,
+				Versions:      map[string]*VersionInfo{vi.Version: vi},
+			},
+		}
+
+		needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, vc.ViamAgent.CurrentVersion, test.ShouldEqual, vi.Version)
+		test.That(t, vi.UnpackedPath, test.ShouldEqual, fakeExe)
+		test.That(t, vi.DlPath, test.ShouldEqual, fakeExe)
+		test.That(t, vi.Installed.IsZero(), test.ShouldBeFalse)
+		linkTarget, err := filepath.EvalSymlinks(vi.SymlinkPath)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, linkTarget, test.ShouldEqual, fakeExe)
+
+		// steady state afterwards: no download, no restart
+		needsRestart, err = vc.UpdateBinary(t.Context(), SubsystemName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeFalse)
+	})
+
+	t.Run("checksum-mismatch-downloads", func(t *testing.T) {
+		sourceBinary := filepath.Join(td, "viam-agent-v0.99.1")
+		err := os.WriteFile(sourceBinary, []byte("different contents"), 0o755)
+		test.That(t, err, test.ShouldBeNil)
+		sourceSHA, err := utils.GetFileSum(sourceBinary)
+		test.That(t, err, test.ShouldBeNil)
+
+		vi := &VersionInfo{
+			Version:     "0.99.1",
+			URL:         "file://" + sourceBinary,
+			UnpackedSHA: sourceSHA,
+			SymlinkPath: filepath.Join(utils.ViamDirs.Bin, "viam-agent"),
+		}
+		vc := VersionCache{
+			logger:             logger,
+			cacheCleanupLogger: logger,
+			ViamAgent: &Versions{
+				TargetVersion: vi.Version,
+				Versions:      map[string]*VersionInfo{vi.Version: vi},
+			},
+		}
+
+		// the running binary's checksum does not match the target, so this must download
+		needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeTrue)
+		test.That(t, vc.ViamAgent.CurrentVersion, test.ShouldEqual, vi.Version)
+		test.That(t, vi.UnpackedPath, test.ShouldNotEqual, fakeExe)
+		testExists(t, filepath.Join(utils.ViamDirs.Cache, filepath.Base(vi.UnpackedPath)))
+	})
+
+	t.Run("viam-server-never-adopts", func(t *testing.T) {
+		vi := &VersionInfo{
+			Version:     "0.99.0",
+			URL:         "file:///nonexistent/viam-server-v0.99.0",
+			UnpackedSHA: exeSHA,
+			SymlinkPath: filepath.Join(utils.ViamDirs.Bin, "viam-server"),
+		}
+		vc := VersionCache{
+			logger:             logger,
+			cacheCleanupLogger: logger,
+			ViamServer: &Versions{
+				TargetVersion: vi.Version,
+				Versions:      map[string]*VersionInfo{vi.Version: vi},
+			},
+		}
+
+		// even though the checksum matches the running executable, viam-server must
+		// always be downloaded, so this errors on the unreachable URL
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "downloading")
+		test.That(t, needsRestart, test.ShouldBeFalse)
+		test.That(t, vc.ViamServer.CurrentVersion, test.ShouldEqual, "")
+	})
+}
+
 // assert that a file exists.
 func testExists(t *testing.T, path string) {
 	t.Helper()
