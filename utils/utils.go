@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-getter"
+	urlhelper "github.com/hashicorp/go-getter/helper/url"
 	errw "github.com/pkg/errors"
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
@@ -358,7 +359,10 @@ func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) 
 // DownloadFile downloads or copies a file into the cache directory and returns a path to the file.
 // If this is an http/s URL, you must check the checksum of the result; the partial logic does not check etags.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
-	parsedURL, err := url.Parse(rawURL)
+	// Use go-getter's URL helper rather than url.Parse: on Windows it normalizes file URLs
+	// (file://C:\x, file://C:/x and file:///C:/x all become a stat-able "C:/x") which the
+	// FileGetter below needs. For http/https URLs it is exactly url.Parse.
+	parsedURL, err := urlhelper.Parse(rawURL)
 	if err != nil {
 		return "", err
 	}
