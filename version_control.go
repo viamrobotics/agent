@@ -290,10 +290,9 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 	}
 
-	// On a fresh install the installer (Windows .ps1/MSI, Linux preinstall images) may have
-	// placed the binary we are running without seeding the version cache. If the running
-	// executable already matches the target checksum, adopt it rather than downloading an
-	// identical copy and restarting (RSDK-13906).
+	// On a fresh install, the installer may have placed the binary we are running without
+	// updating the version cache. If the running executable already matches the target checksum,
+	// adopt it rather than downloading an identical copy and restarting (RSDK-13906).
 	if binary == SubsystemName && !goodBytes && data.CurrentVersion == "" && verData.Installed.IsZero() && len(verData.UnpackedSHA) > 1 {
 		if c.adoptRunningBinary(data, verData) {
 			return false, c.save()
@@ -409,9 +408,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	return needRestart, c.save()
 }
 
-// adoptRunningBinary records the currently running executable as the installed version if
-// its checksum matches the target, so a fresh install does not re-download the binary it is
-// already running. Returns true on adoption, false to fall through to a normal download.
+// adoptRunningBinary records the currently running executable as the installed version.
+// Returns true on successful adoption, false otherwise.
 // Callers must hold c.mu.
 func (c *VersionCache) adoptRunningBinary(data *Versions, verData *VersionInfo) bool {
 	exePath, err := osExecutable()

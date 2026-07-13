@@ -359,9 +359,7 @@ func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) 
 // DownloadFile downloads or copies a file into the cache directory and returns a path to the file.
 // If this is an http/s URL, you must check the checksum of the result; the partial logic does not check etags.
 func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
-	// Use go-getter's URL helper rather than url.Parse: on Windows it normalizes file URLs
-	// (file://C:\x, file://C:/x and file:///C:/x all become a stat-able "C:/x") which the
-	// FileGetter below needs. For http/https URLs it is exactly url.Parse.
+	// go-getter's urlhelper for better Windows filepath handling and file:// url handling
 	parsedURL, err := urlhelper.Parse(rawURL)
 	if err != nil {
 		return "", err
