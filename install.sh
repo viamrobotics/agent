@@ -73,7 +73,7 @@ fetch_config() {
 		curl -fsSL \
 			-H "key_id:$VIAM_API_KEY_ID" \
 			-H "key:$VIAM_API_KEY" \
-			"https://app.viam.com/api/json1/config?client=true&id=$VIAM_PART_ID" \
+			"${VIAM_ROOT_URL:-https://app.viam.com}/api/json1/config?client=true&id=$VIAM_PART_ID" \
 			-o /etc/viam.json
 	fi
 }
