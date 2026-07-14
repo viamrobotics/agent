@@ -37,9 +37,9 @@ func TestDownloadFileURLForms(t *testing.T) {
 			// Native Windows path after the scheme: file://C:\Users\...\source.bin
 			{"two-slash, backslashes", "file://" + src, false},
 			// Forward slashes; the drive letter parses into the URL host and we move it back.
-			{"two-slash, forward slashes", "file://" + fwd, false},
+			{"two-slash, forward slashes, drive letter", "file://" + fwd, false},
 			// Standards-correct Windows file URI: three slashes, then the drive letter.
-			{"three-slash, drive letter", "file:///" + fwd, false},
+			{"three-slash, drive letter, drive letter", "file:///" + fwd, false},
 		}
 	} else {
 		cases = []urlCase{
