@@ -414,21 +414,22 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 func (c *VersionCache) adoptRunningBinary(data *Versions, verData *VersionInfo) bool {
 	exePath, err := osExecutable()
 	if err != nil {
-		c.logger.Debugw("cannot determine running executable path, will download", "error", err)
+		c.logger.Warnw("cannot determine running executable path, will download", "error", err)
 		return false
 	}
 	// the executable is normally started via the symlink in bin; resolve to the real file
 	exePath, err = filepath.EvalSymlinks(exePath)
 	if err != nil {
-		c.logger.Debugw("cannot resolve running executable path, will download", "path", exePath, "error", err)
+		c.logger.Warnw("cannot resolve running executable path, will download", "path", exePath, "error", err)
 		return false
 	}
 	shasum, err := utils.GetFileSum(exePath)
 	if err != nil {
-		c.logger.Debugw("cannot checksum running executable, will download", "path", exePath, "error", err)
+		c.logger.Warnw("cannot checksum running executable, will download", "path", exePath, "error", err)
 		return false
 	}
 	if !bytes.Equal(shasum, verData.UnpackedSHA) {
+		c.logger.Warnw("checksum of running executable did not match symlink, will download", "path", exePath, "error", err)
 		return false
 	}
 
