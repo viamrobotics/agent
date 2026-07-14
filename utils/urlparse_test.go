@@ -10,7 +10,7 @@ import (
 	"go.viam.com/test"
 )
 
-// TestDownloadFileURLForms documents which URL spellings DownloadFile accepts for a local file
+// TestDownloadFileURLForms documents which URL spellings DownloadFile accepts for a local file.
 func TestDownloadFileURLForms(t *testing.T) {
 	MockAndCreateViamDirs(t)
 	logger := logging.NewTestLogger(t)
