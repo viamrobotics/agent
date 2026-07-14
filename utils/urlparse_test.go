@@ -24,6 +24,7 @@ func TestDownloadFileURLForms(t *testing.T) {
 
 	// forward-slash spelling of the source path; on Windows "C:\x" -> "C:/x", on unix unchanged.
 	fwd := filepath.ToSlash(src)
+	vol := filepath.VolumeName(src)
 
 	type urlCase struct {
 		name    string
@@ -35,11 +36,14 @@ func TestDownloadFileURLForms(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		cases = []urlCase{
 			// Native Windows path after the scheme: file://C:\Users\...\source.bin
-			{"two-slash, backslashes", "file://" + src, false},
+			{"two-slash, backslashes, drive letter", "file://" + src, false},
 			// Forward slashes; the drive letter parses into the URL host and we move it back.
 			{"two-slash, forward slashes, drive letter", "file://" + fwd, false},
 			// Standards-correct Windows file URI: three slashes, then the drive letter.
-			{"three-slash, drive letter, drive letter", "file:///" + fwd, false},
+			{"three-slash, forward slash, drive letter", "file:///" + fwd, false},
+			// Windows path with forward slashes and no drive letter: file:///Users/...
+			// This resolves implicitly to the current working directory of the agent binary.
+			{"three-slash, no drive letter", "file://" + fwd[len(vol):], false},
 		}
 	} else {
 		cases = []urlCase{
