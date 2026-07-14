@@ -290,9 +290,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 	}
 
-	// On a fresh install, the installer may have placed the binary we are running without
-	// updating the version cache. If the running executable already matches the target checksum,
-	// adopt it rather than downloading an identical copy and restarting (RSDK-13906).
+	// if the current running binary matches the desired one, just adopt it
+	// and update the version cache (RSDK-13906)
 	if binary == SubsystemName && !goodBytes && data.CurrentVersion == "" && verData.Installed.IsZero() && len(verData.UnpackedSHA) > 1 {
 		if c.adoptRunningBinary(data, verData) {
 			return false, c.save()

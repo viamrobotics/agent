@@ -10,13 +10,7 @@ import (
 	"go.viam.com/test"
 )
 
-// TestDownloadFileURLForms documents which URL spellings DownloadFile accepts for a local
-// file. file:// URLs are a supported way to pin a custom binary (see examples/agent-config.jsonc),
-// and on Windows the drive letter makes the spelling ambiguous: url.Parse variously drops the
-// drive into the URL host or leaves a leading slash before it, so DownloadFile normalizes via
-// go-getter's URL helper. This table is the canonical list of forms we intend to support -- if
-// you change URL parsing in DownloadFile, the pass/fail here tells you exactly which spellings
-// still resolve to the local file.
+// TestDownloadFileURLForms documents which URL spellings DownloadFile accepts for a local file
 func TestDownloadFileURLForms(t *testing.T) {
 	MockAndCreateViamDirs(t)
 	logger := logging.NewTestLogger(t)
