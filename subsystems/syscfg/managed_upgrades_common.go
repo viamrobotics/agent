@@ -35,7 +35,7 @@ func nextUpgradeInterval(err error, interval time.Duration) time.Duration {
 
 // logIfNewlyBlocked emits a warning the first time an upgrade attempt is blocked
 // by the maintenance window, using alreadyLogged to avoid repeating the warning
-// on every retry. It resets once upgrades are no longer blocked
+// on every retry. It resets once upgrades are no longer blocked.
 func logIfNewlyBlocked(logger logging.Logger, err error, alreadyLogged *bool) {
 	blocked := errors.Is(err, errBlockedByMaintenanceWindow)
 	if blocked && !*alreadyLogged {
