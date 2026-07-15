@@ -33,6 +33,17 @@ func nextUpgradeInterval(err error, interval time.Duration) time.Duration {
 	return interval
 }
 
+// logIfNewlyBlocked emits a warning the first time an upgrade attempt is blocked
+// by the maintenance window, using alreadyLogged to avoid repeating the warning
+// on every retry. It resets once upgrades are no longer blocked
+func logIfNewlyBlocked(logger logging.Logger, err error, alreadyLogged *bool) {
+	blocked := errors.Is(err, errBlockedByMaintenanceWindow)
+	if blocked && !*alreadyLogged {
+		logger.Warn("managed upgrade check blocked by maintenance window, will retry until window opens")
+	}
+	*alreadyLogged = blocked
+}
+
 // isManaged returns true for the set of configuration values for
 // `os_auto_upgrade_type` that are considered "managed upgrades", i.e.
 // viam-agent manages performing the upgrades and related tasks like triggering

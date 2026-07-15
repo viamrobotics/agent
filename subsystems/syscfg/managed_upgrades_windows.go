@@ -65,7 +65,9 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		var blockedLogged bool
 		err := s.runManagedUpgrade(upgradeCtx)
+		logIfNewlyBlocked(s.logger, err, &blockedLogged)
 
 		timer := time.NewTimer(nextUpgradeInterval(err, interval))
 		defer timer.Stop()
@@ -75,6 +77,7 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 				return
 			case <-timer.C:
 				err = s.runManagedUpgrade(upgradeCtx)
+				logIfNewlyBlocked(s.logger, err, &blockedLogged)
 				timer.Reset(nextUpgradeInterval(err, interval))
 			}
 		}
