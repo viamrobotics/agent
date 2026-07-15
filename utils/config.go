@@ -50,7 +50,7 @@ var (
 			LoggingJournaldRuntimeMaxUseMegabytes: 512,
 			LoggingJournaldStorage:                "persistent",
 			ForwardSystemLogs:                     "",
-			OSAutoUpgradeType:                     "",
+			OSAutoUpgradeType:                     OSAutoUpgradeManagedSecurity,
 			OSManagedUpgradeIntervalHours:         24,
 		},
 		NetworkConfiguration{
@@ -202,7 +202,7 @@ type SystemConfiguration struct {
 	ForwardSystemLogs string `json:"forward_system_logs,omitempty"`
 
 	// UpgradeType can be
-	// Empty/missing ("") to make no changes
+	// Empty/missing (""), which is treated as "managed-security"
 	// "disable" (or "disabled") to disable auto-upgrades
 	// "security" to enable ONLY security upgrades via unattended-upgrades (OS-controlled schedule)
 	// "all" to enable upgrades from all configured sources via unattended-upgrades (OS-controlled schedule)
@@ -443,7 +443,11 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		cfg.SystemConfiguration.LoggingJournaldStorage = defaultStorage
 	}
 
-	if cfg.SystemConfiguration.OSAutoUpgradeType != "" && !slices.Contains(
+	// An empty/missing value is treated as "managed-security".
+	if cfg.SystemConfiguration.OSAutoUpgradeType == "" {
+		cfg.SystemConfiguration.OSAutoUpgradeType = DefaultConfiguration.SystemConfiguration.OSAutoUpgradeType
+	}
+	if !slices.Contains(
 		slices.Concat(validOSAutoUpgradeTypes, []string{"disable", "disabled"}),
 		cfg.SystemConfiguration.OSAutoUpgradeType,
 	) {
@@ -499,26 +503,16 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		cfg.NetworkConfiguration.HotspotSSID = cfg.NetworkConfiguration.HotspotSSID[:32]
 	}
 
-	var haveBadTimeout bool
 	minTimeout := Timeout(time.Minute)
-	if cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes < minTimeout {
-		//nolint:lll
-		cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
-		haveBadTimeout = true
-	}
-
-	if cfg.NetworkConfiguration.UserIdleMinutes < minTimeout {
-		cfg.NetworkConfiguration.UserIdleMinutes = DefaultConfiguration.NetworkConfiguration.UserIdleMinutes
-		haveBadTimeout = true
-	}
-
-	if cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes < minTimeout {
-		cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes = DefaultConfiguration.NetworkConfiguration.RetryConnectionTimeoutMinutes
-		haveBadTimeout = true
-	}
-
-	if haveBadTimeout {
-		errOut = errors.Join(errOut, errw.New("timeout values cannot be less than 1 minute"))
+	for k, v := range map[string]*Timeout{
+		"offline_before_starting_hotspot_minutes": &cfg.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes,
+		"user_idle_minutes":                       &cfg.NetworkConfiguration.UserIdleMinutes,
+		"retry_connection_timeout_minutes":        &cfg.NetworkConfiguration.RetryConnectionTimeoutMinutes,
+	} {
+		if *v < minTimeout {
+			*v = DefaultConfiguration.NetworkConfiguration.OfflineBeforeStartingHotspotMinutes
+			errOut = errors.Join(errOut, errors.New(k+": timeout value cannot be less than 1 minute"))
+		}
 	}
 
 	if cfg.NetworkConfiguration.DeviceRebootAfterOfflineMinutes != 0 &&
