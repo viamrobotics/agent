@@ -39,16 +39,20 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		s.runManagedUpgrade(upgradeCtx)
+		var blockedLogged bool
+		err := s.runManagedUpgrade(upgradeCtx)
+		logIfNewlyBlocked(s.logger, err, &blockedLogged)
 
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		timer := time.NewTimer(nextUpgradeInterval(err, interval))
+		defer timer.Stop()
 		for {
 			select {
 			case <-upgradeCtx.Done():
 				return
-			case <-ticker.C:
-				s.runManagedUpgrade(upgradeCtx)
+			case <-timer.C:
+				err = s.runManagedUpgrade(upgradeCtx)
+				logIfNewlyBlocked(s.logger, err, &blockedLogged)
+				timer.Reset(nextUpgradeInterval(err, interval))
 			}
 		}
 	})
@@ -136,13 +140,16 @@ func getPackageManager(logger logging.Logger) (packageManager, error) {
 }
 
 // runManagedUpgrade detects the package manager and installs available upgrades.
-func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
+// It returns errBlockedByMaintenanceWindow if the upgrade could not run because
+// viam-server's maintenance window is closed, so the caller can retry sooner
+// than the configured interval.
+func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	if ctx.Err() != nil {
-		return
+		return ctx.Err()
 	}
 
 	if !s.maintenanceAllowed(ctx) {
-		return
+		return errBlockedByMaintenanceWindow
 	}
 
 	s.mu.RLock()
@@ -152,7 +159,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 	pm, err := getPackageManager(s.logger)
 	if err != nil {
 		s.logger.Warnw("skipping managed OS upgrade", "error", err)
-		return
+		return err
 	}
 
 	s.logger.Infow("Running managed OS package update", "package_manager", pm)
@@ -160,7 +167,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 
 	if err := pm.runUpgrade(ctx, securityOnly); err != nil {
 		s.logger.Warnw("managed OS upgrade failed", "package_manager", pm, "error", err)
-		return
+		return err
 	}
 	s.logger.Info("OS package upgrade completed")
 
@@ -171,6 +178,8 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 		s.mu.Unlock()
 		s.logger.Info("OS reboot required after package updates, will reboot when maintenance window opens")
 	}
+
+	return nil
 }
 
 // pkgCmd runs a package manager command, setting DEBIAN_FRONTEND=noninteractive

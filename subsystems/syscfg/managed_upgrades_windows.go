@@ -65,29 +65,36 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		s.runManagedUpgrade(upgradeCtx)
+		var blockedLogged bool
+		err := s.runManagedUpgrade(upgradeCtx)
+		logIfNewlyBlocked(s.logger, err, &blockedLogged)
 
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		timer := time.NewTimer(nextUpgradeInterval(err, interval))
+		defer timer.Stop()
 		for {
 			select {
 			case <-upgradeCtx.Done():
 				return
-			case <-ticker.C:
-				s.runManagedUpgrade(upgradeCtx)
+			case <-timer.C:
+				err = s.runManagedUpgrade(upgradeCtx)
+				logIfNewlyBlocked(s.logger, err, &blockedLogged)
+				timer.Reset(nextUpgradeInterval(err, interval))
 			}
 		}
 	})
 }
 
 // runManagedUpgrade runs a Windows Update cycle via PSWindowsUpdate.
-func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
+// It returns errBlockedByMaintenanceWindow if the upgrade could not run because
+// viam-server's maintenance window is closed, so the caller can retry sooner
+// than the configured interval.
+func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	if ctx.Err() != nil {
-		return
+		return ctx.Err()
 	}
 
 	if !s.maintenanceAllowed(ctx) {
-		return
+		return errBlockedByMaintenanceWindow
 	}
 
 	s.mu.RLock()
@@ -98,7 +105,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 
 	if err := runWindowsUpdate(ctx, mode == utils.OSAutoUpgradeManagedSecurity); err != nil {
 		s.logger.Warnw("Windows Update failed", "error", err)
-		return
+		return err
 	}
 
 	s.logger.Info("Windows Update completed")
@@ -109,6 +116,8 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) {
 		s.mu.Unlock()
 		s.logger.Info("OS reboot required after Windows updates, will reboot when maintenance window opens")
 	}
+
+	return nil
 }
 
 // stopManagedUpgrades cancels the background upgrade goroutine and waits for it to exit.

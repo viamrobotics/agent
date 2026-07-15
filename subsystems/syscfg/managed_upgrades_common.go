@@ -1,6 +1,7 @@
 package syscfg
 
 import (
+	"errors"
 	"slices"
 	"time"
 
@@ -11,7 +12,37 @@ import (
 const (
 	defaultUpgradeInterval = 24 * time.Hour
 	minimumUpgradeInterval = time.Hour
+	// maintenanceRetryInterval is how often to retry an upgrade that was blocked
+	// by viam-server's maintenance window, instead of waiting for the full
+	// configured interval.
+	maintenanceRetryInterval = 5 * time.Minute
 )
+
+// errBlockedByMaintenanceWindow is returned by runManagedUpgrade when the
+// upgrade could not run because viam-server's maintenance window is closed.
+var errBlockedByMaintenanceWindow = errors.New("upgrade blocked by maintenance window")
+
+// nextUpgradeInterval returns how long to wait before the next managed upgrade
+// attempt, given the error (if any) from the previous attempt. When the previous
+// attempt was blocked by the maintenance window we retry sooner so the upgrade
+// runs promptly once the window opens.
+func nextUpgradeInterval(err error, interval time.Duration) time.Duration {
+	if errors.Is(err, errBlockedByMaintenanceWindow) {
+		return maintenanceRetryInterval
+	}
+	return interval
+}
+
+// logIfNewlyBlocked emits a warning the first time an upgrade attempt is blocked
+// by the maintenance window, using alreadyLogged to avoid repeating the warning
+// on every retry. It resets once upgrades are no longer blocked.
+func logIfNewlyBlocked(logger logging.Logger, err error, alreadyLogged *bool) {
+	blocked := errors.Is(err, errBlockedByMaintenanceWindow)
+	if blocked && !*alreadyLogged {
+		logger.Warn("managed upgrade check blocked by maintenance window, will retry until window opens")
+	}
+	*alreadyLogged = blocked
+}
 
 // isManaged returns true for the set of configuration values for
 // `os_auto_upgrade_type` that are considered "managed upgrades", i.e.
