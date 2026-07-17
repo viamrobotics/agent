@@ -32,6 +32,9 @@ import (
 // This is to not to overwhelm servers, since we fetch config updates and call UpdateBinary every few seconds.
 const lastModifiedCheckFrequency = time.Minute * 2
 
+// osExecutable is swapped out in tests to simulate a particular running binary.
+var osExecutable = os.Executable
+
 func getCacheFilePath() string {
 	return filepath.Join(utils.ViamDirs.Cache, "version_cache.json")
 }
@@ -287,6 +290,14 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 	}
 
+	// if the current running binary matches the desired one, just adopt it
+	// and update the version cache (RSDK-13906)
+	if binary == SubsystemName && !goodBytes && data.CurrentVersion == "" && verData.Installed.IsZero() && len(verData.UnpackedSHA) > 1 {
+		if c.adoptRunningBinary(data, verData) {
+			return false, c.save()
+		}
+	}
+
 	// this is a new version
 	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
 
@@ -394,6 +405,49 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 
 	// record the cache
 	return needRestart, c.save()
+}
+
+// adoptRunningBinary records the currently running executable as the installed version.
+// Returns true on successful adoption, false otherwise.
+// Callers must hold c.mu.
+func (c *VersionCache) adoptRunningBinary(data *Versions, verData *VersionInfo) bool {
+	exePath, err := osExecutable()
+	if err != nil {
+		c.logger.Warnw("cannot determine running executable path, will download", "error", err)
+		return false
+	}
+	// the executable is normally started via the symlink in bin; resolve to the real file
+	exePath, err = filepath.EvalSymlinks(exePath)
+	if err != nil {
+		c.logger.Warnw("cannot resolve running executable path, will download", "path", exePath, "error", err)
+		return false
+	}
+	shasum, err := utils.GetFileSum(exePath)
+	if err != nil {
+		c.logger.Warnw("cannot checksum running executable, will download", "path", exePath, "error", err)
+		return false
+	}
+	if !bytes.Equal(shasum, verData.UnpackedSHA) {
+		c.logger.Warnw("checksum of running executable did not match symlink, will download", "path", exePath, "error", err)
+		return false
+	}
+
+	same, err := utils.CheckIfSame(exePath, verData.SymlinkPath)
+	if err != nil || !same {
+		if symErr := utils.ForceSymlink(exePath, verData.SymlinkPath); symErr != nil {
+			c.logger.Warnw("cannot symlink running binary, will download instead",
+				"path", exePath, "symlink", verData.SymlinkPath, "error", errors.Join(err, symErr))
+			return false
+		}
+	}
+
+	verData.DlPath = exePath
+	verData.UnpackedPath = exePath
+	verData.DlSHA = shasum
+	verData.Installed = time.Now()
+	data.CurrentVersion = data.TargetVersion
+	c.logger.Infof("running binary %s already matches version %s, adopting it without downloading", exePath, verData.Version)
+	return true
 }
 
 // files we will always refuse to delete.
