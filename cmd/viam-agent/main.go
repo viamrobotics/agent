@@ -410,7 +410,7 @@ func pidIsSelfOrThread(pid int) (bool, string) {
 	if runtime.GOOS != "linux" {
 		return false, ""
 	}
-	//nolint:gosec
+
 	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
 		// process is gone or unreadable; let the caller's other checks decide
