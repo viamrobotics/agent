@@ -365,17 +365,26 @@ func getLock() (lockfile.Lockfile, error) {
 		if errors.Is(err, lockfile.ErrBusy) {
 			var staleFile bool
 			proc, err := pidFile.GetOwner()
-			if err != nil {
+			if err != nil || proc == nil {
 				globalLogger.Error(errors.Wrap(err, "getting lockfile owner"))
 				staleFile = true
-			}
-			runPath, err := pidCmd(proc.Pid)
-			if err != nil {
-				globalLogger.Error(errors.Wrap(err, "cannot get info on lockfile owner"))
+			} else if stale, reason := pidIsSelfOrThread(proc.Pid); stale {
+				// A leftover lockfile PID can also be reused by an OS thread (TID) of this
+				// very process: boot-time PID assignment is nearly deterministic, so the
+				// previous boot's agent PID often lands within the current agent's own
+				// thread ID range. Threads pass the pidCmd check below (/proc/<tid>/exe is
+				// this binary), so they must be ruled out first.
+				globalLogger.Warnf("lockfile PID %d is %s, not another agent instance", proc.Pid, reason)
 				staleFile = true
-			} else if !strings.Contains(runPath, agent.SubsystemName) {
-				globalLogger.Warnf("lockfile owner isn't %s", agent.SubsystemName)
-				staleFile = true
+			} else {
+				runPath, err := pidCmd(proc.Pid)
+				if err != nil {
+					globalLogger.Error(errors.Wrap(err, "cannot get info on lockfile owner"))
+					staleFile = true
+				} else if !strings.Contains(runPath, agent.SubsystemName) {
+					globalLogger.Warnf("lockfile owner isn't %s", agent.SubsystemName)
+					staleFile = true
+				}
 			}
 			if staleFile {
 				globalLogger.Warnf("deleting lockfile %s", pidFile)
@@ -388,6 +397,43 @@ func getLock() (lockfile.Lockfile, error) {
 		}
 	}
 	return "", err
+}
+
+// pidIsSelfOrThread reports whether pid cannot be a distinct viam-agent process because it
+// is this process itself, one of this process's OS threads, or (on Linux) a thread ID (TID)
+// of any process rather than a real process ID. A genuine lock owner always writes its main
+// PID, so any of these means the lockfile is stale. The reason string is for logging.
+func pidIsSelfOrThread(pid int) (bool, string) {
+	if pid == os.Getpid() {
+		return true, "this process"
+	}
+	if runtime.GOOS != "linux" {
+		return false, ""
+	}
+
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		// process is gone or unreadable; let the caller's other checks decide
+		return false, ""
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		tgidStr, ok := strings.CutPrefix(line, "Tgid:")
+		if !ok {
+			continue
+		}
+		tgid, err := strconv.Atoi(strings.TrimSpace(tgidStr))
+		if err != nil {
+			return false, ""
+		}
+		if tgid == os.Getpid() {
+			return true, "an OS thread of this process"
+		}
+		if tgid != pid {
+			return true, fmt.Sprintf("an OS thread (TID) of process %d", tgid)
+		}
+		return false, ""
+	}
+	return false, ""
 }
 
 // pidCmd returns the command of the given pid.
