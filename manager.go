@@ -99,15 +99,16 @@ func NewManager(
 	cfg utils.AgentConfig,
 	globalCancel context.CancelFunc,
 ) *Manager {
+	cache := NewVersionCache(logger)
 	manager := &Manager{
 		logger:       logger,
 		registry:     registry,
 		cfg:          cfg,
 		globalCancel: globalCancel,
 
-		viamServer:     viamserver.New(ctx, logger, cfg),
+		viamServer:     viamserver.New(ctx, logger, cfg, cache.ViamServerVersion),
 		networking:     networking.New(ctx, logger, cfg),
-		cache:          NewVersionCache(logger),
+		cache:          cache,
 		agentStartTime: time.Now(),
 	}
 

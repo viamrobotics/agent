@@ -251,7 +251,7 @@ func commonMain(runningAsService bool) {
 	// wait until now when we (potentially) have a network logger to record this
 	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
 	startupStarted := time.Now()
-	globalLogger.Activity("startup","start",
+	globalLogger.Activity("startup", "start",
 		"pid", os.Getpid(),
 		"version", utils.GetVersion(),
 		"git_rev", utils.GetRevision(),
@@ -277,7 +277,7 @@ func commonMain(runningAsService bool) {
 	}
 
 	manager.StartBackgroundChecks(ctx)
-	globalLogger.Activity("startup","complete",
+	globalLogger.Activity("startup", "complete",
 		"pid", os.Getpid(),
 		"version", utils.GetVersion(),
 		"git_rev", utils.GetRevision(),

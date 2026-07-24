@@ -77,6 +77,10 @@ type Subsystem struct {
 	// set by callers via SetNextStopReason and consumed (reset) by Stop.
 	nextStopReason string
 
+	// serverVersion reports the viam-server version the agent believes it is running
+	// (from the version cache); attached to the viam_server start activity event.
+	serverVersion func() string
+
 	// startTime records when the current viam-server process was last started.
 	// Zeroed when viam-server stops.
 	startTime time.Time
@@ -219,7 +223,11 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "127.0.0.1", 1)
 		s.logger.Infof("%s started", SubsysName)
 		s.logger.Infof("%s found serving at the following URLs: %s %s", SubsysName, s.checkURL, s.checkURLAlt)
-		s.logger.Activity("viam_server", "start", "pid", s.cmd.Process.Pid)
+		var version string
+		if s.serverVersion != nil {
+			version = s.serverVersion()
+		}
+		s.logger.Activity("viam_server", "start", "pid", s.cmd.Process.Pid, "version", version)
 
 		// Once the subsystem has successfully started, fetch restart status and cache
 		// relevant properties. These values are calculated once at startup and cached,
@@ -465,9 +473,11 @@ func New(
 	ctx context.Context,
 	logger logging.Logger,
 	cfg utils.AgentConfig,
+	serverVersion func() string,
 ) *Subsystem {
 	return &Subsystem{
-		logger:       logger,
+		serverVersion: serverVersion,
+		logger:        logger,
 		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
 		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
