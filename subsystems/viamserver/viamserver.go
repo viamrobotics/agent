@@ -73,6 +73,10 @@ type Subsystem struct {
 	// This is set to true when the app's NeedsRestart API triggers a restart.
 	appTriggeredRestart bool
 
+	// nextStopReason classifies the next Stop for the viam_server stop activity event;
+	// set by callers via SetNextStopReason and consumed (reset) by Stop.
+	nextStopReason string
+
 	// startTime records when the current viam-server process was last started.
 	// Zeroed when viam-server stops.
 	startTime time.Time
@@ -199,6 +203,11 @@ func (s *Subsystem) Start(ctx context.Context) error {
 					s.logger.Errorf("non-zero exit code: %d", s.lastExit)
 				}
 			}
+			s.logger.Activity("viam_server", "stop",
+				"reason", "crash",
+				"exit_code", s.lastExit,
+				"pid", s.cmd.Process.Pid,
+			)
 			s.logger.Infof("%s exited unexpectedly and will be restarted shortly", SubsysName)
 		}
 		close(s.exitChan)
@@ -210,6 +219,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "127.0.0.1", 1)
 		s.logger.Infof("%s started", SubsysName)
 		s.logger.Infof("%s found serving at the following URLs: %s %s", SubsysName, s.checkURL, s.checkURLAlt)
+		s.logger.Activity("viam_server", "start", "pid", s.cmd.Process.Pid)
 
 		// Once the subsystem has successfully started, fetch restart status and cache
 		// relevant properties. These values are calculated once at startup and cached,
@@ -259,7 +269,17 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 	appTriggeredRestart := s.appTriggeredRestart
 	s.appTriggeredRestart = false // Reset the flag
 	moduleServerTCPAddr := s.moduleServerTCPAddr
+	stopReason := s.nextStopReason
+	s.nextStopReason = ""
 	s.mu.Unlock()
+
+	// appTriggeredRestart is the more specific cause when both are set (e.g. an
+	// app-requested restart also shuts the whole agent down).
+	if appTriggeredRestart {
+		stopReason = "app_restart"
+	} else if stopReason == "" {
+		stopReason = "unknown"
+	}
 
 	if !running {
 		return nil
@@ -270,6 +290,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	pid := s.cmd.Process.Pid
 	s.logger.Infof("Stopping %s", SubsysName)
 
 	// For app-triggered restarts, use the Shutdown RPC to allow viam-server to dump
@@ -291,6 +312,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
+		s.logger.Activity("viam_server", "stop", "reason", stopReason, "pid", pid)
 		return nil
 	}
 
@@ -301,6 +323,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
+		s.logger.Activity("viam_server", "stop", "reason", stopReason, "pid", pid)
 		return nil
 	}
 
@@ -417,6 +440,14 @@ func (s *Subsystem) MarkAppTriggeredRestart() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.appTriggeredRestart = true
+}
+
+// SetNextStopReason classifies the next Stop for the viam_server stop activity event
+// (e.g. "update", "config_change", "agent_shutdown").
+func (s *Subsystem) SetNextStopReason(reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextStopReason = reason
 }
 
 // Uptime returns how long viam-server has been running since its most recent start.
