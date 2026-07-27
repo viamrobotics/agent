@@ -3,9 +3,16 @@ package utils
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"go.viam.com/test"
 )
+
+func TestDefaultConfig(t *testing.T) {
+	// Make sure the default config doesn't fail validation
+	_, err := validateConfig(DefaultConfig())
+	test.That(t, err, test.ShouldBeNil)
+}
 
 // basic test for the config structure names.
 func TestConvertJson(t *testing.T) {
@@ -53,7 +60,7 @@ func TestConvertJson(t *testing.T) {
 			"logging_journald_system_max_use_megabytes": 512,
 			"logging_journald_runtime_max_use_megabytes": 512,
 			"logging_journald_storage": "persistent",
-			"os_auto_upgrade_type": "",
+			"os_auto_upgrade_type": "managed-security",
 			"os_managed_upgrade_interval_hours": 24,
 			"forward_system_logs": ""
 	}
@@ -86,6 +93,36 @@ func TestConvertJson(t *testing.T) {
 
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *newConfig, test.ShouldResemble, testConfig)
+}
+
+func TestValidateConfig(t *testing.T) {
+	minimumValidConfig := func() AgentConfig {
+		return AgentConfig{
+			AdvancedSettings: AdvancedSettings{
+				ViamServerStartTimeoutMinutes: Timeout(time.Minute),
+			},
+			NetworkConfiguration: NetworkConfiguration{
+				Manufacturer:                        "test",
+				Model:                               "foo",
+				HotspotPrefix:                       "bar",
+				HotspotPassword:                     "foobarbaz",
+				OfflineBeforeStartingHotspotMinutes: Timeout(time.Minute),
+				UserIdleMinutes:                     Timeout(time.Minute),
+				RetryConnectionTimeoutMinutes:       Timeout(time.Minute),
+			},
+		}
+	}
+	t.Run("auto update default is applied", func(t *testing.T) {
+		cfg, err := validateConfig(minimumValidConfig())
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, cfg.SystemConfiguration.OSAutoUpgradeType, test.ShouldEqual, DefaultConfig().SystemConfiguration.OSAutoUpgradeType)
+		test.That(
+			t,
+			cfg.SystemConfiguration.OSManagedUpgradeIntervalHours,
+			test.ShouldEqual,
+			DefaultConfig().SystemConfiguration.OSManagedUpgradeIntervalHours,
+		)
+	})
 }
 
 func TestDisableLogDeduplication(t *testing.T) {
