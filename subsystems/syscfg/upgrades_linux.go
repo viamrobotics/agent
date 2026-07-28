@@ -57,7 +57,14 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 			return err
 		}
 		if isNew {
-			s.logger.Info("Disabled OS auto-upgrades.")
+			if isManaged(cfg) {
+				s.logger.Infow(
+					"Disabled apt unattended-upgrades, OS upgrades are now run by viam-agent instead",
+					"os_auto_upgrade_type", cfg,
+				)
+			} else {
+				s.logger.Info("Disabled apt unattended-upgrades, no OS upgrades will be installed automatically.")
+			}
 		}
 		return nil
 	}

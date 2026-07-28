@@ -52,6 +52,16 @@ func isManaged(mode string) bool {
 	return slices.Contains([]string{utils.OSAutoUpgradeManagedAll, utils.OSAutoUpgradeManagedSecurity}, mode)
 }
 
+// logManagedUpgradesStarted announces that agent-managed OS upgrades are active.
+// Without this the only positive signal is an upgrade actually running, which
+// never happens on a device whose maintenance window has been closed since boot.
+func logManagedUpgradesStarted(logger logging.Logger, mode string, interval time.Duration) {
+	logger.Infow("Managed OS upgrades enabled, viam-agent will install updates directly",
+		"os_auto_upgrade_type", mode,
+		"check_interval", interval,
+	)
+}
+
 func clampUpgradeInterval(logger logging.Logger, hours float64) time.Duration {
 	if hours == 0 {
 		return defaultUpgradeInterval
