@@ -30,6 +30,7 @@ func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
 	}
 
 	interval := clampUpgradeInterval(s.logger, s.cfg.OSManagedUpgradeIntervalHours)
+	logManagedUpgradesStarted(s.logger, s.cfg.OSAutoUpgradeType, interval)
 
 	upgradeCtx, cancel := context.WithCancel(ctx)
 	s.upgradeCancel = cancel
