@@ -50,7 +50,7 @@ var (
 			LoggingJournaldRuntimeMaxUseMegabytes: 512,
 			LoggingJournaldStorage:                "persistent",
 			ForwardSystemLogs:                     "",
-			OSAutoUpgradeType:                     OSAutoUpgradeManagedSecurity,
+			OSAutoUpgradeType:                     "",
 			OSManagedUpgradeIntervalHours:         24,
 		},
 		NetworkConfiguration{
@@ -202,7 +202,7 @@ type SystemConfiguration struct {
 	ForwardSystemLogs string `json:"forward_system_logs,omitempty"`
 
 	// UpgradeType can be
-	// Empty/missing (""), which is treated as "managed-security"
+	// Empty/missing ("") to make no changes
 	// "disable" (or "disabled") to disable auto-upgrades
 	// "security" to enable ONLY security upgrades via unattended-upgrades (OS-controlled schedule)
 	// "all" to enable upgrades from all configured sources via unattended-upgrades (OS-controlled schedule)
@@ -443,11 +443,7 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		cfg.SystemConfiguration.LoggingJournaldStorage = defaultStorage
 	}
 
-	// An empty/missing value is treated as "managed-security".
-	if cfg.SystemConfiguration.OSAutoUpgradeType == "" {
-		cfg.SystemConfiguration.OSAutoUpgradeType = DefaultConfiguration.SystemConfiguration.OSAutoUpgradeType
-	}
-	if !slices.Contains(
+	if cfg.SystemConfiguration.OSAutoUpgradeType != "" && !slices.Contains(
 		slices.Concat(validOSAutoUpgradeTypes, []string{"disable", "disabled"}),
 		cfg.SystemConfiguration.OSAutoUpgradeType,
 	) {
