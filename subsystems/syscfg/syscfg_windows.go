@@ -24,6 +24,8 @@ type Subsystem struct {
 	needsOSReboot      bool
 	upgradeCancel      context.CancelFunc
 	upgradeWorker      sync.WaitGroup
+	upgrade            upgradeState
+	rebootBlocked      blockNotice
 	maintenanceAllowed func(context.Context) bool
 }
 

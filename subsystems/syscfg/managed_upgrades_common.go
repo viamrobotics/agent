@@ -3,6 +3,7 @@ package syscfg
 import (
 	"errors"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/viamrobotics/agent/utils"
@@ -21,6 +22,62 @@ const (
 // errBlockedByMaintenanceWindow is returned by runManagedUpgrade when the
 // upgrade could not run because viam-server's maintenance window is closed.
 var errBlockedByMaintenanceWindow = errors.New("upgrade blocked by maintenance window")
+
+// upgradeState tracks whether a managed OS upgrade is currently executing, so
+// that the reboot check can refuse to reboot mid-install. Interrupting a package
+// manager partway through a transaction (dpkg unpacking, Windows servicing) can
+// leave the system in a broken state, and the OS-level "reboot required"
+// indicators we poll are set by individual packages as they install rather than
+// at the end of the batch, so they can appear while an install is still running.
+//
+// This carries its own mutex rather than reusing the subsystem lock on purpose:
+// Stop holds the subsystem lock while waiting for the upgrade worker to exit, so
+// any lock the worker takes mid-upgrade is a deadlock risk.
+type upgradeState struct {
+	mu         sync.Mutex
+	inProgress bool
+}
+
+// begin marks an upgrade as running and returns the function that clears the
+// mark. Callers should defer the returned function.
+func (u *upgradeState) begin() func() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.inProgress = true
+	return func() {
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		u.inProgress = false
+	}
+}
+
+// running reports whether an upgrade is executing right now.
+func (u *upgradeState) running() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.inProgress
+}
+
+// blockNotice logs the first time a pending reboot is held back and then stays
+// quiet until the condition clears, so that a once-a-minute poll does not fill
+// the log. Without it, holding back a reboot would be silent and hard to
+// diagnose after the fact.
+type blockNotice struct {
+	mu     sync.Mutex
+	logged bool
+}
+
+// note logs msg if blocked is newly true, and rearms once blocked goes false.
+func (b *blockNotice) note(logger logging.Logger, blocked bool, msg string) {
+	b.mu.Lock()
+	shouldLog := blocked && !b.logged
+	b.logged = blocked
+	b.mu.Unlock()
+
+	if shouldLog {
+		logger.Info(msg)
+	}
+}
 
 // nextUpgradeInterval returns how long to wait before the next managed upgrade
 // attempt, given the error (if any) from the previous attempt. When the previous

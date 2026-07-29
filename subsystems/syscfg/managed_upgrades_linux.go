@@ -74,37 +74,49 @@ func (s *Subsystem) stopManagedUpgrades() {
 // NeedsOSReboot returns true if a system reboot is pending due to installed
 // package updates.
 func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
+	if s.upgrade.running() {
+		// An upgrade is installing right now. Rebooting would interrupt the package
+		// manager mid-transaction, so refuse until it finishes; runManagedUpgrade
+		// re-checks and latches needsOSReboot once the install completes. This is
+		// checked ahead of the cached result below because a reboot can already be
+		// pending from an earlier cycle while a later one is still installing.
+		return false
+	}
+
 	s.mu.RLock()
 	needReboot := s.needsOSReboot
 	autoUpgradeType := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	if needReboot {
-		// Cached true result, no way for this to change back to false until the
-		// reboot happens.
-		return true
-	}
+	// Skipped when already cached; there is no way for a pending reboot to become
+	// unnecessary until the reboot happens, and some methods of checking for
+	// reboots like RHEL's needs-restarting take a long time to run.
+	if !needReboot {
+		if !isManaged(autoUpgradeType) {
+			// We only care about managing reboots in managed upgrade mode.
+			return false
+		}
 
-	if !isManaged(autoUpgradeType) {
-		// We only care about managing reboots in managed upgrade mode.
-		return false
-	}
+		pkgMgr, err := getPackageManager(s.logger)
+		if err != nil {
+			s.logger.Warnw("Could not detect package manager to check for OS reboot",
+				"err", err)
+			return false
+		}
+		if !pkgMgr.needsReboot(ctx) {
+			return false
+		}
 
-	pkgMgr, err := getPackageManager(s.logger)
-	if err != nil {
-		s.logger.Warnw("Could not detect package manager to check for OS reboot",
-			"err", err)
-		return false
-	}
-	needReboot = pkgMgr.needsReboot(ctx)
-	if needReboot {
-		// Some methods of checking for reboots like RHEL's needs-restarting take a
-		// long time to run, so we cache the first positive result.
+		// Cache the first positive result.
 		s.mu.Lock()
 		s.needsOSReboot = true
 		s.mu.Unlock()
 	}
-	return needReboot
+
+	// A reboot is pending. Whether it is safe to act on it is a separate question:
+	// hold off while any package transaction is running, including one this agent
+	// did not start.
+	return !s.rebootBlockedByOSUpgrade(ctx)
 }
 
 // getPackageManager returns an implementation of [packageManager] that
@@ -166,7 +178,14 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	s.logger.Infow("Running managed OS package update", "package_manager", pm)
 	securityOnly := mode == utils.OSAutoUpgradeManagedSecurity
 
-	if err := pm.runUpgrade(ctx, securityOnly); err != nil {
+	// Block reboots for the duration of the install; packages create
+	// /var/run/reboot-required from their postinst scripts, so the reboot check can
+	// otherwise see it while dpkg is still working through the rest of the batch.
+	err = func() error {
+		defer s.upgrade.begin()()
+		return pm.runUpgrade(ctx, securityOnly)
+	}()
+	if err != nil {
 		s.logger.Warnw("managed OS upgrade failed", "package_manager", pm, "error", err)
 		return err
 	}
