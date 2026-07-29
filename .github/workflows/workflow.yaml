@@ -130,18 +130,27 @@ jobs:
       if: github.event_name == 'release'
       run: |
         gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* install.sh uninstall.sh preinstall.sh gs://packages.viam.com/apps/viam-agent/
-        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+        gsutil -h "Cache-Control:no-cache" cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+    # Skipped when HEAD is a release tag. dev-version.sh short-circuits on a direct
+    # tag, so a main push sitting on the tagged commit computes the bare version
+    # (v1.0.1, no -dev suffix) and produces the same filenames and the same manifest
+    # `upload-path` as the release-event run. Both runs then race to write the same
+    # apps/viam-subsystems/ manifest, and if this one wins, the published manifest
+    # advertises the sha of the prerelease binary while apps/viam-agent/ holds the
+    # release binary. Windows only, since Authenticode timestamps make that the one
+    # artifact whose bytes differ between two builds of the same commit. The release
+    # run already publishes these artifacts, so there is nothing to add here.
     - name: Upload binaries to GCS (Prerelease)
-      if: github.event_name != 'release' && github.event_name != 'pull_request'
+      if: github.event_name != 'release' && github.event_name != 'pull_request' && contains(steps.version.outputs.value, '-dev.')
       run: |
         gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
-        gsutil cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+        gsutil -h "Cache-Control:no-cache" cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
     - name: Upload binaries to GCS (PR dev release)
       if: github.event_name == 'pull_request'
       run: |
         PR_PATH="gs://packages.viam.com/apps/viam-agent/prerelease/pr-${{ github.event.pull_request.number }}"
         gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* "$PR_PATH/"
-        gsutil cp etc/viam-agent-*.json "$PR_PATH/"
+        gsutil -h "Cache-Control:no-cache" cp etc/viam-agent-*.json "$PR_PATH/"
     - name: Collect PR dev release URLs
       id: pr_urls
       if: github.event_name == 'pull_request'
@@ -196,8 +205,9 @@ jobs:
       run: |
         cp viam-agent-*-windows-x86_64.msi viam-agent-stable-windows-x86_64.msi
         gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/
+    # Same tagged-commit guard as the binary prerelease upload above.
     - name: Upload MSI to GCS (Prerelease)
-      if: github.event_name != 'release' && github.event_name != 'pull_request'
+      if: github.event_name != 'release' && github.event_name != 'pull_request' && contains(needs.build.outputs.version, '-dev.')
       shell: bash
       run: gsutil -h "Cache-Control:no-cache" cp viam-agent-*-windows-x86_64.msi gs://packages.viam.com/apps/viam-agent/prerelease/
     - name: Upload MSI to GCS (PR dev release)
