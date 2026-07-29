@@ -436,9 +436,19 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			}
 		}
 
-		done := make(chan struct{})
-		defer close(done)
-		goutils.PanicCapturingGo(func() { fileSizeProgress(done, ctx, logger, rawURL, partialDest) })
+		// fileSizeProgress must not outlive this function: if it logged after
+		// DownloadFile returned it could race with a test logger whose test has
+		// already completed. Cancel it and wait for it to exit before returning.
+		progressCtx, cancelProgress := context.WithCancel(ctx)
+		progressDone := make(chan struct{})
+		goutils.PanicCapturingGo(func() {
+			defer close(progressDone)
+			fileSizeProgress(progressCtx, logger, rawURL, partialDest)
+		})
+		defer func() {
+			cancelProgress()
+			<-progressDone
+		}()
 		if err := g.GetFile(partialDest, parsedURL); err != nil {
 			return "", errw.Wrap(err, "downloading file")
 		}
@@ -824,8 +834,8 @@ func (sb *SafeBuffer) Reset() {
 	sb.buf.Reset()
 }
 
-// starts a goroutine that watches `dest` file size, logs progress until `dest` no longer exists or `done` is closed.
-func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Logger, url, dest string) {
+// watches `dest` file size, logging progress until `dest` no longer exists or `ctx` is cancelled.
+func fileSizeProgress(ctx context.Context, logger logging.Logger, url, dest string) {
 	// note: go-getter is also doing a HEAD request internally, so this is redundant, but we don't have access to it.
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -834,7 +844,10 @@ func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Lo
 	}
 	res, err := socksClient(url, logger).Do(req)
 	if err != nil {
-		logger.Warnw("progress bar failed", "err", err)
+		// don't warn if the request was cancelled because the download already finished
+		if ctx.Err() == nil {
+			logger.Warnw("progress bar failed", "err", err)
+		}
 		return
 	}
 	size := res.ContentLength
@@ -870,7 +883,7 @@ func fileSizeProgress(done chan struct{}, ctx context.Context, logger logging.Lo
 			// todo: use fancy progress bar instead
 			bar.Set64(stat.Size()) //nolint:errcheck,gosec
 			logger.Info(bar)
-		case <-done:
+		case <-ctx.Done():
 			return
 		}
 	}
