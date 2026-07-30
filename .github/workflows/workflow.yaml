@@ -127,6 +127,7 @@ jobs:
         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
     - uses: google-github-actions/setup-gcloud@v2
     - name: Upload binaries to GCS (Release)
+      id: upload_release
       if: github.event_name == 'release'
       run: |
         gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* install.sh uninstall.sh preinstall.sh gs://packages.viam.com/apps/viam-agent/
@@ -141,10 +142,26 @@ jobs:
     # artifact whose bytes differ between two builds of the same commit. The release
     # run already publishes these artifacts, so there is nothing to add here.
     - name: Upload binaries to GCS (Prerelease)
+      id: upload_prerelease
       if: github.event_name != 'release' && github.event_name != 'pull_request' && contains(steps.version.outputs.value, '-dev.')
       run: |
         gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-* gs://packages.viam.com/apps/viam-agent/prerelease/
         gsutil -h "Cache-Control:no-cache" cp etc/viam-agent-*.json gs://packages.viam.com/apps/viam-subsystems/
+    # Every manifest this run wrote has to advertise the sha256 of the object its
+    # upload-path names. Because this runs after the upload, any run that writes
+    # a manifest also re-reads it afterwards, so the last writer in a race always
+    # inspects the state it left behind. That is what makes detection independent
+    # of which run wins and of how far apart they land.
+    #
+    # Gated on the upload steps' outcome rather than on a copy of their `if`
+    # conditions, deliberately. Restating `contains(version, '-dev.')` here would
+    # tie this check to the same predicate that guards the prerelease upload, so
+    # a regression in that guard would skip the check in exactly the run that
+    # just clobbered a manifest. Keying off what actually ran instead means a run
+    # that publishes always verifies, however it came to publish.
+    - name: Verify manifests published by this run
+      if: steps.upload_release.outcome == 'success' || steps.upload_prerelease.outcome == 'success'
+      run: ./verify-manifests.sh --version "${{ steps.version.outputs.value }}"
     - name: Upload binaries to GCS (PR dev release)
       if: github.event_name == 'pull_request'
       run: |

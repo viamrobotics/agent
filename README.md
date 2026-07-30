@@ -29,6 +29,21 @@ The makefile will attempt to get a tagged version from Git. If you want to manua
 Note that there is no "v" in the actual version, though it is expected in git. E.g. a git tag of `v0.1.2` becomes `TAG_VERSION=0.1.2`  
 Ex: `make all TAG_VERSION=0.1.2`
 
+### Release Artifact Verification
+Each published manifest in `apps/viam-subsystems/` advertises a sha256 that must match the binary its `upload-path` names. The manifest and the binary are written by two separate `gsutil` calls, so concurrent runs building the same version can leave a manifest describing a binary nobody can download — agents targeting that version then reject the download and retry indefinitely.
+
+`./verify-manifests.sh` checks that they agree. It reads published state only, so no credentials are needed:
+
+```bash
+./verify-manifests.sh --version v1.0.1   # every platform for one version
+./verify-manifests.sh --count 20         # the 20 most recently written manifests
+./verify-manifests.sh --count 0          # every release manifest
+```
+
+Test and Build runs `--version` against whatever it just published, so a run that writes a manifest always re-reads it. The **Verify Manifests** workflow runs sweeps on demand, for prereleases, full history, or writes made outside CI.
+
+When a mismatch is found, the **Fix Manifest** workflow repairs it. Pick the mode by deciding what the object at `upload-path` actually is: `manifest` when the published binary is the artifact you meant to ship and only the checksum is wrong, `rebuild` when the binary itself is wrong and should be rebuilt from the tag. Note that neither repair unsticks machines that already cached the bad checksum, since `version_control.go` returns early on an unchanged version string — those need a version bump or a cache clear.
+
 ### DevMode
 Agent can be run directly (`./viam-agent`) outside of systemd for local development purposes. It will only manage viam-server by default. Network and system configuration management can be enabled with `--enable-networking` and `--enable-syscfg`. `--viam-dir` can be used to override the default `/opt/viam` location. See `--help` for the full list of options.
 
