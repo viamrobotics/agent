@@ -277,11 +277,13 @@ func commonMain(runningAsService bool) {
 	}
 
 	manager.StartBackgroundChecks(ctx)
+	startupDuration := time.Since(startupStarted)
 	globalLogger.Activity("startup", "complete",
 		"pid", os.Getpid(),
 		"version", utils.GetVersion(),
 		"git_rev", utils.GetRevision(),
-		"duration", time.Since(startupStarted).String(),
+		"duration", startupDuration.String(),
+		"duration_us", startupDuration.Microseconds(),
 	)
 	<-ctx.Done()
 	manager.CloseAll()

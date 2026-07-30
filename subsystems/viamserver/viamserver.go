@@ -208,9 +208,9 @@ func (s *Subsystem) Start(ctx context.Context) error {
 				}
 			}
 			s.logger.Activity("viam_server", "stop",
+				"pid", s.cmd.Process.Pid,
 				"reason", "crash",
 				"exit_code", s.lastExit,
-				"pid", s.cmd.Process.Pid,
 			)
 			s.logger.Infof("%s exited unexpectedly and will be restarted shortly", SubsysName)
 		}
@@ -320,7 +320,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
-		s.logger.Activity("viam_server", "stop", "reason", stopReason, "pid", pid)
+		s.logger.Activity("viam_server", "stop", "pid", pid, "reason", stopReason)
 		return nil
 	}
 
@@ -331,7 +331,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
-		s.logger.Activity("viam_server", "stop", "reason", stopReason, "pid", pid)
+		s.logger.Activity("viam_server", "stop", "pid", pid, "reason", stopReason)
 		return nil
 	}
 
@@ -478,7 +478,7 @@ func New(
 	return &Subsystem{
 		serverVersion: serverVersion,
 		logger:        logger,
-		startTimeout: time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
-		extraEnvVars: cfg.AdvancedSettings.ViamServerExtraEnvVars,
+		startTimeout:  time.Duration(cfg.AdvancedSettings.ViamServerStartTimeoutMinutes),
+		extraEnvVars:  cfg.AdvancedSettings.ViamServerExtraEnvVars,
 	}
 }

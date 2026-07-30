@@ -599,12 +599,14 @@ func (m *Manager) CloseAll() {
 
 		// Emitted before the net appender closes below so its best-effort flush can
 		// deliver this event to the cloud on the way out.
+		shutdownDuration := time.Since(shutdownStarted)
 		m.logger.Activity("shutdown", "complete",
 			"pid", os.Getpid(),
 			"version", utils.GetVersion(),
 			"git_rev", utils.GetRevision(),
 			"reason", exitReasonOrDefault("unknown"),
-			"duration", time.Since(shutdownStarted).String(),
+			"duration", shutdownDuration.String(),
+			"duration_us", shutdownDuration.Microseconds(),
 		)
 
 		m.connMu.Lock()
