@@ -39,6 +39,8 @@ const (
 	minimalNeedsRestartCheckInterval = time.Second * 1
 	// How often to check whether an OS reboot is pending and the maintenance window is open.
 	osRebootCheckInterval = time.Minute
+	// How often to re-check (and re-log) whether the running viam-agent build has been deprecated.
+	deprecationCheckInterval = time.Minute * 5
 
 	defaultNetworkTimeout = time.Second * 15
 	// stopAllTimeout must be lower than systemd subsystems/viamagent/viam-agent.service timeout of 4mins
@@ -88,6 +90,8 @@ type Manager struct {
 	// agentStartTime records when this viam-agent process started.
 	// Set once in NewManager and never mutated.
 	agentStartTime time.Time
+
+	lastDeprecationCheck time.Time
 }
 
 // NewManager returns a new Manager.
@@ -800,6 +804,29 @@ func maybeOffline(conn grpc.ClientConnInterface) bool {
 	return false
 }
 
+// checkVersionDeprecation periodically warns when the running viam-agent build has been
+// deprecated.
+func (m *Manager) checkVersionDeprecation(ctx context.Context, client pb.AgentDeviceServiceClient) {
+	if time.Since(m.lastDeprecationCheck) < deprecationCheckInterval {
+		return
+	}
+	m.lastDeprecationCheck = time.Now()
+	version := utils.GetVersion()
+	if version == "custom" {
+		return
+	}
+	resp, err := client.GetSubsystemVersionStatus(ctx,
+		&pb.GetSubsystemVersionStatusRequest{Subsystem: SubsystemName, Version: version})
+	if err != nil {
+		m.logger.Debugw("checking version deprecation status", "err", err)
+		return
+	}
+	if resp.GetDeprecated() {
+		m.logger.Warnf("viam-agent %s is deprecated and can no longer be installed; "+
+			"update this machine's version settings", version)
+	}
+}
+
 // GetConfig retrieves the configuration from the cloud.
 func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 	if m.cloudConfig == nil {
@@ -833,6 +860,7 @@ func (m *Manager) GetConfig(ctx context.Context) (time.Duration, error) {
 		return minimalDeviceAgentConfigCheckInterval, err
 	}
 	fixWindowsPaths(resp)
+	m.checkVersionDeprecation(timeoutCtx, agentDeviceServiceClient)
 
 	// Store update data in cache, actual binaries are updated later
 	err = m.cache.Update(resp.GetAgentUpdateInfo(), SubsystemName)
