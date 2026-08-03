@@ -182,12 +182,13 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 		return errw.Errorf("empty string given as version for %v", binary)
 	}
 
-	if newVersion == data.TargetVersion {
-		return nil
+	newTarget := newVersion != data.TargetVersion
+	if newTarget {
+		// only reset on a new target, so a broken custom URL isn't retried every poll
+		data.brokenTarget = false
 	}
 
 	data.TargetVersion = newVersion
-	data.brokenTarget = false
 	info, ok := data.Versions[newVersion]
 	if !ok {
 		info = &VersionInfo{}
@@ -197,7 +198,13 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 	info.Version = newVersion
 	info.URL = cfg.GetUrl()
 	info.SymlinkPath = path.Join(utils.ViamDirs.Bin, cfg.GetFilename())
-	info.UnpackedSHA = cfg.GetSha256()
+	// The config never carries a real sha for a custom URL, so a steady-state poll
+	// must preserve the locally computed one (see UpdateBinary) or we'd redownload
+	// every cycle. Every other case takes the config's value; for a re-targeted
+	// custom URL that's empty, forcing the re-fetch that picks up a rebuilt binary.
+	if newTarget || !strings.HasPrefix(newVersion, "customURL+") {
+		info.UnpackedSHA = cfg.GetSha256()
+	}
 
 	return c.save()
 }
