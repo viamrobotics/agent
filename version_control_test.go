@@ -17,10 +17,112 @@ import (
 
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"github.com/viamrobotics/agent/utils"
+	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
 	goutils "go.viam.com/utils"
 )
+
+func TestUpdate(t *testing.T) {
+	utils.MockAndCreateViamDirs(t)
+	logger := logging.NewTestLogger(t)
+
+	// sha of an empty file
+	goodSHA, err := hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+	test.That(t, err, test.ShouldBeNil)
+
+	td := t.TempDir()
+	binPath := filepath.Join(td, "fake-binary")
+	f, err := os.Create(binPath)
+	test.That(t, err, test.ShouldBeNil)
+	f.Close()
+
+	vc := NewVersionCache(logger)
+
+	t.Run("corrected-sha-is-picked-up", func(t *testing.T) {
+		err := vc.Update(&pb.UpdateInfo{
+			Version:  "0.90.0",
+			Url:      "file://" + binPath,
+			Filename: "viam-server",
+			Sha256:   []byte("WRONG_SHA_WRONG_SHA_WRONG_SHA_WW"),
+		}, viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+
+		// the download succeeds but the checksum comparison fails
+		_, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, err.Error(), test.ShouldContainSubstring, "sha256")
+
+		// the manifest is corrected in place: same version string, fixed sha
+		err = vc.Update(&pb.UpdateInfo{
+			Version:  "0.90.0",
+			Url:      "file://" + binPath,
+			Filename: "viam-server",
+			Sha256:   goodSHA,
+		}, viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, vc.ViamServer.Versions["0.90.0"].UnpackedSHA, test.ShouldResemble, goodSHA)
+
+		// the already-downloaded binary now matches, so the update completes
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, needsRestart, test.ShouldBeTrue)
+		test.That(t, vc.ViamServer.CurrentVersion, test.ShouldEqual, "0.90.0")
+	})
+
+	t.Run("unchanged-update-leaves-brokenTarget", func(t *testing.T) {
+		vc.ViamServer.brokenTarget = true
+		err := vc.Update(&pb.UpdateInfo{
+			Version:  "0.90.0",
+			Url:      "file://" + binPath,
+			Filename: "viam-server",
+			Sha256:   goodSHA,
+		}, viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, vc.ViamServer.brokenTarget, test.ShouldBeTrue)
+		vc.ViamServer.brokenTarget = false
+	})
+
+	t.Run("customURL-sha-not-overwritten", func(t *testing.T) {
+		customURL := "file://" + binPath
+		err := vc.Update(&pb.UpdateInfo{
+			Version:  "customURL",
+			Url:      customURL,
+			Filename: "viam-server",
+		}, viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+
+		// simulate UpdateBinary having stored the locally computed sha
+		info := vc.ViamServer.Versions["customURL+"+customURL]
+		localSHA := []byte("locally-computed-sha-32-bytes-xx")
+		info.UnpackedSHA = localSHA
+
+		err = vc.Update(&pb.UpdateInfo{
+			Version:  "customURL",
+			Url:      customURL,
+			Filename: "viam-server",
+			Sha256:   []byte("some-serverside-value-32-bytes-x"),
+		}, viamserver.SubsysName)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, info.UnpackedSHA, test.ShouldResemble, localSHA)
+	})
+
+	t.Run("retarget-customURL-clears-sha", func(t *testing.T) {
+		customURL := "file://" + binPath
+		info := vc.ViamServer.Versions["customURL+"+customURL]
+		info.UnpackedSHA = []byte("locally-computed-sha-32-bytes-xx")
+
+		// switching away and back is the dev workflow for picking up a rebuilt
+		// binary at the same URL; it must clear the sha to force a re-fetch
+		for _, update := range []*pb.UpdateInfo{
+			{Version: "0.90.0", Url: "file://" + binPath, Filename: "viam-server", Sha256: goodSHA},
+			{Version: "customURL", Url: customURL, Filename: "viam-server"},
+		} {
+			test.That(t, vc.Update(update, viamserver.SubsysName), test.ShouldBeNil)
+		}
+		test.That(t, info.UnpackedSHA, test.ShouldBeNil)
+	})
+}
 
 func TestUpdateBinary(t *testing.T) {
 	utils.MockAndCreateViamDirs(t)
