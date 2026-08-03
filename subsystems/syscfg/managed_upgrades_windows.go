@@ -56,12 +56,12 @@ func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 	// A reboot is pending. Whether it is safe to act on it is a separate question:
 	// the registry key is set partway through a batch, and we did not necessarily
 	// set it, since Windows' own Automatic Updates install on their own schedule.
-	// Hold off while the update agent is busy rather than force-rebooting an
-	// install we know nothing about. We are polled once a minute, so this only
-	// delays the reboot.
+	// Hold off while servicing is in flight rather than force-rebooting an install
+	// we know nothing about. We are polled once a minute, so this only delays the
+	// reboot.
 	blocked := windowsUpdateBusy(ctx)
 	s.rebootBlocked.note(s.logger, blocked,
-		"OS reboot pending, but Windows Update is still installing; waiting for it to finish")
+		"OS reboot pending, but Windows servicing is still in progress; waiting for it to finish")
 
 	return !blocked
 }
@@ -197,25 +197,38 @@ func windowsRebootRequired(ctx context.Context) bool {
 	return strings.TrimSpace(string(out)) == "True"
 }
 
-// windowsUpdateBusy reports whether the Windows Update Agent is currently
-// installing or uninstalling updates. IUpdateInstaller.IsBusy is the documented
-// signal for this, and unlike our own in-process flag it covers batches the agent
-// did not start, such as Windows' own Automatic Updates.
+// windowsUpdateBusy reports whether servicing is in flight, by either of two
+// signals. Neither subsumes the other, so we take both: IUpdateInstaller.IsBusy
+// covers Windows Update Agent install sessions (including MSI- and driver-shaped
+// updates that never touch the component store), while TrustedInstaller covers
+// component-based servicing from any source — .msu packages, DISM, feature
+// changes — and keeps running after the WUA session that queued the work has
+// ended. Both cover batches the agent did not start, unlike our in-process flag.
 //
-// If the COM call fails we fall back to whether TrustedInstaller is running.
-// That is a blunter signal, since the service lingers for some minutes after
-// servicing finishes and so can delay a reboot, but treating an unreadable state
-// as "not busy" would reopen the race this guards against.
+// TrustedInstaller is the blunter of the two: the service lingers idle for some
+// minutes after servicing finishes, so it can hold a reboot past the maintenance
+// window and into the next one. That is the cost of not force-rebooting a
+// transaction we cannot see the end of.
 //
-// Note that IsBusy only covers the Windows Update Agent; a bare MSI or a vendor
-// driver installer running outside it is not visible here.
+// If both checks fail to read, we report not busy rather than busy — unlike the
+// Linux probe, which treats unreadable lock state as held. A host where
+// PowerShell is broken would otherwise never reboot at all.
 func windowsUpdateBusy(ctx context.Context) bool {
+	// IsBusy first: it is the sharper signal, and short-circuiting skips the
+	// second process spawn whenever WUA is mid-install.
+	return updateInstallerBusy(ctx) || trustedInstallerRunning(ctx)
+}
+
+// updateInstallerBusy reports IUpdateInstaller.IsBusy, which is machine-wide
+// rather than scoped to our own COM object. Errors are treated as "not busy"
+// because the TrustedInstaller check still runs alongside it.
+func updateInstallerBusy(ctx context.Context) bool {
 	out, err := exec.CommandContext(ctx, "powershell",
 		"-NonInteractive", "-NoProfile",
 		"-Command", `(New-Object -ComObject Microsoft.Update.Installer).IsBusy`,
 	).Output()
 	if err != nil {
-		return trustedInstallerRunning(ctx)
+		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(string(out)), "True")
 }
