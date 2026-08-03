@@ -23,23 +23,21 @@ const (
 // upgrade could not run because viam-server's maintenance window is closed.
 var errBlockedByMaintenanceWindow = errors.New("upgrade blocked by maintenance window")
 
-// upgradeState tracks whether a managed OS upgrade is currently executing, so
-// that the reboot check can refuse to reboot mid-install. Interrupting a package
-// manager partway through a transaction (dpkg unpacking, Windows servicing) can
-// leave the system in a broken state, and the OS-level "reboot required"
-// indicators we poll are set by individual packages as they install rather than
-// at the end of the batch, so they can appear while an install is still running.
+// upgradeState tracks whether a managed OS upgrade is executing, so the reboot
+// check can refuse to interrupt one. The OS "reboot required" indicators we poll
+// are set by individual packages as they install, not at the end of the batch,
+// so they appear while a transaction is still in flight.
 //
-// This carries its own mutex rather than reusing the subsystem lock on purpose:
-// Stop holds the subsystem lock while waiting for the upgrade worker to exit, so
-// any lock the worker takes mid-upgrade is a deadlock risk.
+// Carries its own mutex rather than reusing the subsystem lock: Stop holds that
+// lock while waiting for the upgrade worker to exit, so any lock the worker takes
+// mid-upgrade is a deadlock risk.
 type upgradeState struct {
 	mu         sync.Mutex
 	inProgress bool
 }
 
-// begin marks an upgrade as running and returns the function that clears the
-// mark. Callers should defer the returned function.
+// begin marks an upgrade as running and returns the function clearing the mark,
+// which callers should defer.
 func (u *upgradeState) begin() func() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -58,10 +56,9 @@ func (u *upgradeState) running() bool {
 	return u.inProgress
 }
 
-// blockNotice logs the first time a pending reboot is held back and then stays
-// quiet until the condition clears, so that a once-a-minute poll does not fill
-// the log. Without it, holding back a reboot would be silent and hard to
-// diagnose after the fact.
+// blockNotice logs the first time a pending reboot is held back, then stays
+// quiet until the condition clears, so a once-a-minute poll does not fill the
+// log. Without it, a held-back reboot would be silent and hard to diagnose.
 type blockNotice struct {
 	mu     sync.Mutex
 	logged bool

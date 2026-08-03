@@ -13,9 +13,8 @@ import (
 	"go.viam.com/test"
 )
 
-// A reboot must never be reported while an upgrade is installing, even once a
-// reboot is already known to be pending, because rebooting mid-transaction can
-// leave the package database broken.
+// A reboot must never be reported while an upgrade is installing, even once one
+// is known to be pending: rebooting mid-transaction breaks the package database.
 func TestNeedsOSRebootWaitsForUpgradeToFinish(t *testing.T) {
 	withNoPackageLocks(t)
 

@@ -16,9 +16,8 @@ import (
 // lockHelperPathEnv names the lock file the helper process below should hold.
 const lockHelperPathEnv = "SYSCFG_TEST_LOCK_HELPER_PATH"
 
-// withNoPackageLocks points the package lock probe at nothing for the duration
-// of a test, so that a real package manager transaction on the machine running
-// the tests cannot affect the result.
+// withNoPackageLocks points the lock probe at nothing, so a real package
+// transaction on the test machine cannot affect the result.
 func withNoPackageLocks(t *testing.T) {
 	t.Helper()
 	original := packageLockPaths
@@ -27,9 +26,8 @@ func withNoPackageLocks(t *testing.T) {
 }
 
 // TestHelperHoldsPackageLock is not a standalone test: it is the child process
-// used by TestPackageLockHeld. F_GETLK deliberately ignores locks held by the
-// calling process, so a separate process has to hold the lock for the probe to
-// have anything to observe.
+// used by TestPackageLockHeld. F_GETLK ignores locks held by the calling process,
+// so a separate process must hold the lock for the probe to observe anything.
 func TestHelperHoldsPackageLock(t *testing.T) {
 	path := os.Getenv(lockHelperPathEnv)
 	if path == "" {

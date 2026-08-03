@@ -21,12 +21,10 @@ import (
 
 // NeedsOSReboot returns true if a system reboot is pending due to installed package updates.
 func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
+	// Refuse while our own install runs; runManagedUpgrade latches needsOSReboot
+	// once it completes. Checked ahead of the cached result below, since a reboot
+	// can be pending from an earlier cycle while a later one is still installing.
 	if s.upgrade.running() {
-		// An update is installing right now. Rebooting would interrupt Windows
-		// servicing mid-transaction, so refuse until it finishes; runManagedUpgrade
-		// re-checks and latches needsOSReboot once the install completes. This is
-		// checked ahead of the cached result below because a reboot can already be
-		// pending from an earlier cycle while a later one is still installing.
 		return false
 	}
 
@@ -53,12 +51,11 @@ func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 		s.mu.Unlock()
 	}
 
-	// A reboot is pending. Whether it is safe to act on it is a separate question:
-	// the registry key is set partway through a batch, and we did not necessarily
-	// set it, since Windows' own Automatic Updates install on their own schedule.
-	// Hold off while servicing is in flight rather than force-rebooting an install
-	// we know nothing about. We are polled once a minute, so this only delays the
-	// reboot.
+	// A reboot is pending; whether it is safe to act on is a separate question. The
+	// registry key is set partway through a batch, and we did not necessarily set
+	// it — Windows' own Automatic Updates install on their own schedule. Hold off
+	// rather than force-reboot an install we know nothing about; we are polled once
+	// a minute, so this only delays it.
 	blocked := windowsUpdateBusy(ctx)
 	s.rebootBlocked.note(s.logger, blocked,
 		"OS reboot pending, but Windows servicing is still in progress; waiting for it to finish")
@@ -122,10 +119,9 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 
 	s.logger.Info("Running managed Windows Update")
 
-	// Block reboots for the duration of the install. Windows sets the
-	// RebootRequired key as soon as an individual update needs a reboot, so it can
-	// appear while the rest of the batch is still being written to the component
-	// store; a forced reboot there can corrupt servicing state.
+	// Block reboots for the duration of the install: Windows sets RebootRequired as
+	// soon as one update needs it, so the key can appear while the rest of the batch
+	// is still being written to the component store.
 	err := func() error {
 		defer s.upgrade.begin()()
 		return runWindowsUpdate(ctx, mode == utils.OSAutoUpgradeManagedSecurity)
@@ -197,31 +193,25 @@ func windowsRebootRequired(ctx context.Context) bool {
 	return strings.TrimSpace(string(out)) == "True"
 }
 
-// windowsUpdateBusy reports whether servicing is in flight, by either of two
-// signals. Neither subsumes the other, so we take both: IUpdateInstaller.IsBusy
-// covers Windows Update Agent install sessions (including MSI- and driver-shaped
-// updates that never touch the component store), while TrustedInstaller covers
-// component-based servicing from any source — .msu packages, DISM, feature
-// changes — and keeps running after the WUA session that queued the work has
-// ended. Both cover batches the agent did not start, unlike our in-process flag.
+// windowsUpdateBusy reports whether servicing is in flight, covering batches the
+// agent did not start. Both signals are needed because neither subsumes the
+// other: IsBusy sees Windows Update Agent sessions, including MSI- and
+// driver-shaped updates that never touch the component store, while
+// TrustedInstaller sees component-based servicing from any source (.msu, DISM,
+// feature changes) and keeps running after the WUA session that queued it ends.
 //
-// TrustedInstaller is the blunter of the two: the service lingers idle for some
-// minutes after servicing finishes, so it can hold a reboot past the maintenance
-// window and into the next one. That is the cost of not force-rebooting a
-// transaction we cannot see the end of.
-//
-// If both checks fail to read, we report not busy rather than busy — unlike the
-// Linux probe, which treats unreadable lock state as held. A host where
-// PowerShell is broken would otherwise never reboot at all.
+// TrustedInstaller is the blunter of the two, lingering idle for minutes after
+// servicing finishes, so it can hold a reboot past the maintenance window and
+// into the next one. That beats force-rebooting a transaction we cannot see the
+// end of.
 func windowsUpdateBusy(ctx context.Context) bool {
-	// IsBusy first: it is the sharper signal, and short-circuiting skips the
-	// second process spawn whenever WUA is mid-install.
+	// IsBusy first, so the second process spawn is skipped when WUA is mid-install.
 	return updateInstallerBusy(ctx) || trustedInstallerRunning(ctx)
 }
 
-// updateInstallerBusy reports IUpdateInstaller.IsBusy, which is machine-wide
-// rather than scoped to our own COM object. Errors are treated as "not busy"
-// because the TrustedInstaller check still runs alongside it.
+// updateInstallerBusy reports IUpdateInstaller.IsBusy, which covers the whole
+// machine rather than just our own COM object. Errors read as "not busy" since
+// trustedInstallerRunning still runs alongside it.
 func updateInstallerBusy(ctx context.Context) bool {
 	out, err := exec.CommandContext(ctx, "powershell",
 		"-NonInteractive", "-NoProfile",
@@ -234,9 +224,8 @@ func updateInstallerBusy(ctx context.Context) bool {
 }
 
 // trustedInstallerRunning reports whether the Windows Modules Installer service
-// is running, which it does for the duration of a servicing transaction.
-// Errors are treated as "not running" so that a broken check cannot block
-// reboots indefinitely.
+// is running, which it does for the duration of a servicing transaction. Errors
+// read as "not running" so a broken check cannot block reboots forever.
 func trustedInstallerRunning(ctx context.Context) bool {
 	out, err := exec.CommandContext(ctx, "powershell",
 		"-NonInteractive", "-NoProfile",

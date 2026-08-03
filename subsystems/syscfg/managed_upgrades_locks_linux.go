@@ -1,10 +1,9 @@
 package syscfg
 
-// This file probes whether a package manager transaction is running anywhere on
-// the system, including one the agent did not start (a concurrent
-// unattended-upgrades run, or an operator at a shell). The in-process
-// upgradeState flag only covers upgrades this process is executing, and it does
-// not survive an agent restart; these locks live in the kernel and do.
+// This file probes for package manager transactions the agent did not start — a
+// concurrent unattended-upgrades run, or an operator at a shell. The in-process
+// upgradeState flag covers neither, and does not survive an agent restart; these
+// locks live in the kernel and do.
 
 import (
 	"context"
@@ -17,21 +16,20 @@ import (
 )
 
 // packageLockPaths are the lock files package managers hold for the duration of
-// a transaction. A variable rather than a constant so tests can substitute
-// paths they control.
+// a transaction. A variable so tests can substitute paths they control.
 var packageLockPaths = []string{
-	// APT holds the frontend lock across an entire transaction, including the
-	// dpkg invocations it spawns, so it is the broadest signal on Debian-likes.
+	// Held across the whole transaction including spawned dpkg calls, so it is the
+	// broadest signal on Debian-likes.
 	"/var/lib/dpkg/lock-frontend",
-	// dpkg's own lock, held while unpacking and configuring packages.
 	"/var/lib/dpkg/lock",
-	// RPM's transaction lock, covering both dnf and yum.
+	// Covers both dnf and yum.
 	"/var/lib/rpm/.rpm.lock",
 }
 
 // osUpgradeInProgress reports whether any package manager currently holds a
-// transaction lock. Missing lock files (RPM's on a Debian system, and vice
-// versa) are not an error, they just mean that package manager is not present.
+// transaction lock. A missing lock file just means that package manager is not
+// installed. An unreadable one reads as not-held, so that a permanently failing
+// check cannot block reboots forever.
 func osUpgradeInProgress(logger logging.Logger) bool {
 	for _, path := range packageLockPaths {
 		held, pid, err := packageLockHeld(path)
@@ -51,15 +49,13 @@ func osUpgradeInProgress(logger logging.Logger) bool {
 // packageLockHeld reports whether another process holds a write lock on path,
 // along with the PID holding it.
 //
-// This uses F_GETLK rather than trying to take the lock: it asks the kernel
-// whether a lock would conflict and returns the holder, without acquiring
-// anything, so it cannot interfere with the transaction it is inspecting. Note
-// that F_GETLK reports only locks held by *other* processes, which is what we
-// want here, since the package manager we run is always a child process.
+// F_GETLK asks the kernel whether a lock would conflict without acquiring
+// anything, so it cannot interfere with the transaction it inspects. It reports
+// only *other* processes' locks, which suits us: the package manager we run is
+// always a child process, already covered by upgradeState.
 func packageLockHeld(path string) (bool, int32, error) {
-	// Read-only, and deliberately not O_CREATE: we must never create a lock file
-	// a package manager would later rely on. Paths come from packageLockPaths, not
-	// from configuration or any other external input.
+	// Not O_CREATE: we must never create a lock file a package manager would later
+	// rely on. Paths come from packageLockPaths, never from config.
 	//nolint: gosec
 	f, err := os.Open(path)
 	if err != nil {
@@ -69,7 +65,7 @@ func packageLockHeld(path string) (bool, int32, error) {
 		goutils.UncheckedError(f.Close())
 	}()
 
-	// A zero Len means "to end of file", i.e. the whole file.
+	// Len 0 means "to end of file".
 	flock := unix.Flock_t{
 		Type:   unix.F_WRLCK,
 		Whence: io.SeekStart,
