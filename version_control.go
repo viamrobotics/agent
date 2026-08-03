@@ -279,7 +279,16 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			verData.UnpackedPath = verData.DlPath
 		}
 
-		if !same {
+		// Only repair the symlink when the target binary is actually present. If it has
+		// gone missing (e.g. removed from the cache while it was the current version),
+		// skip relinking and fall through to the download below to re-fetch it. Otherwise
+		// ForceSymlink would create a dangling symlink and, on Windows, SyncFS fails opening
+		// it ("cannot find the file specified"), returning an error that aborts UpdateBinary
+		// before we ever re-download -- leaving the agent stuck retrying forever.
+		if _, statErr := os.Stat(verData.UnpackedPath); statErr != nil {
+			c.logger.Warnw("current binary is missing, will re-download instead of relinking",
+				"path", verData.UnpackedPath, "error", statErr)
+		} else if !same {
 			if err := utils.ForceSymlink(verData.UnpackedPath, verData.SymlinkPath); err != nil {
 				return needRestart, err
 			}
