@@ -420,6 +420,46 @@ func TestDownloadFile(t *testing.T) {
 	})
 }
 
+// fileSizeProgress runs in a goroutine spawned by DownloadFile. It must stop and
+// stay quiet once its context is cancelled so it never logs after DownloadFile (and
+// any test that owns the logger) has returned, which would otherwise be a data race.
+func TestFileSizeProgressStopsOnCancel(t *testing.T) {
+	logger, logs := logging.NewObservedTestLogger(t)
+
+	headReceived := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Mimic a slow progress HEAD request that is still in flight when the
+		// download completes: block until the request's context is cancelled.
+		if r.Method == http.MethodHead {
+			close(headReceived)
+			<-r.Context().Done()
+			return
+		}
+		w.Write([]byte("hello"))
+	}))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	goutils.PanicCapturingGo(func() {
+		defer close(done)
+		fileSizeProgress(ctx, logger, server.URL, filepath.Join(t.TempDir(), "dest"))
+	})
+
+	<-headReceived
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Minute):
+		t.Fatal("fileSizeProgress did not return after its context was cancelled")
+	}
+
+	// A cancellation is expected here (the download finished), so we should not have
+	// emitted a spurious warning.
+	test.That(t, logs.FilterMessage("progress bar failed").Len(), test.ShouldEqual, 0)
+}
+
 // If either of the tests on ViamDirsData become outdated be sure there is at
 // least some test remaining on the ViamDirsData.Values method. As long as it
 // uses reflection it could break at runtime if we accidentally add a
