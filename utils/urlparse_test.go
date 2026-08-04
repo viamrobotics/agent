@@ -24,6 +24,7 @@ func TestDownloadFileURLForms(t *testing.T) {
 
 	// forward-slash spelling of the source path; on Windows "C:\x" -> "C:/x", on unix unchanged.
 	fwd := filepath.ToSlash(src)
+
 	vol := filepath.VolumeName(src)
 
 	type urlCase struct {
