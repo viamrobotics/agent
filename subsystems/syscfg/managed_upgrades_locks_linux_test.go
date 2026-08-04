@@ -2,6 +2,7 @@ package syscfg
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -16,13 +17,26 @@ import (
 // lockHelperPathEnv names the lock file the helper process below should hold.
 const lockHelperPathEnv = "SYSCFG_TEST_LOCK_HELPER_PATH"
 
-// withNoPackageLocks points the lock probe at nothing, so a real package
-// transaction on the test machine cannot affect the result.
-func withNoPackageLocks(t *testing.T) {
+// fakePackageManager stands in for apt/rpm so tests decide which lock files the
+// probe examines.
+type fakePackageManager struct {
+	paths []string
+}
+
+func (f fakePackageManager) String() string                             { return "fake" }
+func (f fakePackageManager) runUpgrade(_ context.Context, _ bool) error { return nil }
+func (f fakePackageManager) needsReboot(_ context.Context) bool         { return false }
+func (f fakePackageManager) lockPaths() []string                        { return f.paths }
+
+// withPackageLocks makes the detected package manager report exactly paths. With
+// none, a real package transaction on the test machine cannot affect the result.
+func withPackageLocks(t *testing.T, paths ...string) {
 	t.Helper()
-	original := packageLockPaths
-	packageLockPaths = nil
-	t.Cleanup(func() { packageLockPaths = original })
+	original := getPackageManager
+	getPackageManager = func(logging.Logger) (packageManager, error) {
+		return fakePackageManager{paths: paths}, nil
+	}
+	t.Cleanup(func() { getPackageManager = original })
 }
 
 // TestHelperHoldsPackageLock is not a standalone test: it is the child process
@@ -100,19 +114,12 @@ func TestPackageLockHeld(t *testing.T) {
 		test.That(t, held, test.ShouldBeTrue)
 
 		t.Run("osUpgradeInProgress sees it", func(t *testing.T) {
-			original := packageLockPaths
-			packageLockPaths = []string{path}
-			defer func() { packageLockPaths = original }()
-
-			test.That(t, osUpgradeInProgress(logging.NewTestLogger(t)), test.ShouldBeTrue)
+			test.That(t, osUpgradeInProgress(logging.NewTestLogger(t), []string{path}), test.ShouldBeTrue)
 		})
 	})
 
 	t.Run("osUpgradeInProgress tolerates absent lock files", func(t *testing.T) {
-		original := packageLockPaths
-		packageLockPaths = []string{filepath.Join(dir, "does-not-exist")}
-		defer func() { packageLockPaths = original }()
-
-		test.That(t, osUpgradeInProgress(logging.NewTestLogger(t)), test.ShouldBeFalse)
+		missing := []string{filepath.Join(dir, "does-not-exist")}
+		test.That(t, osUpgradeInProgress(logging.NewTestLogger(t), missing), test.ShouldBeFalse)
 	})
 }

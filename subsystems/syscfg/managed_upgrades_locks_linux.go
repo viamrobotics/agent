@@ -6,7 +6,6 @@ package syscfg
 // locks live in the kernel and do.
 
 import (
-	"context"
 	"io"
 	"os"
 
@@ -15,23 +14,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// packageLockPaths are the lock files package managers hold for the duration of
-// a transaction. A variable so tests can substitute paths they control.
-var packageLockPaths = []string{
-	// Held across the whole transaction including spawned dpkg calls, so it is the
-	// broadest signal on Debian-likes.
-	"/var/lib/dpkg/lock-frontend",
-	"/var/lib/dpkg/lock",
-	// Covers both dnf and yum.
-	"/var/lib/rpm/.rpm.lock",
-}
-
-// osUpgradeInProgress reports whether any package manager currently holds a
-// transaction lock. A missing lock file just means that package manager is not
-// installed. An unreadable one reads as not-held, so that a permanently failing
-// check cannot block reboots forever.
-func osUpgradeInProgress(logger logging.Logger) bool {
-	for _, path := range packageLockPaths {
+// osUpgradeInProgress reports whether another process holds any of paths as a
+// transaction lock. Missing and unreadable files both read as not-held, so that a
+// permanently failing check cannot block reboots forever.
+func osUpgradeInProgress(logger logging.Logger, paths []string) bool {
+	for _, path := range paths {
 		held, pid, err := packageLockHeld(path)
 		switch {
 		case err != nil:
@@ -55,7 +42,7 @@ func osUpgradeInProgress(logger logging.Logger) bool {
 // always a child process, already covered by upgradeState.
 func packageLockHeld(path string) (bool, int32, error) {
 	// Not O_CREATE: we must never create a lock file a package manager would later
-	// rely on. Paths come from packageLockPaths, never from config.
+	// rely on. Paths are compiled in, never from config.
 	//nolint: gosec
 	f, err := os.Open(path)
 	if err != nil {
@@ -83,8 +70,8 @@ func packageLockHeld(path string) (bool, int32, error) {
 
 // rebootBlockedByOSUpgrade reports whether a pending reboot must be held back
 // because a package transaction is running, logging the first time it does.
-func (s *Subsystem) rebootBlockedByOSUpgrade(_ context.Context) bool {
-	blocked := osUpgradeInProgress(s.logger)
+func (s *Subsystem) rebootBlockedByOSUpgrade(pkgMgr packageManager) bool {
+	blocked := osUpgradeInProgress(s.logger, pkgMgr.lockPaths())
 	s.rebootBlocked.note(s.logger, blocked,
 		"OS reboot pending, but a package manager transaction is in progress; waiting for it to finish")
 	return blocked

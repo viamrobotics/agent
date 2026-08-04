@@ -16,7 +16,7 @@ import (
 // A reboot must never be reported while an upgrade is installing, even once one
 // is known to be pending: rebooting mid-transaction breaks the package database.
 func TestNeedsOSRebootWaitsForUpgradeToFinish(t *testing.T) {
-	withNoPackageLocks(t)
+	withPackageLocks(t)
 
 	newSubsystem := func() *Subsystem {
 		return &Subsystem{
@@ -80,8 +80,7 @@ func TestNeedsOSRebootWaitsForUpgradeToFinish(t *testing.T) {
 		}
 		test.That(t, locked, test.ShouldBeTrue)
 
-		packageLockPaths = []string{path}
-		defer func() { packageLockPaths = nil }()
+		withPackageLocks(t, path)
 
 		s := newSubsystem()
 		s.needsOSReboot = true

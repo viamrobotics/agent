@@ -26,6 +26,12 @@ func (a aptPackageManager) needsReboot(ctx context.Context) bool {
 	return err == nil
 }
 
+// lockPaths implements [packageManager]. lock-frontend is held across the whole
+// transaction including the dpkg calls apt spawns, making it the broader of the two.
+func (a aptPackageManager) lockPaths() []string {
+	return []string{"/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock"}
+}
+
 func (a aptPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
 	// Refresh package lists.
 	if err := pkgCmd(ctx, a.logger, "apt-get", "update"); err != nil {

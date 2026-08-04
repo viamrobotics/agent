@@ -19,7 +19,9 @@ import (
 	"github.com/viamrobotics/agent/utils"
 )
 
-// NeedsOSReboot returns true if a system reboot is pending due to installed package updates.
+// NeedsOSReboot reports whether a reboot is pending from installed updates and can
+// be taken now. Servicing in flight defers it, not cancels it: the answer flips
+// back to true once that finishes.
 func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 	// Refuse while our own install runs; runManagedUpgrade latches needsOSReboot
 	// once it completes. Checked ahead of the cached result below, since a reboot
@@ -123,7 +125,8 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	// soon as one update needs it, so the key can appear while the rest of the batch
 	// is still being written to the component store.
 	err := func() error {
-		defer s.upgrade.begin()()
+		upgradeDone := s.upgrade.begin()
+		defer upgradeDone()
 		return runWindowsUpdate(ctx, mode == utils.OSAutoUpgradeManagedSecurity)
 	}()
 	if err != nil {

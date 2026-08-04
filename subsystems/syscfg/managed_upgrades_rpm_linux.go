@@ -43,6 +43,14 @@ func (r rpmPackageManager) needsReboot(ctx context.Context) bool {
 	return false
 }
 
+// lockPaths implements [packageManager]. rpm's %_rpmlock_path, held across
+// rpmtsRun, so it covers dnf and yum alike. The rpm 4.16 (RHEL 9) switch from
+// Berkeley DB to sqlite moved package data, not this lock: verified held during a
+// dnf transaction on 4.14 (RHEL 8) and present on 4.11 (RHEL 7).
+func (r rpmPackageManager) lockPaths() []string {
+	return []string{"/var/lib/rpm/.rpm.lock"}
+}
+
 func (r rpmPackageManager) getProgram() string {
 	program := "yum"
 	if r.useDnf {
