@@ -10,6 +10,7 @@ package syscfg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	"go.viam.com/rdk/logging"
 )
 
 // NeedsOSReboot reports whether a reboot is pending from installed updates and can
@@ -119,22 +121,32 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	mode := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	s.logger.Info("Running managed Windows Update")
+	securityOnly := mode == utils.OSAutoUpgradeManagedSecurity
+	s.logger.Infow("Running managed Windows Update",
+		"os_auto_upgrade_type", mode,
+		"security_only", securityOnly,
+	)
 
-	// Block reboots for the duration of the install: Windows sets RebootRequired as
-	// soon as one update needs it, so the key can appear while the rest of the batch
-	// is still being written to the component store.
-	err := func() error {
-		upgradeDone := s.upgrade.begin()
-		defer upgradeDone()
-		return runWindowsUpdate(ctx, mode == utils.OSAutoUpgradeManagedSecurity)
-	}()
-	if err != nil {
-		s.logger.Warnw("Windows Update failed", "error", err)
+	// Block reboots for the duration of the upgrade cycle: Windows sets
+	// RebootRequired as soon as one update needs it, so the key can appear while
+	// the rest of the batch is still being written to the component store.
+	upgradeDone := s.upgrade.begin()
+	defer upgradeDone()
+
+	if err := ensurePSWindowsUpdate(ctx, s.logger); err != nil {
+		s.logger.Errorw("Could not prepare PSWindowsUpdate module, skipping Windows Update", "err", err)
 		return err
 	}
 
-	s.logger.Info("Windows Update completed")
+	pending, listErr := pendingWindowsUpdates(ctx, s.logger, securityOnly)
+	updates := updateSummary{updates: pending, listErr: listErr}
+	logPendingUpdates(s.logger, updates, "security_only", securityOnly)
+
+	upgradeErr := installWindowsUpdates(ctx, s.logger, securityOnly)
+	logUpgradeResult(ctx, s.logger, updates, upgradeErr, "security_only", securityOnly)
+	if upgradeErr != nil {
+		return upgradeErr
+	}
 
 	if windowsRebootRequired(ctx) {
 		s.mu.Lock()
@@ -158,25 +170,107 @@ func (s *Subsystem) stopManagedUpgrades() {
 	}
 }
 
-// runWindowsUpdate installs updates via the PSWindowsUpdate PowerShell module.
-// Devices already configured to use a WSUS server (via Group Policy or registry) will
-// automatically receive updates from that server without any extra configuration.
-func runWindowsUpdate(ctx context.Context, securityOnly bool) error {
-	// Ensure PSWindowsUpdate is available; Install-Module is a no-op if already present.
+// securityCategory restricts PSWindowsUpdate to security updates only.
+const securityCategory = " -Category 'Security Updates'"
+
+// ensurePSWindowsUpdate makes sure the PSWindowsUpdate module is installed.
+// Install-Module is a no-op if the module is already present.
+func ensurePSWindowsUpdate(ctx context.Context, logger logging.Logger) error {
 	ensureModule := `if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) { ` +
 		`Install-PackageProvider -Name NuGet -Force; ` +
 		`Install-Module -Name PSWindowsUpdate -Confirm:$False -Force -Scope AllUsers }`
-	if err := runPowerShell(ctx, ensureModule); err != nil {
+	if _, err := runPowerShell(ctx, logger, ensureModule); err != nil {
 		return errw.Wrap(err, "ensuring PSWindowsUpdate module")
 	}
+	return nil
+}
 
-	// Build the update command. -IgnoreReboot prevents PSWindowsUpdate from rebooting
-	// immediately; the agent coordinates the reboot via the maintenance window.
+// windowsUpdateInfo is one update as reported by Get-WindowsUpdate.
+type windowsUpdateInfo struct {
+	Title string `json:"title"`
+	KB    string `json:"kb"`
+	// DownloadSize is the update's MaxDownloadSize in bytes. Windows Update reports
+	// no unpacked size.
+	DownloadSize uint64 `json:"downloadSize"`
+	// Size is PSWindowsUpdate's preformatted size, e.g. "108MB", used as a fallback
+	// for older module versions that don't surface MaxDownloadSize.
+	Size string `json:"size"`
+	// Categories classify the update, e.g. "Security Updates", "Drivers".
+	Categories []string `json:"categories"`
+}
+
+// pendingWindowsUpdates lists the updates that installWindowsUpdates would
+// install. Windows Update reports a download size and update categories, but no
+// unpacked size.
+func pendingWindowsUpdates(ctx context.Context, logger logging.Logger, securityOnly bool) ([]pendingUpdate, error) {
+	// Without -Install, Get-WindowsUpdate only searches, so this reports what the
+	// install below is about to do. ConvertTo-Json is fed the array explicitly
+	// because piping to it would unroll a single update back into an object.
+	cmd := "Import-Module PSWindowsUpdate; $pending = @(Get-WindowsUpdate"
+	if securityOnly {
+		cmd += securityCategory
+	}
+	cmd += `); ConvertTo-Json -Compress -Depth 3 -InputObject @($pending | ForEach-Object { ` +
+		`[PSCustomObject]@{ title = [string]$_.Title; kb = [string]$_.KB; ` +
+		`downloadSize = [uint64]$_.MaxDownloadSize; size = [string]$_.Size; ` +
+		`categories = @($_.Categories | ForEach-Object { [string]$_.Name }) } })`
+
+	output, err := runPowerShell(ctx, logger, cmd)
+	if err != nil {
+		return nil, errw.Wrap(err, "listing pending Windows updates")
+	}
+
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		// Not every PowerShell version renders an empty array as "[]".
+		return nil, nil
+	}
+
+	var found []windowsUpdateInfo
+	if err := json.Unmarshal([]byte(trimmed), &found); err != nil {
+		return nil, errw.Wrapf(err, "parsing pending Windows updates: %s", output)
+	}
+
+	updates := make([]pendingUpdate, 0, len(found))
+	for _, info := range found {
+		updates = append(updates, pendingUpdate{
+			Name:         windowsUpdateName(info),
+			DownloadSize: windowsDownloadSize(info),
+			// Categories are per-update rather than a single classification, so keep all
+			// of them, separated by "/" to stay distinguishable inside a log line.
+			Category: strings.Join(info.Categories, "/"),
+		})
+	}
+	return updates, nil
+}
+
+// windowsUpdateName labels an update by title, prefixed with its KB number when
+// the title doesn't already carry it.
+func windowsUpdateName(info windowsUpdateInfo) string {
+	if info.KB != "" && !strings.Contains(info.Title, info.KB) {
+		return info.KB + " " + info.Title
+	}
+	return info.Title
+}
+
+func windowsDownloadSize(info windowsUpdateInfo) uint64 {
+	if info.DownloadSize > 0 {
+		return info.DownloadSize
+	}
+	return parseSize(info.Size)
+}
+
+// installWindowsUpdates installs updates via the PSWindowsUpdate PowerShell module.
+// Devices already configured to use a WSUS server (via Group Policy or registry) will
+// automatically receive updates from that server without any extra configuration.
+func installWindowsUpdates(ctx context.Context, logger logging.Logger, securityOnly bool) error {
+	// -IgnoreReboot prevents PSWindowsUpdate from rebooting immediately; the agent
+	// coordinates the reboot via the maintenance window.
 	cmd := "Import-Module PSWindowsUpdate; Get-WindowsUpdate -Install -AcceptAll -IgnoreReboot"
 	if securityOnly {
-		cmd += " -Category 'Security Updates'"
+		cmd += securityCategory
 	}
-	if err := runPowerShell(ctx, cmd); err != nil {
+	if _, err := runPowerShell(ctx, logger, cmd); err != nil {
 		return errw.Wrap(err, "installing Windows updates")
 	}
 	return nil
@@ -240,15 +334,18 @@ func trustedInstallerRunning(ctx context.Context) bool {
 	return strings.EqualFold(strings.TrimSpace(string(out)), "Running")
 }
 
-// runPowerShell executes a PowerShell command, returning a wrapped error with output on failure.
-func runPowerShell(ctx context.Context, script string) error {
+// runPowerShell executes a PowerShell command, returning its combined output, or a
+// wrapped error with that output on failure.
+func runPowerShell(ctx context.Context, logger logging.Logger, script string) (string, error) {
 	cmd := exec.CommandContext(ctx, "powershell",
 		"-NonInteractive", "-NoProfile", "-ExecutionPolicy", "RemoteSigned",
 		"-Command", script,
 	)
+	logger.Debugw("Executing powershell command", "script", script)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("powershell: %w\n%s", err, output)
+		return string(output), fmt.Errorf("powershell: %w\n%s", err, output)
 	}
-	return nil
+	logger.Debugw("Powershell command succeeded", "script", script, "output", string(output))
+	return string(output), nil
 }

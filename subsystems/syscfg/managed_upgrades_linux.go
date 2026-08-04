@@ -22,6 +22,11 @@ import (
 	"go.viam.com/rdk/logging"
 )
 
+// categorySecurity is the [pendingUpdate] Category for a security update, and the
+// only category Linux package managers let us identify per package. Windows
+// reports its own category names instead.
+const categorySecurity = "security"
+
 // startManagedUpgrades launches the background goroutine that periodically runs upgrades.
 // Must be called while s.mu is held.
 func (s *Subsystem) startManagedUpgrades(ctx context.Context) {
@@ -177,22 +182,35 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 		return err
 	}
 
-	s.logger.Infow("Running managed OS package update", "package_manager", pm)
 	securityOnly := mode == utils.OSAutoUpgradeManagedSecurity
+	s.logger.Infow("Running managed OS package update",
+		"package_manager", pm,
+		"os_auto_upgrade_type", mode,
+		"security_only", securityOnly,
+	)
 
-	// Block reboots for the duration of the install: postinst scripts create
+	// Block reboots for the duration of the upgrade cycle: postinst scripts create
 	// /var/run/reboot-required, so the reboot check would otherwise see it while
-	// dpkg is still working through the rest of the batch.
-	err = func() error {
-		upgradeDone := s.upgrade.begin()
-		defer upgradeDone()
-		return pm.runUpgrade(ctx, securityOnly)
-	}()
-	if err != nil {
-		s.logger.Warnw("managed OS upgrade failed", "package_manager", pm, "error", err)
+	// dpkg is still working through the rest of the batch. prepare is covered too,
+	// since it may install helper packages of its own.
+	upgradeDone := s.upgrade.begin()
+	defer upgradeDone()
+
+	if err := pm.prepare(ctx, securityOnly); err != nil {
+		s.logger.Errorw("Failed to refresh OS package metadata, skipping upgrade",
+			"package_manager", pm, "err", err)
 		return err
 	}
-	s.logger.Info("OS package upgrade completed")
+
+	pending, listErr := pm.pendingUpgrades(ctx, securityOnly)
+	updates := updateSummary{updates: pending, listErr: listErr}
+	logPendingUpdates(s.logger, updates, "package_manager", pm, "security_only", securityOnly)
+
+	upgradeErr := pm.runUpgrade(ctx, securityOnly)
+	logUpgradeResult(ctx, s.logger, updates, upgradeErr, "package_manager", pm, "security_only", securityOnly)
+	if upgradeErr != nil {
+		return upgradeErr
+	}
 
 	// Check if a reboot is required.
 	if pm.needsReboot(ctx) {
@@ -215,11 +233,20 @@ func pkgCmd(ctx context.Context, logger logging.Logger, name string, args ...str
 	if err != nil {
 		return fmt.Errorf("%s %v: %w\n%s", name, args, err, output)
 	}
+	logger.Debugw("Package management command succeeded", "cmd", cmd.String(), "output", string(output))
 	return nil
 }
 
 type packageManager interface {
 	fmt.Stringer
+	// prepare refreshes cached package metadata and installs or writes anything
+	// else needed to list and install upgrades. It must run before
+	// pendingUpgrades or runUpgrade, otherwise both work from stale metadata.
+	prepare(ctx context.Context, securityOnly bool) error
+	// pendingUpgrades lists the upgrades that runUpgrade would install, for
+	// logging, filling in as much detail as the package manager reports. Callers
+	// still run the upgrade if this fails.
+	pendingUpgrades(ctx context.Context, securityOnly bool) ([]pendingUpdate, error)
 	runUpgrade(ctx context.Context, securityOnly bool) error
 	needsReboot(ctx context.Context) bool
 	// lockPaths are the files this package manager fcntl-locks for the duration of a

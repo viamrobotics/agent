@@ -5,9 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	errw "github.com/pkg/errors"
 	"go.viam.com/rdk/logging"
+)
+
+const (
+	// rpmQuerySeparator delimits repoquery fields. Package names, versions and
+	// sizes never contain it, unlike whitespace which shows up in the human
+	// readable sizes some dnf versions print.
+	rpmQuerySeparator = "|"
+	// rpmSizeQueryFormat asks repoquery for the sizes check-update omits. Sizes are
+	// printed as a byte count by some versions and as a human readable string by
+	// others; [parseSize] accepts both.
+	rpmSizeQueryFormat = "%{name}.%{arch}" + rpmQuerySeparator +
+		"%{downloadsize}" + rpmQuerySeparator + "%{installsize}"
 )
 
 type rpmPackageManager struct {
@@ -66,13 +79,126 @@ func (r rpmPackageManager) ensureNeedsRestarting(ctx context.Context) error {
 	return pkgCmd(ctx, r.logger, r.getProgram(), "install", "-y", "yum-utils")
 }
 
-func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
+// prepare implements [packageManager].
+func (r rpmPackageManager) prepare(ctx context.Context, securityOnly bool) error {
 	if err := r.ensureNeedsRestarting(ctx); err != nil {
 		return errw.Wrap(err, "failed to locate or install needs-restarting")
 	}
+	// check-update refreshes expired metadata itself, so there is nothing else to
+	// do here.
+	return nil
+}
+
+// pendingUpgrades implements [packageManager].
+//
+// The columnar text output of check-update is parsed rather than dnf5's --json,
+// because dnf4 (RHEL 8 and 9) and yum have no JSON support and this path has to
+// work everywhere. check-update reports no sizes, so those are looked up
+// separately. Category is only known when we asked for security updates, since
+// check-update doesn't report per-package advisory types.
+func (r rpmPackageManager) pendingUpgrades(ctx context.Context, securityOnly bool) ([]pendingUpdate, error) {
+	args := []string{"check-update", "-q"}
+	category := ""
+	if securityOnly {
+		args = append(args, "--security")
+		category = categorySecurity
+	}
+	//nolint: gosec
+	cmd := exec.CommandContext(ctx, r.getProgram(), args...)
+	// check-update exits 100 when updates are available and 0 when there are none;
+	// anything else is a real failure.
+	output, err := cmd.Output()
+	if err != nil {
+		exitErr, ok := errors.AsType[*exec.ExitError](err)
+		if !ok {
+			return nil, errw.Wrapf(err, "%s %v", r.getProgram(), args)
+		}
+		if exitErr.ExitCode() != 100 {
+			return nil, errw.Wrapf(err, "%s %v: %s", r.getProgram(), args, exitErr.Stderr)
+		}
+	}
+
+	updates := parseRPMCheckUpdate(string(output), category)
+	r.fillPackageSizes(ctx, updates)
+	return updates, nil
+}
+
+// fillPackageSizes looks up the download and installed sizes of the passed updates,
+// which check-update doesn't report. repoquery isn't available on every
+// distribution and its query tags have varied across versions, so a failed lookup
+// is logged and leaves the sizes unknown rather than failing the upgrade.
+func (r rpmPackageManager) fillPackageSizes(ctx context.Context, updates []pendingUpdate) {
+	if len(updates) == 0 {
+		return
+	}
+
+	//nolint: gosec
+	cmd := exec.CommandContext(ctx, r.getProgram(), "repoquery", "-q", "--upgrades",
+		"--queryformat", rpmSizeQueryFormat)
+	output, err := cmd.Output()
+	if err != nil {
+		r.logger.Debugw("Could not read pending update sizes from repoquery",
+			"package_manager", r, "err", err)
+		return
+	}
+
+	sizes := parseRPMSizes(string(output))
+	for i, update := range updates {
+		if size, ok := sizes[update.Name]; ok {
+			updates[i].DownloadSize = size.DownloadSize
+			updates[i].InstalledSize = size.InstalledSize
+		}
+	}
+}
+
+func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
 	args := []string{"upgrade", "-y"}
 	if securityOnly {
 		args = append(args, "--security")
 	}
 	return pkgCmd(ctx, r.logger, r.getProgram(), args...)
+}
+
+// parseRPMCheckUpdate extracts the packages to be installed from the output of
+// `dnf check-update -q`, whose upgradable packages are listed one per line as
+// "<name>.<arch>  <version>  <repo>". Every update is tagged with the passed
+// category, which check-update itself doesn't report.
+func parseRPMCheckUpdate(output, category string) []pendingUpdate {
+	var updates []pendingUpdate
+	for _, line := range strings.Split(output, "\n") {
+		// The trailing "Obsoleting Packages" section repeats packages already listed
+		// above, alongside the installed packages they obsolete.
+		if strings.HasPrefix(line, "Obsoleting") {
+			break
+		}
+		fields := strings.Fields(line)
+		// Skip blank lines and the "Security: ... is an installed security update"
+		// notes yum appends.
+		if len(fields) != 3 || strings.HasSuffix(fields[0], ":") {
+			continue
+		}
+		updates = append(updates, pendingUpdate{
+			Name:     fields[0],
+			Version:  fields[1],
+			Category: category,
+		})
+	}
+	return updates
+}
+
+// parseRPMSizes extracts package sizes from repoquery output in
+// [rpmSizeQueryFormat], keyed by the "<name>.<arch>" that check-update lists.
+func parseRPMSizes(output string) map[string]pendingUpdate {
+	sizes := map[string]pendingUpdate{}
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Split(strings.TrimSpace(line), rpmQuerySeparator)
+		if len(fields) != 3 {
+			continue
+		}
+		sizes[fields[0]] = pendingUpdate{
+			DownloadSize:  parseSize(fields[1]),
+			InstalledSize: parseSize(fields[2]),
+		}
+	}
+	return sizes
 }

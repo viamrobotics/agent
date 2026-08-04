@@ -23,7 +23,11 @@ type fakePackageManager struct {
 	paths []string
 }
 
-func (f fakePackageManager) String() string                             { return "fake" }
+func (f fakePackageManager) String() string                          { return "fake" }
+func (f fakePackageManager) prepare(_ context.Context, _ bool) error { return nil }
+func (f fakePackageManager) pendingUpgrades(_ context.Context, _ bool) ([]pendingUpdate, error) {
+	return nil, nil
+}
 func (f fakePackageManager) runUpgrade(_ context.Context, _ bool) error { return nil }
 func (f fakePackageManager) needsReboot(_ context.Context) bool         { return false }
 func (f fakePackageManager) lockPaths() []string                        { return f.paths }

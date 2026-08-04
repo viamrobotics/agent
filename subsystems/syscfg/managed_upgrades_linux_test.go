@@ -92,3 +92,117 @@ func TestNeedsOSRebootWaitsForUpgradeToFinish(t *testing.T) {
 		test.That(t, s.NeedsOSReboot(context.Background()), test.ShouldBeTrue)
 	})
 }
+
+func TestParseAptSimulateUpgrade(t *testing.T) {
+	output := `NOTE: This is only a simulation!
+      apt-get needs root privileges for real execution.
+Reading package lists...
+Building dependency tree...
+Calculating upgrade...
+The following packages will be upgraded:
+  libc6 openssl
+2 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Inst libc6 [2.36-9+deb12u7] (2.36-9+deb12u10 Debian:12.9/stable [arm64])
+Conf libc6 (2.36-9+deb12u10 Debian:12.9/stable [arm64])
+Inst openssl [3.0.11-1~deb12u2] (3.0.15-1~deb12u1 Debian-Security:12/stable-security [arm64])
+Inst linux-image-6.1.0-30-arm64 (6.1.124-1 Debian:12.9/stable [arm64])
+Conf openssl (3.0.15-1~deb12u1 Debian-Security:12/stable-security [arm64])
+`
+	test.That(t, parseAptSimulateUpgrade(output), test.ShouldResemble, []pendingUpdate{
+		{Name: "libc6", CurrentVersion: "2.36-9+deb12u7", Version: "2.36-9+deb12u10"},
+		{
+			Name: "openssl", CurrentVersion: "3.0.11-1~deb12u2", Version: "3.0.15-1~deb12u1",
+			Category: "security",
+		},
+		{Name: "linux-image-6.1.0-30-arm64", Version: "6.1.124-1"},
+	})
+
+	test.That(t, parseAptSimulateUpgrade("0 upgraded, 0 newly installed, 0 to remove.\n"), test.ShouldBeNil)
+}
+
+func TestParseAptCacheSizes(t *testing.T) {
+	output := `Package: libc6
+Source: glibc
+Version: 2.36-9+deb12u10
+Installed-Size: 12759
+Depends: libgcc-s1
+Description-en: GNU C Library
+Size: 2799652
+MD5sum: 0123456789abcdef0123456789abcdef
+
+Package: openssl
+Version: 3.0.15-1~deb12u1
+Installed-Size: 1520
+Size: 1414000
+
+`
+	sizes := parseAptCacheSizes(output)
+	test.That(t, sizes, test.ShouldResemble, map[string]pendingUpdate{
+		"libc6=2.36-9+deb12u10": {DownloadSize: 2799652, InstalledSize: 12759 * 1024},
+		"openssl=3.0.15-1~deb12u1": {
+			DownloadSize: 1414000, InstalledSize: 1520 * 1024,
+		},
+	})
+
+	test.That(t, parseAptCacheSizes(""), test.ShouldBeEmpty)
+}
+
+func TestParseUnattendedUpgradeDryRun(t *testing.T) {
+	output := `Starting unattended upgrades script
+Allowed origins are: origin=Debian,codename=bookworm-security
+Checking: libc6 ([<Origin component:'main' archive:'stable-security'>])
+Packages that will be upgraded: libc6 openssl
+Writing dpkg log to /var/log/unattended-upgrades/unattended-upgrades-dpkg.log
+`
+	test.That(t, parseUnattendedUpgradeDryRun(output), test.ShouldResemble, []string{"libc6", "openssl"})
+
+	noUpdates := "No packages found that can be upgraded unattended and no pending auto-removals\n"
+	test.That(t, parseUnattendedUpgradeDryRun(noUpdates), test.ShouldBeNil)
+}
+
+func TestRestrictToNames(t *testing.T) {
+	candidates := []pendingUpdate{
+		{Name: "libc6", CurrentVersion: "2.36-9+deb12u7", Version: "2.36-9+deb12u10"},
+		{Name: "openssl", Version: "3.0.15-1~deb12u1", Category: "security"},
+	}
+
+	// "held-back" isn't in the simulated upgrade, but unattended-upgrade still
+	// intends to install it, so it must survive as a name-only entry.
+	updates := restrictToNames(candidates, []string{"openssl", "held-back"}, "security")
+	test.That(t, updates, test.ShouldResemble, []pendingUpdate{
+		{Name: "openssl", Version: "3.0.15-1~deb12u1", Category: "security"},
+		{Name: "held-back", Category: "security"},
+	})
+
+	test.That(t, restrictToNames(candidates, nil, "security"), test.ShouldBeEmpty)
+}
+
+func TestParseRPMCheckUpdate(t *testing.T) {
+	output := `
+kernel.x86_64                      6.11.4-201.fc40         updates
+openssl-libs.x86_64                1:3.2.2-3.fc40          updates
+Security: kernel-6.11.4-201.fc40.x86_64 is an installed security update
+
+Obsoleting Packages
+new-pkg.noarch                     2.0-1.fc40              updates
+    old-pkg.noarch                 1.0-1.fc40              @System
+`
+	test.That(t, parseRPMCheckUpdate(output, "security"), test.ShouldResemble, []pendingUpdate{
+		{Name: "kernel.x86_64", Version: "6.11.4-201.fc40", Category: "security"},
+		{Name: "openssl-libs.x86_64", Version: "1:3.2.2-3.fc40", Category: "security"},
+	})
+
+	test.That(t, parseRPMCheckUpdate("", ""), test.ShouldBeNil)
+}
+
+func TestParseRPMSizes(t *testing.T) {
+	// dnf versions differ on whether sizes are byte counts or human readable.
+	output := `kernel.x86_64|2799652|48234496
+openssl-libs.x86_64|1.4 M|7.8 M
+malformed-line-without-separator
+`
+	test.That(t, parseRPMSizes(output), test.ShouldResemble, map[string]pendingUpdate{
+		"kernel.x86_64":       {DownloadSize: 2799652, InstalledSize: 48234496},
+		"openssl-libs.x86_64": {DownloadSize: 1468006, InstalledSize: 8178892},
+	})
+}
