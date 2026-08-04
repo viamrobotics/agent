@@ -29,9 +29,9 @@ require (
 	go.bug.st/serial v1.6.4
 	go.uber.org/zap v1.28.0
 	go.viam.com/api v0.1.574
-	go.viam.com/rdk v1.1.0
+	go.viam.com/rdk v1.2.0
 	go.viam.com/test v1.2.4
-	go.viam.com/utils v0.8.1
+	go.viam.com/utils v0.10.1
 	golang.org/x/sys v0.46.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
