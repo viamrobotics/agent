@@ -19,33 +19,50 @@ import (
 	"github.com/viamrobotics/agent/utils"
 )
 
-// NeedsOSReboot returns true if a system reboot is pending due to installed package updates.
+// NeedsOSReboot reports whether a reboot is pending from installed updates and can
+// be taken now. Servicing in flight defers it, not cancels it: the answer flips
+// back to true once that finishes.
 func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
+	// Refuse while our own install runs; runManagedUpgrade latches needsOSReboot
+	// once it completes. Checked ahead of the cached result below, since a reboot
+	// can be pending from an earlier cycle while a later one is still installing.
+	if s.upgrade.running() {
+		return false
+	}
+
 	s.mu.RLock()
 	needReboot := s.needsOSReboot
 	autoUpgradeType := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	if needReboot {
-		// Cached true result, no way for this to change back to false until the
-		// reboot happens.
-		return true
-	}
+	// Skipped when already cached; there is no way for a pending reboot to become
+	// unnecessary until the reboot happens.
+	if !needReboot {
+		if !isManaged(autoUpgradeType) {
+			// We only care about managing reboots in managed upgrade mode.
+			return false
+		}
 
-	if !isManaged(autoUpgradeType) {
-		// We only care about managing reboots in managed upgrade mode.
-		return false
-	}
+		if !windowsRebootRequired(ctx) {
+			return false
+		}
 
-	needReboot = windowsRebootRequired(ctx)
-	if needReboot {
 		// Cache the first positive result.
 		s.mu.Lock()
 		s.needsOSReboot = true
 		s.mu.Unlock()
 	}
 
-	return needReboot
+	// A reboot is pending; whether it is safe to act on is a separate question. The
+	// registry key is set partway through a batch, and we did not necessarily set
+	// it — Windows' own Automatic Updates install on their own schedule. Hold off
+	// rather than force-reboot an install we know nothing about; we are polled once
+	// a minute, so this only delays it.
+	blocked := windowsUpdateBusy(ctx)
+	s.rebootBlocked.note(s.logger, blocked,
+		"OS reboot pending, but Windows servicing is still in progress; waiting for it to finish")
+
+	return !blocked
 }
 
 // startManagedUpgrades launches the background goroutine that periodically runs Windows Update.
@@ -104,7 +121,15 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 
 	s.logger.Info("Running managed Windows Update")
 
-	if err := runWindowsUpdate(ctx, mode == utils.OSAutoUpgradeManagedSecurity); err != nil {
+	// Block reboots for the duration of the install: Windows sets RebootRequired as
+	// soon as one update needs it, so the key can appear while the rest of the batch
+	// is still being written to the component store.
+	err := func() error {
+		upgradeDone := s.upgrade.begin()
+		defer upgradeDone()
+		return runWindowsUpdate(ctx, mode == utils.OSAutoUpgradeManagedSecurity)
+	}()
+	if err != nil {
 		s.logger.Warnw("Windows Update failed", "error", err)
 		return err
 	}
@@ -169,6 +194,50 @@ func windowsRebootRequired(ctx context.Context) bool {
 		return false
 	}
 	return strings.TrimSpace(string(out)) == "True"
+}
+
+// windowsUpdateBusy reports whether servicing is in flight, covering batches the
+// agent did not start. Both signals are needed because neither subsumes the
+// other: IsBusy sees Windows Update Agent sessions, including MSI- and
+// driver-shaped updates that never touch the component store, while
+// TrustedInstaller sees component-based servicing from any source (.msu, DISM,
+// feature changes) and keeps running after the WUA session that queued it ends.
+//
+// TrustedInstaller is the blunter of the two, lingering idle for minutes after
+// servicing finishes, so it can hold a reboot past the maintenance window and
+// into the next one. That beats force-rebooting a transaction we cannot see the
+// end of.
+func windowsUpdateBusy(ctx context.Context) bool {
+	// IsBusy first, so the second process spawn is skipped when WUA is mid-install.
+	return updateInstallerBusy(ctx) || trustedInstallerRunning(ctx)
+}
+
+// updateInstallerBusy reports IUpdateInstaller.IsBusy, which covers the whole
+// machine rather than just our own COM object. Errors read as "not busy" since
+// trustedInstallerRunning still runs alongside it.
+func updateInstallerBusy(ctx context.Context) bool {
+	out, err := exec.CommandContext(ctx, "powershell",
+		"-NonInteractive", "-NoProfile",
+		"-Command", `(New-Object -ComObject Microsoft.Update.Installer).IsBusy`,
+	).Output()
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(string(out)), "True")
+}
+
+// trustedInstallerRunning reports whether the Windows Modules Installer service
+// is running, which it does for the duration of a servicing transaction. Errors
+// read as "not running" so a broken check cannot block reboots forever.
+func trustedInstallerRunning(ctx context.Context) bool {
+	out, err := exec.CommandContext(ctx, "powershell",
+		"-NonInteractive", "-NoProfile",
+		"-Command", `(Get-Service -Name TrustedInstaller).Status`,
+	).Output()
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(string(out)), "Running")
 }
 
 // runPowerShell executes a PowerShell command, returning a wrapped error with output on failure.
