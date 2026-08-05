@@ -11,6 +11,7 @@ package syscfg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -142,8 +143,14 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	updates := updateSummary{updates: pending, listErr: listErr}
 	logPendingUpdates(s.logger, updates, "security_only", securityOnly)
 
-	upgradeErr := installWindowsUpdates(ctx, s.logger, securityOnly)
-	logUpgradeResult(ctx, s.logger, updates, upgradeErr, "security_only", securityOnly)
+	installed, upgradeErr := installWindowsUpdates(ctx, s.logger, securityOnly)
+	result := updateSummary{updates: installed}
+	if len(installed) == 0 {
+		// The install failed, or Windows Update didn't say what it covered. Report what
+		// we set out to install rather than an empty list.
+		result = updates
+	}
+	logUpgradeResult(ctx, s.logger, result, upgradeErr, "security_only", securityOnly)
 	if upgradeErr != nil {
 		return upgradeErr
 	}
@@ -199,40 +206,52 @@ type windowsUpdateInfo struct {
 	Categories []string `json:"categories"`
 }
 
+// windowsUpdatesJSON renders a PowerShell snippet that prints the updates held in
+// the passed variable as JSON, which is all the snippets that use it write to
+// standard output. ConvertTo-Json is fed the array explicitly because piping to it
+// would unroll a single update back into an object.
+func windowsUpdatesJSON(variable string) string {
+	return `ConvertTo-Json -Compress -Depth 3 -InputObject @(` +
+		variable + ` | ForEach-Object { [PSCustomObject]@{ title = [string]$_.Title; kb = [string]$_.KB; ` +
+		`downloadSize = [uint64]$_.MaxDownloadSize; size = [string]$_.Size; ` +
+		`categories = @($_.Categories | ForEach-Object { [string]$_.Name }) } })`
+}
+
 // pendingWindowsUpdates lists the updates that installWindowsUpdates would
 // install. Windows Update reports a download size and update categories, but no
 // unpacked size.
 func pendingWindowsUpdates(ctx context.Context, logger logging.Logger, securityOnly bool) ([]pendingUpdate, error) {
 	// Without -Install, Get-WindowsUpdate only searches, so this reports what the
-	// install below is about to do. ConvertTo-Json is fed the array explicitly
-	// because piping to it would unroll a single update back into an object.
+	// install below is about to do.
 	cmd := "Import-Module PSWindowsUpdate; $pending = @(Get-WindowsUpdate"
 	if securityOnly {
 		cmd += securityCategory
 	}
-	cmd += `); ConvertTo-Json -Compress -Depth 3 -InputObject @($pending | ForEach-Object { ` +
-		`[PSCustomObject]@{ title = [string]$_.Title; kb = [string]$_.KB; ` +
-		`downloadSize = [uint64]$_.MaxDownloadSize; size = [string]$_.Size; ` +
-		`categories = @($_.Categories | ForEach-Object { [string]$_.Name }) } })`
+	cmd += "); " + windowsUpdatesJSON("$pending")
 
 	output, err := runPowerShell(ctx, logger, cmd)
 	if err != nil {
 		return nil, errw.Wrap(err, "listing pending Windows updates")
 	}
+	return parseWindowsUpdates(output)
+}
 
-	trimmed := strings.TrimSpace(output)
-	if trimmed == "" {
+// parseWindowsUpdates converts the JSON printed by [windowsUpdatesJSON] into
+// updates.
+func parseWindowsUpdates(output string) ([]pendingUpdate, error) {
+	output = strings.TrimSpace(output)
+	if output == "" {
 		// Not every PowerShell version renders an empty array as "[]".
 		return nil, nil
 	}
 
-	var found []windowsUpdateInfo
-	if err := json.Unmarshal([]byte(trimmed), &found); err != nil {
-		return nil, errw.Wrapf(err, "parsing pending Windows updates: %s", output)
+	var infos []windowsUpdateInfo
+	if err := json.Unmarshal([]byte(output), &infos); err != nil {
+		return nil, errw.Wrapf(err, "parsing Windows updates: %s", output)
 	}
 
-	updates := make([]pendingUpdate, 0, len(found))
-	for _, info := range found {
+	updates := make([]pendingUpdate, 0, len(infos))
+	for _, info := range infos {
 		updates = append(updates, pendingUpdate{
 			Name:         windowsUpdateName(info),
 			DownloadSize: windowsDownloadSize(info),
@@ -260,20 +279,33 @@ func windowsDownloadSize(info windowsUpdateInfo) uint64 {
 	return parseSize(info.Size)
 }
 
-// installWindowsUpdates installs updates via the PSWindowsUpdate PowerShell module.
+// installWindowsUpdates installs updates via the PSWindowsUpdate PowerShell module,
+// returning the updates it reported installing so the caller can log what actually
+// landed rather than what was merely pending beforehand.
 // Devices already configured to use a WSUS server (via Group Policy or registry) will
 // automatically receive updates from that server without any extra configuration.
-func installWindowsUpdates(ctx context.Context, logger logging.Logger, securityOnly bool) error {
+func installWindowsUpdates(ctx context.Context, logger logging.Logger, securityOnly bool) ([]pendingUpdate, error) {
 	// -IgnoreReboot prevents PSWindowsUpdate from rebooting immediately; the agent
 	// coordinates the reboot via the maintenance window.
-	cmd := "Import-Module PSWindowsUpdate; Get-WindowsUpdate -Install -AcceptAll -IgnoreReboot"
+	cmd := "Import-Module PSWindowsUpdate; $installed = @(Get-WindowsUpdate -Install -AcceptAll -IgnoreReboot"
 	if securityOnly {
 		cmd += securityCategory
 	}
-	if _, err := runPowerShell(ctx, logger, cmd); err != nil {
-		return errw.Wrap(err, "installing Windows updates")
+	cmd += "); " + windowsUpdatesJSON("$installed")
+
+	output, err := runPowerShell(ctx, logger, cmd)
+	if err != nil {
+		return nil, errw.Wrap(err, "installing Windows updates")
 	}
-	return nil
+
+	installed, err := parseWindowsUpdates(output)
+	if err != nil {
+		// The install itself succeeded, we just can't say from its output what it
+		// covered. The caller falls back to the pending list.
+		logger.Warnw("Could not determine which Windows updates were installed", "err", err)
+		return nil, nil
+	}
+	return installed, nil
 }
 
 // windowsRebootRequired checks the Windows Update registry key that signals a pending reboot.
@@ -334,17 +366,29 @@ func trustedInstallerRunning(ctx context.Context) bool {
 	return strings.EqualFold(strings.TrimSpace(string(out)), "Running")
 }
 
-// runPowerShell executes a PowerShell command, returning its combined output, or a
-// wrapped error with that output on failure.
+// silenceProgress suppresses the progress stream for the rest of a script.
+// Install-Module and Windows Update downloads both report progress, which renders
+// into the output we capture and parse.
+const silenceProgress = `$ProgressPreference = 'SilentlyContinue'; `
+
+// runPowerShell executes a PowerShell command, returning its standard output only.
+// Standard error is deliberately kept out of that: callers parse the output, and
+// PSWindowsUpdate writes warnings (a pending reboot, for one) to stderr, which would
+// otherwise land in the middle of the data. It is reported in the error instead.
 func runPowerShell(ctx context.Context, logger logging.Logger, script string) (string, error) {
+	script = silenceProgress + script
 	cmd := exec.CommandContext(ctx, "powershell",
 		"-NonInteractive", "-NoProfile", "-ExecutionPolicy", "RemoteSigned",
 		"-Command", script,
 	)
 	logger.Debugw("Executing powershell command", "script", script)
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
-		return string(output), fmt.Errorf("powershell: %w\n%s", err, output)
+		var stderr []byte
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			stderr = exitErr.Stderr
+		}
+		return string(output), fmt.Errorf("powershell: %w\nstdout: %s\nstderr: %s", err, output, stderr)
 	}
 	logger.Debugw("Powershell command succeeded", "script", script, "output", string(output))
 	return string(output), nil
