@@ -75,6 +75,12 @@ fi
 
 tmpdir=""
 if [ "$fix_mode" = true ]; then
+	# A sweep has no operator judgement behind it, and --fix is a one-way door
+	# per manifest. Repair one version you have looked at.
+	if [ -z "$version_filter" ]; then
+		echo "--fix repairs one version at a time; pass --version" >&2
+		exit 2
+	fi
 	if ! command -v gsutil >/dev/null; then
 		echo "--fix needs gsutil on PATH, authenticated for gs://$BUCKET" >&2
 		exit 2
