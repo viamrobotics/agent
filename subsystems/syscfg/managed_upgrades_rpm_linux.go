@@ -16,11 +16,15 @@ const (
 	// sizes never contain it, unlike whitespace which shows up in the human
 	// readable sizes some dnf versions print.
 	rpmQuerySeparator = "|"
-	// rpmSizeQueryFormat asks repoquery for the sizes check-update omits. Sizes are
-	// printed as a byte count by some versions and as a human readable string by
+	// dnfSizeQueryFormat asks dnf repoquery for the sizes check-update omits. Sizes
+	// are printed as a byte count by some versions and as a human readable string by
 	// others; [parseSize] accepts both.
-	rpmSizeQueryFormat = "%{name}.%{arch}" + rpmQuerySeparator +
+	dnfSizeQueryFormat = "%{name}.%{arch}" + rpmQuerySeparator +
 		"%{downloadsize}" + rpmQuerySeparator + "%{installsize}"
+	// yumSizeQueryFormat is the same query for the classic repoquery binary, which
+	// names the size tags differently than dnf does.
+	yumSizeQueryFormat = "%{name}.%{arch}" + rpmQuerySeparator +
+		"%{packagesize}" + rpmQuerySeparator + "%{installedsize}"
 )
 
 type rpmPackageManager struct {
@@ -132,10 +136,7 @@ func (r rpmPackageManager) fillPackageSizes(ctx context.Context, updates []pendi
 		return
 	}
 
-	//nolint: gosec
-	cmd := exec.CommandContext(ctx, r.getProgram(), "repoquery", "-q", "--upgrades",
-		"--queryformat", rpmSizeQueryFormat)
-	output, err := cmd.Output()
+	output, err := r.sizeQueryCommand(ctx).Output()
 	if err != nil {
 		r.logger.Debugw("Could not read pending update sizes from repoquery",
 			"package_manager", r, "err", err)
@@ -149,6 +150,21 @@ func (r rpmPackageManager) fillPackageSizes(ctx context.Context, updates []pendi
 			updates[i].InstalledSize = size.InstalledSize
 		}
 	}
+}
+
+// sizeQueryCommand returns the command that reports the sizes of every pending
+// upgrade. With dnf, repoquery is a subcommand; on yum systems it is a
+// standalone binary shipped in yum-utils.
+func (r rpmPackageManager) sizeQueryCommand(ctx context.Context) *exec.Cmd {
+	if r.useDnf {
+		return exec.CommandContext(ctx, "dnf", "repoquery", "-q", "--upgrades",
+			"--queryformat", dnfSizeQueryFormat)
+	}
+	// --all matches every package, which --pkgnarrow=updates then narrows to the
+	// pending updates, like dnf's --upgrades. -q is accepted (and ignored) for rpm
+	// compatibility.
+	return exec.CommandContext(ctx, "repoquery", "-q", "--all", "--pkgnarrow=updates",
+		"--queryformat", yumSizeQueryFormat)
 }
 
 func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
@@ -187,7 +203,8 @@ func parseRPMCheckUpdate(output, category string) []pendingUpdate {
 }
 
 // parseRPMSizes extracts package sizes from repoquery output in
-// [rpmSizeQueryFormat], keyed by the "<name>.<arch>" that check-update lists.
+// [dnfSizeQueryFormat] or [yumSizeQueryFormat], keyed by the "<name>.<arch>" that
+// check-update lists.
 func parseRPMSizes(output string) map[string]pendingUpdate {
 	sizes := map[string]pendingUpdate{}
 	for _, line := range strings.Split(output, "\n") {

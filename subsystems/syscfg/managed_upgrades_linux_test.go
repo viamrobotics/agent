@@ -195,6 +195,19 @@ new-pkg.noarch                     2.0-1.fc40              updates
 	test.That(t, parseRPMCheckUpdate("", ""), test.ShouldBeNil)
 }
 
+func TestRPMSizeQueryCommand(t *testing.T) {
+	dnf := rpmPackageManager{useDnf: true}
+	test.That(t, dnf.sizeQueryCommand(t.Context()).Args, test.ShouldResemble, []string{
+		"dnf", "repoquery", "-q", "--upgrades", "--queryformat", dnfSizeQueryFormat,
+	})
+
+	// On yum systems repoquery is a standalone binary, not a yum subcommand.
+	yum := rpmPackageManager{useDnf: false}
+	test.That(t, yum.sizeQueryCommand(t.Context()).Args, test.ShouldResemble, []string{
+		"repoquery", "-q", "--all", "--pkgnarrow=updates", "--queryformat", yumSizeQueryFormat,
+	})
+}
+
 func TestParseRPMSizes(t *testing.T) {
 	// dnf versions differ on whether sizes are byte counts or human readable.
 	output := `kernel.x86_64|2799652|48234496
