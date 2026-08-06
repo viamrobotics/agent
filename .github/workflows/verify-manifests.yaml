@@ -1,0 +1,51 @@
+name: Verify Manifests
+
+# On-demand sweep for manifests whose sha256 does not match the binary their
+# upload-path points at, which leaves every agent on that version rejecting its
+# download and retrying forever.
+#
+# Deliberately not scheduled. Test and Build verifies the version it just
+# published, after publishing it, so any run that writes a manifest re-reads it
+# and a clobber is caught by whichever run wrote last. That leaves only writes no
+# workflow run made or verified — a manifest corrected by hand, or a job killed
+# between its upload and its check — which is what this is for. It is also the
+# only way to cover prerelease manifests or the full history, neither of which
+# the per-run check looks at.
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: 'Most recently written manifests to check (0 = all)'
+        default: '20'
+        type: string
+      include_prerelease:
+        description: 'Also check -dev./-pr. manifests'
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify published manifests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Verify
+      run: |
+        set -o pipefail
+        ARGS=(--count "${{ inputs.count || '20' }}")
+        if [ "${{ inputs.include_prerelease }}" = "true" ]; then
+          ARGS+=(--include-prerelease)
+        fi
+        ./verify-manifests.sh "${ARGS[@]}" | tee /tmp/verify.log
+    - name: Summarize
+      if: always()
+      run: |
+        {
+          echo '```'
+          cat /tmp/verify.log
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
