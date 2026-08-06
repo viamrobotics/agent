@@ -42,6 +42,24 @@ func TestParseWindowsUpdatesKBPrefix(t *testing.T) {
 	})
 }
 
+func TestDedupeWindowsUpdatesInstallStages(t *testing.T) {
+	// Get-WindowsUpdate -Install emits one row per update per stage; only the last
+	// stage each update reached should survive, in first-appearance order.
+	output := `[{"title":"Update A (KB1)","kb":"KB1","downloadSize":100,"result":"Accepted"},` +
+		`{"title":"Update B (KB2)","kb":"KB2","downloadSize":200,"result":"Accepted"},` +
+		`{"title":"Update A (KB1)","kb":"KB1","downloadSize":100,"result":"Downloaded"},` +
+		`{"title":"Update B (KB2)","kb":"KB2","downloadSize":200,"result":"Downloaded"},` +
+		`{"title":"Update A (KB1)","kb":"KB1","downloadSize":100,"result":"Installed"},` +
+		`{"title":"Update B (KB2)","kb":"KB2","downloadSize":200,"result":"Failed"}]`
+
+	updates, err := parseWindowsUpdates(output)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, dedupeWindowsUpdates(updates), test.ShouldResemble, []pendingUpdate{
+		{Name: "Update A (KB1)", DownloadSize: 100, Result: "Installed"},
+		{Name: "Update B (KB2)", DownloadSize: 200, Result: "Failed"},
+	})
+}
+
 func TestParseWindowsUpdatesEmpty(t *testing.T) {
 	updates, err := parseWindowsUpdates("[]\r\n")
 	test.That(t, err, test.ShouldBeNil)

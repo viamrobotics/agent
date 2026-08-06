@@ -148,6 +148,10 @@ type pendingUpdate struct {
 	// Category classifies the update, e.g. "security". Package managers that don't
 	// classify individual packages leave this empty.
 	Category string `json:"category,omitempty"`
+	// Result is how far installing this update got, e.g. "Installed" or "Failed".
+	// Only Windows Update reports per-update outcomes; Linux package managers and
+	// pending-update lists leave it empty.
+	Result string `json:"result,omitempty"`
 }
 
 // updateSummary describes the updates a managed upgrade is about to install.

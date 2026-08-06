@@ -204,6 +204,9 @@ type windowsUpdateInfo struct {
 	Size string `json:"size"`
 	// Categories classify the update, e.g. "Security Updates", "Drivers".
 	Categories []string `json:"categories"`
+	// Result is the install stage an update has reached, e.g. "Accepted",
+	// "Downloaded", "Installed" or "Failed". Search results leave it empty.
+	Result string `json:"result"`
 }
 
 // windowsUpdatesJSON renders a PowerShell snippet that prints the updates held in
@@ -213,7 +216,7 @@ type windowsUpdateInfo struct {
 func windowsUpdatesJSON(variable string) string {
 	return `ConvertTo-Json -Compress -Depth 3 -InputObject @(` +
 		variable + ` | ForEach-Object { [PSCustomObject]@{ title = [string]$_.Title; kb = [string]$_.KB; ` +
-		`downloadSize = [uint64]$_.MaxDownloadSize; size = [string]$_.Size; ` +
+		`downloadSize = [uint64]$_.MaxDownloadSize; size = [string]$_.Size; result = [string]$_.Result; ` +
 		`categories = @($_.Categories | ForEach-Object { [string]$_.Name }) } })`
 }
 
@@ -258,6 +261,7 @@ func parseWindowsUpdates(output string) ([]pendingUpdate, error) {
 			// Categories are per-update rather than a single classification, so keep all
 			// of them, separated by "/" to stay distinguishable inside a log line.
 			Category: strings.Join(info.Categories, "/"),
+			Result:   info.Result,
 		})
 	}
 	return updates, nil
@@ -280,8 +284,11 @@ func windowsDownloadSize(info windowsUpdateInfo) uint64 {
 }
 
 // installWindowsUpdates installs updates via the PSWindowsUpdate PowerShell module,
-// returning the updates it reported installing so the caller can log what actually
-// landed rather than what was merely pending beforehand.
+// returning one entry per update it processed, with Result reporting the stage the
+// update reached, so the caller can log what actually landed rather than what was
+// merely pending beforehand. An update that failed to install is a "Failed" entry
+// in that list, not an error: PSWindowsUpdate reports per-update failures in its
+// output rather than its exit code.
 // Devices already configured to use a WSUS server (via Group Policy or registry) will
 // automatically receive updates from that server without any extra configuration.
 func installWindowsUpdates(ctx context.Context, logger logging.Logger, securityOnly bool) ([]pendingUpdate, error) {
@@ -305,7 +312,26 @@ func installWindowsUpdates(ctx context.Context, logger logging.Logger, securityO
 		logger.Warnw("Could not determine which Windows updates were installed", "err", err)
 		return nil, nil
 	}
-	return installed, nil
+	return dedupeWindowsUpdates(installed), nil
+}
+
+// dedupeWindowsUpdates collapses the stage rows Get-WindowsUpdate -Install emits —
+// one per update for each of "Accepted", "Downloaded" and "Installed" (or
+// "Failed") — into a single entry per update carrying the last stage it reached.
+// Updates keep the order they first appeared in, and the stage rows arrive in
+// chronological order, so the last row seen for a name is its final stage.
+func dedupeWindowsUpdates(updates []pendingUpdate) []pendingUpdate {
+	indexByName := make(map[string]int, len(updates))
+	deduped := make([]pendingUpdate, 0, len(updates))
+	for _, update := range updates {
+		if i, ok := indexByName[update.Name]; ok {
+			deduped[i] = update
+			continue
+		}
+		indexByName[update.Name] = len(deduped)
+		deduped = append(deduped, update)
+	}
+	return deduped
 }
 
 // windowsRebootRequired checks the Windows Update registry key that signals a pending reboot.
