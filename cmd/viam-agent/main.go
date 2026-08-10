@@ -248,7 +248,9 @@ func commonMain(runningAsService bool) {
 		registry.AddAppenderToAll(netAppender)
 	}
 
-	// wait until now when we (potentially) have a network logger to record this
+	// wait until now when we (potentially) have a network logger to record this.
+	// This line is parsed by internal/serialcontrol to detect the running agent
+	// version; keep the format in sync with agentVersionRegex there.
 	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
 	startupStarted := time.Now()
 	globalLogger.Activity("startup", "start",
@@ -269,9 +271,8 @@ func commonMain(runningAsService bool) {
 			globalLogger.Warn(err)
 		}
 		if needRestart {
-			agent.RecordExitReason("update")
+			agent.RecordExitReason("update", "updated self, exiting to await restart with new version")
 			manager.CloseAll()
-			globalLogger.Info("updated self, exiting to await restart with new version")
 			return
 		}
 	}
@@ -317,9 +318,7 @@ func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 			case syscall.SIGABRT:
 				fallthrough
 			case syscall.SIGTERM:
-				agent.RecordExitReason("signal")
-				exitMsg := fmt.Sprintf("Signal received. %s will now exit to be restarted by service manager", agent.SubsystemName)
-				globalLogger.Infow(exitMsg, "signal", sig)
+				agent.RecordExitReason("signal", sig.String())
 				signal.Ignore(os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // keeping SIGQUIT for stack trace debugging
 				return
 

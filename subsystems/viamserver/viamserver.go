@@ -203,16 +203,12 @@ func (s *Subsystem) Start(ctx context.Context) error {
 			}
 			if s.cmd.ProcessState != nil {
 				s.lastExit = s.cmd.ProcessState.ExitCode()
-				if s.lastExit != 0 {
-					s.logger.Errorf("non-zero exit code: %d", s.lastExit)
-				}
 			}
 			s.logger.Activity("viam-server", "stop",
 				"pid", s.cmd.Process.Pid,
 				"reason", "crash",
 				"exit_code", s.lastExit,
 			)
-			s.logger.Infof("%s exited unexpectedly and will be restarted shortly", SubsysName)
 		}
 		close(s.exitChan)
 	}()
@@ -221,13 +217,16 @@ func (s *Subsystem) Start(ctx context.Context) error {
 	case matches := <-c:
 		s.checkURL = matches[1]
 		s.checkURLAlt = strings.Replace(matches[2], "0.0.0.0", "127.0.0.1", 1)
-		s.logger.Infof("%s started", SubsysName)
-		s.logger.Infof("%s found serving at the following URLs: %s %s", SubsysName, s.checkURL, s.checkURLAlt)
 		var version string
 		if s.serverVersion != nil {
 			version = s.serverVersion()
 		}
-		s.logger.Activity("viam-server", "start", "pid", s.cmd.Process.Pid, "version", version)
+		s.logger.Activity("viam-server", "start",
+			"pid", s.cmd.Process.Pid,
+			"version", version,
+			"url", s.checkURL,
+			"alt_url", s.checkURLAlt,
+		)
 
 		// Once the subsystem has successfully started, fetch restart status and cache
 		// relevant properties. These values are calculated once at startup and cached,
@@ -319,8 +318,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 	}
 
 	if s.waitForExit(ctx, stopTermTimeout) {
-		s.logger.Infof("%s successfully stopped", SubsysName)
-		s.logger.Activity("viam-server", "stop", "pid", pid, "reason", stopReason)
+		s.logger.Activity("viam-server", "stop", "pid", pid, "reason", stopReason, "forced", false)
 		return nil
 	}
 
@@ -330,8 +328,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 	}
 
 	if s.waitForExit(ctx, stopKillTimeout) {
-		s.logger.Infof("%s successfully killed", SubsysName)
-		s.logger.Activity("viam-server", "stop", "pid", pid, "reason", stopReason)
+		s.logger.Activity("viam-server", "stop", "pid", pid, "reason", stopReason, "forced", true)
 		return nil
 	}
 

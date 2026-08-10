@@ -578,10 +578,9 @@ func (m *Manager) CloseAll() {
 
 		// Stop all three subsystems. The ordering is significant here.
 		m.viamServer.SetNextStopReason("agent_shutdown")
+		// success is recorded by the viam-server stop activity event
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
-		} else {
-			m.logger.Infof("Subsystem %s shut down successfully", viamserver.SubsysName)
 		}
 		if err := m.sysConfig.Stop(ctx); err != nil {
 			m.logger.Warn(err)
@@ -595,16 +594,17 @@ func (m *Manager) CloseAll() {
 		}
 
 		m.activeBackgroundWorkers.Wait()
-		m.logger.Info("Background workers shut down successfully")
 
 		// Emitted before the net appender closes below so its best-effort flush can
 		// deliver this event to the cloud on the way out.
 		shutdownDuration := time.Since(shutdownStarted)
+		reason, detail := exitReasonAndDetail("unknown")
 		m.logger.Activity("shutdown", "complete",
 			"pid", os.Getpid(),
 			"version", utils.GetVersion(),
 			"git_rev", utils.GetRevision(),
-			"reason", exitReasonOrDefault("unknown"),
+			"reason", reason,
+			"detail", detail,
 			"duration", shutdownDuration.String(),
 			"duration_us", shutdownDuration.Microseconds(),
 		)
@@ -1026,10 +1026,9 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 }
 
 // Exit cancels the main context so the agent exits to be restarted by the service
-// manager. message is the human-readable explanation; reason is the short token
-// attached to the shutdown activity events (e.g. "agent_update", "app_restart").
+// manager. message is the human-readable explanation and reason is the short token
+// (e.g. "agent_update", "app_restart"); both are attached to the shutdown activity events.
 func (m *Manager) Exit(message, reason string) {
-	RecordExitReason(reason)
-	m.logger.Infow(fmt.Sprintf("%s will now exit to be restarted by service manager", SubsystemName), "reason", message)
+	RecordExitReason(reason, message)
 	m.globalCancel()
 }
