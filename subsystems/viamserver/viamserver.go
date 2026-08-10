@@ -73,12 +73,12 @@ type Subsystem struct {
 	// This is set to true when the app's NeedsRestart API triggers a restart.
 	appTriggeredRestart bool
 
-	// nextStopReason classifies the next Stop for the viam_server stop activity event;
+	// nextStopReason classifies the next Stop for the viam-server stop activity event;
 	// set by callers via SetNextStopReason and consumed (reset) by Stop.
 	nextStopReason string
 
 	// serverVersion reports the viam-server version the agent believes it is running
-	// (from the version cache); attached to the viam_server start activity event.
+	// (from the version cache); attached to the viam-server start activity event.
 	serverVersion func() string
 
 	// startTime records when the current viam-server process was last started.
@@ -207,7 +207,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 					s.logger.Errorf("non-zero exit code: %d", s.lastExit)
 				}
 			}
-			s.logger.Activity("viam_server", "stop",
+			s.logger.Activity("viam-server", "stop",
 				"pid", s.cmd.Process.Pid,
 				"reason", "crash",
 				"exit_code", s.lastExit,
@@ -227,7 +227,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		if s.serverVersion != nil {
 			version = s.serverVersion()
 		}
-		s.logger.Activity("viam_server", "start", "pid", s.cmd.Process.Pid, "version", version)
+		s.logger.Activity("viam-server", "start", "pid", s.cmd.Process.Pid, "version", version)
 
 		// Once the subsystem has successfully started, fetch restart status and cache
 		// relevant properties. These values are calculated once at startup and cached,
@@ -320,7 +320,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 
 	if s.waitForExit(ctx, stopTermTimeout) {
 		s.logger.Infof("%s successfully stopped", SubsysName)
-		s.logger.Activity("viam_server", "stop", "pid", pid, "reason", stopReason)
+		s.logger.Activity("viam-server", "stop", "pid", pid, "reason", stopReason)
 		return nil
 	}
 
@@ -331,7 +331,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 
 	if s.waitForExit(ctx, stopKillTimeout) {
 		s.logger.Infof("%s successfully killed", SubsysName)
-		s.logger.Activity("viam_server", "stop", "pid", pid, "reason", stopReason)
+		s.logger.Activity("viam-server", "stop", "pid", pid, "reason", stopReason)
 		return nil
 	}
 
@@ -450,7 +450,7 @@ func (s *Subsystem) MarkAppTriggeredRestart() {
 	s.appTriggeredRestart = true
 }
 
-// SetNextStopReason classifies the next Stop for the viam_server stop activity event
+// SetNextStopReason classifies the next Stop for the viam-server stop activity event
 // (e.g. "update", "config_change", "agent_shutdown").
 func (s *Subsystem) SetNextStopReason(reason string) {
 	s.mu.Lock()
