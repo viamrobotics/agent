@@ -201,11 +201,32 @@ func TestRPMSizeQueryCommand(t *testing.T) {
 		"dnf", "repoquery", "-q", "--upgrades", "--queryformat", dnfSizeQueryFormat,
 	})
 
+	// dnf5 stopped printing a newline after each record, so its format has to ask
+	// for one explicitly.
+	dnf5 := rpmPackageManager{useDnf: true, dnf5: true}
+	test.That(t, dnf5.sizeQueryCommand(t.Context()).Args, test.ShouldResemble, []string{
+		"dnf", "repoquery", "-q", "--upgrades", "--queryformat", dnfSizeQueryFormat + `\n`,
+	})
+
 	// On yum systems repoquery is a standalone binary, not a yum subcommand.
 	yum := rpmPackageManager{useDnf: false}
 	test.That(t, yum.sizeQueryCommand(t.Context()).Args, test.ShouldResemble, []string{
 		"repoquery", "-q", "--all", "--pkgnarrow=updates", "--queryformat", yumSizeQueryFormat,
 	})
+}
+
+func TestDnfMajorVersion(t *testing.T) {
+	dnf4Output := `4.14.0
+  Installed: dnf-0:4.14.0-1.fc38.noarch at Thu 06 Apr 2023 12:00:00 AM UTC
+  Built    : Fedora Project at Wed 15 Feb 2023 12:00:00 AM UTC
+`
+	test.That(t, dnfMajorVersion(dnf4Output), test.ShouldEqual, 4)
+
+	dnf5Output := "dnf5 version 5.2.6.2\n"
+	test.That(t, dnfMajorVersion(dnf5Output), test.ShouldEqual, 5)
+
+	test.That(t, dnfMajorVersion(""), test.ShouldEqual, 0)
+	test.That(t, dnfMajorVersion("command not found"), test.ShouldEqual, 0)
 }
 
 func TestParseRPMSizes(t *testing.T) {

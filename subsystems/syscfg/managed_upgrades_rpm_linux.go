@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 
 	errw "github.com/pkg/errors"
@@ -25,20 +27,56 @@ const (
 	// names the size tags differently than dnf does.
 	yumSizeQueryFormat = "%{name}.%{arch}" + rpmQuerySeparator +
 		"%{packagesize}" + rpmQuerySeparator + "%{installedsize}"
+	// dnf5SizeQueryFormat is [dnfSizeQueryFormat] for dnf5, which stopped printing a
+	// newline after each record and instead expects the format to ask for one with
+	// an escape sequence. Only dnf5 gets it: dnf4 already separates records itself,
+	// and isn't documented to interpret the escape.
+	dnf5SizeQueryFormat = dnfSizeQueryFormat + `\n`
 )
 
 type rpmPackageManager struct {
 	logger logging.Logger
 	useDnf bool
+	// dnf5 reports that the dnf binary is dnf5 (Fedora 41+), which is a rewrite
+	// with its own command line quirks, rather than dnf4.
+	dnf5 bool
 }
 
 // String implements [packageManager].
 func (r rpmPackageManager) String() string {
 	manager := "yum"
-	if r.useDnf {
+	switch {
+	case r.dnf5:
+		manager = "dnf5"
+	case r.useDnf:
 		manager = "dnf"
 	}
 	return fmt.Sprintf("rpm(%s)", manager)
+}
+
+// isDnf5 reports whether the installed dnf binary is dnf5. `dnf --version`
+// prints "dnf5 version 5.x.y" on dnf5 and a bare "4.x.y" on dnf4, so the first
+// integer to appear is the major version either way. When the version can't be
+// determined, assume dnf4, whose behavior this code has relied on the longest.
+func isDnf5(ctx context.Context, logger logging.Logger) bool {
+	output, err := exec.CommandContext(ctx, "dnf", "--version").Output()
+	if err != nil {
+		logger.Debugw("Could not determine dnf version, assuming dnf4", "err", err)
+		return false
+	}
+	return dnfMajorVersion(string(output)) >= 5
+}
+
+var dnfVersionRegex = regexp.MustCompile(`\d+`)
+
+// dnfMajorVersion extracts the major version from `dnf --version` output,
+// returning 0 when there is none to find.
+func dnfMajorVersion(output string) int {
+	major, err := strconv.Atoi(dnfVersionRegex.FindString(output))
+	if err != nil {
+		return 0
+	}
+	return major
 }
 
 func (r rpmPackageManager) needsReboot(ctx context.Context) bool {
@@ -157,8 +195,12 @@ func (r rpmPackageManager) fillPackageSizes(ctx context.Context, updates []pendi
 // standalone binary shipped in yum-utils.
 func (r rpmPackageManager) sizeQueryCommand(ctx context.Context) *exec.Cmd {
 	if r.useDnf {
+		format := dnfSizeQueryFormat
+		if r.dnf5 {
+			format = dnf5SizeQueryFormat
+		}
 		return exec.CommandContext(ctx, "dnf", "repoquery", "-q", "--upgrades",
-			"--queryformat", dnfSizeQueryFormat)
+			"--queryformat", format)
 	}
 	// --all matches every package, which --pkgnarrow=updates then narrows to the
 	// pending updates, like dnf's --upgrades. -q is accepted (and ignored) for rpm

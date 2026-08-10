@@ -37,7 +37,7 @@ func (f fakePackageManager) lockPaths() []string                        { return
 func withPackageLocks(t *testing.T, paths ...string) {
 	t.Helper()
 	original := getPackageManager
-	getPackageManager = func(logging.Logger) (packageManager, error) {
+	getPackageManager = func(context.Context, logging.Logger) (packageManager, error) {
 		return fakePackageManager{paths: paths}, nil
 	}
 	t.Cleanup(func() { getPackageManager = original })

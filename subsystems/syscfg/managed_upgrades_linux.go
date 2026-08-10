@@ -100,7 +100,7 @@ func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 
 	// Needed by both checks below: which reboot indicator to read, and which lock
 	// files a transaction would hold.
-	pkgMgr, err := getPackageManager(s.logger)
+	pkgMgr, err := getPackageManager(ctx, s.logger)
 	if err != nil {
 		s.logger.Warnw("Could not detect package manager to check for OS reboot", "err", err)
 		// A reboot already known to be pending still stands: with no package manager
@@ -128,7 +128,7 @@ func (s *Subsystem) NeedsOSReboot(ctx context.Context) bool {
 // getPackageManager returns an implementation of [packageManager] that
 // matches the package manager binaries available on the OS. A variable so tests
 // can substitute a fake.
-var getPackageManager = func(logger logging.Logger) (packageManager, error) {
+var getPackageManager = func(ctx context.Context, logger logging.Logger) (packageManager, error) {
 	type pmOption struct {
 		binary      string
 		constructor func() packageManager
@@ -140,7 +140,10 @@ var getPackageManager = func(logger logging.Logger) (packageManager, error) {
 		},
 		{
 			"dnf",
-			func() packageManager { return rpmPackageManager{logger: logger.Sublogger("dnf"), useDnf: true} },
+			func() packageManager {
+				logger := logger.Sublogger("dnf")
+				return rpmPackageManager{logger: logger, useDnf: true, dnf5: isDnf5(ctx, logger)}
+			},
 		},
 		{
 			"yum",
@@ -176,7 +179,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	mode := s.cfg.OSAutoUpgradeType
 	s.mu.RUnlock()
 
-	pm, err := getPackageManager(s.logger)
+	pm, err := getPackageManager(ctx, s.logger)
 	if err != nil {
 		s.logger.Warnw("skipping managed OS upgrade", "error", err)
 		return err
