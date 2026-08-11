@@ -59,7 +59,8 @@ func TestPendingUpdatesAreLoggable(t *testing.T) {
 	entries := logs.All()
 	test.That(t, entries, test.ShouldHaveLength, 1)
 	test.That(t, entries[0].Level, test.ShouldEqual, zapcore.InfoLevel)
-	test.That(t, entries[0].Message, test.ShouldEqual, "Installing OS updates")
+	test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+	test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityStart)
 	test.That(t, entries[0].ContextMap()["updates"], test.ShouldResemble, testPendingUpdates)
 	test.That(t, entries[0].ContextMap()["package_manager"], test.ShouldEqual, "apt")
 
@@ -113,9 +114,10 @@ func TestLogUpgradeResult(t *testing.T) {
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].Level, test.ShouldEqual, zapcore.InfoLevel)
-		test.That(t, entries[0].Message, test.ShouldEqual, "OS update installation succeeded")
+		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityComplete)
 		test.That(t, entries[0].ContextMap()["updates"], test.ShouldResemble, testPendingUpdates)
+		test.That(t, entries[0].ContextMap()["security_only"], test.ShouldEqual, true)
 		test.That(t, output.String(), test.ShouldContainSubstring, `"name":"libc6"`)
 	})
 
@@ -125,8 +127,8 @@ func TestLogUpgradeResult(t *testing.T) {
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].Level, test.ShouldEqual, zapcore.ErrorLevel)
-		test.That(t, entries[0].Message, test.ShouldEqual, "OS update installation failed")
+		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityFail)
 		// The failed run still reports what it was installing.
 		test.That(t, output.String(), test.ShouldContainSubstring, `"name":"libc6"`)
 		test.That(t, output.String(), test.ShouldContainSubstring, "dpkg failed")
@@ -140,9 +142,9 @@ func TestLogUpgradeResult(t *testing.T) {
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
-		// The agent killed the upgrade itself, so this isn't an error.
-		test.That(t, entries[0].Level, test.ShouldEqual, zapcore.WarnLevel)
-		test.That(t, entries[0].Message, test.ShouldEqual, "OS update installation interrupted before completing")
+		// The agent killed the upgrade itself, so this is an abort, not a failure.
+		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityAbort)
 	})
 }
 

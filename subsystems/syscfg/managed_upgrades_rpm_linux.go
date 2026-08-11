@@ -217,8 +217,8 @@ func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) er
 
 // parseRPMCheckUpdate extracts the packages to be installed from the output of
 // `dnf check-update -q`, whose upgradable packages are listed one per line as
-// "<name>.<arch>  <version>  <repo>". Every update is tagged with the passed
-// category, which check-update itself doesn't report.
+// "<name>.<arch>  <version>  <repo>". No category is recorded because
+// check-update doesn't report per-package advisory types.
 func parseRPMCheckUpdate(output string) []pendingUpdate {
 	var updates []pendingUpdate
 	for _, line := range strings.Split(output, "\n") {

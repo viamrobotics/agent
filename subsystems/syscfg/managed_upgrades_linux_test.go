@@ -171,7 +171,7 @@ func TestRestrictToNames(t *testing.T) {
 	updates := restrictToNames(candidates, []string{"openssl", "held-back"})
 	test.That(t, updates, test.ShouldResemble, []pendingUpdate{
 		{Name: "openssl", Version: "3.0.15-1~deb12u1", Category: "security"},
-		{Name: "held-back", Category: "security"},
+		{Name: "held-back"},
 	})
 
 	test.That(t, restrictToNames(candidates, nil), test.ShouldBeEmpty)
@@ -188,8 +188,8 @@ new-pkg.noarch                     2.0-1.fc40              updates
     old-pkg.noarch                 1.0-1.fc40              @System
 `
 	test.That(t, parseRPMCheckUpdate(output), test.ShouldResemble, []pendingUpdate{
-		{Name: "kernel.x86_64", Version: "6.11.4-201.fc40", Category: "security"},
-		{Name: "openssl-libs.x86_64", Version: "1:3.2.2-3.fc40", Category: "security"},
+		{Name: "kernel.x86_64", Version: "6.11.4-201.fc40"},
+		{Name: "openssl-libs.x86_64", Version: "1:3.2.2-3.fc40"},
 	})
 
 	test.That(t, parseRPMCheckUpdate(""), test.ShouldBeNil)
