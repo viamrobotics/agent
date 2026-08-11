@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -207,12 +208,16 @@ func (r rpmPackageManager) sizeQueryCommand(ctx context.Context) *exec.Cmd {
 		"--queryformat", yumSizeQueryFormat)
 }
 
-func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
+// runUpgrade implements [packageManager]. The returned packages are parsed from
+// the transaction output even when the upgrade fails, since a package reported
+// there was installed before the transaction died.
+func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) ([]pendingUpdate, error) {
 	args := []string{"upgrade", "-y"}
 	if securityOnly {
 		args = append(args, "--security")
 	}
-	return pkgCmd(ctx, r.logger, r.getProgram(), args...)
+	output, err := pkgCmdOutput(ctx, r.logger, r.getProgram(), args...)
+	return parseRPMUpgradeOutput(output), err
 }
 
 // parseRPMCheckUpdate extracts the packages to be installed from the output of
@@ -239,6 +244,112 @@ func parseRPMCheckUpdate(output string) []pendingUpdate {
 		})
 	}
 	return updates
+}
+
+// rpmInstalledSections are the summary headings under which dnf4 and yum list
+// what a completed transaction installed, one heading per transaction verb.
+// Removal headings ("Removed:", "Erased:", "Replaced:") are deliberately absent:
+// those packages left the system rather than landing on it.
+var rpmInstalledSections = []string{
+	"Installed:", "Upgraded:", "Updated:", "Downgraded:", "Reinstalled:",
+	"Dependency Installed:", "Dependency Updated:",
+}
+
+// dnf5ProgressRegex matches the "[3/7] Upgrading <name-version.arch> ..."
+// per-package progress lines dnf5 prints while running the transaction, the only
+// place dnf5's output reports individual packages as installed. The verb keeps
+// non-package steps ("Verify package files", "Prepare transaction") and the
+// verb-less download progress lines from matching.
+var dnf5ProgressRegex = regexp.MustCompile(`^\[\d+/\d+\] (?:Installing|Upgrading|Downgrading|Reinstalling) (\S+)`)
+
+// parseRPMUpgradeOutput extracts the packages a `dnf/yum upgrade -y` run actually
+// installed from its output, in the "<name>.<arch>"/version form check-update
+// lists pending updates in. Anything unrecognized parses to nothing, and the
+// result log omits the package list.
+func parseRPMUpgradeOutput(output string) []pendingUpdate {
+	var updates []pendingUpdate
+	seen := map[string]bool{}
+	add := func(update pendingUpdate) {
+		if !seen[update.Name] {
+			seen[update.Name] = true
+			updates = append(updates, update)
+		}
+	}
+
+	inSection := false
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if match := dnf5ProgressRegex.FindStringSubmatch(trimmed); match != nil {
+			if update, ok := parseRPMFullName(match[1]); ok {
+				add(update)
+			}
+			continue
+		}
+
+		// Section headings sit flush left; the packages under them are indented.
+		if !strings.HasPrefix(line, " ") {
+			inSection = slices.Contains(rpmInstalledSections, trimmed)
+			continue
+		}
+		if !inSection {
+			continue
+		}
+
+		// Sections list several packages per line, columnar. dnf4 prints each as a
+		// single "name-version-release.arch" token; yum splits the same package into
+		// a "name.arch epoch:version-release" pair.
+		fields := strings.Fields(trimmed)
+		for i := 0; i < len(fields); i++ {
+			if update, ok := parseRPMFullName(fields[i]); ok {
+				add(update)
+				continue
+			}
+			if i+1 < len(fields) && strings.Contains(fields[i], ".") && startsWithDigit(fields[i+1]) {
+				add(pendingUpdate{Name: fields[i], Version: fields[i+1]})
+				i++
+			}
+		}
+	}
+	return updates
+}
+
+// parseRPMFullName splits a full package spec like
+// "openssl-libs-1:3.2.2-3.fc40.x86_64" into the "<name>.<arch>" and version
+// forms check-update uses, so installed packages line up with the pending list
+// by name. Reports false for anything not shaped like name-version-release.arch,
+// including the "name.arch" half of a yum package pair.
+func parseRPMFullName(spec string) (pendingUpdate, bool) {
+	archIdx := strings.LastIndex(spec, ".")
+	if archIdx < 0 {
+		return pendingUpdate{}, false
+	}
+	nvr, arch := spec[:archIdx], spec[archIdx+1:]
+
+	relIdx := strings.LastIndex(nvr, "-")
+	if relIdx < 0 {
+		return pendingUpdate{}, false
+	}
+	verIdx := strings.LastIndex(nvr[:relIdx], "-")
+	if verIdx < 0 {
+		return pendingUpdate{}, false
+	}
+
+	name, version, release := nvr[:verIdx], nvr[verIdx+1:relIdx], nvr[relIdx+1:]
+	// Versions and releases start with a digit (the version possibly behind an
+	// "epoch:" prefix, itself numeric), unlike the dash-separated words of a
+	// package name. This keeps a bare name like "java-1.8.0-openjdk.x86_64" from
+	// being misread as name "java" version "1.8.0-openjdk".
+	if name == "" || arch == "" || !startsWithDigit(version) || !startsWithDigit(release) {
+		return pendingUpdate{}, false
+	}
+	return pendingUpdate{Name: name + "." + arch, Version: version + "-" + release}, true
+}
+
+// startsWithDigit reports whether s begins with an ASCII digit, the shape of rpm
+// versions and releases (an "epoch:" prefix included, epochs being numeric).
+func startsWithDigit(s string) bool {
+	return len(s) > 0 && s[0] >= '0' && s[0] <= '9'
 }
 
 // parseRPMSizes extracts package sizes from repoquery output in

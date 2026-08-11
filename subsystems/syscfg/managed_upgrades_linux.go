@@ -209,8 +209,9 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	updates := updateSummary{updates: pending, listErr: listErr}
 	logPendingUpdates(s.logger, updates, "package_manager", pm.String(), "security_only", securityOnly)
 
-	upgradeErr := pm.runUpgrade(ctx, securityOnly)
-	logUpgradeResult(ctx, s.logger, updates, upgradeErr, "package_manager", pm.String(), "security_only", securityOnly)
+	installed, upgradeErr := pm.runUpgrade(ctx, securityOnly)
+	logUpgradeResult(ctx, s.logger, fillDetailFromPending(installed, pending), upgradeErr,
+		"package_manager", pm.String(), "security_only", securityOnly)
 	if upgradeErr != nil {
 		return upgradeErr
 	}
@@ -229,15 +230,57 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 // pkgCmd runs a package manager command, setting DEBIAN_FRONTEND=noninteractive
 // to suppress interactive prompts on apt-based systems (ignored elsewhere).
 func pkgCmd(ctx context.Context, logger logging.Logger, name string, args ...string) error {
+	_, err := pkgCmdOutput(ctx, logger, name, args...)
+	return err
+}
+
+// pkgCmdOutput is [pkgCmd] for callers that parse the command's output. The
+// combined output is returned even on failure, carrying whatever the command
+// managed to do before dying.
+func pkgCmdOutput(ctx context.Context, logger logging.Logger, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	logger.Debugw("Executing package management command", "cmd", cmd.String())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s %v: %w\n%s", name, args, err, output)
+		return string(output), fmt.Errorf("%s %v: %w\n%s", name, args, err, output)
 	}
 	logger.Debugw("Package management command succeeded", "cmd", cmd.String(), "output", string(output))
-	return nil
+	return string(output), nil
+}
+
+// fillDetailFromPending copies the fields only the pre-upgrade listing knows
+// (sizes, category, versions the output didn't report) onto the packages parsed
+// from the upgrade output, matching by name. Installed packages the listing
+// didn't predict, e.g. newly pulled-in dependencies, pass through with whatever
+// the output reported.
+func fillDetailFromPending(installed, pending []pendingUpdate) []pendingUpdate {
+	byName := make(map[string]pendingUpdate, len(pending))
+	for _, update := range pending {
+		byName[update.Name] = update
+	}
+	for i, update := range installed {
+		detail, ok := byName[update.Name]
+		if !ok {
+			continue
+		}
+		if update.Version == "" {
+			installed[i].Version = detail.Version
+		}
+		if update.CurrentVersion == "" {
+			installed[i].CurrentVersion = detail.CurrentVersion
+		}
+		if update.DownloadSize == 0 {
+			installed[i].DownloadSize = detail.DownloadSize
+		}
+		if update.InstalledSize == 0 {
+			installed[i].InstalledSize = detail.InstalledSize
+		}
+		if update.Category == "" {
+			installed[i].Category = detail.Category
+		}
+	}
+	return installed
 }
 
 type packageManager interface {
@@ -250,7 +293,11 @@ type packageManager interface {
 	// logging, filling in as much detail as the package manager reports. Callers
 	// still run the upgrade if this fails.
 	pendingUpgrades(ctx context.Context, securityOnly bool) ([]pendingUpdate, error)
-	runUpgrade(ctx context.Context, securityOnly bool) error
+	// runUpgrade installs the pending upgrades, returning the packages its output
+	// reports were actually installed. The list is best effort: nil when the
+	// output said nothing recognizable, and possibly partial alongside a non-nil
+	// error when the upgrade died partway through.
+	runUpgrade(ctx context.Context, securityOnly bool) ([]pendingUpdate, error)
 	needsReboot(ctx context.Context) bool
 	// lockPaths are the files this package manager fcntl-locks for the duration of a
 	// transaction, used to spot installs the agent did not start.

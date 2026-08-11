@@ -110,7 +110,7 @@ func TestLogPendingUpdates(t *testing.T) {
 func TestLogUpgradeResult(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		logger, logs, output := newObservedLogger(t)
-		logUpgradeResult(t.Context(), logger, updateSummary{updates: testPendingUpdates}, nil, "security_only", true)
+		logUpgradeResult(t.Context(), logger, testPendingUpdates, nil, "security_only", true)
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
@@ -123,13 +123,13 @@ func TestLogUpgradeResult(t *testing.T) {
 
 	t.Run("failure", func(t *testing.T) {
 		logger, logs, output := newObservedLogger(t)
-		logUpgradeResult(t.Context(), logger, updateSummary{updates: testPendingUpdates}, errors.New("dpkg failed"))
+		logUpgradeResult(t.Context(), logger, testPendingUpdates, errors.New("dpkg failed"))
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
 		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
 		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityFail)
-		// The failed run still reports what it was installing.
+		// The failed run still reports what it managed to install.
 		test.That(t, output.String(), test.ShouldContainSubstring, `"name":"libc6"`)
 		test.That(t, output.String(), test.ShouldContainSubstring, "dpkg failed")
 	})
@@ -138,13 +138,27 @@ func TestLogUpgradeResult(t *testing.T) {
 		logger, logs, _ := newObservedLogger(t)
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		logUpgradeResult(ctx, logger, updateSummary{updates: testPendingUpdates}, errors.New("signal: killed"))
+		logUpgradeResult(ctx, logger, testPendingUpdates, errors.New("signal: killed"))
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
 		// The agent killed the upgrade itself, so this is an abort, not a failure.
 		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
 		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityAbort)
+	})
+
+	t.Run("installed packages unknown", func(t *testing.T) {
+		logger, logs, _ := newObservedLogger(t)
+		logUpgradeResult(t.Context(), logger, nil, nil, "security_only", true)
+
+		entries := logs.All()
+		test.That(t, entries, test.ShouldHaveLength, 1)
+		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityComplete)
+		// With no report of what was installed, the list is omitted entirely rather
+		// than logged as empty; the start entry already says what was pending.
+		_, present := entries[0].ContextMap()["updates"]
+		test.That(t, present, test.ShouldBeFalse)
+		test.That(t, entries[0].ContextMap()["security_only"], test.ShouldEqual, true)
 	})
 }
 

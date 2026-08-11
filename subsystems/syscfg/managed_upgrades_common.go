@@ -222,13 +222,16 @@ func logPendingUpdates(logger logging.Logger, updates updateSummary, keysAndValu
 	logger.Activity(UpdateActivity, updateActivityStart, fields...)
 }
 
-// logUpgradeResult reports whether the updates summarized by logPendingUpdates
-// were installed successfully. A cancelled ctx means the agent is shutting down
-// and killed the upgrade itself, which isn't an error worth alarming about.
-func logUpgradeResult(ctx context.Context, logger logging.Logger, updates updateSummary, err error, keysAndValues ...any) {
-	fields := []any{"updates", updates.updates}
-	if updates.listErr != nil {
-		fields = append(fields, "update_list_err", updates.listErr)
+// logUpgradeResult reports how the upgrade went, with installed carrying the
+// packages the package manager's output reported actually installing. When the
+// package manager didn't say, the list is omitted entirely rather than logged
+// empty or guessed at: logPendingUpdates already recorded what the upgrade set
+// out to install. A cancelled ctx means the agent is shutting down and killed
+// the upgrade itself, which isn't an error worth alarming about.
+func logUpgradeResult(ctx context.Context, logger logging.Logger, installed []pendingUpdate, err error, keysAndValues ...any) {
+	var fields []any
+	if len(installed) > 0 {
+		fields = append(fields, "updates", installed)
 	}
 	fields = append(fields, keysAndValues...)
 	switch {

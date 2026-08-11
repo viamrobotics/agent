@@ -19,9 +19,16 @@ const rebootRequiredPath = "/var/run/reboot-required"
 // installed version is absent for packages being newly installed.
 var aptInstLineRegex = regexp.MustCompile(`^Inst (\S+)(?: \[([^\]]*)\])? \(([^)]*)\)`)
 
-// unattendedDryRunPrefix is the line unattended-upgrade --dry-run prints listing
-// the packages it would install.
-const unattendedDryRunPrefix = "Packages that will be upgraded:"
+// unattendedUpgradeListPrefix is the line unattended-upgrade prints listing the
+// packages it is about to install (or, with --dry-run, would install).
+const unattendedUpgradeListPrefix = "Packages that will be upgraded:"
+
+// aptSettingUpRegex matches the "Setting up <name> (<version>) ..." lines dpkg
+// prints as it configures each package, the per-package record of what a real
+// apt-get upgrade actually installed. The name carries a ":<arch>" qualifier for
+// multi-arch packages, which the simulated upgrade's names don't, so it is
+// matched separately and dropped.
+var aptSettingUpRegex = regexp.MustCompile(`^Setting up ([^\s:]+)(?::\S+)? \(([^)]*)\)`)
 
 type aptPackageManager struct {
 	logger logging.Logger
@@ -89,7 +96,7 @@ func (a aptPackageManager) pendingUpgrades(ctx context.Context, securityOnly boo
 		if err != nil {
 			return nil, err
 		}
-		updates = restrictToNames(candidates, parseUnattendedUpgradeDryRun(string(dryRun)))
+		updates = restrictToNames(candidates, parseUnattendedUpgradeList(string(dryRun)))
 	}
 
 	a.fillPackageSizes(ctx, updates)
@@ -161,18 +168,24 @@ func (a aptPackageManager) fillPackageSizes(ctx context.Context, updates []pendi
 	}
 }
 
-func (a aptPackageManager) runUpgrade(ctx context.Context, securityOnly bool) error {
+// runUpgrade implements [packageManager].
+func (a aptPackageManager) runUpgrade(ctx context.Context, securityOnly bool) ([]pendingUpdate, error) {
 	if securityOnly {
 		return a.runSecurityUpgrade(ctx)
 	}
 	return a.runFullUpgrade(ctx)
 }
 
-func (a aptPackageManager) runFullUpgrade(ctx context.Context) error {
-	return pkgCmd(ctx, a.logger, "apt-get", "upgrade", "-y",
+// runFullUpgrade installs all pending upgrades, returning the packages dpkg's
+// output confirms it set up. Parsed even when the upgrade fails: any "Setting up"
+// line that made it out describes a package that was installed before the batch
+// died.
+func (a aptPackageManager) runFullUpgrade(ctx context.Context) ([]pendingUpdate, error) {
+	output, err := pkgCmdOutput(ctx, a.logger, "apt-get", "upgrade", "-y",
 		"-o", "Dpkg::Options::=--force-confold",
 		"-o", "Dpkg::Options::=--force-confdef",
 	)
+	return parseAptUpgradeOutput(output), err
 }
 
 func (a aptPackageManager) ensureUnattendedUpgrades(ctx context.Context) error {
@@ -206,9 +219,23 @@ func (a aptPackageManager) writeSecurityOrigins(ctx context.Context) error {
 	return nil
 }
 
-func (a aptPackageManager) runSecurityUpgrade(ctx context.Context) error {
-	_, err := a.unattendedUpgrade(ctx)
-	return err
+// runSecurityUpgrade installs pending security upgrades via unattended-upgrade,
+// returning the packages its output reports it upgraded. unattended-upgrade
+// prints the list before installing anything and keeps the per-package dpkg
+// output in its own log file, so a failed run proves nothing about what landed
+// and returns no packages.
+func (a aptPackageManager) runSecurityUpgrade(ctx context.Context) ([]pendingUpdate, error) {
+	output, err := a.unattendedUpgrade(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	names := parseUnattendedUpgradeList(string(output))
+	installed := make([]pendingUpdate, 0, len(names))
+	for _, name := range names {
+		installed = append(installed, pendingUpdate{Name: name})
+	}
+	return installed, nil
 }
 
 // unattendedUpgrade runs the unattended-upgrade binary, returning its combined
@@ -296,17 +323,32 @@ func parseAptCacheSizes(output string) map[string]pendingUpdate {
 	return sizes
 }
 
-// parseUnattendedUpgradeDryRun extracts package names from the output of
-// `unattended-upgrade --verbose --dry-run`. Versions aren't reported, so this is
-// names only.
-func parseUnattendedUpgradeDryRun(output string) []string {
+// parseUnattendedUpgradeList extracts package names from the output of
+// `unattended-upgrade --verbose`, with or without --dry-run. Versions aren't
+// reported, so this is names only.
+func parseUnattendedUpgradeList(output string) []string {
 	var updates []string
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, unattendedDryRunPrefix) {
+		if !strings.HasPrefix(line, unattendedUpgradeListPrefix) {
 			continue
 		}
-		updates = append(updates, strings.Fields(strings.TrimPrefix(line, unattendedDryRunPrefix))...)
+		updates = append(updates, strings.Fields(strings.TrimPrefix(line, unattendedUpgradeListPrefix))...)
+	}
+	return updates
+}
+
+// parseAptUpgradeOutput extracts the packages a real (non-simulated) apt-get
+// upgrade installed, by way of the "Setting up" line dpkg prints once a package
+// is unpacked and configured.
+func parseAptUpgradeOutput(output string) []pendingUpdate {
+	var updates []pendingUpdate
+	for _, line := range strings.Split(output, "\n") {
+		match := aptSettingUpRegex.FindStringSubmatch(strings.TrimSpace(line))
+		if match == nil {
+			continue
+		}
+		updates = append(updates, pendingUpdate{Name: match[1], Version: match[2]})
 	}
 	return updates
 }

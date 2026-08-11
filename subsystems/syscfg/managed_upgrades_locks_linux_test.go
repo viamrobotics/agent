@@ -28,9 +28,12 @@ func (f fakePackageManager) prepare(_ context.Context, _ bool) error { return ni
 func (f fakePackageManager) pendingUpgrades(_ context.Context, _ bool) ([]pendingUpdate, error) {
 	return nil, nil
 }
-func (f fakePackageManager) runUpgrade(_ context.Context, _ bool) error { return nil }
-func (f fakePackageManager) needsReboot(_ context.Context) bool         { return false }
-func (f fakePackageManager) lockPaths() []string                        { return f.paths }
+
+func (f fakePackageManager) runUpgrade(_ context.Context, _ bool) ([]pendingUpdate, error) {
+	return nil, nil
+}
+func (f fakePackageManager) needsReboot(_ context.Context) bool { return false }
+func (f fakePackageManager) lockPaths() []string                { return f.paths }
 
 // withPackageLocks makes the detected package manager report exactly paths. With
 // none, a real package transaction on the test machine cannot affect the result.
