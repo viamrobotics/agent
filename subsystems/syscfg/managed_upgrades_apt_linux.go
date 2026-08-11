@@ -89,7 +89,7 @@ func (a aptPackageManager) pendingUpgrades(ctx context.Context, securityOnly boo
 		if err != nil {
 			return nil, err
 		}
-		updates = restrictToNames(candidates, parseUnattendedUpgradeDryRun(string(dryRun)), categorySecurity)
+		updates = restrictToNames(candidates, parseUnattendedUpgradeDryRun(string(dryRun)))
 	}
 
 	a.fillPackageSizes(ctx, updates)
@@ -108,11 +108,11 @@ func (a aptPackageManager) simulateUpgrade(ctx context.Context) ([]pendingUpdate
 	return parseAptSimulateUpgrade(string(output)), nil
 }
 
-// restrictToNames returns the passed names as updates, in the order given, reusing
-// the detail from candidates for the names found there and tagging every entry
-// with category. Names with no matching candidate still get an entry, so an
-// upgrade the simulation held back is logged rather than silently dropped.
-func restrictToNames(candidates []pendingUpdate, names []string, category string) []pendingUpdate {
+// restrictToNames returns the passed names as updates, in the order given,
+// reusing the detail from candidates for the names found there. Names with no
+// matching candidate still get an entry, so an upgrade the simulation held
+// back is logged rather than silently dropped.
+func restrictToNames(candidates []pendingUpdate, names []string) []pendingUpdate {
 	byName := make(map[string]pendingUpdate, len(candidates))
 	for _, candidate := range candidates {
 		byName[candidate.Name] = candidate
@@ -124,7 +124,6 @@ func restrictToNames(candidates []pendingUpdate, names []string, category string
 		if !ok {
 			update = pendingUpdate{Name: name}
 		}
-		update.Category = category
 		updates = append(updates, update)
 	}
 	return updates

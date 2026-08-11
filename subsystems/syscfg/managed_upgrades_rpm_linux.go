@@ -140,10 +140,8 @@ func (r rpmPackageManager) prepare(ctx context.Context, securityOnly bool) error
 // check-update doesn't report per-package advisory types.
 func (r rpmPackageManager) pendingUpgrades(ctx context.Context, securityOnly bool) ([]pendingUpdate, error) {
 	args := []string{"check-update", "-q"}
-	category := ""
 	if securityOnly {
 		args = append(args, "--security")
-		category = categorySecurity
 	}
 	//nolint: gosec
 	cmd := exec.CommandContext(ctx, r.getProgram(), args...)
@@ -160,7 +158,7 @@ func (r rpmPackageManager) pendingUpgrades(ctx context.Context, securityOnly boo
 		}
 	}
 
-	updates := parseRPMCheckUpdate(string(output), category)
+	updates := parseRPMCheckUpdate(string(output))
 	r.fillPackageSizes(ctx, updates)
 	return updates, nil
 }
@@ -221,7 +219,7 @@ func (r rpmPackageManager) runUpgrade(ctx context.Context, securityOnly bool) er
 // `dnf check-update -q`, whose upgradable packages are listed one per line as
 // "<name>.<arch>  <version>  <repo>". Every update is tagged with the passed
 // category, which check-update itself doesn't report.
-func parseRPMCheckUpdate(output, category string) []pendingUpdate {
+func parseRPMCheckUpdate(output string) []pendingUpdate {
 	var updates []pendingUpdate
 	for _, line := range strings.Split(output, "\n") {
 		// The trailing "Obsoleting Packages" section repeats packages already listed
@@ -236,9 +234,8 @@ func parseRPMCheckUpdate(output, category string) []pendingUpdate {
 			continue
 		}
 		updates = append(updates, pendingUpdate{
-			Name:     fields[0],
-			Version:  fields[1],
-			Category: category,
+			Name:    fields[0],
+			Version: fields[1],
 		})
 	}
 	return updates

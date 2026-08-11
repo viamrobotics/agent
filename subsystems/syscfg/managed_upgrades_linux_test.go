@@ -168,13 +168,13 @@ func TestRestrictToNames(t *testing.T) {
 
 	// "held-back" isn't in the simulated upgrade, but unattended-upgrade still
 	// intends to install it, so it must survive as a name-only entry.
-	updates := restrictToNames(candidates, []string{"openssl", "held-back"}, "security")
+	updates := restrictToNames(candidates, []string{"openssl", "held-back"})
 	test.That(t, updates, test.ShouldResemble, []pendingUpdate{
 		{Name: "openssl", Version: "3.0.15-1~deb12u1", Category: "security"},
 		{Name: "held-back", Category: "security"},
 	})
 
-	test.That(t, restrictToNames(candidates, nil, "security"), test.ShouldBeEmpty)
+	test.That(t, restrictToNames(candidates, nil), test.ShouldBeEmpty)
 }
 
 func TestParseRPMCheckUpdate(t *testing.T) {
@@ -187,12 +187,12 @@ Obsoleting Packages
 new-pkg.noarch                     2.0-1.fc40              updates
     old-pkg.noarch                 1.0-1.fc40              @System
 `
-	test.That(t, parseRPMCheckUpdate(output, "security"), test.ShouldResemble, []pendingUpdate{
+	test.That(t, parseRPMCheckUpdate(output), test.ShouldResemble, []pendingUpdate{
 		{Name: "kernel.x86_64", Version: "6.11.4-201.fc40", Category: "security"},
 		{Name: "openssl-libs.x86_64", Version: "1:3.2.2-3.fc40", Category: "security"},
 	})
 
-	test.That(t, parseRPMCheckUpdate("", ""), test.ShouldBeNil)
+	test.That(t, parseRPMCheckUpdate(""), test.ShouldBeNil)
 }
 
 func TestRPMSizeQueryCommand(t *testing.T) {
