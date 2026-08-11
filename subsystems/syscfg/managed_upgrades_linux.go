@@ -187,7 +187,7 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 
 	securityOnly := mode == utils.OSAutoUpgradeManagedSecurity
 	s.logger.Infow("Running managed OS package update",
-		"package_manager", pm,
+		"package_manager", pm.String(),
 		"os_auto_upgrade_type", mode,
 		"security_only", securityOnly,
 	)
@@ -201,16 +201,16 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 
 	if err := pm.prepare(ctx, securityOnly); err != nil {
 		s.logger.Errorw("Failed to refresh OS package metadata, skipping upgrade",
-			"package_manager", pm, "err", err)
+			"package_manager", pm.String(), "err", err)
 		return err
 	}
 
 	pending, listErr := pm.pendingUpgrades(ctx, securityOnly)
 	updates := updateSummary{updates: pending, listErr: listErr}
-	logPendingUpdates(s.logger, updates, "package_manager", pm, "security_only", securityOnly)
+	logPendingUpdates(s.logger, updates, "package_manager", pm.String(), "security_only", securityOnly)
 
 	upgradeErr := pm.runUpgrade(ctx, securityOnly)
-	logUpgradeResult(ctx, s.logger, updates, upgradeErr, "package_manager", pm, "security_only", securityOnly)
+	logUpgradeResult(ctx, s.logger, updates, upgradeErr, "package_manager", pm.String(), "security_only", securityOnly)
 	if upgradeErr != nil {
 		return upgradeErr
 	}

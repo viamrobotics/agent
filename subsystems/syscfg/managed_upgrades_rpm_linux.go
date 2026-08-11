@@ -177,7 +177,7 @@ func (r rpmPackageManager) fillPackageSizes(ctx context.Context, updates []pendi
 	output, err := r.sizeQueryCommand(ctx).Output()
 	if err != nil {
 		r.logger.Debugw("Could not read pending update sizes from repoquery",
-			"package_manager", r, "err", err)
+			"package_manager", r.String(), "err", err)
 		return
 	}
 
