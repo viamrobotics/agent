@@ -20,6 +20,12 @@ const (
 	// by viam-server's maintenance window, instead of waiting for the full
 	// configured interval.
 	maintenanceRetryInterval = 5 * time.Minute
+
+	UpdateActivity         = "os update"
+	updateActivityStart    = "start"
+	updateActivityComplete = "complete"
+	updateActivityFail     = "fail"
+	updateActivityAbort    = "abort"
 )
 
 // errBlockedByMaintenanceWindow is returned by runManagedUpgrade when the
@@ -213,7 +219,7 @@ func logPendingUpdates(logger logging.Logger, updates updateSummary, keysAndValu
 		logger.Infow("No OS updates pending, nothing to install", fields...)
 		return
 	}
-	logger.Infow("Installing OS updates", fields...)
+	logger.Activity(UpdateActivity, updateActivityStart, fields...)
 }
 
 // logUpgradeResult reports whether the updates summarized by logPendingUpdates
@@ -227,11 +233,11 @@ func logUpgradeResult(ctx context.Context, logger logging.Logger, updates update
 	fields = append(fields, keysAndValues...)
 	switch {
 	case err != nil && ctx.Err() != nil:
-		logger.Warnw("OS update installation interrupted before completing", append(fields, "err", err)...)
+		logger.Activity(UpdateActivity, updateActivityAbort, append(fields, "err", err)...)
 	case err != nil:
-		logger.Errorw("OS update installation failed", append(fields, "err", err)...)
+		logger.Activity(UpdateActivity, updateActivityFail, append(fields, "err", err)...)
 	default:
-		logger.Infow("OS update installation succeeded", fields...)
+		logger.Activity(UpdateActivity, updateActivityComplete, fields...)
 	}
 }
 
