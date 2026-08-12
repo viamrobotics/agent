@@ -33,6 +33,11 @@ func (*agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 		c := <-r
 		if c.Cmd == svc.Stop || c.Cmd == svc.Shutdown {
 			goutils.UncheckedError(elog.Info(1, fmt.Sprintf("%s service stopping", serviceName)))
+			if c.Cmd == svc.Shutdown {
+				agent.RecordExitReason("system_shutdown", "service control manager reported a system shutdown")
+			} else {
+				agent.RecordExitReason("service_stop", "service control manager requested a stop")
+			}
 			changes <- svc.Status{State: svc.StopPending}
 			globalCancel()
 			break

@@ -1022,6 +1022,8 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 		return
 	}
 
+	m.logger.Activity("system", "reboot", "reason", "os_update")
+
 	m.Exit("system reboot initiated for OS package updates", "os_reboot")
 }
 
