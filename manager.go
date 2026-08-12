@@ -56,6 +56,7 @@ type viamServerSubsystem interface {
 	RestartAllowed(ctx context.Context) bool
 	DoesNotHandleNeedsRestart() bool
 	MarkAppTriggeredRestart()
+	SetNextStopReason(reason string)
 	Uptime() *durationpb.Duration
 }
 
@@ -98,15 +99,16 @@ func NewManager(
 	cfg utils.AgentConfig,
 	globalCancel context.CancelFunc,
 ) *Manager {
+	cache := NewVersionCache(logger)
 	manager := &Manager{
 		logger:       logger,
 		registry:     registry,
 		cfg:          cfg,
 		globalCancel: globalCancel,
 
-		viamServer:     viamserver.New(ctx, logger, cfg),
+		viamServer:     viamserver.New(ctx, logger, cfg, cache.ViamServerVersion),
 		networking:     networking.New(ctx, logger, cfg),
-		cache:          NewVersionCache(logger),
+		cache:          cache,
 		agentStartTime: time.Now(),
 	}
 
@@ -290,11 +292,12 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 
 	// Viam Server
 	if m.cfg.AdvancedSettings.GetDisableViamServer() {
+		m.viamServer.SetNextStopReason("disabled")
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
 		}
 		if m.viamAgentNeedsRestart {
-			m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
+			m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName), "agent_update")
 			return
 		}
 	} else {
@@ -320,13 +323,25 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 					m.logger.Infof("%s has allowed a restart; will restart", viamserver.SubsysName)
 				}
 
+				switch {
+				case ctx.Err() != nil:
+					m.viamServer.SetNextStopReason("agent_shutdown")
+				case needRestart:
+					m.viamServer.SetNextStopReason("update")
+				case needRestartConfigChange:
+					m.viamServer.SetNextStopReason("config_change")
+				case m.viamAgentNeedsRestart:
+					m.viamServer.SetNextStopReason("agent_update")
+				default:
+					m.viamServer.SetNextStopReason("restart")
+				}
 				if err := m.viamServer.Stop(stopCtx); err != nil {
 					m.logger.Warn(err)
 				} else {
 					m.viamServerNeedsRestart = false
 				}
 				if m.viamAgentNeedsRestart {
-					m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName))
+					m.Exit(fmt.Sprintf("A new version of %s has been installed", SubsystemName), "agent_update")
 					return
 				}
 			} else {
@@ -551,16 +566,21 @@ func (m *Manager) CloseAll() {
 	defer slowTicker.Stop()
 
 	shutdownStarted := time.Now()
+	m.logger.Activity("shutdown", "start",
+		"pid", os.Getpid(),
+		"version", utils.GetVersion(),
+		"git_rev", utils.GetRevision(),
+	)
 
 	goutils.PanicCapturingGo(func() {
 		defer slowWatcherCancel()
 		defer cancel()
 
 		// Stop all three subsystems. The ordering is significant here.
+		m.viamServer.SetNextStopReason("agent_shutdown")
+		// success is recorded by the viam-server stop activity event
 		if err := m.viamServer.Stop(ctx); err != nil {
 			m.logger.Warn(err)
-		} else {
-			m.logger.Infof("Subsystem %s shut down successfully", viamserver.SubsysName)
 		}
 		if err := m.sysConfig.Stop(ctx); err != nil {
 			m.logger.Warn(err)
@@ -574,7 +594,20 @@ func (m *Manager) CloseAll() {
 		}
 
 		m.activeBackgroundWorkers.Wait()
-		m.logger.Info("Background workers shut down successfully")
+
+		// Emitted before the net appender closes below so its best-effort flush can
+		// deliver this event to the cloud on the way out.
+		shutdownDuration := time.Since(shutdownStarted)
+		reason, detail := exitReasonAndDetail("unknown")
+		m.logger.Activity("shutdown", "complete",
+			"pid", os.Getpid(),
+			"version", utils.GetVersion(),
+			"git_rev", utils.GetRevision(),
+			"reason", reason,
+			"detail", detail,
+			"duration", shutdownDuration.String(),
+			"duration_us", shutdownDuration.Microseconds(),
+		)
 
 		m.connMu.Lock()
 		defer m.connMu.Unlock()
@@ -718,7 +751,7 @@ func (m *Manager) StartBackgroundChecks(ctx context.Context) {
 					// to wait for viam-server to allow a restart as it may be in a bad state.
 					// Prepare viam-server for graceful shutdown with stack traces and module signaling.
 					m.viamServer.MarkAppTriggeredRestart()
-					m.Exit(fmt.Sprintf("A restart of %s was requested from app", SubsystemName))
+					m.Exit(fmt.Sprintf("A restart of %s was requested from app", SubsystemName), "app_restart")
 				}
 				// As with the device agent config check interval, randomly fuzz the interval by
 				// +/- 5%.
@@ -989,10 +1022,13 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 		return
 	}
 
-	m.Exit("system reboot initiated for OS package updates")
+	m.Exit("system reboot initiated for OS package updates", "os_reboot")
 }
 
-func (m *Manager) Exit(reason string) {
-	m.logger.Infow(fmt.Sprintf("%s will now exit to be restarted by service manager", SubsystemName), "reason", reason)
+// Exit cancels the main context so the agent exits to be restarted by the service
+// manager. message is the human-readable explanation and reason is the short token
+// (e.g. "agent_update", "app_restart"); both are attached to the shutdown activity events.
+func (m *Manager) Exit(message, reason string) {
+	RecordExitReason(reason, message)
 	m.globalCancel()
 }

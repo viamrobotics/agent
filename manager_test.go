@@ -60,6 +60,7 @@ func (f *fakeViamServer) RestartAllowed(ctx context.Context) bool {
 
 func (f *fakeViamServer) DoesNotHandleNeedsRestart() bool { return true }
 func (f *fakeViamServer) MarkAppTriggeredRestart()        {}
+func (f *fakeViamServer) SetNextStopReason(string)        {}
 func (f *fakeViamServer) Uptime() *durationpb.Duration    { return nil }
 
 func TestApplyLogDeduplication(t *testing.T) {
