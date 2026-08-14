@@ -16,8 +16,9 @@ func systemBootTime() (time.Time, error) {
 	if err := unix.Sysinfo(&info); err != nil {
 		return time.Time{}, errw.Wrap(err, "getting sysinfo")
 	}
-	// Uptime is int32 on 32 bit platforms, so widen before converting to a Duration.
-	return time.Now().Add(-time.Duration(int64(info.Uptime)) * time.Second), nil
+	// Uptime is int32 on 32 bit platforms and int64 on 64 bit ones; converting to a
+	// Duration handles both.
+	return time.Now().Add(-time.Duration(info.Uptime) * time.Second), nil
 }
 
 func systemIsShuttingDown(ctx context.Context, logger logging.Logger) bool {
