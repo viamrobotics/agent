@@ -253,11 +253,11 @@ func commonMain(runningAsService bool) {
 	// version; keep the format in sync with agentVersionRegex there.
 	globalLogger.Infof("Viam Agent Version: %s Git Revision: %s", utils.GetVersion(), utils.GetRevision())
 	startupStarted := time.Now()
-	globalLogger.Activity("startup", "start",
+	globalLogger.Activity("startup", "start", append([]any{
 		"pid", os.Getpid(),
 		"version", utils.GetVersion(),
 		"git_rev", utils.GetRevision(),
-	)
+	}, agent.SystemBootFields(globalLogger)...)...)
 
 	if cfg.AdvancedSettings.WaitForUpdateCheck.Get() {
 		// wait to be online
@@ -318,7 +318,7 @@ func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 			case syscall.SIGABRT:
 				fallthrough
 			case syscall.SIGTERM:
-				agent.RecordExitReason("signal", sig.String())
+				agent.RecordExitReason(exitReasonForSignal(sig))
 				signal.Ignore(os.Interrupt, syscall.SIGTERM, syscall.SIGABRT) // keeping SIGQUIT for stack trace debugging
 				return
 
@@ -336,6 +336,17 @@ func setupExitSignalHandling() (context.Context, context.CancelFunc) {
 
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGABRT)
 	return ctx, cancel
+}
+
+// exitReasonForSignal classifies a termination signal for the shutdown activity events,
+// separating a shutdown of the whole device from a restart of the agent service alone.
+func exitReasonForSignal(sig os.Signal) (reason, detail string) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+	if utils.SystemIsShuttingDown(ctx, globalLogger) {
+		return "system_shutdown", fmt.Sprintf("received %s while the system was shutting down", sig)
+	}
+	return "signal", sig.String()
 }
 
 // helper to log.Fatal if error is non-nil.
