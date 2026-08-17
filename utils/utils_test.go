@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -115,12 +114,6 @@ func TestWriteFileIfNew(t *testing.T) {
 func TestGetLastModified(t *testing.T) {
 	logger := logging.NewTestLogger(t)
 
-	port, err := goutils.TryReserveRandomPort()
-	test.That(t, err, test.ShouldBeNil)
-
-	baseURL := fmt.Sprintf(":%d", port)
-	baseURLWithScheme := fmt.Sprintf("%s://%s", "http", baseURL)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/nolm", func(w http.ResponseWriter, r *http.Request) {
 	})
@@ -130,15 +123,14 @@ func TestGetLastModified(t *testing.T) {
 	mux.HandleFunc("/badlm", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", "asdfghjkl")
 	})
-	server := &http.Server{Addr: baseURL, Handler: mux}
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := server.ListenAndServe(); err != nil {
-			test.That(t, err, test.ShouldEqual, http.ErrServerClosed)
-		}
-	}()
+	// httptest binds the listener before it returns, so the requests below cannot
+	// race the server coming up. Serving on a port that ListenAndServe had not
+	// reached yet made this test flaky: GetLastModified reports a failed HEAD as a
+	// zero time, which is what the /nolm case asserts, so a refused connection was
+	// only ever caught by the /lm case below.
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	baseURLWithScheme := server.URL
 
 	// Test Last-Modified not present
 	ctx := t.Context()
@@ -162,10 +154,6 @@ func TestGetLastModified(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 	lm = GetLastModified(ctx, badLmURL, logger)
 	test.That(t, lm.IsZero(), test.ShouldBeTrue)
-
-	err = server.Shutdown(ctx)
-	test.That(t, err, test.ShouldBeNil)
-	wg.Wait()
 }
 
 func TestDownloadFile(t *testing.T) {
