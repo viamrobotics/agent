@@ -89,53 +89,25 @@ jobs:
       # Not `make test`: that target passes -race, which needs cgo, which needs
       # a C toolchain we don't otherwise depend on for Windows builds.
       run: |
-        # Every package is tested on Windows; the exclusions below are per-test
-        # rather than per-package so that a package with one broken test still
-        # contributes the rest of its coverage. Each entry is a `go test -skip`
-        # pattern: `/`-separated elements match successive subtest names, and
-        # the whole list is joined with `|` into one alternation.
-        #
-        # These are known failures on Windows, not flakes. Nothing here has been
-        # investigated yet — the list exists so Windows can start gating PRs at
-        # all. Deleting entries as the underlying problems get fixed is the point;
-        # nothing should be added without a reason recorded alongside it.
+        # Known Windows failures
         WINDOWS_SKIP=(
-          # `GetFileAttributesEx ...\cache\source-binary-0.70.0: The system
-          # cannot find the file specified`. The later subtests reuse the state
-          # the failing ones set up, so the whole test goes rather than the
-          # three failing leaves.
+          # Missing cache\source-binary-0.70.0; later subtests need its state.
           '^TestUpdateBinary$'
-          # ForceSymlink: `is a directory` / `The system cannot find the file
-          # specified`.
+          # ForceSymlink: `is a directory` / file not found.
           '^TestForceSymlink$'
           '^TestInstall$/^(fresh_install|self_update)$'
-          # Renaming the decompressed file out of tmp/: `The process cannot
-          # access the file because it is being used by another process`.
+          # Rename out of tmp/: file still in use by another process.
           '^TestDecompressFile$'
-          # Compares a fixture that sets viam_server_start_timeout_minutes: 10
-          # against DefaultConfig(), which is 10 on Linux but 1 on Windows.
+          # Fixture's 10-minute start timeout is the Linux default, not Windows' 1.
           '^TestConvertJson$'
-          # Writes into a fallback service dir: `The system cannot find the path
-          # specified`. The default-dir subtests pass.
+          # Fallback service dir writes: path not found.
           '^TestSystemdManagerInstallService$/^(new_install_in_default_directory|new_install_in_fallback_directory|identical_install_in_fallback_directory|outdated_install_in_fallback_directory)$'
-          # Expect an error that Windows does not produce, or leave a handle open
-          # that blocks t.TempDir cleanup.
+          # Expect an error Windows does not produce, or block t.TempDir cleanup.
           '^TestDownloadFile$/^(does_not_overwrite_existing_files|handles_multiple_duplicates|handles_files_with_special_characters_in_name)$'
           '^TestInitPaths$/^(failure_cannot_create_directory|failure_not_directory)$'
-          # utils.BuildViamAgent shells out to `make test-build` with
-          # TESTBUILD_OUTPUT_PATH set to a backslashed Windows temp path; the
-          # backslashes are eaten before `go build -o` sees them, so the binary
-          # lands in the repo root under a mangled name and the path the helper
-          # returns does not exist. Only the valid_file subtest asserts on that
-          # path, but the call sits in the table literal rather than inside the
-          # subtest, so skipping the leaf alone would still build the agent —
-          # and would fail the parent outright on a runner without make.
-          # Skipping the parent also keeps the mangled file out of the checkout.
-          # TestUpdateBinary above is the helper's only other caller.
+          # BuildViamAgent's backslashed TESTBUILD_OUTPUT_PATH mangles `go build -o`.
           '^TestIsValidAgentBinary$'
-          # `listen tcp 127.0.0.1:8080: bind: An attempt was made to access a
-          # socket in a way forbidden by its access permissions` — 8080 falls in
-          # a Windows excluded port range.
+          # Port 8080 is in a Windows excluded port range, so the bind is refused.
           '^TestFetchRestartStatus$'
         )
         SKIP=$(IFS='|'; echo "${WINDOWS_SKIP[*]}")
