@@ -6,7 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -113,7 +113,7 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	binPath := path.Join(utils.ViamDirs.Bin, SubsysName)
+	binPath := filepath.Join(utils.ViamDirs.Bin, SubsysName)
 
 	if runtime.GOOS == "windows" {
 		binPath += ".exe"
