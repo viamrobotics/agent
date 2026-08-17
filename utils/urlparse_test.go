@@ -27,6 +27,13 @@ func TestDownloadFileURLForms(t *testing.T) {
 
 	vol := filepath.VolumeName(src)
 
+	if runtime.GOOS == "windows" {
+		// The no-drive-letter case below is drive-relative, so it only resolves when the
+		// current drive is the one holding the file. On CI, TEMP is on C: while the
+		// checkout is on D:, so run from the temp dir's own volume to pin that down.
+		t.Chdir(vol + `\`)
+	}
+
 	type urlCase struct {
 		name    string
 		url     string
