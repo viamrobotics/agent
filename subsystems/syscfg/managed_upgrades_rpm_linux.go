@@ -35,37 +35,57 @@ const (
 	dnf5SizeQueryFormat = dnfSizeQueryFormat + `\n`
 )
 
+// rpmVariant identifies which rpm-based package manager binary drives upgrades.
+// dnf4 and dnf5 are separate variants because dnf5 (Fedora 41+) is a rewrite
+// with its own command line quirks, not an incremental dnf release.
+type rpmVariant int
+
+const (
+	rpmYum rpmVariant = iota
+	rpmDnf4
+	rpmDnf5
+)
+
+// String returns the variant's name. Log sites must go through this (or fmt's
+// %s/%v verbs, which pick it up) rather than logging the field raw, so the logs
+// say "dnf5" instead of an opaque integer.
+func (v rpmVariant) String() string {
+	switch v {
+	case rpmDnf4:
+		return "dnf4"
+	case rpmDnf5:
+		return "dnf5"
+	case rpmYum:
+		return "yum"
+	}
+	return fmt.Sprintf("unknown(%d)", int(v))
+}
+
 type rpmPackageManager struct {
-	logger logging.Logger
-	useDnf bool
-	// dnf5 reports that the dnf binary is dnf5 (Fedora 41+), which is a rewrite
-	// with its own command line quirks, rather than dnf4.
-	dnf5 bool
+	logger  logging.Logger
+	variant rpmVariant
 }
 
 // String implements [packageManager].
 func (r rpmPackageManager) String() string {
-	manager := "yum"
-	switch {
-	case r.dnf5:
-		manager = "dnf5"
-	case r.useDnf:
-		manager = "dnf"
-	}
-	return fmt.Sprintf("rpm(%s)", manager)
+	return fmt.Sprintf("rpm(%s)", r.variant)
 }
 
-// isDnf5 reports whether the installed dnf binary is dnf5. `dnf --version`
-// prints "dnf5 version 5.x.y" on dnf5 and a bare "4.x.y" on dnf4, so the first
-// integer to appear is the major version either way. When the version can't be
-// determined, assume dnf4, whose behavior this code has relied on the longest.
-func isDnf5(ctx context.Context, logger logging.Logger) bool {
+// detectDnfVariant reports whether the installed dnf binary is dnf4 or dnf5.
+// `dnf --version` prints "dnf5 version 5.x.y" on dnf5 and a bare "4.x.y" on
+// dnf4, so the first integer to appear is the major version either way. When the
+// version can't be determined, assume dnf4, whose behavior this code has relied
+// on the longest.
+func detectDnfVariant(ctx context.Context, logger logging.Logger) rpmVariant {
 	output, err := exec.CommandContext(ctx, "dnf", "--version").Output()
 	if err != nil {
 		logger.Debugw("Could not determine dnf version, assuming dnf4", "err", err)
-		return false
+		return rpmDnf4
 	}
-	return dnfMajorVersion(string(output)) >= 5
+	if dnfMajorVersion(string(output)) >= 5 {
+		return rpmDnf5
+	}
+	return rpmDnf4
 }
 
 var dnfVersionRegex = regexp.MustCompile(`\d+`)
@@ -108,11 +128,10 @@ func (r rpmPackageManager) lockPaths() []string {
 }
 
 func (r rpmPackageManager) getProgram() string {
-	program := "yum"
-	if r.useDnf {
-		program = "dnf"
+	if r.variant == rpmYum {
+		return "yum"
 	}
-	return program
+	return "dnf"
 }
 
 func (r rpmPackageManager) ensureNeedsRestarting(ctx context.Context) error {
@@ -193,9 +212,9 @@ func (r rpmPackageManager) fillPackageSizes(ctx context.Context, updates []pendi
 // upgrade. With dnf, repoquery is a subcommand; on yum systems it is a
 // standalone binary shipped in yum-utils.
 func (r rpmPackageManager) sizeQueryCommand(ctx context.Context) *exec.Cmd {
-	if r.useDnf {
+	if r.variant != rpmYum {
 		format := dnfSizeQueryFormat
-		if r.dnf5 {
+		if r.variant == rpmDnf5 {
 			format = dnf5SizeQueryFormat
 		}
 		return exec.CommandContext(ctx, "dnf", "repoquery", "-q", "--upgrades",

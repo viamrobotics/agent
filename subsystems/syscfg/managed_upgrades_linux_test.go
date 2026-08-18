@@ -326,21 +326,29 @@ new-pkg.noarch                     2.0-1.fc40              updates
 	test.That(t, parseRPMCheckUpdate(""), test.ShouldBeNil)
 }
 
+// TestRPMVariantString pins the names log fields render for each variant, so a
+// package_manager field never degrades into a bare enum integer.
+func TestRPMVariantString(t *testing.T) {
+	test.That(t, rpmPackageManager{variant: rpmDnf5}.String(), test.ShouldEqual, "rpm(dnf5)")
+	test.That(t, rpmPackageManager{variant: rpmDnf4}.String(), test.ShouldEqual, "rpm(dnf4)")
+	test.That(t, rpmPackageManager{variant: rpmYum}.String(), test.ShouldEqual, "rpm(yum)")
+}
+
 func TestRPMSizeQueryCommand(t *testing.T) {
-	dnf := rpmPackageManager{useDnf: true}
+	dnf := rpmPackageManager{variant: rpmDnf4}
 	test.That(t, dnf.sizeQueryCommand(t.Context()).Args, test.ShouldResemble, []string{
 		"dnf", "repoquery", "-q", "--upgrades", "--queryformat", dnfSizeQueryFormat,
 	})
 
 	// dnf5 stopped printing a newline after each record, so its format has to ask
 	// for one explicitly.
-	dnf5 := rpmPackageManager{useDnf: true, dnf5: true}
+	dnf5 := rpmPackageManager{variant: rpmDnf5}
 	test.That(t, dnf5.sizeQueryCommand(t.Context()).Args, test.ShouldResemble, []string{
 		"dnf", "repoquery", "-q", "--upgrades", "--queryformat", dnfSizeQueryFormat + `\n`,
 	})
 
 	// On yum systems repoquery is a standalone binary, not a yum subcommand.
-	yum := rpmPackageManager{useDnf: false}
+	yum := rpmPackageManager{variant: rpmYum}
 	test.That(t, yum.sizeQueryCommand(t.Context()).Args, test.ShouldResemble, []string{
 		"repoquery", "-q", "--all", "--pkgnarrow=updates", "--queryformat", yumSizeQueryFormat,
 	})

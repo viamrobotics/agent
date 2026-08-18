@@ -142,12 +142,12 @@ var getPackageManager = func(ctx context.Context, logger logging.Logger) (packag
 			"dnf",
 			func() packageManager {
 				logger := logger.Sublogger("dnf")
-				return rpmPackageManager{logger: logger, useDnf: true, dnf5: isDnf5(ctx, logger)}
+				return rpmPackageManager{logger: logger, variant: detectDnfVariant(ctx, logger)}
 			},
 		},
 		{
 			"yum",
-			func() packageManager { return rpmPackageManager{logger: logger.Sublogger("yum"), useDnf: false} },
+			func() packageManager { return rpmPackageManager{logger: logger.Sublogger("yum"), variant: rpmYum} },
 		},
 	}
 	for _, pm := range pms {
