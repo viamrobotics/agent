@@ -1123,6 +1123,9 @@ func (n *Subsystem) doReboot(ctx context.Context) bool {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		n.logger.Warnw("Error running systemctl reboot", "output", output, "err", err.Error())
+	} else {
+		n.logger.Activity("system", "reboot", "reason", "offline_too_long",
+			"offline_timeout", time.Duration(n.Config().DeviceRebootAfterOfflineMinutes).String())
 	}
 	const rebootWaitDuration = time.Minute * 5
 	if !n.mainLoopHealth.Sleep(ctx, rebootWaitDuration) {
