@@ -59,7 +59,7 @@ func TestPendingUpdatesAreLoggable(t *testing.T) {
 	entries := logs.All()
 	test.That(t, entries, test.ShouldHaveLength, 1)
 	test.That(t, entries[0].Level, test.ShouldEqual, zapcore.InfoLevel)
-	test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+	test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, "system")
 	test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityStart)
 	test.That(t, entries[0].ContextMap()["updates"], test.ShouldResemble, testPendingUpdates)
 	test.That(t, entries[0].ContextMap()["package_manager"], test.ShouldEqual, "apt")
@@ -114,7 +114,7 @@ func TestLogUpgradeResult(t *testing.T) {
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, "system")
 		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityComplete)
 		test.That(t, entries[0].ContextMap()["updates"], test.ShouldResemble, testPendingUpdates)
 		test.That(t, entries[0].ContextMap()["security_only"], test.ShouldEqual, true)
@@ -127,7 +127,7 @@ func TestLogUpgradeResult(t *testing.T) {
 
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, "system")
 		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityFail)
 		// The failed run still reports what it managed to install.
 		test.That(t, output.String(), test.ShouldContainSubstring, `"name":"libc6"`)
@@ -143,7 +143,7 @@ func TestLogUpgradeResult(t *testing.T) {
 		entries := logs.All()
 		test.That(t, entries, test.ShouldHaveLength, 1)
 		// The agent killed the upgrade itself, so this is an abort, not a failure.
-		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, UpdateActivity)
+		test.That(t, entries[0].ContextMap()["activity"], test.ShouldEqual, "system")
 		test.That(t, entries[0].ContextMap()["event"], test.ShouldEqual, updateActivityAbort)
 	})
 

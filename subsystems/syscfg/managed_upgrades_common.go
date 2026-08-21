@@ -21,11 +21,10 @@ const (
 	// configured interval.
 	maintenanceRetryInterval = 5 * time.Minute
 
-	UpdateActivity         = "os update"
-	updateActivityStart    = "start"
-	updateActivityComplete = "complete"
-	updateActivityFail     = "fail"
-	updateActivityAbort    = "abort"
+	updateActivityStart    = "os_update_start"
+	updateActivityComplete = "os_update_complete"
+	updateActivityFail     = "os_update_fail"
+	updateActivityAbort    = "os_update_abort"
 )
 
 // errBlockedByMaintenanceWindow is returned by runManagedUpgrade when the
@@ -219,7 +218,7 @@ func logPendingUpdates(logger logging.Logger, updates updateSummary, keysAndValu
 		logger.Infow("No OS updates pending, nothing to install", fields...)
 		return
 	}
-	logger.Activity(UpdateActivity, updateActivityStart, fields...)
+	logger.Activity("system", updateActivityStart, fields...)
 }
 
 // logUpgradeResult reports how the upgrade went, with installed carrying the
@@ -236,11 +235,11 @@ func logUpgradeResult(ctx context.Context, logger logging.Logger, installed []pe
 	fields = append(fields, keysAndValues...)
 	switch {
 	case err != nil && ctx.Err() != nil:
-		logger.Activity(UpdateActivity, updateActivityAbort, append(fields, "err", err)...)
+		logger.Activity("system", updateActivityAbort, append(fields, "err", err)...)
 	case err != nil:
-		logger.Activity(UpdateActivity, updateActivityFail, append(fields, "err", err)...)
+		logger.Activity("system", updateActivityFail, append(fields, "err", err)...)
 	default:
-		logger.Activity(UpdateActivity, updateActivityComplete, fields...)
+		logger.Activity("system", updateActivityComplete, fields...)
 	}
 }
 

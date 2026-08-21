@@ -1017,13 +1017,11 @@ func (m *Manager) CheckIfOSNeedsReboot(ctx context.Context) {
 	} else {
 		rebootCmd = exec.CommandContext(ctx, "systemctl", "reboot")
 	}
-	m.logger.Activity(syscfg.UpdateActivity, "reboot")
+	m.logger.Activity("system", "reboot", "reason", "os_update")
 	if output, err := rebootCmd.CombinedOutput(); err != nil {
-		m.logger.Activity(syscfg.UpdateActivity, "reboot_abort", "error", err, "output", string(output))
+		m.logger.Activity("system", "reboot_abort", "error", err, "output", string(output))
 		return
 	}
-
-	m.logger.Activity("system", "reboot", "reason", "os_update")
 
 	m.Exit("system reboot initiated for OS package updates", "os_reboot")
 }
