@@ -598,16 +598,18 @@ func allowFirewall(ctx context.Context, logger logging.Logger, outPath string) e
 		return errw.Wrap(err, "creating firewall rule")
 	}
 	err := cmd.Wait()
-	if err != nil {
-		user, _ := user.Current() //nolint:errcheck
-		if user.Name != "SYSTEM" {
-			// note: otherwise, we end up with a mostly-correct download but no version, which leads to other problems.
-			logger.Info("Ignoring netsh error on non-SYSTEM windows")
-		}
-	} else {
+	if err == nil {
 		logger.Debugw("created firewall exception for", "program", outPath)
+		return nil
 	}
-	return err
+	// netsh needs elevation, so an unelevated agent (and any test run) cannot add the rule.
+	// Surfacing that as a download failure would leave us with a mostly-correct download but
+	// no version, which leads to other problems, so only SYSTEM treats it as fatal.
+	if currentUser, userErr := user.Current(); userErr == nil && currentUser.Name == "SYSTEM" {
+		return err
+	}
+	logger.Info("Ignoring netsh error on non-SYSTEM windows")
+	return nil
 }
 
 // DecompressFile extracts a compressed file and returns the path to the extracted file.

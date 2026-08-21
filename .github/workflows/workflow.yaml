@@ -70,6 +70,47 @@ jobs:
     - name: Test
       run: make test
 
+  test-windows:
+    name: Test on Windows
+    runs-on: windows-2022
+    if: |
+      github.event_name != 'pull_request' ||
+      (github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+      (github.event.action == 'labeled' && github.event.label.name == 'dev-release')
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Test
+      shell: bash
+      # Not `make test`: that target passes -race, which needs cgo, which needs
+      # a C toolchain we don't otherwise depend on for Windows builds.
+      run: |
+        # Known Windows failures
+        WINDOWS_SKIP=(
+          # Missing cache\source-binary-0.70.0; later subtests need its state.
+          '^TestUpdateBinary$'
+          # ForceSymlink: `is a directory` / file not found.
+          '^TestForceSymlink$'
+          '^TestInstall$/^(fresh_install|self_update)$'
+          # Rename out of tmp/: file still in use by another process.
+          '^TestDecompressFile$'
+          # Fixture's 10-minute start timeout is the Linux default, not Windows' 1.
+          '^TestConvertJson$'
+          # Fallback service dir writes: path not found.
+          '^TestSystemdManagerInstallService$/^(new_install_in_default_directory|new_install_in_fallback_directory|identical_install_in_fallback_directory|outdated_install_in_fallback_directory)$'
+          # Expect an error Windows does not produce, or block t.TempDir cleanup.
+          '^TestDownloadFile$/^(does_not_overwrite_existing_files|handles_multiple_duplicates|handles_files_with_special_characters_in_name)$'
+          '^TestInitPaths$/^(failure_cannot_create_directory|failure_not_directory)$'
+          # BuildViamAgent's backslashed TESTBUILD_OUTPUT_PATH mangles `go build -o`.
+          '^TestIsValidAgentBinary$'
+          # Port 8080 is in a Windows excluded port range, so the bind is refused.
+          '^TestFetchRestartStatus$'
+        )
+        SKIP=$(IFS='|'; echo "${WINDOWS_SKIP[*]}")
+        go test -count=1 -skip "$SKIP" ./...
+
   build:
     name: Build and Upload
     runs-on: ubuntu-latest
