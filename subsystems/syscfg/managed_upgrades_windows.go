@@ -142,6 +142,9 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	pending, listErr := pendingWindowsUpdates(ctx, s.logger, securityOnly)
 	updates := updateSummary{updates: pending, listErr: listErr}
 	logPendingUpdates(s.logger, updates, "security_only", securityOnly)
+	if !updates.shouldContinue() {
+		return nil
+	}
 
 	installed, upgradeErr := installWindowsUpdates(ctx, s.logger, securityOnly)
 	logUpgradeResult(ctx, s.logger, installed, upgradeErr, "security_only", securityOnly)
