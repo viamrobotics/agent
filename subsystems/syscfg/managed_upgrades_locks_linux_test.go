@@ -23,17 +23,24 @@ type fakePackageManager struct {
 	paths []string
 }
 
-func (f fakePackageManager) String() string                             { return "fake" }
-func (f fakePackageManager) runUpgrade(_ context.Context, _ bool) error { return nil }
-func (f fakePackageManager) needsReboot(_ context.Context) bool         { return false }
-func (f fakePackageManager) lockPaths() []string                        { return f.paths }
+func (f fakePackageManager) String() string                          { return "fake" }
+func (f fakePackageManager) prepare(_ context.Context, _ bool) error { return nil }
+func (f fakePackageManager) pendingUpgrades(_ context.Context, _ bool) ([]pendingUpdate, error) {
+	return nil, nil
+}
+
+func (f fakePackageManager) runUpgrade(_ context.Context, _ bool) ([]pendingUpdate, error) {
+	return nil, nil
+}
+func (f fakePackageManager) needsReboot(_ context.Context) bool { return false }
+func (f fakePackageManager) lockPaths() []string                { return f.paths }
 
 // withPackageLocks makes the detected package manager report exactly paths. With
 // none, a real package transaction on the test machine cannot affect the result.
 func withPackageLocks(t *testing.T, paths ...string) {
 	t.Helper()
 	original := getPackageManager
-	getPackageManager = func(logging.Logger) (packageManager, error) {
+	getPackageManager = func(context.Context, logging.Logger) (packageManager, error) {
 		return fakePackageManager{paths: paths}, nil
 	}
 	t.Cleanup(func() { getPackageManager = original })

@@ -1,8 +1,11 @@
 package syscfg
 
 import (
+	"context"
 	"errors"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +20,11 @@ const (
 	// by viam-server's maintenance window, instead of waiting for the full
 	// configured interval.
 	maintenanceRetryInterval = 5 * time.Minute
+
+	updateActivityStart    = "os_update_start"
+	updateActivityComplete = "os_update_complete"
+	updateActivityFail     = "os_update_fail"
+	updateActivityAbort    = "os_update_abort"
 )
 
 // errBlockedByMaintenanceWindow is returned by runManagedUpgrade when the
@@ -114,6 +122,125 @@ func logManagedUpgradesStarted(logger logging.Logger, mode string, interval time
 		"os_auto_upgrade_type", mode,
 		"check_interval", interval,
 	)
+}
+
+// pendingUpdate describes a single update that a managed upgrade is about to
+// install, as reported by the platform's package manager.
+//
+// Package managers differ in what they report, so only Name is guaranteed to be
+// populated. The remaining fields carry whatever the underlying tool exposes:
+// sizes are zero and Category is empty when it isn't available. See each
+// packageManager's pendingUpgrades implementation for what a given platform fills
+// in.
+//
+// The whole struct is logged as-is, so the json tags decide what the fields are
+// called in the logs. Everything the package manager didn't report is omitted
+// rather than logged as an empty string or a zero size.
+type pendingUpdate struct {
+	// Name identifies the package, including its architecture when the package
+	// manager reports one.
+	Name string `json:"name"`
+	// Version is the version being installed.
+	Version string `json:"version,omitempty"`
+	// CurrentVersion is the installed version being replaced, and is empty for
+	// packages being installed for the first time.
+	CurrentVersion string `json:"current_version,omitempty"`
+	// DownloadSize is the compressed size fetched from the repository, in bytes.
+	DownloadSize uint64 `json:"download_size,omitempty"`
+	// InstalledSize is the size the package occupies on disk once unpacked, in
+	// bytes.
+	InstalledSize uint64 `json:"installed_size,omitempty"`
+	// Category classifies the update, e.g. "security". Package managers that don't
+	// classify individual packages leave this empty.
+	Category string `json:"category,omitempty"`
+	// Result is how far installing this update got, e.g. "Installed" or "Failed".
+	// Only Windows Update reports per-update outcomes; Linux package managers and
+	// pending-update lists leave it empty.
+	Result string `json:"result,omitempty"`
+}
+
+// updateSummary describes the updates a managed upgrade is about to install.
+// Listing updates is best effort: when it fails we still attempt the upgrade, and
+// listErr is logged in place of the update list so the logs say why the list is
+// missing rather than implying nothing was pending.
+type updateSummary struct {
+	updates []pendingUpdate
+	listErr error
+}
+
+// sizeSuffixes maps the unit suffixes package managers print sizes with to their
+// multiplier. Both the SI-style ("2.3 M") and binary ("2.3 MiB") spellings appear
+// in practice, and both mean a power of 1024 in this context.
+var sizeSuffixes = []struct {
+	suffix     string
+	multiplier uint64
+}{
+	{"k", 1 << 10},
+	{"m", 1 << 20},
+	{"g", 1 << 30},
+	{"t", 1 << 40},
+}
+
+// parseSize reads a size that a package manager may report either as a plain byte
+// count ("2799652") or as a human readable string ("2.7 M", "2.7 MiB", "2.7MB").
+// It returns 0 for anything it can't make sense of, matching the "size unknown"
+// zero value of [pendingUpdate].
+func parseSize(size string) uint64 {
+	size = strings.ToLower(strings.TrimSpace(size))
+	size = strings.TrimSuffix(strings.TrimSuffix(size, "b"), "i")
+	multiplier := uint64(1)
+	for _, unit := range sizeSuffixes {
+		if strings.HasSuffix(size, unit.suffix) {
+			size = strings.TrimSuffix(size, unit.suffix)
+			multiplier = unit.multiplier
+			break
+		}
+	}
+	value, err := strconv.ParseFloat(strings.TrimSpace(size), 64)
+	if err != nil || value < 0 {
+		return 0
+	}
+	return uint64(value * float64(multiplier))
+}
+
+// logPendingUpdates summarizes the updates about to be installed. Call this
+// immediately before applying them, so a device that hangs or reboots mid-upgrade
+// still leaves behind a record of what it was installing.
+func logPendingUpdates(logger logging.Logger, updates updateSummary, keysAndValues ...any) {
+	if updates.listErr != nil {
+		logger.Warnw("Installing OS updates, but could not determine which ones",
+			append([]any{"update_list_err", updates.listErr}, keysAndValues...)...)
+		return
+	}
+
+	fields := append([]any{"updates", updates.updates}, keysAndValues...)
+	if len(updates.updates) == 0 {
+		logger.Infow("No OS updates pending, nothing to install", fields...)
+		return
+	}
+	logger.Activity("system", updateActivityStart, fields...)
+}
+
+// logUpgradeResult reports how the upgrade went, with installed carrying the
+// packages the package manager's output reported actually installing. When the
+// package manager didn't say, the list is omitted entirely rather than logged
+// empty or guessed at: logPendingUpdates already recorded what the upgrade set
+// out to install. A cancelled ctx means the agent is shutting down and killed
+// the upgrade itself, which isn't an error worth alarming about.
+func logUpgradeResult(ctx context.Context, logger logging.Logger, installed []pendingUpdate, err error, keysAndValues ...any) {
+	var fields []any
+	if len(installed) > 0 {
+		fields = append(fields, "updates", installed)
+	}
+	fields = append(fields, keysAndValues...)
+	switch {
+	case err != nil && ctx.Err() != nil:
+		logger.Activity("system", updateActivityAbort, append(fields, "err", err)...)
+	case err != nil:
+		logger.Activity("system", updateActivityFail, append(fields, "err", err)...)
+	default:
+		logger.Activity("system", updateActivityComplete, fields...)
+	}
 }
 
 func clampUpgradeInterval(logger logging.Logger, hours float64) time.Duration {
