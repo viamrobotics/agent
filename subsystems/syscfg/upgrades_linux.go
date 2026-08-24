@@ -35,16 +35,18 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 		return nil
 	}
 
-	unsupportedReason, err := checkSupportedDistro()
-	if err != nil {
-		return err
-	}
-	if unsupportedReason != "" {
-		s.logger.Infow("Skipping unattended upgrades configuration", "reason", unsupportedReason)
-		return nil
-	}
-
+	// Disabled and managed modes only turn apt's own unattended upgrades off,
+	// which works on any apt-based distro. They must not sit behind the codename
+	// gate below (which exists for the origins generation the enable path
+	// needs): otherwise a managed mode on a distro outside supportedCodenames
+	// would run the agent's upgrade loop while the OS's apt-daily-upgrade.timer
+	// stays enabled, leaving two upgraders contending for the dpkg lock.
 	if isDisabled(cfg) || isManaged(cfg) {
+		if _, err := exec.LookPath("apt-get"); err != nil {
+			s.logger.Infow("Skipping unattended upgrades configuration", "reason", "no apt-get binary found")
+			//nolint:nilerr
+			return nil
+		}
 		err := setTimer(ctx, false)
 		if err != nil {
 			// Might just be that the package isn't installed yet so systemd reported
@@ -66,6 +68,15 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 				s.logger.Info("Disabled apt unattended-upgrades, no OS upgrades will be installed automatically.")
 			}
 		}
+		return nil
+	}
+
+	unsupportedReason, err := checkSupportedDistro()
+	if err != nil {
+		return err
+	}
+	if unsupportedReason != "" {
+		s.logger.Infow("Skipping unattended upgrades configuration", "reason", unsupportedReason)
 		return nil
 	}
 
