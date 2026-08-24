@@ -188,20 +188,23 @@ func generateOrigins(ctx context.Context, securityOnly bool) (string, error) {
 
 // inner transformation logic of generateOrigins for testing.
 func generateOriginsInner(securityOnly bool, output []byte) map[string]bool {
-	releaseRegex := regexp.MustCompile(`release.*o=([^,]+).*n=([^,]+).*`)
+	// Match the archive/suite (a=) rather than the codename (n=): Ubuntu keeps
+	// the pocket in Suite (a=jammy-security, n=jammy) while Debian carries it in
+	// both, so Suite is the one field that identifies security repos on both.
+	releaseRegex := regexp.MustCompile(`release.*o=([^,]+).*a=([^,]+).*`)
 	matches := releaseRegex.FindAllStringSubmatch(string(output), -1)
 
 	// use map to reduce to unique set
 	releases := map[string]bool{}
 	for _, release := range matches {
-		// we expect at least an origin and a codename from each line
+		// we expect at least an origin and an archive from each line
 		if len(release) != 3 {
 			continue
 		}
 		if securityOnly && !strings.Contains(release[2], "security") {
 			continue
 		}
-		releases[fmt.Sprintf(`"origin=%s,codename=%s";`, release[1], release[2])] = true
+		releases[fmt.Sprintf(`"origin=%s,archive=%s";`, release[1], release[2])] = true
 	}
 	return releases
 }
