@@ -39,7 +39,7 @@ func checkPathOwner(_ int, _ fs.FileInfo) error {
 	return nil
 }
 
-// Windows has no syncfs(2) syscall equivalent, so here we try our best to replicate it
+// Windows has no syncfs(2) syscall equivalent, so here we try our best to replicate it.
 func SyncFS(syncPath string) error {
 	info, err := os.Lstat(syncPath)
 	if err != nil {
