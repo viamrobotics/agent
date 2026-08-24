@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -197,7 +196,7 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 
 	info.Version = newVersion
 	info.URL = cfg.GetUrl()
-	info.SymlinkPath = path.Join(utils.ViamDirs.Bin, cfg.GetFilename())
+	info.SymlinkPath = filepath.Join(utils.ViamDirs.Bin, cfg.GetFilename())
 	// The config never carries a real sha for a custom URL, so a steady-state poll
 	// must preserve the locally computed one (see UpdateBinary) or we'd redownload
 	// every cycle. Every other case takes the config's value; for a re-targeted

@@ -591,7 +591,7 @@ func allowFirewall(ctx context.Context, logger logging.Logger, outPath string) e
 	// todo: confirm this is right; this isn't the final destination. Does the rule move when the file is renamed? Link to docs.
 	cmd := exec.CommandContext( //nolint:gosec
 		ctx,
-		"netsh", "advfirewall", "firewall", "add", "rule", "name="+path.Base(outPath),
+		"netsh", "advfirewall", "firewall", "add", "rule", "name="+filepath.Base(outPath),
 		"dir=in", "action=allow", "program=\""+outPath+"\"", "enable=yes",
 	)
 	if err := cmd.Start(); err != nil {
@@ -632,10 +632,22 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 	if err != nil {
 		return "", err
 	}
+	tmpPath := out.Name()
+	// Windows refuses to rename a file that still has an open handle, so the close
+	// has to happen before the rename below rather than only in the defer. The defer
+	// stays as the backstop for the paths that return before reaching it.
+	closed := false
+	closeOut := func() error {
+		if closed {
+			return nil
+		}
+		closed = true
+		return out.Close()
+	}
 
 	defer func() {
-		errRet = errors.Join(errRet, out.Close(), SyncFS(ViamDirs.Tmp))
-		if err := os.Remove(out.Name()); err != nil && !os.IsNotExist(err) {
+		errRet = errors.Join(errRet, closeOut(), SyncFS(ViamDirs.Tmp))
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
 			errRet = errors.Join(errRet, err)
 		}
 	}()
@@ -645,8 +657,12 @@ func DecompressFile(inPath string) (outPath string, errRet error) {
 		errRet = errors.Join(errRet, err)
 	}
 
+	if err := closeOut(); err != nil {
+		return "", errors.Join(errRet, err)
+	}
+
 	outPath = filepath.Join(ViamDirs.Cache, strings.Replace(filepath.Base(inPath), ".xz", "", 1))
-	errRet = errors.Join(errRet, os.Rename(out.Name(), outPath), SyncFS(outPath))
+	errRet = errors.Join(errRet, os.Rename(tmpPath, outPath), SyncFS(outPath))
 	return outPath, errRet
 }
 
@@ -737,7 +753,7 @@ func WriteFileIfNew(outPath string, data []byte) (bool, error) {
 	}
 
 	//nolint:gosec
-	if err := os.MkdirAll(path.Dir(outPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return true, errw.Wrapf(err, "creating directory for %s", outPath)
 	}
 

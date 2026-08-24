@@ -39,17 +39,28 @@ func checkPathOwner(_ int, _ fs.FileInfo) error {
 	return nil
 }
 
+// Windows has no syncfs(2) syscall equivalent, so here we try our best to replicate it.
 func SyncFS(syncPath string) error {
+	info, err := os.Lstat(syncPath)
+	if err != nil {
+		if errw.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return errw.Wrapf(err, "syncing fs %s", syncPath)
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+
 	handle, err := syscall.Open(syncPath, syscall.O_RDWR, 0)
 	if err != nil {
-		return err
+		return errw.Wrapf(err, "syncing fs %s", syncPath)
 	}
 	defer func() {
 		goutils.UncheckedError(syscall.CloseHandle(handle))
 	}()
-	err = syscall.Fsync(handle)
-	if err != nil {
-		return err
+	if err := syscall.Fsync(handle); err != nil {
+		return errw.Wrapf(err, "syncing fs %s", syncPath)
 	}
 	return nil
 }
