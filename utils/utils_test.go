@@ -123,11 +123,7 @@ func TestGetLastModified(t *testing.T) {
 	mux.HandleFunc("/badlm", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", "asdfghjkl")
 	})
-	// httptest binds the listener before it returns, so the requests below cannot
-	// race the server coming up. Serving on a port that ListenAndServe had not
-	// reached yet made this test flaky: GetLastModified reports a failed HEAD as a
-	// zero time, which is what the /nolm case asserts, so a refused connection was
-	// only ever caught by the /lm case below.
+
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	baseURLWithScheme := server.URL
