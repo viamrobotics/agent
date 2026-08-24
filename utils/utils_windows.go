@@ -39,19 +39,7 @@ func checkPathOwner(_ int, _ fs.FileInfo) error {
 	return nil
 }
 
-// SyncFS flushes buffered writes for syncPath to disk.
-//
-// Windows has no equivalent of the syncfs(2) the unix implementation uses:
-// FlushFileBuffers takes a single file handle, and accepts a volume handle only
-// from an administrator. So this flushes syncPath itself when it is a regular
-// file, which covers what every caller is actually after — durability for a file
-// it just wrote.
-//
-// Anything else is a no-op. Opening a directory or a symlink with O_RDWR fails
-// (EISDIR, or ENOENT for a symlink whose target does not exist yet), and there is
-// nothing to flush behind either. Returning nil rather than that error also keeps
-// this in line with the unix implementation, which syncs the *parent* of syncPath
-// and so succeeds for directories, symlinks, and paths that do not exist at all.
+// Windows has no syncfs(2) syscall equivalent, so here we try our best to replicate it
 func SyncFS(syncPath string) error {
 	info, err := os.Lstat(syncPath)
 	if err != nil {
