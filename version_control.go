@@ -415,7 +415,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	verData.Installed = time.Now()
 
 	// if we made it here we performed an update and need to restart
-	c.logger.Infof("%s updated from %s to %s", binary, data.PreviousVersion, data.CurrentVersion)
+	c.logger.Infof("%s updated from %s to %s; new version takes effect after %s restarts",
+		binary, data.PreviousVersion, data.CurrentVersion, binary)
 	needRestart = true
 
 	// record the cache
