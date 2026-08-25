@@ -76,7 +76,7 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 		return err
 	}
 	if unsupportedReason != "" {
-		s.logger.Infow("Skipping unattended upgrades configuration", "reason", unsupportedReason)
+		s.logger.Warnw("Skipping unattended upgrades configuration", "reason", unsupportedReason)
 		return nil
 	}
 
@@ -199,9 +199,10 @@ func generateOrigins(ctx context.Context, securityOnly bool) (string, error) {
 
 // inner transformation logic of generateOrigins for testing.
 func generateOriginsInner(securityOnly bool, output []byte) map[string]bool {
-	// Match the archive/suite (a=) rather than the codename (n=): Ubuntu keeps
-	// the pocket in Suite (a=jammy-security, n=jammy) while Debian carries it in
-	// both, so Suite is the one field that identifies security repos on both.
+	// Match the archive (a=) rather than the codename (n=): Ubuntu keeps the
+	// "-security" suffix there (a=jammy-security, n=jammy) while Debian carries
+	// it in both, so Suite is the one field that identifies security repos on
+	// both.
 	releaseRegex := regexp.MustCompile(`release.*o=([^,]+).*a=([^,]+).*`)
 	matches := releaseRegex.FindAllStringSubmatch(string(output), -1)
 

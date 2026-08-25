@@ -208,6 +208,8 @@ func (s *Subsystem) runManagedUpgrade(ctx context.Context) error {
 	pending, listErr := pm.pendingUpgrades(ctx, securityOnly)
 	updates := updateSummary{updates: pending, listErr: listErr}
 	logPendingUpdates(s.logger, updates, "package_manager", pm.String(), "security_only", securityOnly)
+	// Bail early if we were able to parse the update check output and it reports
+	// there are no updates to install.
 	if !updates.shouldContinue() {
 		return nil
 	}
