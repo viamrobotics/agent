@@ -35,16 +35,18 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 		return nil
 	}
 
-	unsupportedReason, err := checkSupportedDistro()
-	if err != nil {
-		return err
-	}
-	if unsupportedReason != "" {
-		s.logger.Infow("Skipping unattended upgrades configuration", "reason", unsupportedReason)
-		return nil
-	}
-
+	// Disabled and managed modes only turn apt's own unattended upgrades off,
+	// which works on any apt-based distro. They must not sit behind the codename
+	// gate below (which exists for the origins generation the enable path
+	// needs): otherwise a managed mode on a distro outside supportedCodenames
+	// would run the agent's upgrade loop while the OS's apt-daily-upgrade.timer
+	// stays enabled, leaving two upgraders contending for the dpkg lock.
 	if isDisabled(cfg) || isManaged(cfg) {
+		if _, err := exec.LookPath("apt-get"); err != nil {
+			s.logger.Infow("Skipping unattended upgrades configuration", "reason", "no apt-get binary found")
+			//nolint:nilerr
+			return nil
+		}
 		err := setTimer(ctx, false)
 		if err != nil {
 			// Might just be that the package isn't installed yet so systemd reported
@@ -66,6 +68,15 @@ func (s *Subsystem) EnforceUpgrades(ctx context.Context) error {
 				s.logger.Info("Disabled apt unattended-upgrades, no OS upgrades will be installed automatically.")
 			}
 		}
+		return nil
+	}
+
+	unsupportedReason, err := checkSupportedDistro()
+	if err != nil {
+		return err
+	}
+	if unsupportedReason != "" {
+		s.logger.Warnw("Skipping unattended upgrades configuration", "reason", unsupportedReason)
 		return nil
 	}
 
@@ -188,20 +199,24 @@ func generateOrigins(ctx context.Context, securityOnly bool) (string, error) {
 
 // inner transformation logic of generateOrigins for testing.
 func generateOriginsInner(securityOnly bool, output []byte) map[string]bool {
-	releaseRegex := regexp.MustCompile(`release.*o=([^,]+).*n=([^,]+).*`)
+	// Match the archive (a=) rather than the codename (n=): Ubuntu keeps the
+	// "-security" suffix there (a=jammy-security, n=jammy) while Debian carries
+	// it in both, so Suite is the one field that identifies security repos on
+	// both.
+	releaseRegex := regexp.MustCompile(`release.*o=([^,]+).*a=([^,]+).*`)
 	matches := releaseRegex.FindAllStringSubmatch(string(output), -1)
 
 	// use map to reduce to unique set
 	releases := map[string]bool{}
 	for _, release := range matches {
-		// we expect at least an origin and a codename from each line
+		// we expect at least an origin and an archive from each line
 		if len(release) != 3 {
 			continue
 		}
 		if securityOnly && !strings.Contains(release[2], "security") {
 			continue
 		}
-		releases[fmt.Sprintf(`"origin=%s,codename=%s";`, release[1], release[2])] = true
+		releases[fmt.Sprintf(`"origin=%s,archive=%s";`, release[1], release[2])] = true
 	}
 	return releases
 }

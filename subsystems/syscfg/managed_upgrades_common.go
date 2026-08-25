@@ -168,6 +168,12 @@ type updateSummary struct {
 	listErr error
 }
 
+// shouldContinue returns true if there may be more work to do to install os
+// updates, false otherwise.
+func (us updateSummary) shouldContinue() bool {
+	return len(us.updates) > 0 || us.listErr != nil
+}
+
 // sizeSuffixes maps the unit suffixes package managers print sizes with to their
 // multiplier. Both the SI-style ("2.3 M") and binary ("2.3 MiB") spellings appear
 // in practice, and both mean a power of 1024 in this context.
@@ -208,17 +214,14 @@ func parseSize(size string) uint64 {
 // still leaves behind a record of what it was installing.
 func logPendingUpdates(logger logging.Logger, updates updateSummary, keysAndValues ...any) {
 	if updates.listErr != nil {
-		logger.Warnw("Installing OS updates, but could not determine which ones",
-			append([]any{"update_list_err", updates.listErr}, keysAndValues...)...)
+		logger.Activity("system", updateActivityStart, append([]any{"update_list_err", updates.listErr}, keysAndValues...)...)
 		return
 	}
-
-	fields := append([]any{"updates", updates.updates}, keysAndValues...)
 	if len(updates.updates) == 0 {
-		logger.Infow("No OS updates pending, nothing to install", fields...)
+		logger.Infow("No OS updates pending, nothing to install", keysAndValues...)
 		return
 	}
-	logger.Activity("system", updateActivityStart, fields...)
+	logger.Activity("system", updateActivityStart, append([]any{"updates", updates.updates}, keysAndValues...)...)
 }
 
 // logUpgradeResult reports how the upgrade went, with installed carrying the

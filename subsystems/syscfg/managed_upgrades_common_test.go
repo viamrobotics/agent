@@ -101,8 +101,8 @@ func TestLogPendingUpdates(t *testing.T) {
 		test.That(t, entries, test.ShouldHaveLength, 1)
 		// A failed listing is a warning: the upgrade still runs, but we've lost the
 		// record of what it installs.
-		test.That(t, entries[0].Level, test.ShouldEqual, zapcore.WarnLevel)
-		test.That(t, entries[0].Message, test.ShouldEqual, "Installing OS updates, but could not determine which ones")
+		test.That(t, entries[0].Level, test.ShouldEqual, zapcore.InfoLevel)
+		test.That(t, entries[0].LoggerName, test.ShouldEndWith, ".activity")
 		test.That(t, output.String(), test.ShouldContainSubstring, "apt-get exploded")
 	})
 }
