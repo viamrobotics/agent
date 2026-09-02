@@ -16,7 +16,23 @@ import (
 // when the agent's install volume is running low on free space.
 const diskSpaceCheckInterval = 5 * time.Minute
 
-var isLowOnSpace = diskusage.IsLowOnSpace
+// agentMaxUsedFraction is temporary test configuration. Restore it to 0.90 after Pi testing.
+const agentMaxUsedFraction = 0.20
+
+var isLowOnSpace = agentIsLowOnSpace
+
+func agentIsLowOnSpace(path string) (diskusage.DiskUsage, bool, error) {
+	usage, err := diskusage.Usage(path)
+	if err != nil {
+		return diskusage.DiskUsage{}, false, err
+	}
+	if usage.SizeBytes == 0 {
+		return usage, false, nil
+	}
+	low := usage.AvailableBytes < diskusage.MinFreeBytes ||
+		1-usage.AvailablePercent() >= agentMaxUsedFraction
+	return usage, low, nil
+}
 
 type diskSpaceMonitor struct {
 	path   string
@@ -81,7 +97,7 @@ func (m *diskSpaceMonitor) check(ctx context.Context) {
 			"available", utils.FormatBytes(res.usage.AvailableBytes),
 			"used", usedPercent,
 			"threshold", fmt.Sprintf("%.0f%% used or <%s free",
-				diskusage.MaxUsedFraction*100, utils.FormatBytes(diskusage.MinFreeBytes)))
+				agentMaxUsedFraction*100, utils.FormatBytes(diskusage.MinFreeBytes)))
 	} else {
 		m.logger.Debugw("free disk space",
 			"path", m.path,
