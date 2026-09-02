@@ -98,7 +98,7 @@ func (m *diskSpaceMonitor) check(ctx context.Context) {
 			"available", utils.FormatBytes(res.usage.AvailableBytes),
 			"used", usedPercent,
 			"threshold", fmt.Sprintf("%.0f%% used or <%s free",
-				diskusage.MaxUsedFraction*100, utils.FormatBytes(diskusage.MinFreeBytes)))
+				agentMaxUsedFraction*100, utils.FormatBytes(diskusage.MinFreeBytes)))
 	} else {
 		m.logger.Debugw("free disk space",
 			"path", m.path,
