@@ -13,7 +13,11 @@ import (
 )
 
 // diskSpaceCheckInterval is how often the disk space monitor checks for low disk space.
+// This mirrors the viam-server disk monitor, reusing the same underlying diskusage logic to warn
+// when the agent's install volume is running low on free space.
 const diskSpaceCheckInterval = 5 * time.Minute
+
+var isLowOnSpace = diskusage.IsLowOnSpace
 
 type diskSpaceMonitor struct {
 	path   string
@@ -27,7 +31,6 @@ func newDiskSpaceMonitor(path string, logger logging.Logger) *diskSpaceMonitor {
 		return nil
 	}
 	m := &diskSpaceMonitor{path: path, logger: logger}
-
 	m.worker = goutils.NewBackgroundStoppableWorkers(func(ctx context.Context) {
 		m.check(ctx)
 		ticker := time.NewTicker(diskSpaceCheckInterval)
@@ -52,7 +55,7 @@ func (m *diskSpaceMonitor) check(ctx context.Context) {
 	}
 	resCh := make(chan result, 1)
 	goutils.PanicCapturingGo(func() {
-		usage, low, err := diskusage.IsLowOnSpace(m.path)
+		usage, low, err := isLowOnSpace(m.path)
 		resCh <- result{usage: usage, low: low, err: err}
 	})
 
@@ -68,7 +71,7 @@ func (m *diskSpaceMonitor) check(ctx context.Context) {
 		return
 	}
 
-	var usedPercent = "unknown"
+	usedPercent := "unknown"
 	if res.usage.SizeBytes > 0 {
 		usedPercent = fmt.Sprintf("%.1f%%", (1-res.usage.AvailablePercent())*100)
 	}
