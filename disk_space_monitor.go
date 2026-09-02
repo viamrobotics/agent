@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	goutils "go.viam.com/utils"
-
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/utils"
 	"go.viam.com/rdk/utils/diskusage"
+	goutils "go.viam.com/utils"
 )
 
 // diskSpaceCheckInterval is how often the disk space monitor checks for low disk space.
