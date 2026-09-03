@@ -245,11 +245,17 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	isCustomURL := strings.HasPrefix(verData.Version, "customURL+")
 	isFileURL := strings.HasPrefix(verData.URL, "file://")
 	shasum, err := utils.GetFileSum(verData.UnpackedPath)
-	if err == nil {
+	haveLocalCopy := err == nil
+	if haveLocalCopy {
 		goodBytes = bytes.Equal(shasum, verData.UnpackedSHA)
-	} else if verData.UnpackedPath != "" { // custom file:// URLs with have an empty unpacked path; no need to warn
+	} else if verData.UnpackedPath != "" { // custom file:// URLs have an empty unpacked path; no need to warn
 		c.logger.Warnw("Could not calculate shasum", "path", verData.UnpackedPath, "error", err)
 	}
+
+	// snapshotted before the customURL branch below clears UnpackedSHA
+	expectedSHA := verData.UnpackedSHA
+	// a missing local file, and a custom URL with no config sha, are not corrupt downloads (APP-15838)
+	checksumMismatch := haveLocalCopy && len(expectedSHA) > 1 && !goodBytes
 
 	prevLastModified := verData.LastModified
 	var lastModified time.Time
@@ -265,7 +271,10 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		verData.LastModifiedCheck = time.Now()
 	}
 
-	if data.TargetVersion == data.CurrentVersion {
+	// A version already recorded as current is being repaired, not installed.
+	isRepair := data.CurrentVersion != "" && data.TargetVersion == data.CurrentVersion
+
+	if isRepair {
 		// if a known version, make sure the symlink is correct
 		same, err := utils.CheckIfSame(verData.DlPath, verData.SymlinkPath)
 		if err != nil {
@@ -299,7 +308,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			return false, nil
 		}
 
-		// if we're here, we have a mismatched checksum, as likely the URL changed, so wipe it and recompute later
+		// a custom URL's sha is computed locally, so a stale local copy invalidates it;
+		// wipe it and let the fresh download recompute
 		if isCustomURL {
 			verData.UnpackedSHA = []byte{}
 		}
@@ -313,17 +323,23 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		}
 	}
 
-	// this is a new version
-	c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
+	if isRepair {
+		c.logger.Infof("reinstalling current version (%s) of %s", verData.Version, binary)
+	} else {
+		c.logger.Infof("new version (%s) found for %s", verData.Version, binary)
+	}
 
 	if !goodBytes || lastModifiedChanged {
-		if lastModifiedChanged {
+		switch {
+		case lastModifiedChanged:
 			c.logger.Infow("detected change in Last-Modified timestamp. redownloading.",
 				"latest", lastModified.String(), "previous", prevLastModified.String(), "url", verData.URL)
-		} else {
+		case checksumMismatch:
 			c.logger.Warnw("mismatched checksum, redownloading",
-				"expected", hex.EncodeToString(verData.UnpackedSHA), "actual", hex.EncodeToString(shasum),
+				"expected", hex.EncodeToString(expectedSHA), "actual", hex.EncodeToString(shasum),
 				"url", verData.URL)
+		default:
+			c.logger.Infow("no verified local copy of this version, downloading", "url", verData.URL)
 		}
 		// download and record the sha of the download itself
 		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
@@ -407,16 +423,22 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 		return needRestart, errw.Wrap(err, "creating symlink")
 	}
 
-	// update current and previous versions
-	if data.CurrentVersion != data.PreviousVersion {
+	// a repair reinstalls the version already current, so advancing PreviousVersion
+	// there would discard the rollback target
+	if !isRepair {
 		data.PreviousVersion = data.CurrentVersion
 	}
 	data.CurrentVersion = data.TargetVersion
 	verData.Installed = time.Now()
 
 	// if we made it here we performed an update and need to restart
-	c.logger.Infof("%s updated from %s to %s; new version takes effect after %s restarts",
-		binary, data.PreviousVersion, data.CurrentVersion, binary)
+	if isRepair {
+		c.logger.Infof("%s reinstalled at %s; takes effect after %s restarts",
+			binary, data.CurrentVersion, binary)
+	} else {
+		c.logger.Infof("%s updated from %s to %s; new version takes effect after %s restarts",
+			binary, data.PreviousVersion, data.CurrentVersion, binary)
+	}
 	needRestart = true
 
 	// record the cache
