@@ -590,20 +590,19 @@ func TestUpdateBinaryDownloadLogs(t *testing.T) {
 	utils.MockAndCreateViamDirs(t)
 	logger, logs := logging.NewObservedTestLogger(t)
 
+	// sha of an empty file
+	emptySHA, err := hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+	test.That(t, err, test.ShouldBeNil)
+
+	src := filepath.Join(t.TempDir(), "source-binary-0.70.0")
+	test.That(t, os.WriteFile(src, nil, 0o600), test.ShouldBeNil)
+
 	vi := VersionInfo{
 		Version:     "0.70.0",
+		URL:         "file://" + src,
+		UnpackedSHA: emptySHA,
 		SymlinkPath: filepath.Join(utils.ViamDirs.Bin, "viam-server"),
 	}
-	// sha of an empty file
-	var err error
-	vi.UnpackedSHA, err = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-	test.That(t, err, test.ShouldBeNil)
-
-	f, err := os.Create(filepath.Join(t.TempDir(), "source-binary-"+vi.Version))
-	test.That(t, err, test.ShouldBeNil)
-	f.Close()
-	vi.URL = "file://" + f.Name()
-
 	vc := VersionCache{
 		logger:             logger,
 		cacheCleanupLogger: logger,
@@ -613,32 +612,38 @@ func TestUpdateBinaryDownloadLogs(t *testing.T) {
 		},
 	}
 
-	t.Run("first-download", func(t *testing.T) {
+	// drains the observer first, so every count below covers just the one call
+	update := func(t *testing.T) {
+		t.Helper()
+		logs.TakeAll()
 		_, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
 		test.That(t, err, test.ShouldBeNil)
-		test.That(t, logs.FilterMessageSnippet("mismatched checksum").Len(), test.ShouldEqual, 0)
-		test.That(t, logs.FilterMessageSnippet("no verified local copy").Len(), test.ShouldEqual, 1)
-		test.That(t, logs.FilterMessageSnippet("new version (").Len(), test.ShouldEqual, 1)
-		test.That(t, logs.FilterMessageSnippet("reinstall").Len(), test.ShouldEqual, 0)
+	}
+	seen := func(snippet string) int { return logs.FilterMessageSnippet(snippet).Len() }
+
+	t.Run("first-download", func(t *testing.T) {
+		update(t)
+		test.That(t, seen("no verified local copy"), test.ShouldEqual, 1)
+		test.That(t, seen("new version ("), test.ShouldEqual, 1)
+		test.That(t, seen("mismatched checksum"), test.ShouldEqual, 0)
+		test.That(t, seen("reinstall"), test.ShouldEqual, 0)
 	})
 
 	// a corrupt copy of the version already installed is a repair, not an upgrade
 	t.Run("corrupt-local-copy", func(t *testing.T) {
-		test.That(t, vc.ViamServer.CurrentVersion, test.ShouldEqual, vc.ViamServer.TargetVersion)
+		test.That(t, vc.ViamServer.CurrentVersion, test.ShouldEqual, vi.Version)
 		test.That(t, os.WriteFile(vi.UnpackedPath, []byte("bad contents"), 0o600), test.ShouldBeNil)
-		_, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
-		test.That(t, err, test.ShouldBeNil)
-		test.That(t, logs.FilterMessageSnippet("mismatched checksum").Len(), test.ShouldEqual, 1)
-		test.That(t, logs.FilterMessageSnippet("reinstalling current version").Len(), test.ShouldEqual, 1)
-		test.That(t, logs.FilterMessageSnippet("reinstalled at").Len(), test.ShouldEqual, 1)
-		// still just the one from first-download
-		test.That(t, logs.FilterMessageSnippet("new version (").Len(), test.ShouldEqual, 1)
+		update(t)
+		test.That(t, seen("mismatched checksum"), test.ShouldEqual, 1)
+		test.That(t, seen("reinstalling current version"), test.ShouldEqual, 1)
+		test.That(t, seen("reinstalled at"), test.ShouldEqual, 1)
+		test.That(t, seen("new version ("), test.ShouldEqual, 0)
 	})
 
 	// a custom URL's sha is wiped before the mismatch is logged, so the warning has to report
 	// the sha captured ahead of that (APP-15838)
 	t.Run("custom-url-mismatch", func(t *testing.T) {
-		// the wiped sha sends the redownload back through validation, which requires a
+		// the wiped sha sends the redownload back through validation, which needs a
 		// natively executable fixture
 		var magic []byte
 		switch runtime.GOOS {
@@ -656,32 +661,27 @@ func TestUpdateBinaryDownloadLogs(t *testing.T) {
 		custom := VersionInfo{
 			Version:     "customURL+file://" + src,
 			URL:         "file://" + src,
-			SymlinkPath: filepath.Join(utils.ViamDirs.Bin, "viam-server"),
+			SymlinkPath: vi.SymlinkPath,
 		}
 		vc.ViamServer.Versions[custom.Version] = &custom
 		vc.ViamServer.TargetVersion = custom.Version
 
-		_, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
-		test.That(t, err, test.ShouldBeNil)
-		test.That(t, vc.ViamServer.CurrentVersion, test.ShouldEqual, custom.Version)
-		test.That(t, vc.ViamServer.PreviousVersion, test.ShouldEqual, "0.70.0")
+		update(t)
+		test.That(t, vc.ViamServer.PreviousVersion, test.ShouldEqual, vi.Version)
 		installedSHA := custom.UnpackedSHA
 		test.That(t, len(installedSHA), test.ShouldBeGreaterThan, 1)
 
 		// corrupt the cached copy; the source is untouched, so the redownload restores it
 		test.That(t, os.WriteFile(custom.UnpackedPath, append(magic, 'x'), 0o700), test.ShouldBeNil)
-		before := logs.FilterMessageSnippet("mismatched checksum").Len()
-		_, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
-		test.That(t, err, test.ShouldBeNil)
+		update(t)
 
 		warnings := logs.FilterMessageSnippet("mismatched checksum").All()
-		test.That(t, len(warnings), test.ShouldEqual, before+1)
-		test.That(t, warnings[len(warnings)-1].ContextMap()["expected"],
-			test.ShouldEqual, hex.EncodeToString(installedSHA))
+		test.That(t, len(warnings), test.ShouldEqual, 1)
+		test.That(t, warnings[0].ContextMap()["expected"], test.ShouldEqual, hex.EncodeToString(installedSHA))
 
 		// reinstalling the current version must leave the rollback target alone
 		test.That(t, vc.ViamServer.CurrentVersion, test.ShouldEqual, custom.Version)
-		test.That(t, vc.ViamServer.PreviousVersion, test.ShouldEqual, "0.70.0")
+		test.That(t, vc.ViamServer.PreviousVersion, test.ShouldEqual, vi.Version)
 	})
 }
 
