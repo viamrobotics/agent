@@ -16,12 +16,11 @@ import (
 // when the agent's install volume is running low on free space.
 const diskSpaceCheckInterval = 5 * time.Minute
 
-var isLowOnSpace = diskusage.IsLowOnSpace
-
 type diskSpaceMonitor struct {
-	path   string
-	logger logging.Logger
-	worker *goutils.StoppableWorkers
+	path         string
+	logger       logging.Logger
+	worker       *goutils.StoppableWorkers
+	isLowOnSpace func(string) (diskusage.DiskUsage, bool, error)
 }
 
 func newDiskSpaceMonitor(path string, logger logging.Logger) *diskSpaceMonitor {
@@ -29,7 +28,7 @@ func newDiskSpaceMonitor(path string, logger logging.Logger) *diskSpaceMonitor {
 		logger.Debug("no viam-agent path to watch; disk space monitor disabled")
 		return nil
 	}
-	m := &diskSpaceMonitor{path: path, logger: logger}
+	m := &diskSpaceMonitor{path: path, logger: logger, isLowOnSpace: diskusage.IsLowOnSpace}
 	m.worker = goutils.NewBackgroundStoppableWorkers(func(ctx context.Context) {
 		m.check(ctx)
 		ticker := time.NewTicker(diskSpaceCheckInterval)
@@ -54,7 +53,7 @@ func (m *diskSpaceMonitor) check(ctx context.Context) {
 	}
 	resCh := make(chan result, 1)
 	goutils.PanicCapturingGo(func() {
-		usage, low, err := isLowOnSpace(m.path)
+		usage, low, err := m.isLowOnSpace(m.path)
 		resCh <- result{usage: usage, low: low, err: err}
 	})
 
