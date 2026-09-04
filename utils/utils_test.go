@@ -786,4 +786,45 @@ func TestDownloadFileDiskSpace(t *testing.T) {
 		test.That(t, logs.FilterMessage("not enough free disk space").Len(), test.ShouldEqual, 0)
 		test.That(t, logs.FilterMessage("could not check free disk space; proceeding").Len(), test.ShouldEqual, 0)
 	})
+
+	t.Run("the check receives a directory, not a file", func(t *testing.T) {
+		// On Windows GetDiskFreeSpaceExW rejects a file path, and diskusage.Usage stops walking up
+		// at the first path that exists, which is the partial file itself once one is on disk. Both
+		// call sites must pass the parent directory.
+		logger, _ := logging.NewObservedTestLogger(t)
+		// Stat inside the stub: DownloadFile removes the partials subdir once a download
+		// succeeds, so the path is gone by the time the assertions below run.
+		var gotIsDir []bool
+		orig := enoughFreeSpace
+		enoughFreeSpace = func(path string, _ uint64) (bool, uint64, error) {
+			info, statErr := os.Stat(path)
+			gotIsDir = append(gotIsDir, statErr == nil && info.IsDir())
+			return true, 1 << 40, nil
+		}
+		t.Cleanup(func() { enoughFreeSpace = orig })
+
+		src := filepath.Join(t.TempDir(), "dir-check-copy.bin")
+		test.That(t, os.WriteFile(src, []byte("x"), 0o600), test.ShouldBeNil)
+		_, err := DownloadFile(t.Context(), "file://"+src, logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		// Seed a resumable partial so the download path exists when the check runs.
+		payload := bytes.Repeat([]byte("q"), 400)
+		const etag = "dir-check-etag"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"`+etag+`"`)
+			http.ServeContent(w, r, "dir-check.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		rawURL := server.URL + "/dir-check.bin"
+		partPath, etagPath := CreatePartialPath(rawURL)
+		test.That(t, os.MkdirAll(filepath.Dir(partPath), 0o755), test.ShouldBeNil)
+		test.That(t, os.WriteFile(partPath, payload[:100], 0o600), test.ShouldBeNil)
+		test.That(t, os.WriteFile(etagPath, []byte(etag), 0o600), test.ShouldBeNil)
+		_, err = DownloadFile(t.Context(), rawURL, logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		test.That(t, gotIsDir, test.ShouldResemble, []bool{true, true})
+	})
 }

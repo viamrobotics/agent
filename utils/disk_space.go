@@ -13,6 +13,11 @@ var enoughFreeSpace = diskusage.EnoughFreeSpace
 // warnIfLowDiskSpace logs a warning if the disk that holds path has less than required bytes
 // free. It returns no error, and the caller always continues. The warning is the only signal
 // that space is low. If the disk check itself fails, this function logs that instead.
+//
+// path must be a directory. The check reads the whole disk, so any directory on it works.
+// Callers must not pass a file path: on Windows GetDiskFreeSpaceExW rejects one, and
+// diskusage.Usage stops walking up at the first path that exists, which is the file itself
+// once a partial download is on disk.
 func warnIfLowDiskSpace(logger logging.Logger, path, desc string, required uint64, extraFields ...any) {
 	enough, available, err := enoughFreeSpace(path, required)
 	if err != nil {
