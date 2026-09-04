@@ -40,6 +40,8 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 	"go.viam.com/rdk/logging"
+	rutils "go.viam.com/rdk/utils"
+	"go.viam.com/rdk/utils/diskusage"
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
 )
@@ -395,6 +397,14 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 	getterClient := &getter.Client{Ctx: ctx}
 	switch parsedURL.Scheme {
 	case "file":
+		// Warn if the cache disk cannot hold a copy of the source file. If the size of the source
+		// is unknown, check only the floor. The copy below reports the real error.
+		required := diskusage.MinFreeBytes
+		if info, err := os.Stat(parsedURL.Path); err == nil {
+			required += uint64(info.Size())
+		}
+		warnIfLowDiskSpace(logger, outPath, "binary copy", required, "url", rawURL)
+
 		g := getter.FileGetter{Copy: true}
 		g.SetClient(getterClient)
 		if err := g.GetFile(outPath, parsedURL); err != nil {
@@ -404,7 +414,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		// note: we shrink the hash to avoid system path length limits
 		partialDest, etagPath := CreatePartialPath(rawURL)
 
-		remoteETag, err := getRemoteETag(ctx, parsedURL.String(), logger)
+		remoteETag, contentLength, err := getRemoteHead(ctx, parsedURL.String(), logger)
 		if err != nil {
 			logger.Warnw("failed to get remote ETag, proceeding with download", "err", err)
 		}
@@ -435,6 +445,26 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 				logger.Warnw("failed to save ETag", "err", err)
 			}
 		}
+
+		// Warn if the cache disk cannot hold the download. This check runs after the ETag check
+		// above, which deletes a stale partial file. A partial file that remains is one we
+		// resume, so only the remaining bytes must fit. If the size is unknown, check only the
+		// floor.
+		required := diskusage.MinFreeBytes
+		var sizeFields []any
+		if contentLength > 0 {
+			remaining := uint64(contentLength)
+			if stat, err := os.Stat(partialDest); err == nil {
+				if existing := uint64(stat.Size()); existing < remaining {
+					remaining -= existing
+				} else {
+					remaining = 0
+				}
+			}
+			required += remaining
+			sizeFields = []any{"content_size", rutils.FormatBytes(uint64(contentLength))}
+		}
+		warnIfLowDiskSpace(logger, partialDest, "binary download", required, append([]any{"url", rawURL}, sizeFields...)...)
 
 		// fileSizeProgress must not outlive this function: if it logged after
 		// DownloadFile returned it could race with a test logger whose test has
@@ -549,20 +579,21 @@ func hashString(input string, n int) string {
 	return ret
 }
 
-// getRemoteETag performs a HEAD request to get the ETag from the remote server.
-// ETags are returned with quotes removed for consistent comparison.
-func getRemoteETag(ctx context.Context, url string, logger logging.Logger) (string, error) {
+// getRemoteHead sends a HEAD request to read the ETag and Content-Length from the server.
+// It removes the quotes around the ETag for consistent comparison. contentLength is -1 if the
+// server does not send a size.
+func getRemoteHead(ctx context.Context, url string, logger logging.Logger) (etag string, contentLength int64, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
-		return "", err
+		return "", -1, err
 	}
 	res, err := socksClient(url, logger).Do(req)
 	if err != nil {
-		return "", err
+		return "", -1, err
 	}
 	defer res.Body.Close() //nolint:errcheck
 	// we remove surrounding quotes if present
-	return strings.Trim(res.Header.Get("ETag"), `"`), nil
+	return strings.Trim(res.Header.Get("ETag"), `"`), res.ContentLength, nil
 }
 
 // readIfExists reads a file if it exists, returns "", nil when the file is missing.
