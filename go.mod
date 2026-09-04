@@ -33,7 +33,7 @@ require (
 	go.viam.com/test v1.2.4
 	go.viam.com/utils v0.10.1
 	golang.org/x/sys v0.46.0
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.11
 	tinygo.org/x/bluetooth v0.15.0
 )
