@@ -405,7 +405,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 				required += uint64(size)
 			}
 		}
-		warnIfLowDiskSpace(logger, filepath.Dir(outPath), "binary copy", required, "url", rawURL)
+		warnIfLowDiskSpace(logger, outPath, "binary copy", required, "url", rawURL)
 
 		g := getter.FileGetter{Copy: true}
 		g.SetClient(getterClient)
@@ -469,7 +469,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			}
 			required += remaining
 		}
-		warnIfLowDiskSpace(logger, filepath.Dir(partialDest), "binary download", required, append([]any{"url", rawURL}, sizeFields...)...)
+		warnIfLowDiskSpace(logger, partialDest, "binary download", required, append([]any{"url", rawURL}, sizeFields...)...)
 
 		// fileSizeProgress must not outlive this function: if it logged after
 		// DownloadFile returned it could race with a test logger whose test has
