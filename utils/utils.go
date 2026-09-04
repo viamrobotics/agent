@@ -401,7 +401,9 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		// is unknown, check only the floor. The copy below reports the real error.
 		required := diskusage.MinFreeBytes
 		if info, err := os.Stat(parsedURL.Path); err == nil {
-			required += uint64(info.Size())
+			if size := info.Size(); size > 0 {
+				required += uint64(size)
+			}
 		}
 		warnIfLowDiskSpace(logger, outPath, "binary copy", required, "url", rawURL)
 
@@ -453,16 +455,19 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		required := diskusage.MinFreeBytes
 		var sizeFields []any
 		if contentLength > 0 {
-			remaining := uint64(contentLength)
+			total := uint64(contentLength)
+			sizeFields = []any{"content_size", rutils.FormatBytes(total)}
+			remaining := total
 			if stat, err := os.Stat(partialDest); err == nil {
-				if existing := uint64(stat.Size()); existing < remaining {
-					remaining -= existing
-				} else {
-					remaining = 0
+				if size := stat.Size(); size > 0 {
+					if existing := uint64(size); existing < remaining {
+						remaining -= existing
+					} else {
+						remaining = 0
+					}
 				}
 			}
 			required += remaining
-			sizeFields = []any{"content_size", rutils.FormatBytes(uint64(contentLength))}
 		}
 		warnIfLowDiskSpace(logger, partialDest, "binary download", required, append([]any{"url", rawURL}, sizeFields...)...)
 
