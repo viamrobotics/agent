@@ -89,9 +89,6 @@ type Manager struct {
 	// agentStartTime records when this viam-agent process started.
 	// Set once in NewManager and never mutated.
 	agentStartTime time.Time
-
-	// diskMonitor checks for low disk space on viam agent and logs warnings
-	diskMonitor *diskSpaceMonitor
 }
 
 // NewManager returns a new Manager.
@@ -114,7 +111,6 @@ func NewManager(
 		cache:          cache,
 		agentStartTime: time.Now(),
 	}
-	manager.diskMonitor = newDiskSpaceMonitor(utils.ViamDirs.Viam, logger)
 
 	preexistingProcesses := manager.findPreexistingViamServerProcesses(ctx)
 	if len(preexistingProcesses) > 0 {
@@ -598,7 +594,6 @@ func (m *Manager) CloseAll() {
 		}
 
 		m.activeBackgroundWorkers.Wait()
-		m.diskMonitor.stop()
 
 		// Emitted before the net appender closes below so its best-effort flush can
 		// deliver this event to the cloud on the way out.
