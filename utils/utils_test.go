@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/utils/diskusage"
 	"go.viam.com/test"
 	goutils "go.viam.com/utils"
 )
@@ -616,4 +617,241 @@ func TestIsValidAgentBinary(t *testing.T) {
 			test.That(t, IsValidAgentBinary(t.Context(), tc.path, "viam-agent"), test.ShouldEqual, tc.valid)
 		})
 	}
+}
+
+// stubEnoughFreeSpace replaces the disk-space check for the duration of the test. It records the
+// required byte count from the most recent call so tests can assert the sizing math without
+// filling a real disk.
+func stubEnoughFreeSpace(t *testing.T, enough bool, checkErr error) *atomic.Uint64 {
+	t.Helper()
+	var gotRequired atomic.Uint64
+	orig := enoughFreeSpace
+	enoughFreeSpace = func(_ string, minBytes uint64) (bool, uint64, error) {
+		gotRequired.Store(minBytes)
+		return enough, 5, checkErr
+	}
+	t.Cleanup(func() { enoughFreeSpace = orig })
+	return &gotRequired
+}
+
+// DownloadFile warns when the cache disk cannot hold what it is about to write. The warning is
+// log-only: the download always proceeds.
+func TestDownloadFileDiskSpace(t *testing.T) {
+	MockAndCreateViamDirs(t)
+	modtime := time.Now()
+
+	t.Run("file:// requires the source size plus the floor", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		gotRequired := stubEnoughFreeSpace(t, false, nil)
+
+		content := bytes.Repeat([]byte("a"), 512)
+		src := filepath.Join(t.TempDir(), "copy-lowspace.bin")
+		test.That(t, os.WriteFile(src, content, 0o600), test.ShouldBeNil)
+
+		dest, err := DownloadFile(t.Context(), "file://"+src, logger)
+		test.That(t, err, test.ShouldBeNil)
+		copied, err := os.ReadFile(dest)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, copied, test.ShouldResemble, content)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(content))+diskusage.MinFreeBytes)
+		test.That(t, logs.FilterMessage("not enough free disk space").Len(), test.ShouldEqual, 1)
+	})
+
+	t.Run("https requires the content length plus the floor", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		gotRequired := stubEnoughFreeSpace(t, false, nil)
+
+		payload := bytes.Repeat([]byte("hello "), 100)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeContent(w, r, "download-lowspace.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		dest, err := DownloadFile(t.Context(), server.URL+"/download-lowspace.bin", logger)
+		test.That(t, err, test.ShouldBeNil)
+		downloaded, err := os.ReadFile(dest)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, downloaded, test.ShouldResemble, payload)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(payload))+diskusage.MinFreeBytes)
+		test.That(t, logs.FilterMessage("not enough free disk space").Len(), test.ShouldEqual, 1)
+	})
+
+	t.Run("unknown content length falls back to the floor", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		gotRequired := stubEnoughFreeSpace(t, false, nil)
+
+		payload := bytes.Repeat([]byte("z"), 256)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The HEAD reports no size, so the check has nothing to add to the floor.
+			if r.Method == http.MethodHead {
+				return
+			}
+			w.Write(payload)
+		}))
+		t.Cleanup(server.Close)
+
+		_, err := DownloadFile(t.Context(), server.URL+"/no-length.bin", logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, diskusage.MinFreeBytes)
+		test.That(t, logs.FilterMessage("not enough free disk space").Len(), test.ShouldEqual, 1)
+	})
+
+	t.Run("a resumable partial is subtracted", func(t *testing.T) {
+		// A resumed download only fetches the bytes it is missing, so the requirement is sized off
+		// the remaining bytes rather than the whole file.
+		logger, _ := logging.NewObservedTestLogger(t)
+		gotRequired := stubEnoughFreeSpace(t, false, nil)
+
+		payload := bytes.Repeat([]byte("y"), 900)
+		const etag = "stable-etag"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"`+etag+`"`)
+			http.ServeContent(w, r, "resume.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		rawURL := server.URL + "/resume.bin"
+		partPath, etagPath := CreatePartialPath(rawURL)
+		const partial = 300
+		test.That(t, os.MkdirAll(filepath.Dir(partPath), 0o755), test.ShouldBeNil)
+		test.That(t, os.WriteFile(partPath, payload[:partial], 0o600), test.ShouldBeNil)
+		test.That(t, os.WriteFile(etagPath, []byte(etag), 0o600), test.ShouldBeNil)
+
+		dest, err := DownloadFile(t.Context(), rawURL, logger)
+		test.That(t, err, test.ShouldBeNil)
+		downloaded, err := os.ReadFile(dest)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, downloaded, test.ShouldResemble, payload)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(payload)-partial)+diskusage.MinFreeBytes)
+	})
+
+	t.Run("a stale partial is not subtracted", func(t *testing.T) {
+		// A partial whose ETag no longer matches is deleted before the check runs, so the whole
+		// file has to fit. This is why the check sits after the ETag comparison.
+		logger, _ := logging.NewObservedTestLogger(t)
+		gotRequired := stubEnoughFreeSpace(t, false, nil)
+
+		payload := bytes.Repeat([]byte("w"), 800)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"current-etag"`)
+			http.ServeContent(w, r, "stale.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		rawURL := server.URL + "/stale.bin"
+		partPath, etagPath := CreatePartialPath(rawURL)
+		test.That(t, os.MkdirAll(filepath.Dir(partPath), 0o755), test.ShouldBeNil)
+		test.That(t, os.WriteFile(partPath, payload[:300], 0o600), test.ShouldBeNil)
+		test.That(t, os.WriteFile(etagPath, []byte("old-etag"), 0o600), test.ShouldBeNil)
+
+		_, err := DownloadFile(t.Context(), rawURL, logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(payload))+diskusage.MinFreeBytes)
+	})
+
+	t.Run("a failed disk check is logged and the download proceeds", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		stubEnoughFreeSpace(t, false, errors.New("statfs failed"))
+
+		content := bytes.Repeat([]byte("b"), 64)
+		src := filepath.Join(t.TempDir(), "check-error.bin")
+		test.That(t, os.WriteFile(src, content, 0o600), test.ShouldBeNil)
+
+		dest, err := DownloadFile(t.Context(), "file://"+src, logger)
+		test.That(t, err, test.ShouldBeNil)
+		copied, err := os.ReadFile(dest)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, copied, test.ShouldResemble, content)
+
+		test.That(t, logs.FilterMessage("could not check free disk space; proceeding").Len(), test.ShouldEqual, 1)
+		test.That(t, logs.FilterMessage("not enough free disk space").Len(), test.ShouldEqual, 0)
+	})
+
+	t.Run("enough space logs nothing", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		stubEnoughFreeSpace(t, true, nil)
+
+		content := bytes.Repeat([]byte("c"), 64)
+		src := filepath.Join(t.TempDir(), "enough-space.bin")
+		test.That(t, os.WriteFile(src, content, 0o600), test.ShouldBeNil)
+
+		_, err := DownloadFile(t.Context(), "file://"+src, logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		test.That(t, logs.FilterMessage("not enough free disk space").Len(), test.ShouldEqual, 0)
+		test.That(t, logs.FilterMessage("could not check free disk space; proceeding").Len(), test.ShouldEqual, 0)
+	})
+
+	t.Run("the check receives a directory, not a file", func(t *testing.T) {
+		// The check must always receive a directory: on Windows GetDiskFreeSpaceExW rejects a file
+		// path. Both call sites pass the target file, so warnIfLowDiskSpace has to resolve it.
+		logger, _ := logging.NewObservedTestLogger(t)
+		// Stat inside the stub: DownloadFile removes the partials subdir once a download
+		// succeeds, so the path is gone by the time the assertions below run.
+		var gotIsDir []bool
+		orig := enoughFreeSpace
+		enoughFreeSpace = func(path string, _ uint64) (bool, uint64, error) {
+			info, statErr := os.Stat(path)
+			gotIsDir = append(gotIsDir, statErr == nil && info.IsDir())
+			return true, 1 << 40, nil
+		}
+		t.Cleanup(func() { enoughFreeSpace = orig })
+
+		src := filepath.Join(t.TempDir(), "dir-check-copy.bin")
+		test.That(t, os.WriteFile(src, []byte("x"), 0o600), test.ShouldBeNil)
+		_, err := DownloadFile(t.Context(), "file://"+src, logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		// Seed a resumable partial so the download path exists when the check runs.
+		payload := bytes.Repeat([]byte("q"), 400)
+		const etag = "dir-check-etag"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"`+etag+`"`)
+			http.ServeContent(w, r, "dir-check.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		rawURL := server.URL + "/dir-check.bin"
+		partPath, etagPath := CreatePartialPath(rawURL)
+		test.That(t, os.MkdirAll(filepath.Dir(partPath), 0o755), test.ShouldBeNil)
+		test.That(t, os.WriteFile(partPath, payload[:100], 0o600), test.ShouldBeNil)
+		test.That(t, os.WriteFile(etagPath, []byte(etag), 0o600), test.ShouldBeNil)
+		_, err = DownloadFile(t.Context(), rawURL, logger)
+		test.That(t, err, test.ShouldBeNil)
+
+		test.That(t, gotIsDir, test.ShouldResemble, []bool{true, true})
+	})
+}
+
+// nearestExistingDir must return the closest existing directory, whether the path names a
+// directory, an existing file, or something not created yet.
+func TestNearestExistingDir(t *testing.T) {
+	td := t.TempDir()
+
+	t.Run("a directory is returned unchanged", func(t *testing.T) {
+		// Not the parent: a subdirectory can be its own mount point, so walking up would
+		// measure the wrong disk.
+		test.That(t, nearestExistingDir(td), test.ShouldEqual, td)
+	})
+
+	t.Run("an existing file resolves to its directory", func(t *testing.T) {
+		f := filepath.Join(td, "exists.bin")
+		test.That(t, os.WriteFile(f, []byte("x"), 0o600), test.ShouldBeNil)
+		test.That(t, nearestExistingDir(f), test.ShouldEqual, td)
+	})
+
+	t.Run("a missing path resolves to its nearest existing ancestor", func(t *testing.T) {
+		missing := filepath.Join(td, "no", "such", "dir", "file.bin")
+		test.That(t, nearestExistingDir(missing), test.ShouldEqual, td)
+	})
+
+	t.Run("an unrooted missing path terminates", func(t *testing.T) {
+		// filepath.Dir bottoms out at "." rather than looping forever.
+		test.That(t, nearestExistingDir("no-such-relative-path"), test.ShouldEqual, ".")
+	})
 }
