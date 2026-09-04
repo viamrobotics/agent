@@ -449,7 +449,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 		}
 
 		// Warn if the cache disk cannot hold the download. This check runs after the ETag check
-		// above, which deletes a stale partial file. A partial file that remains is one we
+		// above,"" which deletes a stale partial file. A partial file that remains is one we
 		// resume, so only the remaining bytes must fit. If the size is unknown, check only the
 		// floor.
 		required := diskusage.MinFreeBytes
