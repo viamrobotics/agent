@@ -254,7 +254,8 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 
 	// snapshotted before the customURL branch below clears UnpackedSHA
 	expectedSHA := verData.UnpackedSHA
-	// a missing local file, and a custom URL with no config sha, are not corrupt downloads (APP-15838)
+	// corruption needs both a local file and a recorded sha to compare it against; without
+	// either, !goodBytes just means there is nothing to verify yet
 	checksumMismatch := haveLocalCopy && len(expectedSHA) > 1 && !goodBytes
 
 	prevLastModified := verData.LastModified
@@ -432,10 +433,14 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 	verData.Installed = time.Now()
 
 	// if we made it here we performed an update and need to restart
-	if isRepair {
+	switch {
+	case isRepair:
 		c.logger.Infof("%s reinstalled at %s; takes effect after %s restarts",
 			binary, data.CurrentVersion, binary)
-	} else {
+	case data.PreviousVersion == "":
+		c.logger.Infof("%s installed at %s; takes effect after %s restarts",
+			binary, data.CurrentVersion, binary)
+	default:
 		c.logger.Infof("%s updated from %s to %s; new version takes effect after %s restarts",
 			binary, data.PreviousVersion, data.CurrentVersion, binary)
 	}

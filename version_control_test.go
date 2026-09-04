@@ -584,7 +584,7 @@ func testExists(t *testing.T, path string) {
 	test.That(t, err, test.ShouldBeNil)
 }
 
-// Download logging must distinguish a first fetch from a corrupt local copy (APP-15838), and
+// Download logging must distinguish a first fetch from a corrupt local copy, and
 // a repair of the current version from an upgrade.
 func TestUpdateBinaryDownloadLogs(t *testing.T) {
 	utils.MockAndCreateViamDirs(t)
@@ -641,7 +641,7 @@ func TestUpdateBinaryDownloadLogs(t *testing.T) {
 	})
 
 	// a custom URL's sha is wiped before the mismatch is logged, so the warning has to report
-	// the sha captured ahead of that (APP-15838)
+	// the sha captured ahead of that
 	t.Run("custom-url-mismatch", func(t *testing.T) {
 		// the wiped sha sends the redownload back through validation, which needs a
 		// natively executable fixture
