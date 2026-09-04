@@ -788,9 +788,8 @@ func TestDownloadFileDiskSpace(t *testing.T) {
 	})
 
 	t.Run("the check receives a directory, not a file", func(t *testing.T) {
-		// On Windows GetDiskFreeSpaceExW rejects a file path, and diskusage.Usage stops walking up
-		// at the first path that exists, which is the partial file itself once one is on disk. Both
-		// call sites must pass the parent directory.
+		// The check must always receive a directory: on Windows GetDiskFreeSpaceExW rejects a file
+		// path. Both call sites pass the target file, so warnIfLowDiskSpace has to resolve it.
 		logger, _ := logging.NewObservedTestLogger(t)
 		// Stat inside the stub: DownloadFile removes the partials subdir once a download
 		// succeeds, so the path is gone by the time the assertions below run.
@@ -826,5 +825,33 @@ func TestDownloadFileDiskSpace(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 
 		test.That(t, gotIsDir, test.ShouldResemble, []bool{true, true})
+	})
+}
+
+// nearestExistingDir must return the closest existing directory, whether the path names a
+// directory, an existing file, or something not created yet.
+func TestNearestExistingDir(t *testing.T) {
+	td := t.TempDir()
+
+	t.Run("a directory is returned unchanged", func(t *testing.T) {
+		// Not the parent: a subdirectory can be its own mount point, so walking up would
+		// measure the wrong disk.
+		test.That(t, nearestExistingDir(td), test.ShouldEqual, td)
+	})
+
+	t.Run("an existing file resolves to its directory", func(t *testing.T) {
+		f := filepath.Join(td, "exists.bin")
+		test.That(t, os.WriteFile(f, []byte("x"), 0o600), test.ShouldBeNil)
+		test.That(t, nearestExistingDir(f), test.ShouldEqual, td)
+	})
+
+	t.Run("a missing path resolves to its nearest existing ancestor", func(t *testing.T) {
+		missing := filepath.Join(td, "no", "such", "dir", "file.bin")
+		test.That(t, nearestExistingDir(missing), test.ShouldEqual, td)
+	})
+
+	t.Run("an unrooted missing path terminates", func(t *testing.T) {
+		// filepath.Dir bottoms out at "." rather than looping forever.
+		test.That(t, nearestExistingDir("no-such-relative-path"), test.ShouldEqual, ".")
 	})
 }
