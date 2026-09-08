@@ -40,6 +40,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/robot/packages"
 	rutils "go.viam.com/rdk/utils"
 	"go.viam.com/rdk/utils/diskusage"
 	goutils "go.viam.com/utils"
@@ -405,7 +406,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 				required += uint64(size)
 			}
 		}
-		warnIfLowDiskSpace(logger, outPath, "binary copy", required, "url", rawURL)
+		packages.CheckDiskSpace(logger, outPath, "binary copy", required, "url", rawURL)
 
 		g := getter.FileGetter{Copy: true}
 		g.SetClient(getterClient)
@@ -469,7 +470,7 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			}
 			required += remaining
 		}
-		warnIfLowDiskSpace(logger, partialDest, "binary download", required, append([]any{"url", rawURL}, sizeFields...)...)
+		packages.CheckDiskSpace(logger, partialDest, "binary download", required, append([]any{"url", rawURL}, sizeFields...)...)
 
 		// fileSizeProgress must not outlive this function: if it logged after
 		// DownloadFile returned it could race with a test logger whose test has
