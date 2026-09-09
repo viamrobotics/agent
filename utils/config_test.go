@@ -60,6 +60,7 @@ func TestConvertJson(t *testing.T) {
 			"logging_journald_system_max_use_megabytes": 512,
 			"logging_journald_runtime_max_use_megabytes": 512,
 			"logging_journald_storage": "persistent",
+			"logging_journald_forward_to_syslog": "no",
 			"os_auto_upgrade_type": "",
 			"os_managed_upgrade_interval_hours": 24,
 			"forward_system_logs": ""
@@ -122,6 +123,35 @@ func TestValidateConfig(t *testing.T) {
 			test.ShouldEqual,
 			DefaultConfig().SystemConfiguration.OSManagedUpgradeIntervalHours,
 		)
+	})
+
+	t.Run("journald forward_to_syslog is validated", func(t *testing.T) {
+		// A bare minimal config leaves the field unset; validation must NOT back-fill "" (it
+		// means "leave journald's default alone"), unlike the *MaxUse defaults.
+		cfg, err := validateConfig(minimumValidConfig())
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, cfg.SystemConfiguration.LoggingJournaldForwardToSyslog, test.ShouldEqual, "")
+
+		// Explicit valid values pass through unchanged.
+		for _, v := range []string{"yes", "no"} {
+			in := minimumValidConfig()
+			in.SystemConfiguration.LoggingJournaldForwardToSyslog = v
+			cfg, err := validateConfig(in)
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, cfg.SystemConfiguration.LoggingJournaldForwardToSyslog, test.ShouldEqual, v)
+		}
+
+		// An invalid value is rejected (error) and reset to the default ("no").
+		in := minimumValidConfig()
+		in.SystemConfiguration.LoggingJournaldForwardToSyslog = "true"
+		cfg, err = validateConfig(in)
+		test.That(t, err, test.ShouldNotBeNil)
+		test.That(t, cfg.SystemConfiguration.LoggingJournaldForwardToSyslog, test.ShouldEqual,
+			DefaultConfig().SystemConfiguration.LoggingJournaldForwardToSyslog)
+	})
+
+	t.Run("default forward_to_syslog is no", func(t *testing.T) {
+		test.That(t, DefaultConfig().SystemConfiguration.LoggingJournaldForwardToSyslog, test.ShouldEqual, "no")
 	})
 }
 

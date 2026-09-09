@@ -49,6 +49,7 @@ var (
 			LoggingJournaldSystemMaxUseMegabytes:  512,
 			LoggingJournaldRuntimeMaxUseMegabytes: 512,
 			LoggingJournaldStorage:                "persistent",
+			LoggingJournaldForwardToSyslog:        "no",
 			ForwardSystemLogs:                     "",
 			OSAutoUpgradeType:                     "",
 			OSManagedUpgradeIntervalHours:         24,
@@ -194,6 +195,12 @@ type SystemConfiguration struct {
 
 	// enable persistent logs
 	LoggingJournaldStorage string `json:"logging_journald_storage,omitempty"`
+
+	// manage journald's ForwardToSyslog: "yes" or "no". "" leaves the system default untouched.
+	// Defaults to "no": journald is the primary store (capped by the *MaxUse settings above), so
+	// forwarding to rsyslog/syslog is a redundant, typically unbounded second copy. Matches the
+	// direction newer systemd takes (syslog dropped from the default forward set).
+	LoggingJournaldForwardToSyslog string `json:"logging_journald_forward_to_syslog,omitempty"`
 
 	// Enable forwarding of system logs (journald) to the cloud (disabled by default)
 	// A comma-separated list of SYSLOG_IDENTIFIERs, optionally prefixed with "-" to exclude
@@ -441,6 +448,18 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 				"Setting to default storage mode: %s",
 			cfg.SystemConfiguration.LoggingJournaldStorage, defaultStorage))
 		cfg.SystemConfiguration.LoggingJournaldStorage = defaultStorage
+	}
+	// Only reject an invalid non-empty value; "" is meaningful ("leave journald's default alone")
+	// and is intentionally not back-filled to the default.
+	if cfg.SystemConfiguration.LoggingJournaldForwardToSyslog != "" &&
+		cfg.SystemConfiguration.LoggingJournaldForwardToSyslog != "yes" &&
+		cfg.SystemConfiguration.LoggingJournaldForwardToSyslog != "no" {
+		defaultForward := DefaultConfiguration.SystemConfiguration.LoggingJournaldForwardToSyslog
+		errOut = errors.Join(errOut, errw.Errorf(
+			"agent.system_configuration.logging_journald_forward_to_syslog can only be 'yes' or 'no' (was: %s). "+
+				"Setting to default: %s",
+			cfg.SystemConfiguration.LoggingJournaldForwardToSyslog, defaultForward))
+		cfg.SystemConfiguration.LoggingJournaldForwardToSyslog = defaultForward
 	}
 
 	if cfg.SystemConfiguration.OSAutoUpgradeType != "" && !slices.Contains(

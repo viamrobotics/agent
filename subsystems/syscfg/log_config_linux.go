@@ -72,6 +72,7 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 	}
 
 	journalConf.Journal.Storage = sysd.Value{s.cfg.LoggingJournaldStorage}
+	journalConf.Journal.ForwardToSyslog = sysd.Value{s.cfg.LoggingJournaldForwardToSyslog}
 
 	newFileBytes, err := sysd.Marshal(journalConf)
 	if err != nil {
@@ -98,8 +99,8 @@ func (s *Subsystem) EnforceLogging(ctx context.Context) error {
 		if err := flushJournald(ctx); err != nil {
 			return err
 		}
-		s.logger.Infof("Updated %s, setting SystemMaxUse=%s, RuntimeMaxUse=%s, Storage=%s",
-			journaldConfPath, persistSize, tempSize, s.cfg.LoggingJournaldStorage)
+		s.logger.Infof("Updated %s, setting SystemMaxUse=%s, RuntimeMaxUse=%s, Storage=%s, ForwardToSyslog=%s",
+			journaldConfPath, persistSize, tempSize, s.cfg.LoggingJournaldStorage, s.cfg.LoggingJournaldForwardToSyslog)
 	}
 	return nil
 }
