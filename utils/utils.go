@@ -40,7 +40,6 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"github.com/ulikunitz/xz"
 	"go.viam.com/rdk/logging"
-	"go.viam.com/rdk/robot/packages"
 	rutils "go.viam.com/rdk/utils"
 	"go.viam.com/rdk/utils/diskusage"
 	goutils "go.viam.com/utils"
@@ -361,7 +360,9 @@ func GetLastModified(ctx context.Context, rawURL string, logger logging.Logger) 
 
 // DownloadFile downloads or copies a file into the cache directory and returns a path to the file.
 // If this is an http/s URL, you must check the checksum of the result; the partial logic does not check etags.
-func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (string, error) {
+// blockOnLowDisk refuses the download when the cache volume is low on space. When false, low space
+// is only logged and the download proceeds.
+func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger, blockOnLowDisk bool) (string, error) {
 	// use go-getter's urlhelper for better Windows filepath handling and file:// url handling
 	parsedURL, err := urlhelper.Parse(rawURL)
 	if err != nil {
@@ -406,7 +407,9 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 				required += uint64(size)
 			}
 		}
-		packages.CheckDiskSpace(logger, outPath, "binary copy", required, "url", rawURL)
+		if _, err := diskusage.CheckDiskSpace(logger, outPath, "binary copy", required, blockOnLowDisk, "url", rawURL); err != nil {
+			return "", err
+		}
 
 		g := getter.FileGetter{Copy: true}
 		g.SetClient(getterClient)
@@ -470,7 +473,10 @@ func DownloadFile(ctx context.Context, rawURL string, logger logging.Logger) (st
 			}
 			required += remaining
 		}
-		packages.CheckDiskSpace(logger, partialDest, "binary download", required, append([]any{"url", rawURL}, sizeFields...)...)
+		if _, err := diskusage.CheckDiskSpace(logger, partialDest, "binary download", required, blockOnLowDisk,
+			append([]any{"url", rawURL}, sizeFields...)...); err != nil {
+			return "", err
+		}
 
 		// fileSizeProgress must not outlive this function: if it logged after
 		// DownloadFile returned it could race with a test logger whose test has

@@ -71,6 +71,10 @@ type VersionCache struct {
 	// usually it wouldn't make sense to have multiple loggers on a struct, but this struct is doing
 	// two wildly different things
 	cacheCleanupLogger logging.Logger
+
+	// blockOnLowDisk refuses a download when the cache volume is low on space. Set from
+	// AdvancedSettings on each config update. Guarded by mu.
+	blockOnLowDisk bool
 }
 
 // Versions stores VersionInfo and the current/previous versions for (TODO) rollback.
@@ -124,6 +128,13 @@ func (c *VersionCache) MarkViamServerRunningVersion() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ViamServer.runningVersion = c.ViamServer.CurrentVersion
+}
+
+// SetBlockOnLowDisk sets whether a low-disk condition refuses a download instead of only logging it.
+func (c *VersionCache) SetBlockOnLowDisk(block bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.blockOnLowDisk = block
 }
 
 // LoadCache loads the cached data for the subsystem from disk.
@@ -343,7 +354,7 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			c.logger.Infow("no verified local copy of this version, downloading", "url", verData.URL)
 		}
 		// download and record the sha of the download itself
-		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger, c.blockOnLowDisk)
 		if err != nil {
 			if isCustomURL {
 				data.brokenTarget = true

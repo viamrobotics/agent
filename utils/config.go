@@ -42,6 +42,7 @@ var (
 			DisableNetworkConfiguration:   Tribool(0),
 			DisableSystemConfiguration:    Tribool(0),
 			DisableLogDeduplication:       Tribool(0),
+			BlockDownloadsOnLowDisk:       Tribool(0),
 			ViamServerStartTimeoutMinutes: Timeout(time.Minute * 10),
 			ViamServerExtraEnvVars:        nil,
 		},
@@ -149,6 +150,7 @@ type AdvancedSettings struct {
 	DisableNetworkConfiguration   Tribool           `json:"disable_network_configuration,omitempty"`
 	DisableSystemConfiguration    Tribool           `json:"disable_system_configuration,omitempty"`
 	DisableLogDeduplication       Tribool           `json:"disable_log_deduplication,omitempty"`
+	BlockDownloadsOnLowDisk       Tribool           `json:"block_downloads_on_low_disk,omitempty"`
 	ViamServerStartTimeoutMinutes Timeout           `json:"viam_server_start_timeout_minutes,omitempty"`
 	ViamServerExtraEnvVars        map[string]string `json:"viam_server_env,omitempty"`
 }
