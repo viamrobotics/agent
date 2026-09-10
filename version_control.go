@@ -24,6 +24,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/utils/diskusage"
 )
 
 // lastModifiedCheckFrequency is the minimum interval for checking
@@ -209,9 +210,10 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 }
 
 // UpdateBinary actually downloads and/or validates the targeted version. Returns true if a restart is needed.
+// blockOnLowDisk refuses the download when the cache volume is low on space, instead of only logging it.
 //
 //nolint:gocognit
-func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, error) {
+func (c *VersionCache) UpdateBinary(ctx context.Context, binary string, blockOnLowDisk bool) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -343,9 +345,11 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			c.logger.Infow("no verified local copy of this version, downloading", "url", verData.URL)
 		}
 		// download and record the sha of the download itself
-		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger)
+		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger, blockOnLowDisk)
 		if err != nil {
-			if isCustomURL {
+			// Do not mark the target broken when the volume is full so that the download
+			// can retry once space is free.
+			if isCustomURL && !errors.Is(err, diskusage.ErrInsufficientDiskSpace) {
 				data.brokenTarget = true
 			}
 			return needRestart, errw.Wrapf(err, "downloading %s", binary)

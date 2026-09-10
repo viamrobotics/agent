@@ -65,7 +65,7 @@ func TestDownloadFileURLForms(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Logf("url = %q", tc.url)
-			downloadedPath, err := DownloadFile(t.Context(), tc.url, logger)
+			downloadedPath, err := DownloadFile(t.Context(), tc.url, logger, false)
 			if tc.wantErr {
 				test.That(t, err, test.ShouldNotBeNil)
 				return

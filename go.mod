@@ -28,8 +28,8 @@ require (
 	github.com/viamrobotics/gonetworkmanager/v2 v2.2.3
 	go.bug.st/serial v1.6.4
 	go.uber.org/zap v1.28.0
-	go.viam.com/api v0.1.574
-	go.viam.com/rdk v1.2.0
+	go.viam.com/api v0.1.579
+	go.viam.com/rdk v1.7.1-0.20260909213157-0dc7ed903416
 	go.viam.com/test v1.2.4
 	go.viam.com/utils v0.10.1
 	golang.org/x/sys v0.46.0
@@ -66,6 +66,7 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-memdb v1.3.4 // indirect
+	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/improbable-eng/grpc-web v0.15.0 // indirect
@@ -131,8 +132,8 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
-	golang.org/x/tools v0.46.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260610212136-7ab31c22f7ad // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260610212136-7ab31c22f7ad // indirect
