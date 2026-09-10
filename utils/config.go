@@ -189,6 +189,11 @@ func (as AdvancedSettings) GetDisableLogDeduplication() bool {
 	return as.DisableLogDeduplication.Get()
 }
 
+// GetBlockDownloadsOnLowDisk is a wrapper which checks agent's advanced settings BlockDownloadsOnLowDisk field.
+func (as AdvancedSettings) GetBlockDownloadsOnLowDisk() bool {
+	return as.BlockDownloadsOnLowDisk.Get()
+}
+
 type SystemConfiguration struct {
 	// can set either to -1 to disable, defaults to 512M (when int is 0)
 	LoggingJournaldSystemMaxUseMegabytes  int `json:"logging_journald_system_max_use_megabytes,omitempty"`

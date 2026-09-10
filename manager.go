@@ -252,11 +252,10 @@ func (m *Manager) SelfUpdate(ctx context.Context) (bool, error) {
 	}
 
 	m.cfgMu.RLock()
-	blockOnLowDisk := m.cfg.AdvancedSettings.BlockDownloadsOnLowDisk.Get()
+	blockOnLowDisk := m.cfg.AdvancedSettings.GetBlockDownloadsOnLowDisk()
 	m.cfgMu.RUnlock()
-	m.cache.SetBlockOnLowDisk(blockOnLowDisk)
 
-	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
+	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName, blockOnLowDisk)
 	if err != nil {
 		return false, err
 	}
@@ -277,10 +276,10 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 	m.cfgMu.Lock()
 	defer m.cfgMu.Unlock()
 
-	m.cache.SetBlockOnLowDisk(m.cfg.AdvancedSettings.BlockDownloadsOnLowDisk.Get())
+	blockOnLowDisk := m.cfg.AdvancedSettings.GetBlockDownloadsOnLowDisk()
 
 	// Agent
-	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName)
+	needRestart, err := m.cache.UpdateBinary(ctx, SubsystemName, blockOnLowDisk)
 	if err != nil {
 		m.logger.Warn(err)
 	}
@@ -308,7 +307,7 @@ func (m *Manager) SubsystemUpdates(ctx context.Context) {
 			return
 		}
 	} else {
-		needRestart, err := m.cache.UpdateBinary(ctx, viamserver.SubsysName)
+		needRestart, err := m.cache.UpdateBinary(ctx, viamserver.SubsysName, blockOnLowDisk)
 		if err != nil {
 			m.logger.Warn(err)
 		}

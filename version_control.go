@@ -24,6 +24,7 @@ import (
 	"github.com/viamrobotics/agent/utils"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/utils/diskusage"
 )
 
 // lastModifiedCheckFrequency is the minimum interval for checking
@@ -71,10 +72,6 @@ type VersionCache struct {
 	// usually it wouldn't make sense to have multiple loggers on a struct, but this struct is doing
 	// two wildly different things
 	cacheCleanupLogger logging.Logger
-
-	// blockOnLowDisk refuses a download when the cache volume is low on space. Set from
-	// AdvancedSettings on each config update. Guarded by mu.
-	blockOnLowDisk bool
 }
 
 // Versions stores VersionInfo and the current/previous versions for (TODO) rollback.
@@ -128,13 +125,6 @@ func (c *VersionCache) MarkViamServerRunningVersion() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ViamServer.runningVersion = c.ViamServer.CurrentVersion
-}
-
-// SetBlockOnLowDisk sets whether a low-disk condition refuses a download instead of only logging it.
-func (c *VersionCache) SetBlockOnLowDisk(block bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.blockOnLowDisk = block
 }
 
 // LoadCache loads the cached data for the subsystem from disk.
@@ -220,9 +210,10 @@ func (c *VersionCache) Update(cfg *pb.UpdateInfo, binary string) error {
 }
 
 // UpdateBinary actually downloads and/or validates the targeted version. Returns true if a restart is needed.
+// blockOnLowDisk refuses the download when the cache volume is low on space, instead of only logging it.
 //
 //nolint:gocognit
-func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, error) {
+func (c *VersionCache) UpdateBinary(ctx context.Context, binary string, blockOnLowDisk bool) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -354,9 +345,11 @@ func (c *VersionCache) UpdateBinary(ctx context.Context, binary string) (bool, e
 			c.logger.Infow("no verified local copy of this version, downloading", "url", verData.URL)
 		}
 		// download and record the sha of the download itself
-		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger, c.blockOnLowDisk)
+		verData.DlPath, err = utils.DownloadFile(ctx, verData.URL, c.logger, blockOnLowDisk)
 		if err != nil {
-			if isCustomURL {
+			// Do not mark the target broken when the volume is full so that the download
+			// can retry once space is free.
+			if isCustomURL && !errors.Is(err, diskusage.ErrInsufficientDiskSpace) {
 				data.brokenTarget = true
 			}
 			return needRestart, errw.Wrapf(err, "downloading %s", binary)
