@@ -593,7 +593,8 @@ func hashString(input string, n int) string {
 
 // getRemoteHead sends a HEAD request to read the ETag and Content-Length from the server.
 // It removes the quotes around the ETag for consistent comparison. contentLength is -1 if the
-// server does not send a size.
+// server does not send a size. A non-200 status is an error: those headers describe an error
+// page, not the file, so the caller must not size the disk check or match a partial against them.
 func getRemoteHead(ctx context.Context, url string, logger logging.Logger) (etag string, contentLength int64, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -604,6 +605,9 @@ func getRemoteHead(ctx context.Context, url string, logger logging.Logger) (etag
 		return "", -1, err
 	}
 	defer res.Body.Close() //nolint:errcheck
+	if res.StatusCode != http.StatusOK {
+		return "", -1, errw.Errorf("unexpected status %s from HEAD request", res.Status)
+	}
 	// we remove surrounding quotes if present
 	return strings.Trim(res.Header.Get("ETag"), `"`), res.ContentLength, nil
 }
