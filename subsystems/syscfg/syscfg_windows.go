@@ -94,3 +94,6 @@ func (s *Subsystem) HealthCheck(_ context.Context) error {
 	}
 	return errors.New("healthcheck failed")
 }
+
+// WarnIfSyslogWillGrowUnbounded is a no-op on Windows (no syslog).
+func (s *Subsystem) WarnIfSyslogWillGrowUnbounded(_ context.Context) {}

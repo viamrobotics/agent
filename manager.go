@@ -158,6 +158,9 @@ func NewManager(
 		manager.viamServer.RestartAllowed,
 	)
 
+	// Run even if system configuration subsystem is disabled.
+	manager.sysConfig.WarnIfSyslogWillGrowUnbounded(ctx)
+
 	return manager
 }
 

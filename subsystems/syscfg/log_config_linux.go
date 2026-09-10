@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"strings"
 
 	errw "github.com/pkg/errors"
 	sysd "github.com/sergeymakinen/go-systemdconf/v2"
@@ -19,6 +20,7 @@ import (
 var (
 	journaldConfPath = "/etc/systemd/journald.conf.d/90-viam.conf"
 	defaultLogLimit  = "512M"
+	syslogPath       = "/var/log/syslog"
 )
 
 // runs inside s.mu.Lock().
@@ -129,4 +131,28 @@ func checkJournaldEnabled(ctx context.Context) error {
 		return errw.Wrapf(err, "executing 'systemctl is-enabled systemd-journald' %s", output)
 	}
 	return nil
+}
+
+// WarnIfSyslogWillGrowUnbounded logs a warning when /var/log/syslog is being written and
+// nothing rotates it, so viam-agent and viam-server logs pile up there unbounded.
+func (s *Subsystem) WarnIfSyslogWillGrowUnbounded(ctx context.Context) {
+	// If /var/log/syslog does not exist, this is not an issue.
+	if _, err := os.Stat(syslogPath); err != nil {
+		return
+	}
+	// If logrotate is active, this is not an issue.
+	if logrotateTimerActive(ctx) {
+		return
+	}
+	s.logger.Warnf(
+		"%s is being written and logrotate is not scheduled to rotate it, so viam-agent "+
+			"and viam-server logs can grow unbounded and fill the disk. Install logrotate or disable "+
+			"journald syslog forwarding (ForwardToSyslog=no)",
+		syslogPath,
+	)
+}
+
+func logrotateTimerActive(ctx context.Context) bool {
+	out, _ := exec.CommandContext(ctx, "systemctl", "is-active", "logrotate.timer").Output()
+	return strings.TrimSpace(string(out)) == "active"
 }

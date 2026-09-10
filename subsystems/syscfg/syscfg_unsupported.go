@@ -42,3 +42,6 @@ func (s *Subsystem) HealthCheck(_ context.Context) error {
 func (s *Subsystem) NeedsOSReboot(_ context.Context) bool {
 	return false
 }
+
+// WarnIfSyslogWillGrowUnbounded is a no-op on unsupported OSes.
+func (s *Subsystem) WarnIfSyslogWillGrowUnbounded(_ context.Context) {}
