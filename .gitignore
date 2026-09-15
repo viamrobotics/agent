@@ -19,3 +19,6 @@ agent-test.toml.*
 
 # Test reports
 report.xml
+
+# macOS Finder metadata
+.DS_Store

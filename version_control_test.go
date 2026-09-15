@@ -49,7 +49,7 @@ func TestUpdate(t *testing.T) {
 		test.That(t, err, test.ShouldBeNil)
 
 		// the download succeeds but the checksum comparison fails
-		_, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		_, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "sha256")
 
@@ -64,7 +64,7 @@ func TestUpdate(t *testing.T) {
 		test.That(t, vc.ViamServer.Versions["0.90.0"].UnpackedSHA, test.ShouldResemble, goodSHA)
 
 		// the already-downloaded binary now matches, so the update completes
-		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, needsRestart, test.ShouldBeTrue)
 		test.That(t, vc.ViamServer.CurrentVersion, test.ShouldEqual, "0.90.0")
@@ -162,7 +162,7 @@ func TestUpdateBinary(t *testing.T) {
 		}
 
 		t.Run("initial-install", func(t *testing.T) {
-			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-server"))
@@ -171,14 +171,14 @@ func TestUpdateBinary(t *testing.T) {
 		})
 
 		t.Run("rerun-with-no-change", func(t *testing.T) {
-			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 		})
 
 		t.Run("upgrade", func(t *testing.T) {
 			vc.ViamServer.TargetVersion = vi2.Version
-			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
@@ -191,13 +191,13 @@ func TestUpdateBinary(t *testing.T) {
 			vi3.Version = "0.71.1"
 			vc.ViamServer.Versions[vi3.Version] = &vi3
 			vc.ViamServer.TargetVersion = vi3.Version
-			_, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			_, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 
 			// run again and confirm that the mtime doesn't change
 			stat, _ := os.Stat(vi3.UnpackedPath)
 			mtime := stat.ModTime()
-			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			stat, _ = os.Stat(vi3.UnpackedPath)
@@ -209,7 +209,7 @@ func TestUpdateBinary(t *testing.T) {
 			stat, _ = os.Stat(vi3.UnpackedPath)
 			mtime = stat.ModTime()
 			time.Sleep(time.Millisecond * 10) // mtime check is flaky otherwise
-			needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			needsRestart, err = vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			stat, _ = os.Stat(vi3.UnpackedPath)
@@ -226,7 +226,7 @@ func TestUpdateBinary(t *testing.T) {
 			err := os.Remove(vi4.UnpackedPath)
 			test.That(t, err == nil || os.IsNotExist(err), test.ShouldBeTrue)
 
-			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			test.That(t, err.Error(), test.ShouldContainSubstring, "sha256")
 
@@ -292,7 +292,7 @@ func TestUpdateBinary(t *testing.T) {
 			vc.ViamServer.TargetVersion = vi5.Version
 
 			// update from previous to customURL: download and restart needed
-			needsRestart, err := vc.UpdateBinary(ctx, viamserver.SubsysName)
+			needsRestart, err := vc.UpdateBinary(ctx, viamserver.SubsysName, false)
 
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			test.That(t, err, test.ShouldBeNil)
@@ -300,7 +300,7 @@ func TestUpdateBinary(t *testing.T) {
 			vi5.LastModified = time.Time{}
 			vi5.LastModifiedCheck = time.Time{}
 			// initial 0->populated: no download or restart needed
-			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName, false)
 
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeFalse)
@@ -311,7 +311,7 @@ func TestUpdateBinary(t *testing.T) {
 			vi5.LastModified = time.Time{}.Add(time.Second)
 			vi5.LastModifiedCheck = time.Time{}.Add(time.Second)
 
-			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName, false)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			test.That(t, err, test.ShouldBeNil)
 
@@ -323,7 +323,7 @@ func TestUpdateBinary(t *testing.T) {
 			test.That(t, err, test.ShouldBeNil)
 			vi5.URL = badLmURL
 
-			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			test.That(t, vi5.LastModified, test.ShouldEqual, time.Time{}.Add(time.Second))
@@ -336,7 +336,7 @@ func TestUpdateBinary(t *testing.T) {
 			test.That(t, err, test.ShouldBeNil)
 			vi5.URL = noLmURL
 
-			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName)
+			needsRestart, err = vc.UpdateBinary(ctx, viamserver.SubsysName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			test.That(t, vi5.LastModified, test.ShouldEqual, time.Time{}.Add(time.Second))
@@ -381,7 +381,7 @@ func TestUpdateBinary(t *testing.T) {
 		}
 
 		t.Run("initial-install", func(t *testing.T) {
-			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-agent"))
@@ -390,14 +390,14 @@ func TestUpdateBinary(t *testing.T) {
 		})
 
 		t.Run("rerun-with-no-change", func(t *testing.T) {
-			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 		})
 
 		t.Run("upgrade", func(t *testing.T) {
 			vc.ViamAgent.TargetVersion = vi2.Version
-			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
@@ -415,7 +415,7 @@ func TestUpdateBinary(t *testing.T) {
 			vc.ViamAgent.Versions[vi3.Version] = &vi3
 			vc.ViamAgent.TargetVersion = vi3.Version
 
-			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			test.That(t, err, test.ShouldNotBeNil)
 			test.That(t, err.Error(), test.ShouldContainSubstring, "downloaded file does not appear to be a viam-agent binary")
@@ -436,7 +436,7 @@ func TestUpdateBinary(t *testing.T) {
 			vc.ViamAgent.Versions[vi4.Version] = &vi4
 			vc.ViamAgent.TargetVersion = vi4.Version
 
-			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 			test.That(t, needsRestart, test.ShouldBeFalse)
 			test.That(t, err, test.ShouldNotBeNil)
 			test.That(t, err.Error(), test.ShouldContainSubstring, "downloaded file does not appear to be a viam-agent binary")
@@ -461,7 +461,7 @@ func TestUpdateBinary(t *testing.T) {
 			vc.ViamAgent.Versions[vi5.Version] = &vi5
 			vc.ViamAgent.TargetVersion = vi5.Version
 
-			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+			needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 		})
@@ -503,7 +503,7 @@ func TestUpdateBinaryAdoptRunningBinary(t *testing.T) {
 			},
 		}
 
-		needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+		needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, needsRestart, test.ShouldBeFalse)
 		test.That(t, vc.ViamAgent.CurrentVersion, test.ShouldEqual, vi.Version)
@@ -515,7 +515,7 @@ func TestUpdateBinaryAdoptRunningBinary(t *testing.T) {
 		test.That(t, linkTarget, test.ShouldEqual, fakeExe)
 
 		// steady state afterwards: no download, no restart
-		needsRestart, err = vc.UpdateBinary(t.Context(), SubsystemName)
+		needsRestart, err = vc.UpdateBinary(t.Context(), SubsystemName, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, needsRestart, test.ShouldBeFalse)
 	})
@@ -543,7 +543,7 @@ func TestUpdateBinaryAdoptRunningBinary(t *testing.T) {
 		}
 
 		// the running binary's checksum does not match the target, so this must download
-		needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName)
+		needsRestart, err := vc.UpdateBinary(t.Context(), SubsystemName, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, needsRestart, test.ShouldBeTrue)
 		test.That(t, vc.ViamAgent.CurrentVersion, test.ShouldEqual, vi.Version)
@@ -569,7 +569,7 @@ func TestUpdateBinaryAdoptRunningBinary(t *testing.T) {
 
 		// even though the checksum matches the running executable, viam-server must
 		// always be downloaded, so this errors on the unreachable URL
-		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		needsRestart, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "downloading")
 		test.That(t, needsRestart, test.ShouldBeFalse)
@@ -616,7 +616,7 @@ func TestUpdateBinaryDownloadLogs(t *testing.T) {
 	update := func(t *testing.T) {
 		t.Helper()
 		logs.TakeAll()
-		_, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName)
+		_, err := vc.UpdateBinary(t.Context(), viamserver.SubsysName, false)
 		test.That(t, err, test.ShouldBeNil)
 	}
 	seen := func(snippet string) int { return logs.FilterMessageSnippet(snippet).Len() }

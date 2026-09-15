@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/utils/diskusage"
 	"go.viam.com/test"
 	goutils "go.viam.com/utils"
 )
@@ -165,7 +166,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, downloadedPath, test.ShouldNotBeEmpty)
 
@@ -185,7 +186,7 @@ func TestDownloadFile(t *testing.T) {
 		defer server.Close()
 
 		// Download the file
-		downloadedPath, err := DownloadFile(t.Context(), server.URL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), server.URL, logger, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, downloadedPath, test.ShouldNotBeEmpty)
 
@@ -209,7 +210,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file - should create a new file with suffix
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, downloadedPath, test.ShouldNotEqual, existingPath)
 		test.That(t, strings.HasSuffix(downloadedPath, ".duplicate-001"), test.ShouldBeTrue)
@@ -245,7 +246,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file - should create file with .duplicate-003 suffix
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger, false)
 		test.That(t, err, test.ShouldBeNil)
 		test.That(t, strings.HasSuffix(downloadedPath, ".duplicate-003"), test.ShouldBeTrue)
 
@@ -256,13 +257,13 @@ func TestDownloadFile(t *testing.T) {
 	})
 
 	t.Run("returns error for invalid URL", func(t *testing.T) {
-		_, err := DownloadFile(t.Context(), "invalid://url", logger)
+		_, err := DownloadFile(t.Context(), "invalid://url", logger, false)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "unsupported url scheme")
 	})
 
 	t.Run("returns error for non-existent file:// URL", func(t *testing.T) {
-		_, err := DownloadFile(t.Context(), "file:///nonexistent/file.txt", logger)
+		_, err := DownloadFile(t.Context(), "file:///nonexistent/file.txt", logger, false)
 		test.That(t, err, test.ShouldNotBeNil)
 	})
 
@@ -272,7 +273,7 @@ func TestDownloadFile(t *testing.T) {
 		}))
 		defer server.Close()
 
-		_, err := DownloadFile(t.Context(), server.URL, logger)
+		_, err := DownloadFile(t.Context(), server.URL, logger, false)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "bad response code: 404")
 	})
@@ -283,7 +284,7 @@ func TestDownloadFile(t *testing.T) {
 		}))
 		defer server.Close()
 
-		_, err := DownloadFile(t.Context(), server.URL, logger)
+		_, err := DownloadFile(t.Context(), server.URL, logger, false)
 		test.That(t, err, test.ShouldNotBeNil)
 		test.That(t, err.Error(), test.ShouldContainSubstring, "bad response code: 500")
 	})
@@ -300,13 +301,13 @@ func TestDownloadFile(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		_, err := DownloadFile(ctx, server.URL, logger)
+		_, err := DownloadFile(ctx, server.URL, logger, false)
 		test.That(t, err, test.ShouldNotBeNil)
 	})
 
 	t.Run("handles network errors", func(t *testing.T) {
 		// Try to download from a non-existent server
-		_, err := DownloadFile(t.Context(), "https://nonexistent.example.com/file.txt", logger)
+		_, err := DownloadFile(t.Context(), "https://nonexistent.example.com/file.txt", logger, false)
 		test.That(t, err, test.ShouldNotBeNil)
 	})
 
@@ -324,7 +325,7 @@ func TestDownloadFile(t *testing.T) {
 		}))
 		defer server.Close()
 
-		_, err := DownloadFile(t.Context(), server.URL, logger)
+		_, err := DownloadFile(t.Context(), server.URL, logger, false)
 		test.That(t, err, test.ShouldNotBeNil)
 	})
 
@@ -337,7 +338,7 @@ func TestDownloadFile(t *testing.T) {
 
 		// Download the file
 		fileURL := "file://" + testFile
-		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger)
+		downloadedPath, err := DownloadFile(t.Context(), fileURL, logger, false)
 		test.That(t, err, test.ShouldBeNil)
 
 		// Verify the content
@@ -364,11 +365,11 @@ func TestDownloadFile(t *testing.T) {
 				server.Close()
 			})
 
-			_, err := DownloadFile(t.Context(), server.URL, logger)
+			_, err := DownloadFile(t.Context(), server.URL, logger, false)
 			// first attempt fails with partial read
 			test.That(t, err, test.ShouldNotBeNil)
 
-			path, err := DownloadFile(t.Context(), server.URL, logger)
+			path, err := DownloadFile(t.Context(), server.URL, logger, false)
 			// second attempt succeeds
 			test.That(t, err, test.ShouldBeNil)
 			downloaded, err := os.ReadFile(path)
@@ -394,11 +395,11 @@ func TestDownloadFile(t *testing.T) {
 				maxBytesForTesting = 0
 				server.Close()
 			})
-			_, err := DownloadFile(t.Context(), server.URL, logger)
+			_, err := DownloadFile(t.Context(), server.URL, logger, false)
 			test.That(t, err, test.ShouldNotBeNil)
 
 			// second attempt fails again because the etag has changed
-			_, err = DownloadFile(t.Context(), server.URL, logger)
+			_, err = DownloadFile(t.Context(), server.URL, logger, false)
 			test.That(t, err, test.ShouldNotBeNil)
 		})
 	})
@@ -616,4 +617,162 @@ func TestIsValidAgentBinary(t *testing.T) {
 			test.That(t, IsValidAgentBinary(t.Context(), tc.path, "viam-agent"), test.ShouldEqual, tc.valid)
 		})
 	}
+}
+
+// stubLowSpace reports the volume as low without filling a real disk, and records the required
+// byte count from the most recent check so tests can assert the sizing math.
+func stubLowSpace(t *testing.T) *atomic.Uint64 {
+	t.Helper()
+	var gotRequired atomic.Uint64
+	orig := diskusage.EnoughFreeSpaceFunc
+	diskusage.EnoughFreeSpaceFunc = func(_ string, minBytes uint64) (bool, uint64, error) {
+		gotRequired.Store(minBytes)
+		return false, 5, nil
+	}
+	t.Cleanup(func() { diskusage.EnoughFreeSpaceFunc = orig })
+	return &gotRequired
+}
+
+// DownloadFile checks the cache volume before it writes. It asks for the bytes it is about to
+// write plus diskusage.MinFreeBytes, and blockOnLowDisk decides whether a low result warns or
+// refuses.
+func TestDownloadFileDiskSpace(t *testing.T) {
+	MockAndCreateViamDirs(t)
+	modtime := time.Now()
+
+	t.Run("file:// requires the source size plus the floor", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		gotRequired := stubLowSpace(t)
+
+		content := bytes.Repeat([]byte("a"), 512)
+		src := filepath.Join(t.TempDir(), "copy-lowspace.bin")
+		test.That(t, os.WriteFile(src, content, 0o600), test.ShouldBeNil)
+
+		dest, err := DownloadFile(t.Context(), "file://"+src, logger, false)
+		test.That(t, err, test.ShouldBeNil)
+		copied, err := os.ReadFile(dest)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, copied, test.ShouldResemble, content)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(content))+diskusage.MinFreeBytes)
+	})
+
+	t.Run("https requires the content length plus the floor", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		gotRequired := stubLowSpace(t)
+
+		payload := bytes.Repeat([]byte("hello "), 100)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeContent(w, r, "download-lowspace.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		dest, err := DownloadFile(t.Context(), server.URL+"/download-lowspace.bin", logger, false)
+		test.That(t, err, test.ShouldBeNil)
+		downloaded, err := os.ReadFile(dest)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, downloaded, test.ShouldResemble, payload)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(payload))+diskusage.MinFreeBytes)
+	})
+
+	t.Run("unknown content length falls back to the floor", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		gotRequired := stubLowSpace(t)
+
+		payload := bytes.Repeat([]byte("z"), 256)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// The HEAD reports no size, so the check has nothing to add to the floor.
+			if r.Method == http.MethodHead {
+				return
+			}
+			w.Write(payload)
+		}))
+		t.Cleanup(server.Close)
+
+		_, err := DownloadFile(t.Context(), server.URL+"/no-length.bin", logger, false)
+		test.That(t, err, test.ShouldBeNil)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, diskusage.MinFreeBytes)
+	})
+
+	t.Run("a resumable partial is subtracted", func(t *testing.T) {
+		// A resumed download only fetches the bytes it is missing, so the requirement is sized off
+		// the remaining bytes rather than the whole file.
+		logger := logging.NewTestLogger(t)
+		gotRequired := stubLowSpace(t)
+
+		payload := bytes.Repeat([]byte("y"), 900)
+		const etag = "stable-etag"
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"`+etag+`"`)
+			http.ServeContent(w, r, "resume.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		rawURL := server.URL + "/resume.bin"
+		partPath, etagPath := CreatePartialPath(rawURL)
+		const partial = 300
+		test.That(t, os.MkdirAll(filepath.Dir(partPath), 0o755), test.ShouldBeNil)
+		test.That(t, os.WriteFile(partPath, payload[:partial], 0o600), test.ShouldBeNil)
+		test.That(t, os.WriteFile(etagPath, []byte(etag), 0o600), test.ShouldBeNil)
+
+		dest, err := DownloadFile(t.Context(), rawURL, logger, false)
+		test.That(t, err, test.ShouldBeNil)
+		downloaded, err := os.ReadFile(dest)
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, downloaded, test.ShouldResemble, payload)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(payload)-partial)+diskusage.MinFreeBytes)
+	})
+
+	t.Run("a stale partial is not subtracted", func(t *testing.T) {
+		// A partial whose ETag no longer matches is deleted before the check runs, so the whole
+		// file has to fit. This is why the check sits after the ETag comparison.
+		logger := logging.NewTestLogger(t)
+		gotRequired := stubLowSpace(t)
+
+		payload := bytes.Repeat([]byte("w"), 800)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"current-etag"`)
+			http.ServeContent(w, r, "stale.bin", modtime, bytes.NewReader(payload))
+		}))
+		t.Cleanup(server.Close)
+
+		rawURL := server.URL + "/stale.bin"
+		partPath, etagPath := CreatePartialPath(rawURL)
+		test.That(t, os.MkdirAll(filepath.Dir(partPath), 0o755), test.ShouldBeNil)
+		test.That(t, os.WriteFile(partPath, payload[:300], 0o600), test.ShouldBeNil)
+		test.That(t, os.WriteFile(etagPath, []byte("old-etag"), 0o600), test.ShouldBeNil)
+
+		_, err := DownloadFile(t.Context(), rawURL, logger, false)
+		test.That(t, err, test.ShouldBeNil)
+
+		test.That(t, gotRequired.Load(), test.ShouldEqual, uint64(len(payload))+diskusage.MinFreeBytes)
+	})
+
+	t.Run("blocking refuses a file copy when low on space", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		stubLowSpace(t)
+
+		src := filepath.Join(t.TempDir(), "blocked-copy.bin")
+		test.That(t, os.WriteFile(src, []byte("payload"), 0o600), test.ShouldBeNil)
+
+		_, err := DownloadFile(t.Context(), "file://"+src, logger, true)
+		test.That(t, errors.Is(err, diskusage.ErrInsufficientDiskSpace), test.ShouldBeTrue)
+	})
+
+	t.Run("blocking refuses an http download when low on space", func(t *testing.T) {
+		// The http branch checks the partial file's path, not the final one, so cover it too.
+		logger := logging.NewTestLogger(t)
+		stubLowSpace(t)
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("payload"))
+		}))
+		t.Cleanup(server.Close)
+
+		_, err := DownloadFile(t.Context(), server.URL+"/blocked.bin", logger, true)
+		test.That(t, errors.Is(err, diskusage.ErrInsufficientDiskSpace), test.ShouldBeTrue)
+	})
 }
