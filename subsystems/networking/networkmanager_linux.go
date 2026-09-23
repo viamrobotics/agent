@@ -781,6 +781,20 @@ func (n *Subsystem) getCandidates(ifName string) []string {
 	return out
 }
 
+// logActiveSSID records the wifi network the machine is associated with, immediately when it
+// changes and otherwise every activeSSIDLogInterval, so wifi history can be reconstructed from
+// logs. An empty SSID means the managed wifi interface isn't connected to anything.
+func (n *Subsystem) logActiveSSID() {
+	ifName := n.Config().HotspotInterface
+	ssid := n.netState.ActiveSSID(ifName)
+	if ssid == n.loggedSSID && time.Since(n.loggedSSIDTime) < activeSSIDLogInterval {
+		return
+	}
+	n.loggedSSID = ssid
+	n.loggedSSIDTime = time.Now()
+	n.logger.Infow("active wifi network", "activeSSID", ssid, "interface", ifName)
+}
+
 func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 	defer utils.Recover(n.logger, nil)
 	defer n.monitorWorkers.Done()
@@ -802,6 +816,7 @@ func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 			n.logger.Warn(err)
 		}
 		n.checkConnections()
+		n.logActiveSSID()
 		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Warn(err)
 		}

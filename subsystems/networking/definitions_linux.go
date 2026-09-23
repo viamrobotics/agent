@@ -46,6 +46,8 @@ var (
 	scanLoopDelay          = time.Second * 15
 	scanTimeout            = time.Second * 30
 	connectTimeout         = time.Second * 50 // longer than the 45 second timeout in NetworkManager
+	// how often the active wifi SSID is logged when it hasn't changed.
+	activeSSIDLogInterval = time.Minute * 5
 )
 
 type lockingNetwork struct {

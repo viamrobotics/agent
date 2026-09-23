@@ -7,9 +7,65 @@ import (
 	"time"
 
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap/zaptest/observer"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
 )
+
+func TestLogActiveSSID(t *testing.T) {
+	logger, logs := logging.NewObservedTestLogger(t)
+	n := &Subsystem{
+		logger:   logger,
+		netState: NewNetworkState(logger),
+		cfg:      utils.NetworkConfiguration{HotspotInterface: "wlan0"},
+	}
+
+	// drains the observer first, so every call below only sees its own entries
+	logged := func(t *testing.T) []observer.LoggedEntry {
+		t.Helper()
+		logs.TakeAll()
+		n.logActiveSSID()
+		return logs.FilterMessageSnippet("active wifi network").All()
+	}
+
+	t.Run("logs initial disconnected state", func(t *testing.T) {
+		entries := logged(t)
+		test.That(t, entries, test.ShouldHaveLength, 1)
+		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "")
+		test.That(t, entries[0].ContextMap()["interface"], test.ShouldEqual, "wlan0")
+	})
+
+	t.Run("stays quiet while unchanged", func(t *testing.T) {
+		test.That(t, logged(t), test.ShouldHaveLength, 0)
+	})
+
+	t.Run("logs immediately on change", func(t *testing.T) {
+		n.netState.SetActiveSSID("wlan0", "TestNetwork")
+		entries := logged(t)
+		test.That(t, entries, test.ShouldHaveLength, 1)
+		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "TestNetwork")
+		test.That(t, logged(t), test.ShouldHaveLength, 0)
+	})
+
+	t.Run("ignores other interfaces", func(t *testing.T) {
+		n.netState.SetActiveSSID("wlan1", "OtherNetwork")
+		test.That(t, logged(t), test.ShouldHaveLength, 0)
+	})
+
+	t.Run("relogs after the interval elapses", func(t *testing.T) {
+		n.loggedSSIDTime = time.Now().Add(-activeSSIDLogInterval)
+		entries := logged(t)
+		test.That(t, entries, test.ShouldHaveLength, 1)
+		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "TestNetwork")
+	})
+
+	t.Run("logs disconnect", func(t *testing.T) {
+		n.netState.SetActiveSSID("wlan0", "")
+		entries := logged(t)
+		test.That(t, entries, test.ShouldHaveLength, 1)
+		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "")
+	})
+}
 
 func TestCheckForceProvisioning(t *testing.T) {
 	// Mock ViamDirs to use temporary directory for testing

@@ -64,6 +64,10 @@ type Subsystem struct {
 	visibleNetworksMu    sync.RWMutex
 	visibleNetworksCache []NetworkInfo
 
+	// last active SSID logged, and when — written exclusively from backgroundLoop.
+	loggedSSID     string
+	loggedSSIDTime time.Time
+
 	// bluetooth — ble and backoff fields written exclusively from bleLoop.
 	ble            bleTracker
 	bleNextAttempt time.Time
