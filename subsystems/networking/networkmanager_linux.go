@@ -792,6 +792,10 @@ func (n *Subsystem) logActiveSSID() {
 	}
 	n.loggedSSID = ssid
 	n.loggedSSIDTime = time.Now()
+	if ssid == n.Config().HotspotSSID {
+		n.logger.Infow("wifi interface is hosting provisioning hotspot", "hotspotSSID", ssid, "interface", ifName)
+		return
+	}
 	n.logger.Infow("active wifi network", "activeSSID", ssid, "interface", ifName)
 }
 

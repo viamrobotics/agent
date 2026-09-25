@@ -17,7 +17,7 @@ func TestLogActiveSSID(t *testing.T) {
 	n := &Subsystem{
 		logger:   logger,
 		netState: NewNetworkState(logger),
-		cfg:      utils.NetworkConfiguration{HotspotInterface: "wlan0"},
+		cfg:      utils.NetworkConfiguration{HotspotInterface: "wlan0", HotspotSSID: "viam-setup-test"},
 	}
 
 	// drains the observer first, so every call below only sees its own entries
@@ -64,6 +64,14 @@ func TestLogActiveSSID(t *testing.T) {
 		entries := logged(t)
 		test.That(t, entries, test.ShouldHaveLength, 1)
 		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "")
+	})
+
+	t.Run("logs own hotspot distinctly", func(t *testing.T) {
+		n.netState.SetActiveSSID("wlan0", "viam-setup-test")
+		test.That(t, logged(t), test.ShouldHaveLength, 0)
+		entries := logs.FilterMessageSnippet("provisioning hotspot").All()
+		test.That(t, entries, test.ShouldHaveLength, 1)
+		test.That(t, entries[0].ContextMap()["hotspotSSID"], test.ShouldEqual, "viam-setup-test")
 	})
 }
 
