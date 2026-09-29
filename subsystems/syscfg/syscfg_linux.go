@@ -37,6 +37,9 @@ type Subsystem struct {
 	upgradeWorker sync.WaitGroup
 	upgrade       upgradeState
 	rebootBlocked blockNotice
+
+	storageCancel context.CancelFunc
+	storageWorker sync.WaitGroup
 }
 
 func New(ctx context.Context,
@@ -114,6 +117,8 @@ func (s *Subsystem) Start(ctx context.Context) error {
 		s.startManagedUpgrades(ctx)
 	}
 
+	s.startStorageHealth(ctx)
+
 	// forward recent systemd agent logs if enabled and possible
 	err = s.forwardRecentSystemdAgentLogs(ctx)
 	if err != nil {
@@ -137,6 +142,7 @@ func (s *Subsystem) Stop(ctx context.Context) error {
 	}
 	s.started = false
 	s.stopManagedUpgrades()
+	s.stopStorageHealth()
 	return errw.Wrap(s.stopLogForwarding(), "stopping kernel log forwarding")
 }
 
