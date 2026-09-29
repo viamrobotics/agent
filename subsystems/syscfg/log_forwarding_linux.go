@@ -18,6 +18,7 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -155,8 +156,7 @@ func (s *Subsystem) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 		logEntry := zapcore.Entry{
 			Level: recentAgentJournaldEntry.getLevel(),
 			Time:  recentAgentJournaldEntry.getTime(),
-			// Hardcode logger name instead of using recentAgentJournaldEntry.getName() which
-			// would be "systemd[1]".
+			// these describe the agent service, so group them under the agent rather than getName()
 			LoggerName: "viam-agent.systemd",
 			Message:    recentAgentJournaldEntry.getMessage(),
 		}
@@ -293,7 +293,7 @@ func (s *Subsystem) startLogForwarding() error {
 					Message:    entry.getMessage(),
 				}
 
-				if err := appender.Write(logEntry, nil); err != nil {
+				if err := appender.Write(logEntry, entry.getFields()); err != nil {
 					s.logger.Warn(err)
 				}
 			}
@@ -357,12 +357,17 @@ func (e journaldEntry) getLevel() zapcore.Level {
 	}
 }
 
-// more closely mimic journalctl's normal output by including the PID, when available.
+// getName namespaces system logs under the agent. The PID goes in getFields so the name is stable
+// across daemon restarts.
 func (e journaldEntry) getName() string {
-	if e.PID != "" {
-		return fmt.Sprintf("%s[%s]", e.SyslogIdentifier, e.PID)
+	return "viam-agent.system." + e.SyslogIdentifier
+}
+
+func (e journaldEntry) getFields() []zapcore.Field {
+	if e.PID == "" {
+		return nil
 	}
-	return e.SyslogIdentifier
+	return []zapcore.Field{zap.String("pid", e.PID)}
 }
 
 func (e journaldEntry) getTime() time.Time {

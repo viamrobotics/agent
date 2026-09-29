@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
@@ -77,25 +78,25 @@ while true; do sleep 1; done
 			{
 				Level:      zapcore.ErrorLevel,
 				Time:       time.UnixMicro(1709234567890123),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel error",
 			},
 			{
 				Level:      zapcore.WarnLevel,
 				Time:       time.UnixMicro(1709234567890124),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel warning",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890125),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890134),
-				LoggerName: "NetworkManager[555]",
+				LoggerName: "viam-agent.system.NetworkManager",
 				Message:    "New NetworkManager entry after forwarder started",
 			},
 		},
@@ -103,25 +104,25 @@ while true; do sleep 1; done
 			{
 				Level:      zapcore.ErrorLevel,
 				Time:       time.UnixMicro(1709234567890123),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel error",
 			},
 			{
 				Level:      zapcore.WarnLevel,
 				Time:       time.UnixMicro(1709234567890124),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel warning",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890125),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890134),
-				LoggerName: "NetworkManager[555]",
+				LoggerName: "viam-agent.system.NetworkManager",
 				Message:    "New NetworkManager entry after forwarder started",
 			},
 		},
@@ -129,37 +130,37 @@ while true; do sleep 1; done
 			{
 				Level:      zapcore.ErrorLevel,
 				Time:       time.UnixMicro(1709234567890123),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel error",
 			},
 			{
 				Level:      zapcore.WarnLevel,
 				Time:       time.UnixMicro(1709234567890124),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel warning",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890125),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890133),
-				LoggerName: "foobar[666]",
+				LoggerName: "viam-agent.system.foobar",
 				Message:    "Test foobar info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890134),
-				LoggerName: "NetworkManager[555]",
+				LoggerName: "viam-agent.system.NetworkManager",
 				Message:    "New NetworkManager entry after forwarder started",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890135),
-				LoggerName: "foobar[666]",
+				LoggerName: "viam-agent.system.foobar",
 				Message:    "Test foobar info",
 			},
 		},
@@ -168,7 +169,7 @@ while true; do sleep 1; done
 			{
 				Level:      zapcore.ErrorLevel,
 				Time:       time.UnixMicro(1709234567890123),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel error",
 			},
 		},
@@ -253,6 +254,13 @@ while true; do sleep 1; done
 			}
 		})
 	}
+}
+
+func TestJournaldEntryNameAndFields(t *testing.T) {
+	e := journaldEntry{SyslogIdentifier: "bluetoothd", PID: "612"}
+	test.That(t, e.getName(), test.ShouldEqual, "viam-agent.system.bluetoothd")
+	test.That(t, e.getFields(), test.ShouldResemble, []zapcore.Field{zap.String("pid", "612")})
+	test.That(t, journaldEntry{SyslogIdentifier: "kernel"}.getFields(), test.ShouldBeNil)
 }
 
 func TestForwardRecentSystemdAgentLogs(t *testing.T) {
