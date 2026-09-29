@@ -25,6 +25,14 @@ const (
 	journalctlNAWarningMessage = "journalctl not available, log forwarding disabled"
 
 	logForwardingCacheFilename = "log_forwarding_cache.json"
+
+	// forwardSystemLogsNone disables all system log forwarding, including the defaults.
+	forwardSystemLogsNone = "none"
+	// Forwarded when forward_system_logs is unset: driver/storage, unit failure (e.g. watchdog),
+	// and bluetooth/dbus errors.
+	defaultForwardSystemLogs = "kernel,systemd,bluetoothd,dbus-daemon,dbus-broker"
+	priorityErr              = 3
+	priorityDebug            = 7
 )
 
 type logForwardingCache struct {
@@ -167,23 +175,35 @@ func (s *Subsystem) startLogForwarding() error {
 	s.logHealth.MarkGood()
 
 	// If forwarding is disabled or we already have a running command, do nothing
-	if s.cfg.ForwardSystemLogs == "" || s.journalCmd != nil {
+	if s.cfg.ForwardSystemLogs == forwardSystemLogsNone || s.journalCmd != nil {
 		return nil
 	}
 
+	filterCfg, maxPriority := s.cfg.ForwardSystemLogs, priorityDebug
+	explicit := filterCfg != ""
+	if !explicit {
+		filterCfg, maxPriority = defaultForwardSystemLogs, priorityErr
+	}
+
+	// Only warn when the user asked for forwarding; the defaults are best effort.
+	warnNoJournald := s.logger.Debug
+	if explicit {
+		warnNoJournald = s.logger.Warn
+	}
 	if s.noJournald {
-		s.logger.Warn(journalctlNAWarningMessage)
+		warnNoJournald(journalctlNAWarningMessage)
 		return nil
 	}
 	if _, err := exec.LookPath("journalctl"); err != nil {
-		s.logger.Warn(journalctlNAWarningMessage)
+		warnNoJournald(journalctlNAWarningMessage)
 		s.noJournald = true
 		return nil
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
-	cmd := exec.CommandContext(ctx, "journalctl", "-f", "-o", "json")
+	//nolint:gosec
+	cmd := exec.CommandContext(ctx, "journalctl", "-f", "-o", "json", "-p", strconv.Itoa(maxPriority))
 	cmd.Cancel = func() error {
 		// will send a signal to do this the "nice way"
 		return errw.Wrap(s.journalCmd.Process.Signal(syscall.SIGTERM), "sending SIGTERM to journalctl")
@@ -205,7 +225,7 @@ func (s *Subsystem) startLogForwarding() error {
 	s.cancelFunc = cancelFunc
 
 	// this will let us only log services we're interested in
-	filter := newFilter(s.cfg.ForwardSystemLogs)
+	filter := newFilter(filterCfg, maxPriority)
 
 	// Start a goroutine to read and process the output
 	s.logWorkers.Add(1)
@@ -280,7 +300,7 @@ func (s *Subsystem) startLogForwarding() error {
 		}
 	}()
 
-	s.logger.Info("Started system log forwarding")
+	s.logger.Infow("Started system log forwarding", "filter", filterCfg, "max_priority", maxPriority)
 	return nil
 }
 
@@ -308,6 +328,15 @@ type journaldEntry struct {
 	RealtimeTS       string `json:"__REALTIME_TIMESTAMP"`
 	SyslogIdentifier string `json:"SYSLOG_IDENTIFIER"`
 	PID              string `json:"_PID"`
+}
+
+// getPriority returns the syslog priority, treating a missing or invalid one as info.
+func (e journaldEntry) getPriority() int {
+	p, err := strconv.Atoi(e.Priority)
+	if err != nil {
+		return 6
+	}
+	return p
 }
 
 // getLevel converts a systemd priority to zapcore.Level.
@@ -349,12 +378,13 @@ func (e journaldEntry) getMessage() string {
 }
 
 type logFilter struct {
-	all    bool
-	filter map[string]bool
+	all         bool
+	filter      map[string]bool
+	maxPriority int
 }
 
-func newFilter(cfg string) *logFilter {
-	self := &logFilter{filter: make(map[string]bool)}
+func newFilter(cfg string, maxPriority int) *logFilter {
+	self := &logFilter{filter: make(map[string]bool), maxPriority: maxPriority}
 	if cfg != "" {
 		opts := strings.Split(cfg, ",")
 		for _, opt := range opts {
@@ -377,6 +407,9 @@ func newFilter(cfg string) *logFilter {
 }
 
 func (f *logFilter) shouldLog(entry journaldEntry) bool {
+	if entry.getPriority() > f.maxPriority {
+		return false
+	}
 	shouldLog, ok := f.filter[entry.SyslogIdentifier]
 	if !ok {
 		return f.all

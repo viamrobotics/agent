@@ -202,10 +202,12 @@ type SystemConfiguration struct {
 	// enable persistent logs
 	LoggingJournaldStorage string `json:"logging_journald_storage,omitempty"`
 
-	// Enable forwarding of system logs (journald) to the cloud (disabled by default)
+	// Forwarding of system logs (journald) to the cloud.
 	// A comma-separated list of SYSLOG_IDENTIFIERs, optionally prefixed with "-" to exclude
 	// "all" is a special keyword to log everything
 	// Ex: "kernel,tailscaled,NetworkManager" or "all,-gdm,-tailscaled"
+	// When unset, only error-level kernel, systemd, bluetoothd, and dbus logs are forwarded.
+	// "none" disables forwarding entirely.
 	ForwardSystemLogs string `json:"forward_system_logs,omitempty"`
 
 	// UpgradeType can be
