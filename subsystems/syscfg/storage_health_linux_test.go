@@ -44,23 +44,22 @@ func TestCheckExt4Errors(t *testing.T) {
 	t.Cleanup(func() { ext4SysfsDir = orig })
 
 	logger, logs := logging.NewObservedTestLogger(t)
-	s := &Subsystem{logger: logger}
 	reported := map[string]int{}
 	msg := "filesystem has recorded errors, storage may be failing"
 
 	writeExt4Fs(t, dir, "mmcblk0p2", "0", "0", "0")
-	s.checkExt4Errors(reported)
+	checkExt4Errors(logger, reported)
 	test.That(t, logs.FilterMessage(msg).Len(), test.ShouldEqual, 0)
 
 	writeExt4Fs(t, dir, "mmcblk0p2", "1", "1700000000", "1700000000")
-	s.checkExt4Errors(reported)
+	checkExt4Errors(logger, reported)
 	test.That(t, logs.FilterMessage(msg).Len(), test.ShouldEqual, 1)
 
 	// unchanged count is not re-reported
-	s.checkExt4Errors(reported)
+	checkExt4Errors(logger, reported)
 	test.That(t, logs.FilterMessage(msg).Len(), test.ShouldEqual, 1)
 
 	writeExt4Fs(t, dir, "mmcblk0p2", "2", "1700000000", "1700000100")
-	s.checkExt4Errors(reported)
+	checkExt4Errors(logger, reported)
 	test.That(t, logs.FilterMessage(msg).Len(), test.ShouldEqual, 2)
 }

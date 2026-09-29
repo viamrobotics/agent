@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"go.viam.com/rdk/logging"
 )
 
 const storageHealthInterval = 15 * time.Minute
@@ -32,12 +34,13 @@ func (s *Subsystem) startStorageHealth(ctx context.Context) {
 	storageCtx, cancel := context.WithCancel(ctx)
 	s.storageCancel = cancel
 
+	logger := s.logger.Sublogger("storage")
 	s.storageWorker.Go(func() {
 		reported := map[string]int{}
 		ticker := time.NewTicker(storageHealthInterval)
 		defer ticker.Stop()
 		for {
-			s.checkExt4Errors(reported)
+			checkExt4Errors(logger, reported)
 			select {
 			case <-storageCtx.Done():
 				return
@@ -58,10 +61,10 @@ func (s *Subsystem) stopStorageHealth() {
 }
 
 // checkExt4Errors logs each filesystem whose error count is nonzero and higher than last reported.
-func (s *Subsystem) checkExt4Errors(reported map[string]int) {
+func checkExt4Errors(logger logging.Logger, reported map[string]int) {
 	all, err := readExt4Errors(ext4SysfsDir)
 	if err != nil {
-		s.logger.Debugw("reading ext4 error counters", "error", err)
+		logger.Debugw("reading ext4 error counters", "error", err)
 		return
 	}
 	for dev, e := range all {
@@ -69,7 +72,7 @@ func (s *Subsystem) checkExt4Errors(reported map[string]int) {
 			continue
 		}
 		reported[dev] = e.count
-		s.logger.Errorw("filesystem has recorded errors, storage may be failing",
+		logger.Errorw("filesystem has recorded errors, storage may be failing",
 			"device", dev,
 			"errors_count", e.count,
 			"first_error_time", e.firstTime,
