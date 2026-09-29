@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
@@ -77,25 +78,25 @@ while true; do sleep 1; done
 			{
 				Level:      zapcore.ErrorLevel,
 				Time:       time.UnixMicro(1709234567890123),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel error",
 			},
 			{
 				Level:      zapcore.WarnLevel,
 				Time:       time.UnixMicro(1709234567890124),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel warning",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890125),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890134),
-				LoggerName: "NetworkManager[555]",
+				LoggerName: "viam-agent.system.NetworkManager",
 				Message:    "New NetworkManager entry after forwarder started",
 			},
 		},
@@ -103,25 +104,25 @@ while true; do sleep 1; done
 			{
 				Level:      zapcore.ErrorLevel,
 				Time:       time.UnixMicro(1709234567890123),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel error",
 			},
 			{
 				Level:      zapcore.WarnLevel,
 				Time:       time.UnixMicro(1709234567890124),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel warning",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890125),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890134),
-				LoggerName: "NetworkManager[555]",
+				LoggerName: "viam-agent.system.NetworkManager",
 				Message:    "New NetworkManager entry after forwarder started",
 			},
 		},
@@ -129,47 +130,56 @@ while true; do sleep 1; done
 			{
 				Level:      zapcore.ErrorLevel,
 				Time:       time.UnixMicro(1709234567890123),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel error",
 			},
 			{
 				Level:      zapcore.WarnLevel,
 				Time:       time.UnixMicro(1709234567890124),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel warning",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890125),
-				LoggerName: "kernel",
+				LoggerName: "viam-agent.system.kernel",
 				Message:    "Test kernel info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890133),
-				LoggerName: "foobar[666]",
+				LoggerName: "viam-agent.system.foobar",
 				Message:    "Test foobar info",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890134),
-				LoggerName: "NetworkManager[555]",
+				LoggerName: "viam-agent.system.NetworkManager",
 				Message:    "New NetworkManager entry after forwarder started",
 			},
 			{
 				Level:      zapcore.InfoLevel,
 				Time:       time.UnixMicro(1709234567890135),
-				LoggerName: "foobar[666]",
+				LoggerName: "viam-agent.system.foobar",
 				Message:    "Test foobar info",
 			},
 		},
-		"": []zapcore.Entry(nil),
+		// unset forwards only error-level entries from the default identifiers
+		"": {
+			{
+				Level:      zapcore.ErrorLevel,
+				Time:       time.UnixMicro(1709234567890123),
+				LoggerName: "viam-agent.system.kernel",
+				Message:    "Test kernel error",
+			},
+		},
+		"none": []zapcore.Entry(nil),
 	}
 
 	for cfgVal, expected := range expectedEntries {
 		testName := cfgVal
 		if testName == "" {
-			testName = "NONE"
+			testName = "DEFAULT"
 		}
 		t.Run(testName, func(t *testing.T) {
 			cfg := utils.AgentConfig{
@@ -204,7 +214,10 @@ while true; do sleep 1; done
 
 			// Verify initial forwarded entries
 			initialEntries := 3
-			if cfgVal == "" {
+			switch cfgVal {
+			case "":
+				initialEntries = 1
+			case "none":
 				initialEntries = 0
 			}
 
@@ -235,12 +248,19 @@ while true; do sleep 1; done
 			for i, log := range logs.All() {
 				test.That(t, log.Message, test.ShouldEqual, expectedLogs[i])
 				// bail after the first line when we're disabled
-				if cfgVal == "" {
+				if cfgVal == "none" {
 					break
 				}
 			}
 		})
 	}
+}
+
+func TestJournaldEntryNameAndFields(t *testing.T) {
+	e := journaldEntry{SyslogIdentifier: "bluetoothd", PID: "612"}
+	test.That(t, e.getName(), test.ShouldEqual, "viam-agent.system.bluetoothd")
+	test.That(t, e.getFields(), test.ShouldResemble, []zapcore.Field{zap.String("pid", "612")})
+	test.That(t, journaldEntry{SyslogIdentifier: "kernel"}.getFields(), test.ShouldBeNil)
 }
 
 func TestForwardRecentSystemdAgentLogs(t *testing.T) {
@@ -263,6 +283,7 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 	appender := &mockAppender{}
 	cfg := utils.AgentConfig{
 		SystemConfiguration: utils.SystemConfiguration{
+			ForwardSystemLogs:                     "none",
 			LoggingJournaldSystemMaxUseMegabytes:  -1,
 			LoggingJournaldRuntimeMaxUseMegabytes: -1,
 		},

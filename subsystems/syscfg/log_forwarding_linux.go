@@ -18,6 +18,7 @@ import (
 
 	errw "github.com/pkg/errors"
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -25,6 +26,14 @@ const (
 	journalctlNAWarningMessage = "journalctl not available, log forwarding disabled"
 
 	logForwardingCacheFilename = "log_forwarding_cache.json"
+
+	// forwardSystemLogsNone disables all system log forwarding, including the defaults.
+	forwardSystemLogsNone = "none"
+	// Forwarded when forward_system_logs is unset: driver/storage, unit failure (e.g. watchdog),
+	// and bluetooth/dbus errors.
+	defaultForwardSystemLogs = "kernel,systemd,bluetoothd,dbus-daemon,dbus-broker"
+	priorityErr              = 3
+	priorityDebug            = 7
 )
 
 type logForwardingCache struct {
@@ -147,8 +156,7 @@ func (s *Subsystem) forwardRecentSystemdAgentLogs(ctx context.Context) error {
 		logEntry := zapcore.Entry{
 			Level: recentAgentJournaldEntry.getLevel(),
 			Time:  recentAgentJournaldEntry.getTime(),
-			// Hardcode logger name instead of using recentAgentJournaldEntry.getName() which
-			// would be "systemd[1]".
+			// these describe the agent service, so group them under the agent rather than getName()
 			LoggerName: "viam-agent.systemd",
 			Message:    recentAgentJournaldEntry.getMessage(),
 		}
@@ -167,23 +175,35 @@ func (s *Subsystem) startLogForwarding() error {
 	s.logHealth.MarkGood()
 
 	// If forwarding is disabled or we already have a running command, do nothing
-	if s.cfg.ForwardSystemLogs == "" || s.journalCmd != nil {
+	if s.cfg.ForwardSystemLogs == forwardSystemLogsNone || s.journalCmd != nil {
 		return nil
 	}
 
+	filterCfg, maxPriority := s.cfg.ForwardSystemLogs, priorityDebug
+	explicit := filterCfg != ""
+	if !explicit {
+		filterCfg, maxPriority = defaultForwardSystemLogs, priorityErr
+	}
+
+	// Only warn when the user asked for forwarding; the defaults are best effort.
+	warnNoJournald := s.logger.Debug
+	if explicit {
+		warnNoJournald = s.logger.Warn
+	}
 	if s.noJournald {
-		s.logger.Warn(journalctlNAWarningMessage)
+		warnNoJournald(journalctlNAWarningMessage)
 		return nil
 	}
 	if _, err := exec.LookPath("journalctl"); err != nil {
-		s.logger.Warn(journalctlNAWarningMessage)
+		warnNoJournald(journalctlNAWarningMessage)
 		s.noJournald = true
 		return nil
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
-	cmd := exec.CommandContext(ctx, "journalctl", "-f", "-o", "json")
+	//nolint:gosec
+	cmd := exec.CommandContext(ctx, "journalctl", "-f", "-o", "json", "-p", strconv.Itoa(maxPriority))
 	cmd.Cancel = func() error {
 		// will send a signal to do this the "nice way"
 		return errw.Wrap(s.journalCmd.Process.Signal(syscall.SIGTERM), "sending SIGTERM to journalctl")
@@ -205,7 +225,7 @@ func (s *Subsystem) startLogForwarding() error {
 	s.cancelFunc = cancelFunc
 
 	// this will let us only log services we're interested in
-	filter := newFilter(s.cfg.ForwardSystemLogs)
+	filter := newFilter(filterCfg, maxPriority)
 
 	// Start a goroutine to read and process the output
 	s.logWorkers.Add(1)
@@ -273,14 +293,14 @@ func (s *Subsystem) startLogForwarding() error {
 					Message:    entry.getMessage(),
 				}
 
-				if err := appender.Write(logEntry, nil); err != nil {
+				if err := appender.Write(logEntry, entry.getFields()); err != nil {
 					s.logger.Warn(err)
 				}
 			}
 		}
 	}()
 
-	s.logger.Info("Started system log forwarding")
+	s.logger.Infow("Started system log forwarding", "filter", filterCfg, "max_priority", maxPriority)
 	return nil
 }
 
@@ -310,6 +330,15 @@ type journaldEntry struct {
 	PID              string `json:"_PID"`
 }
 
+// getPriority returns the syslog priority, treating a missing or invalid one as info.
+func (e journaldEntry) getPriority() int {
+	p, err := strconv.Atoi(e.Priority)
+	if err != nil {
+		return 6
+	}
+	return p
+}
+
 // getLevel converts a systemd priority to zapcore.Level.
 func (e journaldEntry) getLevel() zapcore.Level {
 	switch e.Priority {
@@ -328,12 +357,17 @@ func (e journaldEntry) getLevel() zapcore.Level {
 	}
 }
 
-// more closely mimic journalctl's normal output by including the PID, when available.
+// getName namespaces system logs under the agent. The PID goes in getFields so the name is stable
+// across daemon restarts.
 func (e journaldEntry) getName() string {
-	if e.PID != "" {
-		return fmt.Sprintf("%s[%s]", e.SyslogIdentifier, e.PID)
+	return "viam-agent.system." + e.SyslogIdentifier
+}
+
+func (e journaldEntry) getFields() []zapcore.Field {
+	if e.PID == "" {
+		return nil
 	}
-	return e.SyslogIdentifier
+	return []zapcore.Field{zap.String("pid", e.PID)}
 }
 
 func (e journaldEntry) getTime() time.Time {
@@ -349,12 +383,13 @@ func (e journaldEntry) getMessage() string {
 }
 
 type logFilter struct {
-	all    bool
-	filter map[string]bool
+	all         bool
+	filter      map[string]bool
+	maxPriority int
 }
 
-func newFilter(cfg string) *logFilter {
-	self := &logFilter{filter: make(map[string]bool)}
+func newFilter(cfg string, maxPriority int) *logFilter {
+	self := &logFilter{filter: make(map[string]bool), maxPriority: maxPriority}
 	if cfg != "" {
 		opts := strings.Split(cfg, ",")
 		for _, opt := range opts {
@@ -377,6 +412,9 @@ func newFilter(cfg string) *logFilter {
 }
 
 func (f *logFilter) shouldLog(entry journaldEntry) bool {
+	if entry.getPriority() > f.maxPriority {
+		return false
+	}
 	shouldLog, ok := f.filter[entry.SyslogIdentifier]
 	if !ok {
 		return f.all
