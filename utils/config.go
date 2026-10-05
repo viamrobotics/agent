@@ -207,7 +207,7 @@ type SystemConfiguration struct {
 	// "all" is a special keyword to log everything
 	// Ex: "kernel,tailscaled,NetworkManager" or "all,-gdm,-tailscaled"
 	// When unset, only error-level kernel, systemd, bluetoothd, and dbus logs are forwarded.
-	// "none" disables forwarding entirely.
+	// "disable" (or "disabled") disables forwarding entirely.
 	ForwardSystemLogs string `json:"forward_system_logs,omitempty"`
 
 	// UpgradeType can be

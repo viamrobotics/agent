@@ -27,8 +27,6 @@ const (
 
 	logForwardingCacheFilename = "log_forwarding_cache.json"
 
-	// forwardSystemLogsNone disables all system log forwarding, including the defaults.
-	forwardSystemLogsNone = "none"
 	// Forwarded when forward_system_logs is unset: driver/storage, unit failure (e.g. watchdog),
 	// and bluetooth/dbus errors.
 	defaultForwardSystemLogs = "kernel,systemd,bluetoothd,dbus-daemon,dbus-broker"
@@ -175,7 +173,7 @@ func (s *Subsystem) startLogForwarding() error {
 	s.logHealth.MarkGood()
 
 	// If forwarding is disabled or we already have a running command, do nothing
-	if s.cfg.ForwardSystemLogs == forwardSystemLogsNone || s.journalCmd != nil {
+	if isDisabled(s.cfg.ForwardSystemLogs) || s.journalCmd != nil {
 		return nil
 	}
 
