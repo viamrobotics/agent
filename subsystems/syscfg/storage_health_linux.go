@@ -64,7 +64,7 @@ func (s *Subsystem) stopStorageHealth() {
 func checkExt4Errors(logger logging.Logger, reported map[string]int) {
 	all, err := readExt4Errors(ext4SysfsDir)
 	if err != nil {
-		logger.Debugw("reading ext4 error counters", "error", err)
+		logger.Warnw("failed to read ext4 error counters, skipping storage health check", "error", err)
 		return
 	}
 	for dev, e := range all {
