@@ -173,8 +173,8 @@ while true; do sleep 1; done
 				Message:    "Test kernel error",
 			},
 		},
-		"disable":  []zapcore.Entry(nil),
-		"disabled": []zapcore.Entry(nil),
+		modeDisable:  []zapcore.Entry(nil),
+		modeDisabled: []zapcore.Entry(nil),
 	}
 
 	for cfgVal, expected := range expectedEntries {
@@ -218,7 +218,7 @@ while true; do sleep 1; done
 			switch cfgVal {
 			case "":
 				initialEntries = 1
-			case "disable", "disabled":
+			case modeDisable, modeDisabled:
 				initialEntries = 0
 			}
 
@@ -249,7 +249,7 @@ while true; do sleep 1; done
 			for i, log := range logs.All() {
 				test.That(t, log.Message, test.ShouldEqual, expectedLogs[i])
 				// bail after the first line when we're disabled
-				if cfgVal == "disable" || cfgVal == "disabled" {
+				if isDisabled(cfgVal) {
 					break
 				}
 			}
@@ -284,7 +284,7 @@ echo '{"PRIORITY":"6","SYSLOG_IDENTIFIER":"systemd","_HOSTNAME":"raspberrypi","_
 	appender := &mockAppender{}
 	cfg := utils.AgentConfig{
 		SystemConfiguration: utils.SystemConfiguration{
-			ForwardSystemLogs:                     "disable",
+			ForwardSystemLogs:                     modeDisable,
 			LoggingJournaldSystemMaxUseMegabytes:  -1,
 			LoggingJournaldRuntimeMaxUseMegabytes: -1,
 		},
