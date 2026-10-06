@@ -20,12 +20,15 @@ const (
 	autoUpgradesContentsDisabled = `APT::Periodic::Update-Package-Lists "1";` + "\n" + `APT::Periodic::Unattended-Upgrade "0";` + "\n"
 
 	unattendedUpgradesPath = "/etc/apt/apt.conf.d/50unattended-upgrades"
+
+	modeDisable  = "disable"
+	modeDisabled = "disabled"
 )
 
 var supportedCodenames = [...]string{"bookworm", "bullseye", "trixie"}
 
 func isDisabled(mode string) bool {
-	return mode == "disable" || mode == "disabled"
+	return mode == modeDisable || mode == modeDisabled
 }
 
 // runs inside s.mu.Lock().
