@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"maps"
 	"runtime"
 	"sync"
 
@@ -28,6 +29,8 @@ type networkState struct {
 	// key is interface name, ex: wlan0
 	primarySSID map[string]string
 	activeSSID  map[string]string
+	activeType  map[string]string
+	activeState map[string]gnm.NmActiveConnectionState
 	lastSSID    map[string]string
 	activeConn  map[string]gnm.ActiveConnection
 	ethDevice   map[string]gnm.DeviceWired
@@ -40,6 +43,8 @@ func NewNetworkState(logger logging.Logger) *networkState {
 		logger:      logger,
 		network:     make(map[NetKey]*lockingNetwork),
 		activeSSID:  make(map[string]string),
+		activeType:  make(map[string]string),
+		activeState: make(map[string]gnm.NmActiveConnectionState),
 		primarySSID: make(map[string]string),
 		lastSSID:    make(map[string]string),
 		ethDevice:   make(map[string]gnm.DeviceWired),
@@ -188,6 +193,37 @@ func (n *networkState) ActiveSSID(iface string) string {
 	return n.activeSSID[iface]
 }
 
+// ActiveType returns the NetworkType of the interface's active connection.
+func (n *networkState) ActiveType(iface string) string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.activeType[iface]
+}
+
+func (n *networkState) SetActiveType(iface, netType string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if netType == "" {
+		delete(n.activeType, iface)
+		return
+	}
+	n.activeType[iface] = netType
+}
+
+// ActiveState returns the state of the interface's active connection as of the last check.
+func (n *networkState) ActiveState(iface string) gnm.NmActiveConnectionState {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.activeState[iface]
+}
+
+func (n *networkState) SetActiveState(iface string, state gnm.NmActiveConnectionState) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.activeState[iface] = state
+}
+
 func (n *networkState) SetActiveSSID(iface, ssid string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -228,6 +264,22 @@ func (n *networkState) ActiveConn(iface string) gnm.ActiveConnection {
 	}
 
 	return conn
+}
+
+// ClearActive forgets the interface's active connection.
+func (n *networkState) ClearActive(iface string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	delete(n.activeConn, iface)
+	delete(n.activeSSID, iface)
+	delete(n.activeType, iface)
+	delete(n.activeState, iface)
+}
+
+func (n *networkState) ActiveConns() map[string]gnm.ActiveConnection {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return maps.Clone(n.activeConn)
 }
 
 func (n *networkState) SetActiveConn(iface string, conn gnm.ActiveConnection) {
@@ -376,6 +428,8 @@ func (n *networkState) RemoveDevice(ifName string) {
 	// Clean up associated state
 	delete(n.activeConn, ifName)
 	delete(n.activeSSID, ifName)
+	delete(n.activeType, ifName)
+	delete(n.activeState, ifName)
 	delete(n.lastSSID, ifName)
 	delete(n.primarySSID, ifName)
 

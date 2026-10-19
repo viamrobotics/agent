@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -216,8 +217,7 @@ func (n *Subsystem) checkConnections() {
 			continue
 		}
 		if activeConnection == nil {
-			n.netState.SetActiveConn(ifName, nil)
-			n.netState.SetActiveSSID(ifName, "")
+			n.netState.ClearActive(ifName)
 			continue
 		}
 
@@ -246,6 +246,8 @@ func (n *Subsystem) checkConnections() {
 		id := n.getNetKeyFromSettings(settings)
 		if id == NetKeyUnknown {
 			n.logger.Warnf("unknown network, interface: %s, settings: %+v", ifName, settings)
+			// not a network we manage, so drop any handle left from a previous one
+			n.netState.ClearActive(ifName)
 			continue
 		}
 		nw := n.netState.LockingNetwork(id)
@@ -254,12 +256,13 @@ func (n *Subsystem) checkConnections() {
 		nw.mu.Lock()
 		if err != nil {
 			n.logger.Warn(errw.Wrapf(err, "getting state of active connection: %s", id))
-			n.netState.SetActiveConn(ifName, nil)
-			n.netState.SetActiveSSID(ifName, "")
+			n.netState.ClearActive(ifName)
 			nw.connected = false
 		} else {
 			n.netState.SetActiveConn(ifName, activeConnection)
 			n.netState.SetActiveSSID(ifName, id.SSID())
+			n.netState.SetActiveType(ifName, id.Type())
+			n.netState.SetActiveState(ifName, state)
 			nw.connected = true
 		}
 		nw.mu.Unlock()
@@ -438,6 +441,8 @@ func (n *Subsystem) activateConnection(ctx context.Context, id NetKey) error {
 	nw.lastConnected = now
 	nw.lastError = nil
 	n.netState.SetActiveConn(id.Interface(), activeConnection)
+	n.netState.SetActiveType(id.Interface(), id.Type())
+	n.netState.SetActiveState(id.Interface(), gnm.NmActiveConnectionStateActivated)
 
 	n.logger.Infof("Successfully activated connection: %s", id)
 
@@ -781,22 +786,82 @@ func (n *Subsystem) getCandidates(ifName string) []string {
 	return out
 }
 
-// logActiveSSID records the wifi network the machine is associated with, immediately when it
-// changes and otherwise every activeSSIDLogInterval, so wifi history can be reconstructed from
-// logs. An empty SSID means the managed wifi interface isn't connected to anything.
-func (n *Subsystem) logActiveSSID() {
-	ifName := n.Config().HotspotInterface
-	ssid := n.netState.ActiveSSID(ifName)
-	if ssid == n.loggedSSID && time.Since(n.loggedSSIDTime) < activeSSIDLogInterval {
+// activeConnLog is one entry of the active connections log line, which app parses.
+type activeConnLog struct {
+	Interface string `json:"interface"`
+	// one of the NetworkType constants
+	Type string `json:"type"`
+	// SSID for wifi and hotspot, connection ID otherwise
+	Name string `json:"name"`
+	// one of the activeConnStates values
+	State string `json:"state"`
+}
+
+// activeConnStates names the connection states that are logged; deactivated connections are left out.
+var activeConnStates = map[gnm.NmActiveConnectionState]string{
+	gnm.NmActiveConnectionStateActivating:   "activating",
+	gnm.NmActiveConnectionStateActivated:    "activated",
+	gnm.NmActiveConnectionStateDeactivating: "deactivating",
+}
+
+// connSnapshot is what logActiveConnections compares to decide whether a connection changed.
+type connSnapshot struct {
+	path  string
+	state string
+}
+
+// logActiveConnections records each interface's connection and its state, immediately on change and
+// otherwise every activeConnLogInterval, so network history can be reconstructed from logs. app parses
+// this line: change its fields with care. primaryInterface is the listed link that internet traffic
+// leaves on, beneath any VPN, or empty if that link isn't one the agent tracks.
+func (n *Subsystem) logActiveConnections() {
+	conns := n.netState.ActiveConns()
+	snaps := make(map[string]connSnapshot, len(conns))
+	for ifName, conn := range conns {
+		name, ok := activeConnStates[n.netState.ActiveState(ifName)]
+		if !ok {
+			delete(conns, ifName)
+			continue
+		}
+		snaps[ifName] = connSnapshot{path: string(conn.GetPath()), state: name}
+	}
+	var primaryPath string
+	if primary, err := n.nm.GetPropertyPrimaryConnection(); err != nil {
+		n.logger.Debug(errw.Wrap(err, "getting primary connection"))
+	} else if primary != nil {
+		primaryPath = string(primary.GetPath())
+	}
+	if maps.Equal(snaps, n.loggedConns) && primaryPath == n.loggedPrimaryPath &&
+		time.Since(n.loggedConnsTime) < activeConnLogInterval {
 		return
 	}
-	n.loggedSSID = ssid
-	n.loggedSSIDTime = time.Now()
-	if ssid == n.Config().HotspotSSID {
-		n.logger.Infow("wifi interface is hosting provisioning hotspot", "hotspotSSID", ssid, "interface", ifName)
-		return
+	n.loggedConns = snaps
+	n.loggedPrimaryPath = primaryPath
+	n.loggedConnsTime = time.Now()
+
+	var primaryIf string
+	entries := make([]activeConnLog, 0, len(conns))
+	for _, ifName := range slices.Sorted(maps.Keys(conns)) {
+		entry := activeConnLog{
+			Interface: ifName,
+			Type:      n.netState.ActiveType(ifName),
+			Name:      n.netState.ActiveSSID(ifName),
+			State:     snaps[ifName].state,
+		}
+		if entry.Name == "" {
+			id, err := conns[ifName].GetPropertyID()
+			if err != nil {
+				n.logger.Debug(errw.Wrapf(err, "getting connection id for %s", ifName))
+			}
+			entry.Name = id
+		}
+		if snaps[ifName].path == primaryPath {
+			primaryIf = ifName
+		}
+		entries = append(entries, entry)
 	}
-	n.logger.Infow("active wifi network", "activeSSID", ssid, "interface", ifName)
+	n.logger.Infow("active network connections",
+		"primaryInterface", primaryIf, "connections", entries)
 }
 
 func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
@@ -820,7 +885,7 @@ func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 			n.logger.Warn(err)
 		}
 		n.checkConnections()
-		n.logActiveSSID()
+		n.logActiveConnections()
 		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Warn(err)
 		}
