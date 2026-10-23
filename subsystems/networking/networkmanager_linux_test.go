@@ -6,73 +6,219 @@ import (
 	"testing"
 	"time"
 
+	"github.com/godbus/dbus/v5"
 	"github.com/viamrobotics/agent/utils"
-	"go.uber.org/zap/zaptest/observer"
+	gnm "github.com/viamrobotics/gonetworkmanager/v2"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
 )
 
-func TestLogActiveSSID(t *testing.T) {
+type fakeActiveConn struct {
+	gnm.ActiveConnection
+	path     dbus.ObjectPath
+	id       string
+	state    gnm.NmActiveConnectionState
+	settings gnm.ConnectionSettings
+}
+
+func (c *fakeActiveConn) GetPath() dbus.ObjectPath       { return c.path }
+func (c *fakeActiveConn) GetPropertyID() (string, error) { return c.id, nil }
+func (c *fakeActiveConn) GetPropertyState() (gnm.NmActiveConnectionState, error) {
+	return c.state, nil
+}
+
+func (c *fakeActiveConn) GetPropertyConnection() (gnm.Connection, error) {
+	return &fakeConnection{settings: c.settings}, nil
+}
+
+type fakeConnection struct {
+	gnm.Connection
+	settings gnm.ConnectionSettings
+}
+
+func (c *fakeConnection) GetSettings() (gnm.ConnectionSettings, error) { return c.settings, nil }
+
+type fakeWiredDevice struct {
+	gnm.DeviceWired
+	active gnm.ActiveConnection
+}
+
+func (d *fakeWiredDevice) GetPropertyActiveConnection() (gnm.ActiveConnection, error) {
+	return d.active, nil
+}
+
+type fakePrimaryNM struct {
+	gnm.NetworkManager
+	primary gnm.ActiveConnection
+}
+
+func (nm *fakePrimaryNM) GetPropertyPrimaryConnection() (gnm.ActiveConnection, error) {
+	return nm.primary, nil
+}
+
+func TestLogActiveConnections(t *testing.T) {
 	logger, logs := logging.NewObservedTestLogger(t)
+	nm := &fakePrimaryNM{}
 	n := &Subsystem{
 		logger:   logger,
+		nm:       nm,
 		netState: NewNetworkState(logger),
 		cfg:      utils.NetworkConfiguration{HotspotInterface: "wlan0", HotspotSSID: "viam-setup-test"},
 	}
+	activated := gnm.NmActiveConnectionStateActivated
+	wifi := &fakeActiveConn{path: "/ac/1", id: "TestNetwork@wlan0", state: activated}
+	eth := &fakeActiveConn{path: "/ac/2", id: "Wired connection 1", state: activated}
+	setConn := func(ifName string, conn *fakeActiveConn, netType, ssid string) {
+		if conn == nil {
+			n.netState.ClearActive(ifName)
+			return
+		}
+		n.netState.SetActiveConn(ifName, conn)
+		n.netState.SetActiveType(ifName, netType)
+		n.netState.SetActiveSSID(ifName, ssid)
+		n.netState.SetActiveState(ifName, conn.state)
+	}
+	wifiEntry := activeConnLog{Interface: "wlan0", Type: NetworkTypeWifi, Name: "TestNetwork"}
+	ethEntry := activeConnLog{Interface: "eth0", Type: NetworkTypeWired, Name: "Wired connection 1"}
 
-	// drains the observer first, so every call below only sees its own entries
-	logged := func(t *testing.T) []observer.LoggedEntry {
+	// drains the observer first, so every call returns only the fields of its own entry, or nil
+	logged := func(t *testing.T) map[string]any {
 		t.Helper()
 		logs.TakeAll()
-		n.logActiveSSID()
-		return logs.FilterMessageSnippet("active wifi network").All()
+		n.logActiveConnections()
+		entries := logs.FilterMessageSnippet("active network connections").All()
+		if len(entries) == 0 {
+			return nil
+		}
+		test.That(t, entries, test.ShouldHaveLength, 1)
+		return entries[0].ContextMap()
 	}
 
 	t.Run("logs initial disconnected state", func(t *testing.T) {
-		entries := logged(t)
-		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "")
-		test.That(t, entries[0].ContextMap()["interface"], test.ShouldEqual, "wlan0")
+		fields := logged(t)
+		test.That(t, fields["connections"], test.ShouldBeEmpty)
+		test.That(t, fields["primaryInterface"], test.ShouldEqual, "")
 	})
 
 	t.Run("stays quiet while unchanged", func(t *testing.T) {
-		test.That(t, logged(t), test.ShouldHaveLength, 0)
+		test.That(t, logged(t), test.ShouldBeNil)
 	})
 
-	t.Run("logs immediately on change", func(t *testing.T) {
-		n.netState.SetActiveSSID("wlan0", "TestNetwork")
-		entries := logged(t)
-		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "TestNetwork")
-		test.That(t, logged(t), test.ShouldHaveLength, 0)
+	t.Run("logs wifi on change", func(t *testing.T) {
+		setConn("wlan0", wifi, NetworkTypeWifi, "TestNetwork")
+		nm.primary = wifi
+		fields := logged(t)
+		test.That(t, fields["connections"], test.ShouldResemble, []activeConnLog{wifiEntry})
+		test.That(t, fields["primaryInterface"], test.ShouldEqual, "wlan0")
+		test.That(t, logged(t), test.ShouldBeNil)
 	})
 
-	t.Run("ignores other interfaces", func(t *testing.T) {
-		n.netState.SetActiveSSID("wlan1", "OtherNetwork")
-		test.That(t, logged(t), test.ShouldHaveLength, 0)
+	t.Run("logs wired by connection id alongside wifi", func(t *testing.T) {
+		setConn("eth0", eth, NetworkTypeWired, "")
+		fields := logged(t)
+		test.That(t, fields["connections"], test.ShouldResemble, []activeConnLog{ethEntry, wifiEntry})
+		test.That(t, fields["primaryInterface"], test.ShouldEqual, "wlan0")
+	})
+
+	t.Run("logs a connection only once activated", func(t *testing.T) {
+		badNet := &fakeActiveConn{path: "/ac/4", state: gnm.NmActiveConnectionStateActivating}
+		setConn("wlan1", badNet, NetworkTypeWifi, "BadNet")
+		test.That(t, logged(t), test.ShouldBeNil)
+
+		n.netState.SetActiveState("wlan1", gnm.NmActiveConnectionStateActivated)
+		test.That(t, logged(t)["connections"], test.ShouldResemble, []activeConnLog{
+			ethEntry, wifiEntry, {Interface: "wlan1", Type: NetworkTypeWifi, Name: "BadNet"},
+		})
+		setConn("wlan1", nil, "", "")
+		logged(t)
+	})
+
+	t.Run("logs primary change", func(t *testing.T) {
+		nm.primary = eth
+		fields := logged(t)
+		test.That(t, fields["primaryInterface"], test.ShouldEqual, "eth0")
+	})
+
+	t.Run("leaves primary empty for an unknown connection", func(t *testing.T) {
+		nm.primary = &fakeActiveConn{path: "/ac/vpn"}
+		fields := logged(t)
+		test.That(t, fields["primaryInterface"], test.ShouldEqual, "")
+		nm.primary = eth
 	})
 
 	t.Run("relogs after the interval elapses", func(t *testing.T) {
-		n.loggedSSIDTime = time.Now().Add(-activeSSIDLogInterval)
-		entries := logged(t)
-		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "TestNetwork")
+		logged(t)
+		n.loggedConnsTime = time.Now().Add(-activeConnLogInterval)
+		test.That(t, logged(t), test.ShouldNotBeNil)
 	})
 
 	t.Run("logs disconnect", func(t *testing.T) {
-		n.netState.SetActiveSSID("wlan0", "")
-		entries := logged(t)
-		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].ContextMap()["activeSSID"], test.ShouldEqual, "")
+		setConn("wlan0", nil, "", "")
+		fields := logged(t)
+		test.That(t, fields["connections"], test.ShouldResemble, []activeConnLog{ethEntry})
 	})
 
-	t.Run("logs own hotspot distinctly", func(t *testing.T) {
-		n.netState.SetActiveSSID("wlan0", "viam-setup-test")
-		test.That(t, logged(t), test.ShouldHaveLength, 0)
-		entries := logs.FilterMessageSnippet("provisioning hotspot").All()
-		test.That(t, entries, test.ShouldHaveLength, 1)
-		test.That(t, entries[0].ContextMap()["hotspotSSID"], test.ShouldEqual, "viam-setup-test")
+	t.Run("logs hotspot by type", func(t *testing.T) {
+		setConn("wlan0", &fakeActiveConn{path: "/ac/3", state: activated}, NetworkTypeHotspot, "viam-setup-test")
+		fields := logged(t)
+		test.That(t, fields["connections"], test.ShouldResemble, []activeConnLog{
+			ethEntry, {Interface: "wlan0", Type: NetworkTypeHotspot, Name: "viam-setup-test"},
+		})
+		test.That(t, fields["primaryInterface"], test.ShouldEqual, "eth0")
 	})
+}
+
+func TestCheckConnectionsClearsUnknownNetwork(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+	n := &Subsystem{
+		logger:    logger,
+		netState:  NewNetworkState(logger),
+		connState: NewConnectionState(logger),
+		cfg:       utils.NetworkConfiguration{HotspotInterface: "wlan0"},
+	}
+	n.netState.SetActiveConn("eth0", &fakeActiveConn{path: "/ac/old"})
+	n.netState.SetEthDevice("eth0", &fakeWiredDevice{active: &fakeActiveConn{
+		path:     "/ac/new",
+		settings: gnm.ConnectionSettings{"connection": {"type": "pppoe"}},
+	}})
+
+	n.checkConnections()
+	test.That(t, n.netState.ActiveConn("eth0"), test.ShouldBeNil)
+}
+
+type fakeWifiDevice struct {
+	gnm.DeviceWireless
+	active gnm.ActiveConnection
+}
+
+func (d *fakeWifiDevice) GetPropertyActiveConnection() (gnm.ActiveConnection, error) {
+	return d.active, nil
+}
+
+func TestCheckConnectionsRecordsHotspotType(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+	n := &Subsystem{
+		logger:    logger,
+		netState:  NewNetworkState(logger),
+		connState: NewConnectionState(logger),
+		cfg:       utils.NetworkConfiguration{HotspotInterface: "wlan0", HotspotSSID: "viam-setup-test"},
+	}
+	wifiSettings := func(ssid string) gnm.ConnectionSettings {
+		return gnm.ConnectionSettings{"802-11-wireless": {"mode": "ap", "ssid": []byte(ssid)}}
+	}
+	dev := &fakeWifiDevice{active: &fakeActiveConn{
+		path: "/ac/1", state: gnm.NmActiveConnectionStateActivated, settings: wifiSettings("viam-setup-test"),
+	}}
+	n.netState.SetWifiDevice("wlan0", dev)
+
+	n.checkConnections()
+	test.That(t, n.netState.ActiveType("wlan0"), test.ShouldEqual, NetworkTypeHotspot)
+
+	dev.active = &fakeActiveConn{
+		path: "/ac/2", state: gnm.NmActiveConnectionStateActivated, settings: wifiSettings("TestNetwork"),
+	}
+	n.checkConnections()
+	test.That(t, n.netState.ActiveType("wlan0"), test.ShouldEqual, NetworkTypeWifi)
 }
 
 func TestCheckForceProvisioning(t *testing.T) {
