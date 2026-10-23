@@ -252,8 +252,10 @@ func (n *Subsystem) checkConnections() {
 		}
 		nw := n.netState.LockingNetwork(id)
 
-		state, err := activeConnection.GetPropertyState()
+		// activateConnection holds nw.mu until activation finishes, so read the state after locking or
+		// a pre-activation "activating" overwrites the result
 		nw.mu.Lock()
+		state, err := activeConnection.GetPropertyState()
 		if err != nil {
 			n.logger.Warn(errw.Wrapf(err, "getting state of active connection: %s", id))
 			n.netState.ClearActive(ifName)
@@ -793,37 +795,23 @@ type activeConnLog struct {
 	Type string `json:"type"`
 	// SSID for wifi and hotspot, connection ID otherwise
 	Name string `json:"name"`
-	// one of the activeConnStates values
-	State string `json:"state"`
 }
 
-// activeConnStates names the connection states that are logged; deactivated connections are left out.
-var activeConnStates = map[gnm.NmActiveConnectionState]string{
-	gnm.NmActiveConnectionStateActivating:   "activating",
-	gnm.NmActiveConnectionStateActivated:    "activated",
-	gnm.NmActiveConnectionStateDeactivating: "deactivating",
-}
-
-// connSnapshot is what logActiveConnections compares to decide whether a connection changed.
-type connSnapshot struct {
-	path  string
-	state string
-}
-
-// logActiveConnections records each interface's connection and its state, immediately on change and
+// logActiveConnections records each interface's fully activated connection, immediately on change and
 // otherwise every activeConnLogInterval, so network history can be reconstructed from logs. app parses
 // this line: change its fields with care. primaryInterface is the listed link that internet traffic
 // leaves on, beneath any VPN, or empty if that link isn't one the agent tracks.
 func (n *Subsystem) logActiveConnections() {
 	conns := n.netState.ActiveConns()
-	snaps := make(map[string]connSnapshot, len(conns))
+	// the agent's own activation attempts block checkConnections, so an attempt in progress is rarely
+	// observed; they're logged by activateConnection instead
+	paths := make(map[string]string, len(conns))
 	for ifName, conn := range conns {
-		name, ok := activeConnStates[n.netState.ActiveState(ifName)]
-		if !ok {
+		if n.netState.ActiveState(ifName) != gnm.NmActiveConnectionStateActivated {
 			delete(conns, ifName)
 			continue
 		}
-		snaps[ifName] = connSnapshot{path: string(conn.GetPath()), state: name}
+		paths[ifName] = string(conn.GetPath())
 	}
 	var primaryPath string
 	if primary, err := n.nm.GetPropertyPrimaryConnection(); err != nil {
@@ -831,11 +819,11 @@ func (n *Subsystem) logActiveConnections() {
 	} else if primary != nil {
 		primaryPath = string(primary.GetPath())
 	}
-	if maps.Equal(snaps, n.loggedConns) && primaryPath == n.loggedPrimaryPath &&
+	if maps.Equal(paths, n.loggedConnPaths) && primaryPath == n.loggedPrimaryPath &&
 		time.Since(n.loggedConnsTime) < activeConnLogInterval {
 		return
 	}
-	n.loggedConns = snaps
+	n.loggedConnPaths = paths
 	n.loggedPrimaryPath = primaryPath
 	n.loggedConnsTime = time.Now()
 
@@ -846,7 +834,6 @@ func (n *Subsystem) logActiveConnections() {
 			Interface: ifName,
 			Type:      n.netState.ActiveType(ifName),
 			Name:      n.netState.ActiveSSID(ifName),
-			State:     snaps[ifName].state,
 		}
 		if entry.Name == "" {
 			id, err := conns[ifName].GetPropertyID()
@@ -855,7 +842,7 @@ func (n *Subsystem) logActiveConnections() {
 			}
 			entry.Name = id
 		}
-		if snaps[ifName].path == primaryPath {
+		if paths[ifName] == primaryPath {
 			primaryIf = ifName
 		}
 		entries = append(entries, entry)

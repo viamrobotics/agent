@@ -65,7 +65,7 @@ type Subsystem struct {
 	visibleNetworksCache []NetworkInfo
 
 	// last active connections logged, and when — written exclusively from backgroundLoop.
-	loggedConns       map[string]connSnapshot
+	loggedConnPaths   map[string]string
 	loggedPrimaryPath string
 	loggedConnsTime   time.Time
 

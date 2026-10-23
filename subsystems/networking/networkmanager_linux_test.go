@@ -78,8 +78,8 @@ func TestLogActiveConnections(t *testing.T) {
 		n.netState.SetActiveSSID(ifName, ssid)
 		n.netState.SetActiveState(ifName, conn.state)
 	}
-	wifiEntry := activeConnLog{Interface: "wlan0", Type: NetworkTypeWifi, Name: "TestNetwork", State: "activated"}
-	ethEntry := activeConnLog{Interface: "eth0", Type: NetworkTypeWired, Name: "Wired connection 1", State: "activated"}
+	wifiEntry := activeConnLog{Interface: "wlan0", Type: NetworkTypeWifi, Name: "TestNetwork"}
+	ethEntry := activeConnLog{Interface: "eth0", Type: NetworkTypeWired, Name: "Wired connection 1"}
 
 	// drains the observer first, so every call returns only the fields of its own entry, or nil
 	logged := func(t *testing.T) map[string]any {
@@ -120,20 +120,17 @@ func TestLogActiveConnections(t *testing.T) {
 		test.That(t, fields["primaryInterface"], test.ShouldEqual, "wlan0")
 	})
 
-	t.Run("logs activating connections and their state changes", func(t *testing.T) {
+	t.Run("logs a connection only once activated", func(t *testing.T) {
 		badNet := &fakeActiveConn{path: "/ac/4", state: gnm.NmActiveConnectionStateActivating}
 		setConn("wlan1", badNet, NetworkTypeWifi, "BadNet")
-		badEntry := activeConnLog{Interface: "wlan1", Type: NetworkTypeWifi, Name: "BadNet", State: "activating"}
-		test.That(t, logged(t)["connections"], test.ShouldResemble, []activeConnLog{ethEntry, wifiEntry, badEntry})
 		test.That(t, logged(t), test.ShouldBeNil)
 
 		n.netState.SetActiveState("wlan1", gnm.NmActiveConnectionStateActivated)
-		badEntry.State = "activated"
-		test.That(t, logged(t)["connections"], test.ShouldResemble, []activeConnLog{ethEntry, wifiEntry, badEntry})
-
-		n.netState.SetActiveState("wlan1", gnm.NmActiveConnectionStateDeactivated)
-		test.That(t, logged(t)["connections"], test.ShouldResemble, []activeConnLog{ethEntry, wifiEntry})
+		test.That(t, logged(t)["connections"], test.ShouldResemble, []activeConnLog{
+			ethEntry, wifiEntry, {Interface: "wlan1", Type: NetworkTypeWifi, Name: "BadNet"},
+		})
 		setConn("wlan1", nil, "", "")
+		logged(t)
 	})
 
 	t.Run("logs primary change", func(t *testing.T) {
@@ -165,7 +162,7 @@ func TestLogActiveConnections(t *testing.T) {
 		setConn("wlan0", &fakeActiveConn{path: "/ac/3", state: activated}, NetworkTypeHotspot, "viam-setup-test")
 		fields := logged(t)
 		test.That(t, fields["connections"], test.ShouldResemble, []activeConnLog{
-			ethEntry, {Interface: "wlan0", Type: NetworkTypeHotspot, Name: "viam-setup-test", State: "activated"},
+			ethEntry, {Interface: "wlan0", Type: NetworkTypeHotspot, Name: "viam-setup-test"},
 		})
 		test.That(t, fields["primaryInterface"], test.ShouldEqual, "eth0")
 	})
