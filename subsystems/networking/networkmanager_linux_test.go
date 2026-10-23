@@ -186,6 +186,41 @@ func TestCheckConnectionsClearsUnknownNetwork(t *testing.T) {
 	test.That(t, n.netState.ActiveConn("eth0"), test.ShouldBeNil)
 }
 
+type fakeWifiDevice struct {
+	gnm.DeviceWireless
+	active gnm.ActiveConnection
+}
+
+func (d *fakeWifiDevice) GetPropertyActiveConnection() (gnm.ActiveConnection, error) {
+	return d.active, nil
+}
+
+func TestCheckConnectionsRecordsHotspotType(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+	n := &Subsystem{
+		logger:    logger,
+		netState:  NewNetworkState(logger),
+		connState: NewConnectionState(logger),
+		cfg:       utils.NetworkConfiguration{HotspotInterface: "wlan0", HotspotSSID: "viam-setup-test"},
+	}
+	wifiSettings := func(ssid string) gnm.ConnectionSettings {
+		return gnm.ConnectionSettings{"802-11-wireless": {"mode": "ap", "ssid": []byte(ssid)}}
+	}
+	dev := &fakeWifiDevice{active: &fakeActiveConn{
+		path: "/ac/1", state: gnm.NmActiveConnectionStateActivated, settings: wifiSettings("viam-setup-test"),
+	}}
+	n.netState.SetWifiDevice("wlan0", dev)
+
+	n.checkConnections()
+	test.That(t, n.netState.ActiveType("wlan0"), test.ShouldEqual, NetworkTypeHotspot)
+
+	dev.active = &fakeActiveConn{
+		path: "/ac/2", state: gnm.NmActiveConnectionStateActivated, settings: wifiSettings("TestNetwork"),
+	}
+	n.checkConnections()
+	test.That(t, n.netState.ActiveType("wlan0"), test.ShouldEqual, NetworkTypeWifi)
+}
+
 func TestCheckForceProvisioning(t *testing.T) {
 	// Mock ViamDirs to use temporary directory for testing
 	utils.MockAndCreateViamDirs(t)

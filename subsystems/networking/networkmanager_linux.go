@@ -263,7 +263,7 @@ func (n *Subsystem) checkConnections() {
 		} else {
 			n.netState.SetActiveConn(ifName, activeConnection)
 			n.netState.SetActiveSSID(ifName, id.SSID())
-			n.netState.SetActiveType(ifName, id.Type())
+			n.netState.SetActiveType(ifName, n.netType(id))
 			n.netState.SetActiveState(ifName, state)
 			nw.connected = true
 		}
@@ -443,7 +443,7 @@ func (n *Subsystem) activateConnection(ctx context.Context, id NetKey) error {
 	nw.lastConnected = now
 	nw.lastError = nil
 	n.netState.SetActiveConn(id.Interface(), activeConnection)
-	n.netState.SetActiveType(id.Interface(), id.Type())
+	n.netState.SetActiveType(id.Interface(), n.netType(id))
 	n.netState.SetActiveState(id.Interface(), gnm.NmActiveConnectionStateActivated)
 
 	n.logger.Infof("Successfully activated connection: %s", id)
@@ -786,6 +786,14 @@ func (n *Subsystem) getCandidates(ifName string) []string {
 	}
 
 	return out
+}
+
+// netType is id's NetworkType, telling the hotspot apart from wifi, which share NetKeys.
+func (n *Subsystem) netType(id NetKey) string {
+	if id.Type() == NetworkTypeWifi && id.SSID() == n.Config().HotspotSSID {
+		return NetworkTypeHotspot
+	}
+	return id.Type()
 }
 
 // activeConnLog is one entry of the active connections log line, which app parses.
