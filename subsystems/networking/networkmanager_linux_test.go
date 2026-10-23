@@ -38,12 +38,12 @@ type fakeConnection struct {
 
 func (c *fakeConnection) GetSettings() (gnm.ConnectionSettings, error) { return c.settings, nil }
 
-type fakeDevice struct {
+type fakeWiredDevice struct {
 	gnm.DeviceWired
 	active gnm.ActiveConnection
 }
 
-func (d *fakeDevice) GetPropertyActiveConnection() (gnm.ActiveConnection, error) {
+func (d *fakeWiredDevice) GetPropertyActiveConnection() (gnm.ActiveConnection, error) {
 	return d.active, nil
 }
 
@@ -177,7 +177,7 @@ func TestCheckConnectionsClearsUnknownNetwork(t *testing.T) {
 		cfg:       utils.NetworkConfiguration{HotspotInterface: "wlan0"},
 	}
 	n.netState.SetActiveConn("eth0", &fakeActiveConn{path: "/ac/old"})
-	n.netState.SetEthDevice("eth0", &fakeDevice{active: &fakeActiveConn{
+	n.netState.SetEthDevice("eth0", &fakeWiredDevice{active: &fakeActiveConn{
 		path:     "/ac/new",
 		settings: gnm.ConnectionSettings{"connection": {"type": "pppoe"}},
 	}})

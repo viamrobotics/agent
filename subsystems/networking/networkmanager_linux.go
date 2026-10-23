@@ -257,7 +257,13 @@ func (n *Subsystem) checkConnections() {
 		nw.mu.Lock()
 		state, err := activeConnection.GetPropertyState()
 		if err != nil {
-			n.logger.Warn(errw.Wrapf(err, "getting state of active connection: %s", id))
+			err = errw.Wrapf(err, "getting state of active connection: %s", id)
+			// expected when an activation we waited on failed and NetworkManager removed the connection
+			if isObjectNotExistError(err) {
+				n.logger.Debug(err)
+			} else {
+				n.logger.Warn(err)
+			}
 			n.netState.ClearActive(ifName)
 			nw.connected = false
 		} else {
