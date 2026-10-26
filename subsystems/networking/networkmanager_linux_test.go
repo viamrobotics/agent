@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"errors"
 	"os"
 	"path"
 	"testing"
@@ -219,6 +220,32 @@ func TestCheckConnectionsRecordsHotspotType(t *testing.T) {
 	}
 	n.checkConnections()
 	test.That(t, n.netState.ActiveType("wlan0"), test.ShouldEqual, NetworkTypeWifi)
+}
+
+type fakeDeactivateNM struct {
+	gnm.NetworkManager
+}
+
+func (nm *fakeDeactivateNM) DeactivateConnection(gnm.ActiveConnection) error { return nil }
+
+func TestDeactivateConnectionClearsActive(t *testing.T) {
+	logger := logging.NewTestLogger(t)
+	n := &Subsystem{
+		logger:    logger,
+		nm:        &fakeDeactivateNM{},
+		netState:  NewNetworkState(logger),
+		connState: NewConnectionState(logger),
+		cfg:       utils.NetworkConfiguration{HotspotInterface: "wlan0"},
+	}
+	id := n.netState.GenNetKey(NetworkTypeWired, "eth0", "")
+	n.netState.SetActiveConn("eth0", &fakeActiveConn{path: "/ac/1"})
+	n.netState.SetActiveType("eth0", NetworkTypeWired)
+	n.netState.SetActiveState("eth0", gnm.NmActiveConnectionStateActivated)
+
+	test.That(t, n.deactivateConnection(id), test.ShouldBeNil)
+	test.That(t, n.netState.ActiveConn("eth0"), test.ShouldBeNil)
+	test.That(t, n.netState.ActiveType("eth0"), test.ShouldEqual, "")
+	test.That(t, errors.Is(n.deactivateConnection(id), ErrNoActiveConnectionFound), test.ShouldBeTrue)
 }
 
 func TestCheckForceProvisioning(t *testing.T) {

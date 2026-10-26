@@ -449,13 +449,13 @@ func (n *Subsystem) activateConnection(ctx context.Context, id NetKey) error {
 	nw.lastConnected = now
 	nw.lastError = nil
 	n.netState.SetActiveConn(id.Interface(), activeConnection)
+	n.netState.SetActiveSSID(id.Interface(), id.SSID())
 	n.netState.SetActiveType(id.Interface(), n.netType(id))
 	n.netState.SetActiveState(id.Interface(), gnm.NmActiveConnectionStateActivated)
 
 	n.logger.Infof("Successfully activated connection: %s", id)
 
 	if nw.netType != NetworkTypeHotspot {
-		n.netState.SetActiveSSID(id.Interface(), id.SSID())
 		if id.Interface() == n.Config().HotspotInterface &&
 			(n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() || n.netState.PrimarySSID(id.Interface()) == id.SSID()) {
 			n.connState.setConnected(true)
@@ -503,7 +503,7 @@ func (n *Subsystem) deactivateConnection(id NetKey) error {
 	nw.connected = false
 	nw.lastConnected = time.Now()
 	nw.lastError = nil
-	n.netState.SetActiveSSID(id.Interface(), "")
+	n.netState.ClearActive(id.Interface())
 	return nil
 }
 
