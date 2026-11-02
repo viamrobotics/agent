@@ -2,6 +2,8 @@ module github.com/viamrobotics/agent
 
 go 1.26
 
+godebug multipathtcp=0
+
 // This must be a replace because a bunch of our deps also use it + `go mod tidy` fails from the conflict
 // if you switch it out in the require block.
 // We fork this bc the stock version doubles agent binary from 25mb -> 50mb.
