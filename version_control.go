@@ -497,8 +497,8 @@ func (c *VersionCache) adoptRunningBinary(data *Versions, verData *VersionInfo) 
 	return true
 }
 
-// files we will always refuse to delete.
-var baseProtectedFiles = []string{"config_cache.json", "version_cache.json", "viam-agent.pid"}
+// files we will always refuse to delete. "part" is the partial-downloads dir, which CleanPartials owns.
+var baseProtectedFiles = []string{"config_cache.json", "version_cache.json", "viam-agent.pid", "part"}
 
 // Creates a list of files to not delete, and removes unprotected files
 // from the Versions lists.

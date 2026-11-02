@@ -17,6 +17,7 @@ import (
 
 	"github.com/viamrobotics/agent/subsystems/viamserver"
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap/zapcore"
 	pb "go.viam.com/api/app/agent/v1"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
@@ -782,6 +783,32 @@ func TestCleanPartials(t *testing.T) {
 	test.That(t, errors.As(err, &pathError), test.ShouldBeTrue)
 	_, err = os.Stat(newPath)
 	test.That(t, err, test.ShouldBeNil)
+}
+
+func TestCleanCacheSkipsPartialsDir(t *testing.T) {
+	utils.MockAndCreateViamDirs(t)
+	logger, logs := logging.NewObservedTestLogger(t)
+	vc := VersionCache{
+		logger:             logger,
+		cacheCleanupLogger: logger,
+		ViamAgent:          &Versions{Versions: map[string]*VersionInfo{}},
+		ViamServer:         &Versions{Versions: map[string]*VersionInfo{}},
+	}
+
+	partialPath, _ := utils.CreatePartialPath("https://viam.com/in-progress.part")
+	test.That(t, os.MkdirAll(filepath.Dir(partialPath), 0o755), test.ShouldBeNil)
+	test.That(t, os.WriteFile(partialPath, []byte("hello"), 0o600), test.ShouldBeNil)
+
+	stalePath := filepath.Join(utils.ViamDirs.Cache, "viam-server-stale")
+	test.That(t, os.WriteFile(stalePath, []byte("hello"), 0o600), test.ShouldBeNil)
+
+	vc.CleanCache(t.Context())
+
+	test.That(t, logs.FilterLevelExact(zapcore.ErrorLevel).Len(), test.ShouldEqual, 0)
+	_, err := os.Stat(partialPath)
+	test.That(t, err, test.ShouldBeNil)
+	_, err = os.Stat(stalePath)
+	test.That(t, os.IsNotExist(err), test.ShouldBeTrue)
 }
 
 func TestVersionCacheJSONRoundtrip(t *testing.T) {
