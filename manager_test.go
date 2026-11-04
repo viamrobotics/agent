@@ -451,6 +451,25 @@ func TestSubsystemUpdatesViamServerRestart(t *testing.T) {
 // point of Start. Mark reflects the decision to run a version, not
 // confirmation of a healthy start; it is skipped only when the old version
 // is still running (Stop failed or restart was disallowed).
+func TestGetVersionsInstalledAt(t *testing.T) {
+	installed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	m := &Manager{cache: &VersionCache{
+		ViamAgent: &Versions{
+			CurrentVersion: "0.20.0",
+			Versions:       map[string]*VersionInfo{"0.20.0": {Installed: installed}},
+		},
+		// e.g. an older cache or custom-URL install with no recorded time
+		ViamServer: &Versions{
+			CurrentVersion: "0.70.0",
+			Versions:       map[string]*VersionInfo{"0.70.0": {}},
+		},
+	}}
+
+	vers := m.getVersions()
+	test.That(t, vers.GetAgentInstalledAt().AsTime(), test.ShouldEqual, installed)
+	test.That(t, vers.GetViamServerInstalledAt(), test.ShouldBeNil)
+}
+
 func TestSubsystemUpdatesMarksRunningVersion(t *testing.T) {
 	for _, tc := range []struct {
 		name              string

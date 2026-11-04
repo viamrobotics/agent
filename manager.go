@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -967,6 +968,13 @@ func (m *Manager) getVersions() *pb.VersionInfo {
 		AgentInstalled:      m.cache.AgentVersion(),
 		ViamServerRunning:   m.cache.ViamServerRunningVersion(),
 		ViamServerInstalled: m.cache.ViamServerVersion(),
+	}
+	// leave unset when unknown (e.g. older caches)
+	if t := m.cache.AgentInstalledTime(); !t.IsZero() {
+		vers.AgentInstalledAt = timestamppb.New(t)
+	}
+	if t := m.cache.ViamServerInstalledTime(); !t.IsZero() {
+		vers.ViamServerInstalledAt = timestamppb.New(t)
 	}
 
 	return vers

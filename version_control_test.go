@@ -169,6 +169,8 @@ func TestUpdateBinary(t *testing.T) {
 			testExists(t, filepath.Join(utils.ViamDirs.Bin, "viam-server"))
 			testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi.Version))
 			test.That(t, vi.UnpackedPath, test.ShouldResemble, vi.DlPath)
+			test.That(t, vi.Installed.IsZero(), test.ShouldBeFalse)
+			test.That(t, vc.ViamServerInstalledTime(), test.ShouldEqual, vi.Installed)
 		})
 
 		t.Run("rerun-with-no-change", func(t *testing.T) {
@@ -183,6 +185,12 @@ func TestUpdateBinary(t *testing.T) {
 			test.That(t, err, test.ShouldBeNil)
 			test.That(t, needsRestart, test.ShouldBeTrue)
 			testExists(t, filepath.Join(utils.ViamDirs.Cache, "source-binary-"+vi2.Version))
+			test.That(t, vc.ViamServerInstalledTime(), test.ShouldEqual, vi2.Installed)
+
+			// UpdateBinary saved the cache; the time must survive a reload from disk
+			reloaded := NewVersionCache(logger)
+			test.That(t, reloaded.ViamServerVersion(), test.ShouldEqual, vi2.Version)
+			test.That(t, reloaded.ViamServerInstalledTime().Equal(vi2.Installed), test.ShouldBeTrue)
 		})
 
 		t.Run("checksum-wrong-at-top-should-redownload", func(t *testing.T) {
@@ -809,6 +817,39 @@ func TestCleanCacheSkipsPartialsDir(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 	_, err = os.Stat(stalePath)
 	test.That(t, os.IsNotExist(err), test.ShouldBeTrue)
+}
+
+func TestInstalledTime(t *testing.T) {
+	installed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	for _, tc := range []struct {
+		name     string
+		versions *Versions
+		want     time.Time
+	}{
+		{
+			name:     "current version installed",
+			versions: &Versions{CurrentVersion: "1.0.0", Versions: map[string]*VersionInfo{"1.0.0": {Installed: installed}}},
+			want:     installed,
+		},
+		{
+			name:     "no current version",
+			versions: &Versions{Versions: map[string]*VersionInfo{"1.0.0": {Installed: installed}}},
+		},
+		{
+			name:     "no entry for current version",
+			versions: &Versions{CurrentVersion: "2.0.0", Versions: map[string]*VersionInfo{"1.0.0": {Installed: installed}}},
+		},
+		{
+			name:     "entry with zero time",
+			versions: &Versions{CurrentVersion: "1.0.0", Versions: map[string]*VersionInfo{"1.0.0": {}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vc := &VersionCache{ViamAgent: tc.versions, ViamServer: tc.versions}
+			test.That(t, vc.AgentInstalledTime(), test.ShouldEqual, tc.want)
+			test.That(t, vc.ViamServerInstalledTime(), test.ShouldEqual, tc.want)
+		})
+	}
 }
 
 func TestVersionCacheJSONRoundtrip(t *testing.T) {

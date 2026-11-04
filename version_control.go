@@ -115,6 +115,29 @@ func (c *VersionCache) ViamServerVersion() string {
 	return c.ViamServer.CurrentVersion
 }
 
+// AgentInstalledTime returns when the current agent version was installed, or the zero time if unknown.
+func (c *VersionCache) AgentInstalledTime() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ViamAgent.currentInstalledTime()
+}
+
+// ViamServerInstalledTime returns when the current viam-server version was installed, or the zero time if unknown.
+func (c *VersionCache) ViamServerInstalledTime() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ViamServer.currentInstalledTime()
+}
+
+// Callers must hold the VersionCache mutex.
+func (v *Versions) currentInstalledTime() time.Time {
+	info, ok := v.Versions[v.CurrentVersion]
+	if v.CurrentVersion == "" || !ok || info == nil {
+		return time.Time{}
+	}
+	return info.Installed
+}
+
 func (c *VersionCache) ViamServerRunningVersion() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
