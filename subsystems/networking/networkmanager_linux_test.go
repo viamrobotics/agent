@@ -248,6 +248,58 @@ func TestDeactivateConnectionClearsActive(t *testing.T) {
 	test.That(t, errors.Is(n.deactivateConnection(id), ErrNoActiveConnectionFound), test.ShouldBeTrue)
 }
 
+func TestWifiHealthy(t *testing.T) {
+	activated := gnm.NmActiveConnectionStateActivated
+	tests := []struct {
+		name       string
+		activeType string
+		state      gnm.NmActiveConnectionState
+		roaming    bool
+		connected  bool
+		online     bool
+		want       bool
+	}{
+		{name: "wifi connected and online", activeType: NetworkTypeWifi, state: activated, connected: true, online: true, want: true},
+		{name: "wifi connected without internet", activeType: NetworkTypeWifi, state: activated, connected: true, want: true},
+		{name: "non-primary wifi online", activeType: NetworkTypeWifi, state: activated, online: true, want: true},
+		{name: "wifi without connectivity", activeType: NetworkTypeWifi, state: activated},
+		{name: "roaming wifi without internet", activeType: NetworkTypeWifi, state: activated, roaming: true, connected: true},
+		{name: "roaming wifi online", activeType: NetworkTypeWifi, state: activated, roaming: true, online: true, want: true},
+		{
+			name: "wifi still activating", activeType: NetworkTypeWifi, state: gnm.NmActiveConnectionStateActivating,
+			connected: true, online: true,
+		},
+		{name: "hotspot active", activeType: NetworkTypeHotspot, state: activated, connected: true, online: true},
+		{name: "online without active wifi", online: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := logging.NewTestLogger(t)
+			roaming := utils.Tribool(-1)
+			if tc.roaming {
+				roaming = utils.Tribool(1)
+			}
+			n := &Subsystem{
+				logger:    logger,
+				netState:  NewNetworkState(logger),
+				connState: NewConnectionState(logger),
+				cfg: utils.NetworkConfiguration{
+					HotspotInterface:                 "wlan0",
+					TurnOnHotspotIfWifiHasNoInternet: roaming,
+				},
+			}
+			if tc.activeType != "" {
+				n.netState.SetActiveType("wlan0", tc.activeType)
+				n.netState.SetActiveState("wlan0", tc.state)
+			}
+			n.connState.setConnected(tc.connected)
+			n.connState.setOnline(tc.online)
+
+			test.That(t, n.wifiHealthy(), test.ShouldEqual, tc.want)
+		})
+	}
+}
+
 func TestCheckForceProvisioning(t *testing.T) {
 	// Mock ViamDirs to use temporary directory for testing
 	utils.MockAndCreateViamDirs(t)

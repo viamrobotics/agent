@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
@@ -63,6 +64,9 @@ type Subsystem struct {
 	// visibleNetworks cache, refreshed by backgroundLoop, read by bleLoop.
 	visibleNetworksMu    sync.RWMutex
 	visibleNetworksCache []NetworkInfo
+
+	// unix nanos of the last completed wifi scan; scans run from both backgroundLoop and mainLoop.
+	lastScan atomic.Int64
 
 	// last active connections logged, and when — written exclusively from backgroundLoop.
 	loggedConnPaths   map[string]string

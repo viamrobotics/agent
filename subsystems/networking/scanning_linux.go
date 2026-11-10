@@ -76,6 +76,7 @@ func (n *Subsystem) networkScan(ctx context.Context) error {
 	if err != nil {
 		return errw.Wrap(err, "scanning wifi")
 	}
+	n.lastScan.Store(time.Now().UnixNano())
 
 	// set "now" to be reusable for consistency
 	now := time.Now()
@@ -152,6 +153,15 @@ func (n *Subsystem) networkScan(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// lastScanTime returns when the last wifi scan completed, or the zero time if none has.
+func (n *Subsystem) lastScanTime() time.Time {
+	nanos := n.lastScan.Load()
+	if nanos == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
 }
 
 func parseWPAFlags(apFlags, wpaFlags, rsnFlags uint32) string {

@@ -300,6 +300,17 @@ func (n *Subsystem) startProvisioning(ctx context.Context) error {
 	if n.connState.getProvisioning() {
 		return errors.New("provisioning mode already started")
 	}
+
+	// backgroundLoop doesn't scan while wifi is healthy, so entering provisioning straight from a
+	// working connection (force provisioning, lost config) would otherwise offer no networks to choose
+	// from, and some hardware can't scan at all once the hotspot is up.
+	if time.Since(n.lastScanTime()) > VisibleNetworkTimeout {
+		if err := n.networkScan(ctx); err != nil {
+			n.logger.Warn(err)
+		}
+		n.refreshVisibleNetworksCache()
+	}
+
 	n.internalOpMu.Lock()
 	defer n.internalOpMu.Unlock()
 	if ctx.Err() != nil {
@@ -754,6 +765,19 @@ func (n *Subsystem) tryCandidates(ctx context.Context) bool {
 	return false
 }
 
+// wifiHealthy reports whether the wifi interface has a working connection.
+func (n *Subsystem) wifiHealthy() bool {
+	iface := n.Config().HotspotInterface
+	if n.netState.ActiveType(iface) != NetworkTypeWifi ||
+		n.netState.ActiveState(iface) != gnm.NmActiveConnectionStateActivated {
+		return false
+	}
+	if n.Config().TurnOnHotspotIfWifiHasNoInternet.Get() {
+		return n.connState.getOnline()
+	}
+	return n.connState.getConnected() || n.connState.getOnline()
+}
+
 func (n *Subsystem) getCandidates(ifName string) []string {
 	var candidates []network
 	for _, nw := range n.netState.Networks() {
@@ -878,10 +902,6 @@ func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 		}
 
 		n.checkConfigured()
-		// this may block for 30s+
-		if err := n.networkScan(ctx); err != nil {
-			n.logger.Warn(err)
-		}
 		if err := n.updateKnownConnections(ctx); err != nil {
 			n.logger.Warn(err)
 		}
@@ -889,6 +909,16 @@ func (n *Subsystem) backgroundLoop(ctx context.Context, scanChan chan<- bool) {
 		n.logActiveConnections()
 		if err := n.checkOnline(ctx, false); err != nil {
 			n.logger.Warn(err)
+		}
+		// Only scan for wifi networks if we don't already have a healthy connnection. On some systems
+		// a wifi scan pauses the active connection long enough to cause WebRTC or gRPC timeouts.
+		// [Subsystem.wifiHealthy] must be called after [Subsystem.checkConfigured] and
+		// [Subsystem.checkConnections], as those methods refresh the values wifiHealthy reads.
+		if !n.wifiHealthy() {
+			// this may block for 30s+
+			if err := n.networkScan(ctx); err != nil {
+				n.logger.Warn(err)
+			}
 		}
 		n.refreshVisibleNetworksCache()
 		select {
