@@ -4,6 +4,8 @@ ifeq ($(GOARCH),amd64)
 ARCH = x86_64
 else ifeq ($(GOARCH),arm64)
 ARCH = aarch64
+else ifeq ($(GOARCH),riscv64)
+ARCH = riscv64
 endif
 
 OS_NAME =
