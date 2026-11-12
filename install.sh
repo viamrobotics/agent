@@ -214,9 +214,9 @@ enable_networkmanager() {
 # Main
 main() {
 	if [ "$OS" = "Linux" ]; then
-		if ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" ]; then
+		if ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" -o "$ARCH" = "riscv64" ]; then
 			echo
-			echo "Viam Agent is currently only available for Linux on x86_64 (amd64) and aarch64 (arm64)."
+			echo "Viam Agent is currently only available for Linux on x86_64 (amd64), aarch64 (arm64) and riscv64."
 			echo
 			echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
 			exit 1
@@ -229,6 +229,11 @@ main() {
 		elif [ "$ARCH" = "x86_64" ] && ! [ -e /lib64/ld-linux-x86-64.so.2 ]; then
 			echo
 			echo "Your Linux kernel reports as x86_64 (amd64), but userspace is missing /lib/ld-linux-x86-64.so.2"
+			echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
+			exit 1
+		elif [ "$ARCH" = "riscv64" ] && ! [ -e /lib/ld-linux-riscv64-lp64d.so.1 ]; then
+			echo
+			echo "Your Linux kernel reports as riscv64, but userspace is missing /lib/ld-linux-riscv64-lp64d.so.1"
 			echo "Please ensure that you've installed a fully 64-bit version of your distro, including userspace, then retry this install."
 			exit 1
 		fi
