@@ -15,7 +15,7 @@ BUCKET="packages.viam.com"
 MANIFEST_DIR="apps/viam-subsystems"
 PREFIX="$MANIFEST_DIR/viam-agent-"
 BASE_URL="https://storage.googleapis.com"
-PLATFORMS="x86_64|aarch64|windows-x86_64|darwin-aarch64"
+PLATFORMS="x86_64|aarch64|riscv64|windows-x86_64|darwin-aarch64"
 
 usage() {
 	cat <<'EOF'

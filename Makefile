@@ -30,7 +30,7 @@ TAGS = osusergo,netgo
 .DEFAULT_GOAL := bin/viam-agent-$(PATH_VERSION)$(OS_NAME)-$(ARCH)
 
 .PHONY: all
-all: amd64 arm64 windows darwin
+all: amd64 arm64 windows darwin riscv64
 
 .PHONY: arm64
 arm64:
@@ -39,6 +39,10 @@ arm64:
 .PHONY: amd64
 amd64:
 	make GOOS=linux GOARCH=amd64
+
+.PHONY: riscv64
+riscv64:
+	make GOOS=linux GOARCH=riscv64
 
 .PHONY: windows
 windows:
@@ -83,18 +87,19 @@ test:
 	go test -race ./...
 
 .PHONY: manifest
-manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-windows-x86_64 bin/viam-agent-$(PATH_VERSION)-darwin-aarch64
+manifest: bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-riscv64 bin/viam-agent-$(PATH_VERSION)-windows-x86_64 bin/viam-agent-$(PATH_VERSION)-darwin-aarch64
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+' || exit 1
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-x86_64
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-aarch64
+	./manifest.sh bin/viam-agent-$(PATH_VERSION)-riscv64
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-windows-x86_64
 	./manifest.sh bin/viam-agent-$(PATH_VERSION)-darwin-aarch64
 
 .PHONY: upload-stable
 upload-stable: manifest
 	echo $(PATH_VERSION) | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' || exit 1
-	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-darwin-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 bin/viam-agent-stable-darwin-aarch64 gs://packages.viam.com/apps/viam-agent/
-	gsutil cp etc/viam-agent-$(PATH_VERSION)-x86_64.json etc/viam-agent-$(PATH_VERSION)-aarch64.json etc/viam-agent-$(PATH_VERSION)-darwin-aarch64.json gs://packages.viam.com/apps/viam-subsystems/
+	gsutil -h "Cache-Control:no-cache" cp bin/viam-agent-$(PATH_VERSION)-x86_64 bin/viam-agent-$(PATH_VERSION)-aarch64 bin/viam-agent-$(PATH_VERSION)-riscv64 bin/viam-agent-$(PATH_VERSION)-darwin-aarch64 bin/viam-agent-stable-x86_64 bin/viam-agent-stable-aarch64 bin/viam-agent-stable-riscv64 bin/viam-agent-stable-darwin-aarch64 gs://packages.viam.com/apps/viam-agent/
+	gsutil cp etc/viam-agent-$(PATH_VERSION)-x86_64.json etc/viam-agent-$(PATH_VERSION)-aarch64.json etc/viam-agent-$(PATH_VERSION)-riscv64.json etc/viam-agent-$(PATH_VERSION)-darwin-aarch64.json gs://packages.viam.com/apps/viam-subsystems/
 
 .PHONY: upload-installer
 upload-installer:
