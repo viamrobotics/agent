@@ -995,6 +995,8 @@ func GoArchToOSArch(goarch string) string {
 		return "aarch64"
 	case "amd64":
 		return "x86_64"
+	case "riscv64":
+		return "riscv64"
 	}
 	return ""
 }
