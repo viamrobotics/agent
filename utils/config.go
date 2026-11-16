@@ -230,6 +230,11 @@ type NetworkConfiguration struct {
 	Manufacturer string `json:"manufacturer,omitempty"`
 	Model        string `json:"model,omitempty"`
 	FragmentID   string `json:"fragment_id,omitempty"`
+	// Absolute path to a directory of *.html templates that replace the built-in provisioning
+	// portal page. Must contain base.html, which is the page entrypoint. If the directory is
+	// missing or its templates fail to parse, the built-in templates are used instead.
+	// Set this in viam-defaults.json: provisioning usually runs before any cloud config is fetched.
+	PortalTemplatesDir string `json:"portal_templates_dir,omitempty"`
 
 	// The interface to use for hotspot/provisioning/wifi management. Ex: "wlan0"
 	// Defaults to the first discovered 802.11 device
@@ -489,6 +494,17 @@ func validateConfig(cfg AgentConfig) (AgentConfig, error) {
 		cfg.NetworkConfiguration.HotspotPassword = DefaultConfiguration.NetworkConfiguration.HotspotPassword
 		errOut = errors.Join(errOut,
 			errw.New("network_configuration.hotspot_password should not be empty, please omit empty fields entirely"))
+	}
+
+	if cfg.NetworkConfiguration.PortalTemplatesDir != "" {
+		if filepath.IsAbs(cfg.NetworkConfiguration.PortalTemplatesDir) {
+			cfg.NetworkConfiguration.PortalTemplatesDir = filepath.Clean(cfg.NetworkConfiguration.PortalTemplatesDir)
+		} else {
+			errOut = errors.Join(errOut, errw.Errorf(
+				"network_configuration.portal_templates_dir must be an absolute path (was: %q), using built-in portal templates",
+				cfg.NetworkConfiguration.PortalTemplatesDir))
+			cfg.NetworkConfiguration.PortalTemplatesDir = ""
+		}
 	}
 
 	if len(cfg.NetworkConfiguration.HotspotSSID) > 32 {

@@ -2,6 +2,7 @@ package networking
 
 import (
 	"context"
+	"html/template"
 	"net/http"
 	"reflect"
 	"strings"
@@ -56,7 +57,9 @@ type Subsystem struct {
 	// portal
 	webServer  *http.Server
 	grpcServer *grpc.Server
-	portalData *userInputData
+	// portalTemplates is resolved when the web portal starts; guarded by dataMu.
+	portalTemplates *template.Template
+	portalData      *userInputData
 	// inputChan carries credentials from any provisioning channel (BLE, hotspot)
 	// to mainLoop. Owned by Subsystem so BLE writes work before startProvisioning runs.
 	inputChan chan userInput

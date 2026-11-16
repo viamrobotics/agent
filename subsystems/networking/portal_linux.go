@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -29,8 +30,90 @@ type templateData struct {
 	IsOnline     bool
 }
 
+// portalEntryTemplate is the template executed to render the portal page. Every template set,
+// built-in or custom, must define it.
+const portalEntryTemplate = "base.html"
+
 //go:embed templates/*
 var templates embed.FS
+
+// builtinTemplates are parsed at init so a broken embedded template fails every test run instead
+// of surfacing on a device.
+var builtinTemplates = template.Must(template.ParseFS(templates, "templates/*.html"))
+
+// parseTemplateDir parses every *.html file directly inside dir.
+func parseTemplateDir(dir string) (*template.Template, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, errw.Errorf("%s is not a directory", dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".html" {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	if len(files) == 0 {
+		return nil, errw.Errorf("no .html templates found in %s", dir)
+	}
+	t, err := template.ParseFiles(files...)
+	if err != nil {
+		return nil, errw.Wrap(err, "parsing templates")
+	}
+	if t.Lookup(portalEntryTemplate) == nil {
+		return nil, errw.Errorf("%s is missing the %s entrypoint template", dir, portalEntryTemplate)
+	}
+	return t, nil
+}
+
+// resolvePortalTemplates picks the templates used to render the portal, in order of preference:
+// the configured portal_templates_dir, the development override (only when running locally), then
+// the built-in templates. Unusable custom templates are logged and skipped so the portal always
+// has a working page.
+func (n *Subsystem) resolvePortalTemplates() *template.Template {
+	if dir := n.Config().PortalTemplatesDir; dir != "" {
+		t, err := parseTemplateDir(dir)
+		if err == nil {
+			n.logger.Infow("using custom portal templates", "dir", dir)
+			return t
+		}
+		n.logger.Warnw("custom portal templates are unusable, falling back to default templates", "dir", dir, "err", err)
+	}
+
+	if utils.IsRunningLocally {
+		dir := filepath.Join(utils.ViamDirs.Tmp, "templates")
+		t, err := parseTemplateDir(dir)
+		if err == nil {
+			n.logger.Warnw("running locally, using development portal templates", "dir", dir)
+			return t
+		}
+		n.logger.Debugw("running locally, development portal templates are unusable", "dir", dir, "err", err)
+	}
+
+	return builtinTemplates
+}
+
+// currentPortalTemplates returns the templates to render a request with: those resolved when the
+// web portal started, or freshly resolved on every call when running locally.
+func (n *Subsystem) currentPortalTemplates() *template.Template {
+	if utils.IsRunningLocally {
+		// Re-resolved per request so template edits during development show up on page refresh.
+		return n.resolvePortalTemplates()
+	}
+	n.dataMu.RLock()
+	defer n.dataMu.RUnlock()
+	if n.portalTemplates == nil {
+		return builtinTemplates
+	}
+	return n.portalTemplates
+}
 
 func (n *Subsystem) startPortal(bindAddr string) error {
 	if err := n.startGRPC(bindAddr, 4772); err != nil {
@@ -53,8 +136,11 @@ func (n *Subsystem) startWeb(bindAddr string, bindPort int) error {
 		Handler:     mux,
 		ReadTimeout: time.Second * 10,
 	}
+	// Resolved outside dataMu: resolving reads the config, which takes dataMu itself.
+	portalTemplates := n.resolvePortalTemplates()
 	n.dataMu.Lock()
 	n.webServer = srv
+	n.portalTemplates = portalTemplates
 	n.dataMu.Unlock()
 	bind := net.JoinHostPort(bindAddr, strconv.Itoa(bindPort))
 	//nolint: noctx
@@ -111,6 +197,7 @@ func (n *Subsystem) portalIndex(resp http.ResponseWriter, req *http.Request) {
 	}()
 
 	cfg := n.Config()
+	t := n.currentPortalTemplates()
 
 	// mu needed to show Errors from portalSave immediately
 	n.portalData.mu.Lock()
@@ -127,23 +214,7 @@ func (n *Subsystem) portalIndex(resp http.ResponseWriter, req *http.Request) {
 		Errors:       n.errListAsStrings(),
 	}
 
-	t, err := template.ParseFS(templates, "templates/*.html")
-	if err != nil {
-		n.logger.Warn(err)
-		http.Error(resp, err.Error(), http.StatusInternalServerError)
-	}
-
-	if utils.IsRunningLocally {
-		templatesDir := filepath.Join(utils.ViamDirs.Tmp, "templates")
-		n.logger.Warnf("running locally, using templates from %s", templatesDir)
-		newT, err := template.ParseGlob(templatesDir + "/*.html")
-		if err == nil {
-			t = newT
-		}
-	}
-
-	err = t.Execute(resp, data)
-	if err != nil {
+	if err := t.ExecuteTemplate(resp, portalEntryTemplate, data); err != nil {
 		n.logger.Warn(err)
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 	}
