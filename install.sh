@@ -216,7 +216,7 @@ main() {
 	if [ "$OS" = "Linux" ]; then
 		if ! [ "$ARCH" = "x86_64" -o "$ARCH" = "aarch64" -o "$ARCH" = "riscv64" ]; then
 			echo
-			echo "Viam Agent is currently only available for Linux on x86_64 (amd64), aarch64 (arm64) and riscv64."
+			echo "The Viam Agent install script is currently only available for Linux on x86_64 (amd64), aarch64 (arm64) and riscv64."
 			echo
 			echo "Please see https://docs.viam.com/get-started/installation/ to install on other platforms."
 			exit 1
