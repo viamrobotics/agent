@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -115,6 +116,30 @@ func (n *Subsystem) currentPortalTemplates() *template.Template {
 	return n.portalTemplates
 }
 
+// renderPortal renders the page into memory so nothing reaches the client unless rendering
+// succeeds. Templates that parse can still fail at render time (e.g. an unknown field, possibly
+// only for some data such as a non-empty error list); in that case the built-in templates are
+// rendered instead.
+func (n *Subsystem) renderPortal(t *template.Template, data templateData) ([]byte, error) {
+	var buf bytes.Buffer
+	err := t.ExecuteTemplate(&buf, portalEntryTemplate, data)
+	if err == nil || t == builtinTemplates {
+		return buf.Bytes(), err
+	}
+
+	if n.portalRenderWarned.Swap(t) != t {
+		n.logger.Warnw("custom portal templates failed to render, falling back to default templates", "err", err.Error())
+	} else {
+		n.logger.Debugw("custom portal templates failed to render, falling back to default templates", "err", err.Error())
+	}
+
+	buf.Reset()
+	if err := builtinTemplates.ExecuteTemplate(&buf, portalEntryTemplate, data); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 func (n *Subsystem) startPortal(bindAddr string) error {
 	if err := n.startGRPC(bindAddr, 4772); err != nil {
 		return errw.Wrap(err, "starting GRPC service")
@@ -214,9 +239,15 @@ func (n *Subsystem) portalIndex(resp http.ResponseWriter, req *http.Request) {
 		Errors:       n.errListAsStrings(),
 	}
 
-	if err := t.ExecuteTemplate(resp, portalEntryTemplate, data); err != nil {
+	page, err := n.renderPortal(t, data)
+	if err != nil {
 		n.logger.Warn(err)
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
+	} else {
+		resp.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := resp.Write(page); err != nil {
+			n.logger.Debugw("writing portal page", "err", err.Error())
+		}
 	}
 
 	// reset the errors and banner, as they were now just displayed

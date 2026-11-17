@@ -59,7 +59,10 @@ type Subsystem struct {
 	grpcServer *grpc.Server
 	// portalTemplates is resolved when the web portal starts; guarded by dataMu.
 	portalTemplates *template.Template
-	portalData      *userInputData
+	// portalRenderWarned is the last template set whose render failure was logged as a warning,
+	// so a broken set warns once instead of on every page load (phones poll captive portals).
+	portalRenderWarned atomic.Pointer[template.Template]
+	portalData         *userInputData
 	// inputChan carries credentials from any provisioning channel (BLE, hotspot)
 	// to mainLoop. Owned by Subsystem so BLE writes work before startProvisioning runs.
 	inputChan chan userInput

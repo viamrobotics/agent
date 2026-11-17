@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/viamrobotics/agent/utils"
+	"go.uber.org/zap/zapcore"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/test"
 )
@@ -104,7 +105,7 @@ func writeTemplateFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-func renderPortal(t *testing.T, tmpl *template.Template) string {
+func executePortal(t *testing.T, tmpl *template.Template) string {
 	t.Helper()
 	var sb strings.Builder
 	test.That(t, tmpl.ExecuteTemplate(&sb, portalEntryTemplate, templateData{Manufacturer: "acme"}), test.ShouldBeNil)
@@ -170,7 +171,7 @@ func TestResolvePortalTemplates(t *testing.T) {
 		mockRunningLocally(t, false)
 		n := &Subsystem{logger: logging.NewTestLogger(t)}
 		test.That(t, n.resolvePortalTemplates(), test.ShouldEqual, builtinTemplates)
-		test.That(t, renderPortal(t, builtinTemplates), test.ShouldContainSubstring, "acme")
+		test.That(t, executePortal(t, builtinTemplates), test.ShouldContainSubstring, "acme")
 	})
 
 	t.Run("valid custom dir is used", func(t *testing.T) {
@@ -178,7 +179,7 @@ func TestResolvePortalTemplates(t *testing.T) {
 		dir := t.TempDir()
 		writeTemplateFiles(t, dir, validCustom)
 		n := &Subsystem{logger: logging.NewTestLogger(t), cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
-		test.That(t, renderPortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "<html>custom acme</html>")
+		test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "<html>custom acme</html>")
 	})
 
 	t.Run("dev override is ignored when not running locally", func(t *testing.T) {
@@ -196,20 +197,20 @@ func TestResolvePortalTemplates(t *testing.T) {
 
 		t.Run("dev override is used", func(t *testing.T) {
 			n := &Subsystem{logger: logging.NewTestLogger(t)}
-			test.That(t, renderPortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "dev acme")
+			test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "dev acme")
 		})
 		t.Run("custom dir takes precedence over dev override", func(t *testing.T) {
 			dir := t.TempDir()
 			writeTemplateFiles(t, dir, validCustom)
 			n := &Subsystem{logger: logging.NewTestLogger(t), cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
-			test.That(t, renderPortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "<html>custom acme</html>")
+			test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "<html>custom acme</html>")
 		})
 		t.Run("unusable custom dir falls back to dev override", func(t *testing.T) {
 			n := &Subsystem{
 				logger: logging.NewTestLogger(t),
 				cfg:    utils.NetworkConfiguration{PortalTemplatesDir: filepath.Join(t.TempDir(), "nope")},
 			}
-			test.That(t, renderPortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "dev acme")
+			test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "dev acme")
 		})
 	})
 }
@@ -225,7 +226,7 @@ func TestCurrentPortalTemplates(t *testing.T) {
 
 		n.portalTemplates = n.resolvePortalTemplates()
 		writeTemplateFiles(t, dir, map[string]string{"base.html": "v2 {{.Manufacturer}}"})
-		test.That(t, renderPortal(t, n.currentPortalTemplates()), test.ShouldEqual, "v1 acme")
+		test.That(t, executePortal(t, n.currentPortalTemplates()), test.ShouldEqual, "v1 acme")
 	})
 
 	t.Run("running locally, templates are re-read on every call", func(t *testing.T) {
@@ -237,7 +238,7 @@ func TestCurrentPortalTemplates(t *testing.T) {
 
 		n.portalTemplates = n.resolvePortalTemplates()
 		writeTemplateFiles(t, dir, map[string]string{"base.html": "v2 {{.Manufacturer}}"})
-		test.That(t, renderPortal(t, n.currentPortalTemplates()), test.ShouldEqual, "v2 acme")
+		test.That(t, executePortal(t, n.currentPortalTemplates()), test.ShouldEqual, "v2 acme")
 	})
 }
 
@@ -268,4 +269,95 @@ func TestWebPortalServesCustomTemplates(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, resp.StatusCode, test.ShouldEqual, http.StatusOK)
 	test.That(t, string(body), test.ShouldEqual, "branded acme")
+}
+
+func TestRenderPortal(t *testing.T) {
+	parse := func(t *testing.T, base string) *template.Template {
+		t.Helper()
+		tmpl, err := template.New(portalEntryTemplate).Parse(base)
+		test.That(t, err, test.ShouldBeNil)
+		return tmpl
+	}
+	builtinPage := executePortal(t, builtinTemplates)
+	const renderFailure = "custom portal templates failed to render"
+
+	t.Run("custom templates render", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		n := &Subsystem{logger: logger}
+		page, err := n.renderPortal(parse(t, "custom {{.Manufacturer}}"), templateData{Manufacturer: "acme"})
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, string(page), test.ShouldEqual, "custom acme")
+		test.That(t, logs.FilterMessageSnippet(renderFailure).Len(), test.ShouldEqual, 0)
+	})
+
+	t.Run("render failure falls back to built-in templates and warns once", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		n := &Subsystem{logger: logger}
+		broken := parse(t, "before {{.NoSuchField}} after")
+
+		for range 3 {
+			page, err := n.renderPortal(broken, templateData{Manufacturer: "acme"})
+			test.That(t, err, test.ShouldBeNil)
+			test.That(t, string(page), test.ShouldEqual, builtinPage)
+			test.That(t, string(page), test.ShouldNotContainSubstring, "before")
+		}
+		test.That(t, logs.FilterMessageSnippet(renderFailure).FilterLevelExact(zapcore.WarnLevel).Len(), test.ShouldEqual, 1)
+		test.That(t, logs.FilterMessageSnippet(renderFailure).FilterLevelExact(zapcore.DebugLevel).Len(), test.ShouldEqual, 2)
+	})
+
+	t.Run("a different broken template set warns again", func(t *testing.T) {
+		logger, logs := logging.NewObservedTestLogger(t)
+		n := &Subsystem{logger: logger}
+		_, err := n.renderPortal(parse(t, "{{.NoSuchField}}"), templateData{})
+		test.That(t, err, test.ShouldBeNil)
+		_, err = n.renderPortal(parse(t, "{{.AlsoMissing}}"), templateData{})
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, logs.FilterMessageSnippet(renderFailure).FilterLevelExact(zapcore.WarnLevel).Len(), test.ShouldEqual, 2)
+	})
+
+	t.Run("failure that depends on the data only falls back for that data", func(t *testing.T) {
+		n := &Subsystem{logger: logging.NewTestLogger(t)}
+		tmpl := parse(t, "custom{{range .Errors}} {{.NoSuchField}}{{end}}")
+
+		page, err := n.renderPortal(tmpl, templateData{})
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, string(page), test.ShouldEqual, "custom")
+
+		page, err = n.renderPortal(tmpl, templateData{Errors: []string{"bad password"}})
+		test.That(t, err, test.ShouldBeNil)
+		test.That(t, string(page), test.ShouldContainSubstring, "bad password")
+		test.That(t, string(page), test.ShouldNotStartWith, "custom")
+	})
+}
+
+func TestWebPortalFallsBackWhenCustomTemplatesFailToRender(t *testing.T) {
+	mockRunningLocally(t, false)
+	dir := t.TempDir()
+	writeTemplateFiles(t, dir, map[string]string{"base.html": "branded {{.NoSuchField}}"})
+
+	logger := logging.NewTestLogger(t)
+	n := Subsystem{
+		cfg:        utils.NetworkConfiguration{Manufacturer: "acme", PortalTemplatesDir: dir},
+		portalData: &userInputData{input: &userInput{}, inputChan: make(chan userInput, 1), connState: NewConnectionState(logger)},
+		logger:     logger,
+		connState:  NewConnectionState(logger),
+		netState:   &networkState{},
+		banner:     &banner{},
+		errors:     &errorList{},
+	}
+	test.That(t, n.startWeb("localhost", 8083), test.ShouldBeNil)
+	defer func() { test.That(t, n.webServer.Close(), test.ShouldBeNil) }()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost:8083/", nil)
+	test.That(t, err, test.ShouldBeNil)
+	resp, err := http.DefaultClient.Do(req)
+	test.That(t, err, test.ShouldBeNil)
+	defer func() { test.That(t, resp.Body.Close(), test.ShouldBeNil) }()
+	body, err := io.ReadAll(resp.Body)
+	test.That(t, err, test.ShouldBeNil)
+
+	test.That(t, resp.StatusCode, test.ShouldEqual, http.StatusOK)
+	test.That(t, resp.Header.Get("Content-Type"), test.ShouldEqual, "text/html; charset=utf-8")
+	test.That(t, string(body), test.ShouldContainSubstring, "<title>Connect to your Wifi</title>")
+	test.That(t, string(body), test.ShouldNotContainSubstring, "branded")
 }
