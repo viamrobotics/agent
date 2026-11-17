@@ -84,7 +84,7 @@ func (n *Subsystem) resolvePortalTemplates() *template.Template {
 			n.logger.Infow("using custom portal templates", "dir", dir)
 			return t
 		}
-		n.logger.Warnw("custom portal templates are unusable, falling back to default templates", "dir", dir, "err", err)
+		n.logger.Warnw("custom portal templates are unusable, falling back to default templates", "dir", dir, "err", err.Error())
 	}
 
 	if utils.IsRunningLocally {
@@ -94,7 +94,7 @@ func (n *Subsystem) resolvePortalTemplates() *template.Template {
 			n.logger.Warnw("running locally, using development portal templates", "dir", dir)
 			return t
 		}
-		n.logger.Debugw("running locally, development portal templates are unusable", "dir", dir, "err", err)
+		n.logger.Debugw("running locally, development portal templates are unusable", "dir", dir, "err", err.Error())
 	}
 
 	return builtinTemplates
