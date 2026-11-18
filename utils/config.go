@@ -231,8 +231,10 @@ type NetworkConfiguration struct {
 	Model        string `json:"model,omitempty"`
 	FragmentID   string `json:"fragment_id,omitempty"`
 	// Absolute path to a directory of *.html templates that replace the built-in provisioning
-	// portal page. Must contain base.html, which is the page entrypoint. If the directory is
-	// missing or its templates fail to parse, the built-in templates are used instead.
+	// portal page. Must contain base.html, which is the page entrypoint. The directory, its
+	// parents, and the templates must be owned by root and not writable by group or others, and
+	// must not be symlinks. If the directory is missing, unsafe, or its templates fail to parse,
+	// the built-in templates are used instead.
 	// Set this in viam-defaults.json: provisioning usually runs before any cloud config is fetched.
 	PortalTemplatesDir string `json:"portal_templates_dir,omitempty"`
 

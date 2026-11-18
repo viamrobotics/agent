@@ -112,6 +112,20 @@ func executePortal(t *testing.T, tmpl *template.Template) string {
 	return sb.String()
 }
 
+// mockTemplatesOwner makes uid an accepted owner of custom portal templates, since tests cannot
+// create root-owned files.
+func mockTemplatesOwner(t *testing.T, uid uint32) {
+	t.Helper()
+	old := portalTemplatesOwnerUID
+	t.Cleanup(func() { portalTemplatesOwnerUID = old })
+	portalTemplatesOwnerUID = uid
+}
+
+func trustTestUser(t *testing.T) {
+	t.Helper()
+	mockTemplatesOwner(t, uint32(os.Getuid()))
+}
+
 func mockRunningLocally(t *testing.T, local bool) {
 	t.Helper()
 	old := utils.IsRunningLocally
@@ -120,6 +134,7 @@ func mockRunningLocally(t *testing.T, local bool) {
 }
 
 func TestResolvePortalTemplates(t *testing.T) {
+	trustTestUser(t)
 	validCustom := map[string]string{
 		"base.html":  `<html>{{template "body" .}}</html>`,
 		"index.html": `{{define "body"}}custom {{.Manufacturer}}{{end}}`,
@@ -216,6 +231,7 @@ func TestResolvePortalTemplates(t *testing.T) {
 }
 
 func TestCurrentPortalTemplates(t *testing.T) {
+	trustTestUser(t)
 	t.Run("not running locally, templates are not re-read after the portal starts", func(t *testing.T) {
 		mockRunningLocally(t, false)
 		dir := t.TempDir()
@@ -243,6 +259,7 @@ func TestCurrentPortalTemplates(t *testing.T) {
 }
 
 func TestWebPortalServesCustomTemplates(t *testing.T) {
+	trustTestUser(t)
 	mockRunningLocally(t, false)
 	dir := t.TempDir()
 	writeTemplateFiles(t, dir, map[string]string{"base.html": "branded {{.Manufacturer}}"})
@@ -331,6 +348,7 @@ func TestRenderPortal(t *testing.T) {
 }
 
 func TestWebPortalFallsBackWhenCustomTemplatesFailToRender(t *testing.T) {
+	trustTestUser(t)
 	mockRunningLocally(t, false)
 	dir := t.TempDir()
 	writeTemplateFiles(t, dir, map[string]string{"base.html": "branded {{.NoSuchField}}"})
@@ -360,4 +378,147 @@ func TestWebPortalFallsBackWhenCustomTemplatesFailToRender(t *testing.T) {
 	test.That(t, resp.Header.Get("Content-Type"), test.ShouldEqual, "text/html; charset=utf-8")
 	test.That(t, string(body), test.ShouldContainSubstring, "<title>Connect to your Wifi</title>")
 	test.That(t, string(body), test.ShouldNotContainSubstring, "branded")
+}
+
+func TestRootOwnedTemplates(t *testing.T) {
+	// secureDir returns a template dir that passes the checks when the test user is trusted: the
+	// test's temp dirs are owned by the test user, and / and /tmp are owned by root.
+	secureDir := func(t *testing.T) string {
+		t.Helper()
+		dir := filepath.Join(t.TempDir(), "portal")
+		writeTemplateFiles(t, dir, map[string]string{"base.html": "secure {{.Manufacturer}}"})
+		return dir
+	}
+	resolve := func(t *testing.T, dir string) (*template.Template, string) {
+		t.Helper()
+		logger, logs := logging.NewObservedTestLogger(t)
+		n := &Subsystem{logger: logger, cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
+		tmpl := n.resolvePortalTemplates()
+		warnings := logs.FilterMessageSnippet("custom portal templates are unusable").All()
+		if len(warnings) == 0 {
+			return tmpl, ""
+		}
+		test.That(t, len(warnings), test.ShouldEqual, 1)
+		reason, ok := warnings[0].ContextMap()["err"].(string)
+		test.That(t, ok, test.ShouldBeTrue)
+		return tmpl, reason
+	}
+
+	t.Run("secure dir is used", func(t *testing.T) {
+		mockRunningLocally(t, false)
+		trustTestUser(t)
+		tmpl, reason := resolve(t, secureDir(t))
+		test.That(t, reason, test.ShouldBeEmpty)
+		test.That(t, executePortal(t, tmpl), test.ShouldEqual, "secure acme")
+	})
+
+	t.Run("sticky world-writable parent is allowed", func(t *testing.T) {
+		mockRunningLocally(t, false)
+		trustTestUser(t)
+		parent := t.TempDir()
+		test.That(t, os.Chmod(parent, 0o777|os.ModeSticky), test.ShouldBeNil)
+		dir := filepath.Join(parent, "portal")
+		writeTemplateFiles(t, dir, map[string]string{"base.html": "secure {{.Manufacturer}}"})
+		_, reason := resolve(t, dir)
+		test.That(t, reason, test.ShouldBeEmpty)
+	})
+
+	for _, tc := range []struct {
+		name       string
+		setup      func(t *testing.T) string
+		wantReason string
+	}{
+		{
+			name: "not owned by root",
+			setup: func(t *testing.T) string {
+				dir := secureDir(t)
+				if os.Getuid() == 0 {
+					// Root is always trusted, so hand the files to a regular user instead.
+					test.That(t, os.Chown(dir, 1000, 1000), test.ShouldBeNil)
+					test.That(t, os.Chown(filepath.Join(dir, "base.html"), 1000, 1000), test.ShouldBeNil)
+					return dir
+				}
+				// Trust only a uid that owns nothing here, as if the files belonged to another user.
+				mockTemplatesOwner(t, uint32(os.Getuid())+1)
+				return dir
+			},
+			wantReason: "but must be owned by root",
+		},
+		{
+			name: "template writable by group",
+			setup: func(t *testing.T) string {
+				dir := secureDir(t)
+				test.That(t, os.Chmod(filepath.Join(dir, "base.html"), 0o660), test.ShouldBeNil)
+				return dir
+			},
+			wantReason: "base.html is writable by group or others (mode 0660)",
+		},
+		{
+			name: "dir writable by others",
+			setup: func(t *testing.T) string {
+				dir := secureDir(t)
+				test.That(t, os.Chmod(dir, 0o757), test.ShouldBeNil)
+				return dir
+			},
+			wantReason: "portal is writable by group or others (mode 0757)",
+		},
+		{
+			name: "dir with sticky bit is still not allowed to be world-writable",
+			setup: func(t *testing.T) string {
+				dir := secureDir(t)
+				test.That(t, os.Chmod(dir, 0o777|os.ModeSticky), test.ShouldBeNil)
+				return dir
+			},
+			wantReason: "portal is writable by group or others",
+		},
+		{
+			name: "parent writable by others",
+			setup: func(t *testing.T) string {
+				dir := secureDir(t)
+				test.That(t, os.Chmod(filepath.Dir(dir), 0o777), test.ShouldBeNil)
+				return dir
+			},
+			wantReason: "unsafe parent directory",
+		},
+		{
+			name: "dir is a symlink",
+			setup: func(t *testing.T) string {
+				link := filepath.Join(t.TempDir(), "link")
+				test.That(t, os.Symlink(secureDir(t), link), test.ShouldBeNil)
+				return link
+			},
+			wantReason: "is a symlink or has one in its path",
+		},
+		{
+			name: "template is a symlink",
+			setup: func(t *testing.T) string {
+				dir := filepath.Join(t.TempDir(), "portal")
+				writeTemplateFiles(t, dir, map[string]string{"real.txt": "secure {{.Manufacturer}}"})
+				test.That(t, os.Symlink(filepath.Join(dir, "real.txt"), filepath.Join(dir, "base.html")), test.ShouldBeNil)
+				return dir
+			},
+			wantReason: "base.html is a symlink",
+		},
+	} {
+		t.Run(tc.name+" falls back to built-in templates", func(t *testing.T) {
+			mockRunningLocally(t, false)
+			trustTestUser(t)
+			dir := tc.setup(t)
+			tmpl, reason := resolve(t, dir)
+			test.That(t, tmpl, test.ShouldEqual, builtinTemplates)
+			test.That(t, reason, test.ShouldContainSubstring, tc.wantReason)
+		})
+	}
+
+	t.Run("dev override is not held to the ownership rules", func(t *testing.T) {
+		mockRunningLocally(t, true)
+		utils.MockViamDirs(t)
+		mockTemplatesOwner(t, uint32(os.Getuid())+1)
+		devDir := filepath.Join(utils.ViamDirs.Tmp, "templates")
+		writeTemplateFiles(t, devDir, map[string]string{"base.html": "dev {{.Manufacturer}}"})
+		test.That(t, os.Chmod(filepath.Join(devDir, "base.html"), 0o666), test.ShouldBeNil)
+
+		n := &Subsystem{logger: logging.NewTestLogger(t)}
+		test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "dev acme")
+	})
 }

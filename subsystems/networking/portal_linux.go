@@ -42,8 +42,9 @@ var templates embed.FS
 // of surfacing on a device.
 var builtinTemplates = template.Must(template.ParseFS(templates, "templates/*.html"))
 
-// parseTemplateDir parses every *.html file directly inside dir.
-func parseTemplateDir(dir string) (*template.Template, error) {
+// parseTemplateDir parses every *.html file directly inside dir. With requireRootOwned, only root
+// may be able to modify dir and its templates (see rootOwnedTemplatePaths).
+func parseTemplateDir(dir string, requireRootOwned bool) (*template.Template, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return nil, err
@@ -51,15 +52,14 @@ func parseTemplateDir(dir string) (*template.Template, error) {
 	if !info.IsDir() {
 		return nil, errw.Errorf("%s is not a directory", dir)
 	}
-	entries, err := os.ReadDir(dir)
+
+	list := templatePaths
+	if requireRootOwned {
+		list = rootOwnedTemplatePaths
+	}
+	files, err := list(dir)
 	if err != nil {
 		return nil, err
-	}
-	var files []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".html" {
-			files = append(files, filepath.Join(dir, e.Name()))
-		}
 	}
 	if len(files) == 0 {
 		return nil, errw.Errorf("no .html templates found in %s", dir)
@@ -80,7 +80,7 @@ func parseTemplateDir(dir string) (*template.Template, error) {
 // has a working page.
 func (n *Subsystem) resolvePortalTemplates() *template.Template {
 	if dir := n.Config().PortalTemplatesDir; dir != "" {
-		t, err := parseTemplateDir(dir)
+		t, err := parseTemplateDir(dir, true)
 		if err == nil {
 			n.logger.Infow("using custom portal templates", "dir", dir)
 			return t
@@ -89,8 +89,9 @@ func (n *Subsystem) resolvePortalTemplates() *template.Template {
 	}
 
 	if utils.IsRunningLocally {
+		// Developer-only; not held to the root-ownership rules, as it may live in a home directory.
 		dir := filepath.Join(utils.ViamDirs.Tmp, "templates")
-		t, err := parseTemplateDir(dir)
+		t, err := parseTemplateDir(dir, false)
 		if err == nil {
 			n.logger.Warnw("running locally, using development portal templates", "dir", dir)
 			return t
