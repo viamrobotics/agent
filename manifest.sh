@@ -22,6 +22,8 @@ if [[ "$BINARY_NAME" == *"x86_64"* ]]; then
 	ARCH="amd64"
 elif [[ "$BINARY_NAME" == *"aarch64"* ]]; then
 	ARCH="arm64"
+elif [[ "$BINARY_NAME" == *"riscv64"* ]]; then
+	ARCH="riscv64"
 else
 	echo "Unknown architecture in binary name"
 	exit 1
