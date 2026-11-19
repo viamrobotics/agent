@@ -2,6 +2,8 @@ package utils
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -127,6 +129,12 @@ func TestValidateConfig(t *testing.T) {
 	})
 
 	t.Run("portal_templates_dir", func(t *testing.T) {
+		// A path without a drive letter is not absolute on Windows.
+		root := "/"
+		if runtime.GOOS == "windows" {
+			root = `C:\`
+		}
+		absDir := filepath.Join(root, "etc", "viam", "portal")
 		for _, tc := range []struct {
 			name    string
 			in      string
@@ -134,8 +142,8 @@ func TestValidateConfig(t *testing.T) {
 			wantErr bool
 		}{
 			{name: "unset", in: "", want: ""},
-			{name: "absolute", in: "/etc/viam/portal", want: "/etc/viam/portal"},
-			{name: "absolute is cleaned", in: "/etc/viam/../viam/portal/", want: "/etc/viam/portal"},
+			{name: "absolute", in: absDir, want: absDir},
+			{name: "absolute is cleaned", in: root + "etc/viam/../viam/portal/", want: absDir},
 			{name: "relative is rejected", in: "portal", want: "", wantErr: true},
 			{name: "dot-relative is rejected", in: "./portal", want: "", wantErr: true},
 		} {
