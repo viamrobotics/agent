@@ -21,7 +21,7 @@
 		"manufacturer": "viam",
 		"model": "custom",
 		"fragment_id": "",
-		"portal_templates_dir": "", // absolute path to custom provisioning portal *.html templates (must include base.html); built-in page if unset or unusable
+		"portal_templates_dir": "", // absolute path to custom provisioning portal templates (base.html + manifest.json, root-owned); see subsystems/networking/templates/PORTAL_TEMPLATES.md
 		"hotspot_interface": "", // determined dynamically as first discovered wifi interface if unset
 		"hotspot_prefix": "viam-setup",
 		"hotspot_password": "viamsetup",

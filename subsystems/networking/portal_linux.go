@@ -18,6 +18,21 @@ import (
 	"github.com/viamrobotics/agent/utils"
 )
 
+// portalTemplateAPIVersion is the version of the contract between the agent and custom portal
+// templates: the templateData fields, the base.html entrypoint, and the /save form. It is
+// documented in templates/PORTAL_TEMPLATES.md and pinned by TestPortalTemplateContract. Additions keep the
+// version; removing, renaming, or changing the type or meaning of anything bumps it, so templates
+// written for the old contract fall back to the built-in page instead of breaking.
+const portalTemplateAPIVersion = 1
+
+// Form fields the portal accepts on POST /save; part of the template contract.
+const (
+	portalFormSSID     = "ssid"
+	portalFormPassword = "password"
+	portalFormConfig   = "viamconfig"
+)
+
+// templateData is what portal templates render; part of the template contract.
 type templateData struct {
 	Manufacturer string
 	Model        string
@@ -35,7 +50,7 @@ type templateData struct {
 // built-in or custom, must define it.
 const portalEntryTemplate = "base.html"
 
-//go:embed templates/*
+//go:embed templates/*.html
 var templates embed.FS
 
 // builtinTemplates are parsed at init so a broken embedded template fails every test run instead
@@ -80,16 +95,17 @@ func parseTemplateDir(dir string, requireRootOwned bool) (*template.Template, er
 // has a working page.
 func (n *Subsystem) resolvePortalTemplates() *template.Template {
 	if dir := n.Config().PortalTemplatesDir; dir != "" {
-		t, err := parseTemplateDir(dir, true)
+		t, err := loadCustomTemplates(dir)
 		if err == nil {
-			n.logger.Infow("using custom portal templates", "dir", dir)
+			n.logger.Infow("using custom portal templates", "dir", dir, "template_api_version", portalTemplateAPIVersion)
 			return t
 		}
 		n.logger.Warnw("custom portal templates are unusable, falling back to default templates", "dir", dir, "err", err.Error())
 	}
 
 	if utils.IsRunningLocally {
-		// Developer-only; not held to the root-ownership rules, as it may live in a home directory.
+		// Developer-only: not held to the ownership rules (it may live in a home directory) and needs
+		// no manifest.
 		dir := filepath.Join(utils.ViamDirs.Tmp, "templates")
 		t, err := parseTemplateDir(dir, false)
 		if err == nil {
@@ -270,9 +286,9 @@ func (n *Subsystem) portalSave(resp http.ResponseWriter, req *http.Request) {
 
 	n.connState.setLastInteraction()
 
-	ssid := req.FormValue("ssid")
-	psk := req.FormValue("password")
-	rawConfig := req.FormValue("viamconfig")
+	ssid := req.FormValue(portalFormSSID)
+	psk := req.FormValue(portalFormPassword)
+	rawConfig := req.FormValue(portalFormConfig)
 
 	if ssid == "" && !n.connState.getOnline() {
 		n.errors.Add(errors.New("no SSID provided"))

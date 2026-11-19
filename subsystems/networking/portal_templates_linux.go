@@ -1,6 +1,9 @@
 package networking
 
 import (
+	"encoding/json"
+	"errors"
+	"html/template"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +15,56 @@ import (
 // The portal page collects wifi passwords and machine secrets, so custom templates are trusted
 // code: anyone who can change them can phish or exfiltrate those secrets. Templates from
 // portal_templates_dir are therefore only used if nothing but root can modify them.
+
+// portalTemplateManifest is the file in portal_templates_dir that declares which version of the
+// template contract (portalTemplateAPIVersion) the templates were written for.
+const portalTemplateManifest = "manifest.json"
+
+type templateManifest struct {
+	TemplateAPIVersion int `json:"template_api_version"`
+}
+
+// loadCustomTemplates loads the templates in portal_templates_dir: only root may be able to modify
+// them (see rootOwnedTemplatePaths), and their manifest must declare the template contract version
+// this agent implements.
+func loadCustomTemplates(dir string) (*template.Template, error) {
+	t, err := parseTemplateDir(dir, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkTemplateManifest(dir); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+func checkTemplateManifest(dir string) error {
+	path := filepath.Join(dir, portalTemplateManifest)
+	if err := checkRootControlledFile(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return errw.Errorf("%s is missing; it must declare the template contract version, e.g. {\"template_api_version\": %d}",
+				path, portalTemplateAPIVersion)
+		}
+		return err
+	}
+	//nolint:gosec // path was just checked to be a root-controlled regular file
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m templateManifest
+	if err := json.Unmarshal(b, &m); err != nil {
+		return errw.Wrapf(err, "parsing %s", path)
+	}
+	if m.TemplateAPIVersion == 0 {
+		return errw.Errorf("%s does not set template_api_version", path)
+	}
+	if m.TemplateAPIVersion != portalTemplateAPIVersion {
+		return errw.Errorf("%s targets template contract version %d, but this agent implements version %d",
+			path, m.TemplateAPIVersion, portalTemplateAPIVersion)
+	}
+	return nil
+}
 
 // portalTemplatesOwnerUID is the owner custom templates must have. It is root in production;
 // tests replace it because they cannot create root-owned files.
@@ -64,21 +117,27 @@ func rootOwnedTemplatePaths(dir string) ([]string, error) {
 		return nil, err
 	}
 	for _, path := range paths {
-		info, err := os.Lstat(path)
-		if err != nil {
-			return nil, err
-		}
-		if info.Mode()&fs.ModeSymlink != 0 {
-			return nil, errw.Errorf("%s is a symlink, which is not allowed for portal templates", path)
-		}
-		if !info.Mode().IsRegular() {
-			return nil, errw.Errorf("%s is not a regular file", path)
-		}
-		if err := checkRootControlled(path, false); err != nil {
+		if err := checkRootControlledFile(path); err != nil {
 			return nil, err
 		}
 	}
 	return paths, nil
+}
+
+// checkRootControlledFile returns an error unless path is a regular file (not a symlink) that only
+// root can modify.
+func checkRootControlledFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return errw.Errorf("%s is a symlink, which is not allowed for portal templates", path)
+	}
+	if !info.Mode().IsRegular() {
+		return errw.Errorf("%s is not a regular file", path)
+	}
+	return checkRootControlled(path, false)
 }
 
 // checkRootControlled returns an error unless only root can modify path. Root itself is always

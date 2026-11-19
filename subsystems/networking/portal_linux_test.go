@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -95,6 +97,16 @@ func TestWebPortalJsonParse(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 	input := <-inputChan
 	test.That(t, input.RawConfig, test.ShouldEqual, validConfig)
+}
+
+// withManifest adds a manifest.json declaring the current template contract version, which
+// portal_templates_dir requires.
+func withManifest(files map[string]string) map[string]string {
+	out := map[string]string{portalTemplateManifest: fmt.Sprintf(`{"template_api_version": %d}`, portalTemplateAPIVersion)}
+	for name, contents := range files {
+		out[name] = contents
+	}
+	return out
 }
 
 func writeTemplateFiles(t *testing.T, dir string, files map[string]string) {
@@ -192,7 +204,7 @@ func TestResolvePortalTemplates(t *testing.T) {
 	t.Run("valid custom dir is used", func(t *testing.T) {
 		mockRunningLocally(t, false)
 		dir := t.TempDir()
-		writeTemplateFiles(t, dir, validCustom)
+		writeTemplateFiles(t, dir, withManifest(validCustom))
 		n := &Subsystem{logger: logging.NewTestLogger(t), cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
 		test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "<html>custom acme</html>")
 	})
@@ -216,7 +228,7 @@ func TestResolvePortalTemplates(t *testing.T) {
 		})
 		t.Run("custom dir takes precedence over dev override", func(t *testing.T) {
 			dir := t.TempDir()
-			writeTemplateFiles(t, dir, validCustom)
+			writeTemplateFiles(t, dir, withManifest(validCustom))
 			n := &Subsystem{logger: logging.NewTestLogger(t), cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
 			test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "<html>custom acme</html>")
 		})
@@ -235,7 +247,7 @@ func TestCurrentPortalTemplates(t *testing.T) {
 	t.Run("not running locally, templates are not re-read after the portal starts", func(t *testing.T) {
 		mockRunningLocally(t, false)
 		dir := t.TempDir()
-		writeTemplateFiles(t, dir, map[string]string{"base.html": "v1 {{.Manufacturer}}"})
+		writeTemplateFiles(t, dir, withManifest(map[string]string{"base.html": "v1 {{.Manufacturer}}"}))
 		n := &Subsystem{logger: logging.NewTestLogger(t), cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
 
 		test.That(t, n.currentPortalTemplates(), test.ShouldEqual, builtinTemplates)
@@ -249,7 +261,7 @@ func TestCurrentPortalTemplates(t *testing.T) {
 		mockRunningLocally(t, true)
 		utils.MockViamDirs(t)
 		dir := t.TempDir()
-		writeTemplateFiles(t, dir, map[string]string{"base.html": "v1 {{.Manufacturer}}"})
+		writeTemplateFiles(t, dir, withManifest(map[string]string{"base.html": "v1 {{.Manufacturer}}"}))
 		n := &Subsystem{logger: logging.NewTestLogger(t), cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
 
 		n.portalTemplates = n.resolvePortalTemplates()
@@ -262,7 +274,7 @@ func TestWebPortalServesCustomTemplates(t *testing.T) {
 	trustTestUser(t)
 	mockRunningLocally(t, false)
 	dir := t.TempDir()
-	writeTemplateFiles(t, dir, map[string]string{"base.html": "branded {{.Manufacturer}}"})
+	writeTemplateFiles(t, dir, withManifest(map[string]string{"base.html": "branded {{.Manufacturer}}"}))
 
 	logger := logging.NewTestLogger(t)
 	n := Subsystem{
@@ -351,7 +363,7 @@ func TestWebPortalFallsBackWhenCustomTemplatesFailToRender(t *testing.T) {
 	trustTestUser(t)
 	mockRunningLocally(t, false)
 	dir := t.TempDir()
-	writeTemplateFiles(t, dir, map[string]string{"base.html": "branded {{.NoSuchField}}"})
+	writeTemplateFiles(t, dir, withManifest(map[string]string{"base.html": "branded {{.NoSuchField}}"}))
 
 	logger := logging.NewTestLogger(t)
 	n := Subsystem{
@@ -386,7 +398,7 @@ func TestRootOwnedTemplates(t *testing.T) {
 	secureDir := func(t *testing.T) string {
 		t.Helper()
 		dir := filepath.Join(t.TempDir(), "portal")
-		writeTemplateFiles(t, dir, map[string]string{"base.html": "secure {{.Manufacturer}}"})
+		writeTemplateFiles(t, dir, withManifest(map[string]string{"base.html": "secure {{.Manufacturer}}"}))
 		return dir
 	}
 	resolve := func(t *testing.T, dir string) (*template.Template, string) {
@@ -418,7 +430,7 @@ func TestRootOwnedTemplates(t *testing.T) {
 		parent := t.TempDir()
 		test.That(t, os.Chmod(parent, 0o777|os.ModeSticky), test.ShouldBeNil)
 		dir := filepath.Join(parent, "portal")
-		writeTemplateFiles(t, dir, map[string]string{"base.html": "secure {{.Manufacturer}}"})
+		writeTemplateFiles(t, dir, withManifest(map[string]string{"base.html": "secure {{.Manufacturer}}"}))
 		_, reason := resolve(t, dir)
 		test.That(t, reason, test.ShouldBeEmpty)
 	})
@@ -493,7 +505,7 @@ func TestRootOwnedTemplates(t *testing.T) {
 			name: "template is a symlink",
 			setup: func(t *testing.T) string {
 				dir := filepath.Join(t.TempDir(), "portal")
-				writeTemplateFiles(t, dir, map[string]string{"real.txt": "secure {{.Manufacturer}}"})
+				writeTemplateFiles(t, dir, withManifest(map[string]string{"real.txt": "secure {{.Manufacturer}}"}))
 				test.That(t, os.Symlink(filepath.Join(dir, "real.txt"), filepath.Join(dir, "base.html")), test.ShouldBeNil)
 				return dir
 			},
@@ -520,5 +532,146 @@ func TestRootOwnedTemplates(t *testing.T) {
 
 		n := &Subsystem{logger: logging.NewTestLogger(t)}
 		test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "dev acme")
+	})
+}
+
+func TestTemplateManifest(t *testing.T) {
+	base := map[string]string{"base.html": "versioned {{.Manufacturer}}"}
+	resolve := func(t *testing.T, dir string) (*template.Template, string) {
+		t.Helper()
+		logger, logs := logging.NewObservedTestLogger(t)
+		n := &Subsystem{logger: logger, cfg: utils.NetworkConfiguration{PortalTemplatesDir: dir}}
+		tmpl := n.resolvePortalTemplates()
+		warnings := logs.FilterMessageSnippet("custom portal templates are unusable").All()
+		if len(warnings) == 0 {
+			return tmpl, ""
+		}
+		reason, ok := warnings[0].ContextMap()["err"].(string)
+		test.That(t, ok, test.ShouldBeTrue)
+		return tmpl, reason
+	}
+
+	t.Run("matching version is used", func(t *testing.T) {
+		mockRunningLocally(t, false)
+		trustTestUser(t)
+		dir := filepath.Join(t.TempDir(), "portal")
+		writeTemplateFiles(t, dir, withManifest(base))
+		tmpl, reason := resolve(t, dir)
+		test.That(t, reason, test.ShouldBeEmpty)
+		test.That(t, executePortal(t, tmpl), test.ShouldEqual, "versioned acme")
+	})
+
+	t.Run("unknown manifest fields are ignored", func(t *testing.T) {
+		mockRunningLocally(t, false)
+		trustTestUser(t)
+		dir := filepath.Join(t.TempDir(), "portal")
+		files := map[string]string{"manifest.json": `{"template_api_version": 1, "vendor": "acme"}`}
+		maps.Copy(files, base)
+		writeTemplateFiles(t, dir, files)
+		_, reason := resolve(t, dir)
+		test.That(t, reason, test.ShouldBeEmpty)
+	})
+
+	for _, tc := range []struct {
+		name       string
+		manifest   *string
+		setup      func(t *testing.T, dir string)
+		wantReason string
+	}{
+		{
+			name:       "missing",
+			wantReason: `manifest.json is missing; it must declare the template contract version, e.g. {"template_api_version": 1}`,
+		},
+		{
+			name:       "other version",
+			manifest:   ptr(`{"template_api_version": 2}`),
+			wantReason: "targets template contract version 2, but this agent implements version 1",
+		},
+		{name: "version not set", manifest: ptr(`{"vendor": "acme"}`), wantReason: "does not set template_api_version"},
+		{name: "version not a number", manifest: ptr(`{"template_api_version": "1"}`), wantReason: "parsing"},
+		{name: "invalid json", manifest: ptr(`{`), wantReason: "parsing"},
+		{
+			name: "writable by others", manifest: ptr(`{"template_api_version": 1}`),
+			setup: func(t *testing.T, dir string) {
+				test.That(t, os.Chmod(filepath.Join(dir, "manifest.json"), 0o666), test.ShouldBeNil)
+			},
+			wantReason: "manifest.json is writable by group or others",
+		},
+		{
+			name: "symlink",
+			setup: func(t *testing.T, dir string) {
+				target := filepath.Join(dir, "real.json")
+				test.That(t, os.WriteFile(target, []byte(`{"template_api_version": 1}`), 0o600), test.ShouldBeNil)
+				test.That(t, os.Symlink(target, filepath.Join(dir, "manifest.json")), test.ShouldBeNil)
+			},
+			wantReason: "manifest.json is a symlink",
+		},
+	} {
+		t.Run(tc.name+" manifest falls back to built-in templates", func(t *testing.T) {
+			mockRunningLocally(t, false)
+			trustTestUser(t)
+			dir := filepath.Join(t.TempDir(), "portal")
+			files := maps.Clone(base)
+			if tc.manifest != nil {
+				files["manifest.json"] = *tc.manifest
+			}
+			writeTemplateFiles(t, dir, files)
+			if tc.setup != nil {
+				tc.setup(t, dir)
+			}
+			tmpl, reason := resolve(t, dir)
+			test.That(t, tmpl, test.ShouldEqual, builtinTemplates)
+			test.That(t, reason, test.ShouldContainSubstring, tc.wantReason)
+		})
+	}
+
+	t.Run("dev override needs no manifest", func(t *testing.T) {
+		mockRunningLocally(t, true)
+		utils.MockViamDirs(t)
+		writeTemplateFiles(t, filepath.Join(utils.ViamDirs.Tmp, "templates"), map[string]string{"base.html": "dev {{.Manufacturer}}"})
+		n := &Subsystem{logger: logging.NewTestLogger(t)}
+		test.That(t, executePortal(t, n.resolvePortalTemplates()), test.ShouldEqual, "dev acme")
+	})
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// TestPortalTemplateContract pins what custom portal templates can rely on (templates/PORTAL_TEMPLATES.md).
+// If it fails, you changed the template contract. For additions, update the expectations below and
+// templates/PORTAL_TEMPLATES.md. For anything else (removing, renaming, or changing the type or meaning of a
+// field, the form, or the entrypoint), also bump portalTemplateAPIVersion and add a changelog entry,
+// so templates written for the old contract fall back to the built-in page instead of breaking.
+func TestPortalTemplateContract(t *testing.T) {
+	fields := func(v any) []string {
+		typ := reflect.TypeOf(v)
+		out := make([]string, 0, typ.NumField())
+		for i := range typ.NumField() {
+			out = append(out, typ.Field(i).Name+" "+typ.Field(i).Type.String())
+		}
+		return out
+	}
+
+	test.That(t, portalTemplateAPIVersion, test.ShouldEqual, 1)
+	test.That(t, portalEntryTemplate, test.ShouldEqual, "base.html")
+	test.That(t, []string{portalFormSSID, portalFormPassword, portalFormConfig}, test.ShouldResemble,
+		[]string{"ssid", "password", "viamconfig"})
+	test.That(t, fields(templateData{}), test.ShouldResemble, []string{
+		"Manufacturer string",
+		"Model string",
+		"FragmentID string",
+		"Banner string",
+		"LastNetwork networking.NetworkInfo",
+		"VisibleSSIDs []networking.NetworkInfo",
+		"Errors []string",
+		"IsConfigured bool",
+		"IsOnline bool",
+	})
+	test.That(t, fields(NetworkInfo{}), test.ShouldResemble, []string{
+		"Type string",
+		"SSID string",
+		"Security string",
+		"Signal int32",
+		"Connected bool",
+		"LastError string",
 	})
 }
