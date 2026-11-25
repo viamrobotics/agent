@@ -57,7 +57,7 @@ func checkTemplateManifest(dir string) error {
 		return errw.Wrapf(err, "parsing %s", path)
 	}
 	if m.TemplateAPIVersion == 0 {
-		return errw.Errorf("%s does not set template_api_version", path)
+		return errw.Errorf("%s does not set template_api_version or sets it to 0 which is invalid", path)
 	}
 	if m.TemplateAPIVersion != portalTemplateAPIVersion {
 		return errw.Errorf("%s targets template contract version %d, but this agent implements version %d",
