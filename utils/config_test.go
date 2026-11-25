@@ -2,6 +2,8 @@ package utils
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -30,6 +32,7 @@ func TestConvertJson(t *testing.T) {
 		"manufacturer": "viam",
 		"model": "custom",
 		"fragment_id": "",
+		"portal_templates_dir": "/etc/viam/portal",
 		"hotspot_prefix": "viam-setup",
 		"hotspot_password": "viamsetup",
 		"disable_captive_portal_redirect": false,
@@ -86,6 +89,7 @@ func TestConvertJson(t *testing.T) {
 			PSK:  "cow",
 		},
 	}
+	testConfig.NetworkConfiguration.PortalTemplatesDir = "/etc/viam/portal"
 	// these are explicitly false, rather than the "unset" for missing fields
 	testConfig.AdvancedSettings.Debug = -1
 	testConfig.NetworkConfiguration.DisableCaptivePortalRedirect = -1
@@ -122,6 +126,40 @@ func TestValidateConfig(t *testing.T) {
 			test.ShouldEqual,
 			DefaultConfig().SystemConfiguration.OSManagedUpgradeIntervalHours,
 		)
+	})
+
+	t.Run("portal_templates_dir", func(t *testing.T) {
+		// A path without a drive letter is not absolute on Windows.
+		root := "/"
+		if runtime.GOOS == "windows" {
+			root = `C:\`
+		}
+		absDir := filepath.Join(root, "etc", "viam", "portal")
+		for _, tc := range []struct {
+			name    string
+			in      string
+			want    string
+			wantErr bool
+		}{
+			{name: "unset", in: "", want: ""},
+			{name: "absolute", in: absDir, want: absDir},
+			{name: "absolute is cleaned", in: root + "etc/viam/../viam/portal/", want: absDir},
+			{name: "relative is rejected", in: "portal", want: "", wantErr: true},
+			{name: "dot-relative is rejected", in: "./portal", want: "", wantErr: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				in := minimumValidConfig()
+				in.NetworkConfiguration.PortalTemplatesDir = tc.in
+				cfg, err := validateConfig(in)
+				test.That(t, cfg.NetworkConfiguration.PortalTemplatesDir, test.ShouldEqual, tc.want)
+				if tc.wantErr {
+					test.That(t, err, test.ShouldNotBeNil)
+					test.That(t, err.Error(), test.ShouldContainSubstring, "portal_templates_dir")
+				} else {
+					test.That(t, err, test.ShouldBeNil)
+				}
+			})
+		}
 	})
 }
 
