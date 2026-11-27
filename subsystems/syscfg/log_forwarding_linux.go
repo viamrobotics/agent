@@ -280,7 +280,7 @@ func (s *Subsystem) startLogForwarding() error {
 					continue
 				}
 
-				if !filter.shouldLog(entry) {
+				if !filter.shouldLog(entry) || isBluetoothTetheringMsg(entry) {
 					continue
 				}
 
@@ -378,6 +378,15 @@ func (e journaldEntry) getTime() time.Time {
 
 func (e journaldEntry) getMessage() string {
 	return e.Message
+}
+
+// isBluetoothTetheringMsg reports whether an entry is the error bluetoothd logs each time a
+// tethering profile is retried while its phone is out of range or has bluetooth off (EHOSTDOWN).
+// That is expected, not a fault, so it is never forwarded. Other connect failures still are.
+func isBluetoothTetheringMsg(entry journaldEntry) bool {
+	return entry.SyslogIdentifier == "bluetoothd" &&
+		strings.Contains(entry.Message, "connect_cb() connect to") &&
+		strings.Contains(entry.Message, "Host is down (112)")
 }
 
 type logFilter struct {
