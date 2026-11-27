@@ -264,6 +264,35 @@ func TestJournaldEntryNameAndFields(t *testing.T) {
 	test.That(t, journaldEntry{SyslogIdentifier: "kernel"}.getFields(), test.ShouldBeNil)
 }
 
+func TestIsBluetoothTetheringMsg(t *testing.T) {
+	hostDown := "profiles/network/connection.c:connect_cb() connect to F4:21:CA:0C:85:91: Host is down (112)"
+	for _, tc := range []struct {
+		name     string
+		entry    journaldEntry
+		expected bool
+	}{
+		{"host down", journaldEntry{SyslogIdentifier: "bluetoothd", Message: hostDown}, true},
+		{"other identifier", journaldEntry{SyslogIdentifier: "kernel", Message: hostDown}, false},
+		{
+			"other errno",
+			journaldEntry{
+				SyslogIdentifier: "bluetoothd",
+				Message:          "profiles/network/connection.c:connect_cb() connect to F4:21:CA:0C:85:91: Connection refused (111)",
+			},
+			false,
+		},
+		{
+			"other bluetoothd error",
+			journaldEntry{SyslogIdentifier: "bluetoothd", Message: "Failed to set mode: Failed (0x03)"},
+			false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			test.That(t, isBluetoothTetheringMsg(tc.entry), test.ShouldEqual, tc.expected)
+		})
+	}
+}
+
 func TestForwardRecentSystemdAgentLogs(t *testing.T) {
 	// All this test does is assert that forwardRecentSystemdAgentLogs gets the logs that
 	// journalctl returns into a mock appender. The other "logic" of the
